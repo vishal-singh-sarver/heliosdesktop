@@ -217,7 +217,7 @@ describe('parseXml', () => {
     expect(r.rows).toEqual([['190 2014', '00 00 00', '25.85']])
   })
 
-  it('descends into wrapper nodes like timeseries/datapoint to find real record headers', () => {
+  it('pivots a single Helios <timeseries> into a label-named column with normalized time', () => {
     const xml = `<?xml version=1.0?>
       <helios>
         <timeseries label="temperature">
@@ -234,10 +234,90 @@ describe('parseXml', () => {
         </timeseries>
       </helios>`
     const r = parseXml(xml)
-    expect(r.headers).toEqual(['dateJulian', 'time', 'value'])
+    expect(r.headers).toEqual(['dateJulian', 'time', 'temperature'])
     expect(r.rows).toEqual([
-      ['190 2014', '00 00 00', '25.85'],
-      ['190 2014', '00 15 00', '26.24']
+      ['190 2014', '00:00:00', '25.85'],
+      ['190 2014', '00:15:00', '26.24']
+    ])
+  })
+
+  it('pivots multiple Helios <timeseries> blocks into one column per label, joined on date+time', () => {
+    const xml = `<?xml version=1.0?>
+      <helios>
+        <timeseries label="air_temperature">
+          <datapoint><dateJulian>172 2024</dateJulian><time>0 0 0</time><value>286.25</value></datapoint>
+          <datapoint><dateJulian>172 2024</dateJulian><time>1 0 0</time><value>285.55</value></datapoint>
+        </timeseries>
+        <timeseries label="humidity">
+          <datapoint><dateJulian>172 2024</dateJulian><time>0 0 0</time><value>0.76</value></datapoint>
+          <datapoint><dateJulian>172 2024</dateJulian><time>1 0 0</time><value>0.78</value></datapoint>
+        </timeseries>
+        <timeseries label="ETo">
+          <datapoint><dateJulian>172 2024</dateJulian><time>0 0 0</time><value>0</value></datapoint>
+          <datapoint><dateJulian>172 2024</dateJulian><time>1 0 0</time><value>0</value></datapoint>
+        </timeseries>
+      </helios>`
+    const r = parseXml(xml)
+    expect(r.headers).toEqual(['dateJulian', 'time', 'air_temperature', 'humidity', 'ETo'])
+    expect(r.rows).toEqual([
+      ['172 2024', '00:00:00', '286.25', '0.76', '0'],
+      ['172 2024', '01:00:00', '285.55', '0.78', '0']
+    ])
+  })
+
+  it('parses CIMIS <date val hour> records, pulling date/time from attributes', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+      <cimis_data>
+        <station station_nbr="6" station_name="Davis">
+          <date val="5/6/2026" hour="0100">
+            <eto qc=" ">0.00</eto>
+            <air_temp qc=" ">14.8</air_temp>
+            <rel_hum qc=" ">84</rel_hum>
+          </date>
+          <date val="5/6/2026" hour="2400">
+            <eto qc=" ">0.01</eto>
+            <air_temp qc=" ">13.6</air_temp>
+            <rel_hum qc=" ">90</rel_hum>
+          </date>
+        </station>
+      </cimis_data>`
+    const r = parseXml(xml)
+    expect(r.headers).toEqual(['date', 'time', 'eto', 'air_temp', 'rel_hum'])
+    expect(r.rows).toEqual([
+      ['5/6/2026', '01:00', '0.00', '14.8', '84'],
+      ['5/6/2026', '24:00', '0.01', '13.6', '90']
+    ])
+  })
+
+  it('keeps CIMIS rows whose measurements are missing (qc="M")', () => {
+    const xml = `<?xml version="1.0"?>
+      <cimis_data><station>
+        <date val="5/13/2026" hour="0700">
+          <eto qc="M"></eto>
+          <air_temp qc="M"></air_temp>
+        </date>
+      </station></cimis_data>`
+    const r = parseXml(xml)
+    expect(r.headers).toEqual(['date', 'time', 'eto', 'air_temp'])
+    expect(r.rows).toEqual([['5/13/2026', '07:00', '', '']])
+  })
+
+  it('fills blanks when a Helios series is missing a timestamp present in another', () => {
+    const xml = `<?xml version=1.0?>
+      <helios>
+        <timeseries label="a">
+          <datapoint><dateJulian>172 2024</dateJulian><time>0 0 0</time><value>1</value></datapoint>
+          <datapoint><dateJulian>172 2024</dateJulian><time>1 0 0</time><value>2</value></datapoint>
+        </timeseries>
+        <timeseries label="b">
+          <datapoint><dateJulian>172 2024</dateJulian><time>1 0 0</time><value>9</value></datapoint>
+        </timeseries>
+      </helios>`
+    const r = parseXml(xml)
+    expect(r.headers).toEqual(['dateJulian', 'time', 'a', 'b'])
+    expect(r.rows).toEqual([
+      ['172 2024', '00:00:00', '1', ''],
+      ['172 2024', '01:00:00', '2', '9']
     ])
   })
 })

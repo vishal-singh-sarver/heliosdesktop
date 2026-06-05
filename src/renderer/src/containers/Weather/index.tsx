@@ -11,21 +11,21 @@ import { useInjectSaga } from 'utils/injectSaga'
 import loadable from 'utils/loadable'
 import {
   importClearRequested,
-  importPrecisionWarningConsumed,
   importFinalizeRequested,
   importPickFileRequested,
+  importPrecisionWarningConsumed,
   importWizardClosed,
   importWizardOpened
 } from './actions'
 import reducer from './reducer'
 import saga from './saga'
 import {
+  selectActiveProjectId,
+  selectActiveScenarioId,
   selectClearingImport,
   selectDataset,
   selectFileError,
   selectFileLoading,
-  selectActiveProjectId,
-  selectActiveScenarioId,
   selectImportError,
   selectImportPrecisionWarningPending,
   selectImporting,

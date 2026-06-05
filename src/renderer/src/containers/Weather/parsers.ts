@@ -342,6 +342,146 @@ function findXmlRecords(root: Element): Element[] {
   return bestNestedRecords.length > 0 ? bestNestedRecords : directChildren
 }
 
+// ── Helios timeseries XML ───────────────────────────────────────────────────
+//
+// Helios weather exports use a shape the generic record-finder can't handle:
+// one or more `<timeseries label="X">` blocks, each holding repeated
+// `<datapoint>` rows with `<dateJulian>`, `<time>`, `<value>`. The correct
+// table is the PIVOT — each label becomes its own value column, all joined on
+// the shared (dateJulian, time) axis — NOT "each <timeseries> is a row", which
+// is what findXmlRecords picks for a multi-series file (collapsing every series
+// into one useless `datapoint` column so no real data parses).
+
+// Read the trimmed text of the first child whose (real, lower-cased) tag name
+// matches `want`. Returns '' when absent.
+function heliosChildText(el: Element, realName: (e: Element) => string, want: string): string {
+  for (const c of Array.from(el.children)) {
+    if (realName(c).toLowerCase() === want) return (c.textContent ?? '').trim()
+  }
+  return ''
+}
+
+// Helios `<time>` is space-separated "H M S" and not always zero-padded
+// ("0 0 0" as well as "00 15 00"). Normalize to "HH:MM:SS" so downstream time
+// parsing (tryParseTime) accepts it regardless of padding. Left untouched if it
+// doesn't look like space-separated integers.
+function normalizeHeliosTime(raw: string): string {
+  const parts = raw.split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return raw
+  const nums = parts.map((p) => parseInt(p, 10))
+  if (nums.some((n) => Number.isNaN(n))) return raw
+  const [h = 0, m = 0, s = 0] = nums
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(h)}:${pad(m)}:${pad(s)}`
+}
+
+// Pivot Helios `<timeseries>` blocks into a (dateJulian, time, ...labels) table.
+// Returns null if no datapoints are found, so the caller can fall back to the
+// generic record finder.
+function parseHeliosTimeseries(
+  timeseriesEls: Element[],
+  realName: (e: Element) => string
+): { headers: string[]; rows: string[][] } | null {
+  const labels: string[] = []
+  const order: string[] = []
+  const byKey = new Map<string, { date: string; time: string; values: Record<string, string> }>()
+
+  timeseriesEls.forEach((ts, i) => {
+    const base = (ts.getAttribute('label') ?? '').trim() || `series_${i + 1}`
+    // Dedupe colliding labels so two series sharing a name don't overwrite.
+    let label = base
+    let n = 1
+    while (labels.includes(label)) label = `${base}_${++n}`
+    labels.push(label)
+
+    for (const dp of Array.from(ts.children)) {
+      if (realName(dp).toLowerCase() !== 'datapoint') continue
+      const date = heliosChildText(dp, realName, 'datejulian')
+      const time = normalizeHeliosTime(heliosChildText(dp, realName, 'time'))
+      const value = heliosChildText(dp, realName, 'value')
+      const key = `${date} ${time}`
+      let row = byKey.get(key)
+      if (!row) {
+        row = { date, time, values: {} }
+        byKey.set(key, row)
+        order.push(key)
+      }
+      row.values[label] = value
+    }
+  })
+
+  if (labels.length === 0 || order.length === 0) return null
+
+  const headers = ['dateJulian', 'time', ...labels]
+  const rows = order.map((key) => {
+    const r = byKey.get(key) as { date: string; time: string; values: Record<string, string> }
+    return [r.date, r.time, ...labels.map((l) => r.values[l] ?? '')]
+  })
+  return { headers, rows }
+}
+
+// ── CIMIS XML ───────────────────────────────────────────────────────────────
+//
+// CIMIS station exports nest data as `<cimis_data>` → `<station>` → repeated
+// `<date val="5/6/2026" hour="0100">` records, each holding measurement child
+// elements (<eto>, <air_temp>, <rel_hum>, …). The generic record-finder keeps
+// only the measurement children and DROPS the date/hour, because those live in
+// the record element's ATTRIBUTES. Pull them out explicitly into date/time
+// columns, then add one column per measurement tag.
+
+// Collect every descendant element whose (real, lower-cased) tag name matches
+// `want`, without recursing into a matched node.
+function collectByName(root: Element, realName: (e: Element) => string, want: string): Element[] {
+  const out: Element[] = []
+  const walk = (el: Element): void => {
+    for (const c of Array.from(el.children)) {
+      if (realName(c).toLowerCase() === want) out.push(c)
+      else walk(c)
+    }
+  }
+  walk(root)
+  return out
+}
+
+// CIMIS `hour` is a compact HHMM string ("0100", "2400"). Render as "HH:MM" so
+// downstream time parsing accepts it; "24:00" rolls over to the next day there.
+function formatCimisHour(raw: string): string {
+  const s = raw.trim()
+  if (/^\d{1,4}$/.test(s)) {
+    const p = s.padStart(4, '0')
+    return `${p.slice(0, 2)}:${p.slice(2, 4)}`
+  }
+  return s
+}
+
+// Build a (date, time, ...measurements) table from CIMIS `<date>` records.
+// Returns null if there are none, so the caller can fall back.
+function parseCimisData(
+  dateEls: Element[],
+  realName: (e: Element) => string
+): { headers: string[]; rows: string[][] } | null {
+  const cols: string[] = []
+  const records: { date: string; time: string; values: Record<string, string> }[] = []
+
+  for (const d of dateEls) {
+    const date = (d.getAttribute('val') ?? '').trim()
+    const time = formatCimisHour(d.getAttribute('hour') ?? '')
+    const values: Record<string, string> = {}
+    for (const c of Array.from(d.children)) {
+      const name = realName(c)
+      if (!cols.includes(name)) cols.push(name)
+      values[name] = (c.textContent ?? '').trim()
+    }
+    records.push({ date, time, values })
+  }
+
+  if (records.length === 0) return null
+
+  const headers = ['date', 'time', ...cols]
+  const rows = records.map((r) => [r.date, r.time, ...cols.map((c) => r.values[c] ?? '')])
+  return { headers, rows }
+}
+
 export function parseXml(text: string): { headers: string[]; rows: string[][] } {
   let doc = new DOMParser().parseFromString(text, 'application/xml')
   let tagNameMap = new Map<string, string>()
@@ -355,6 +495,31 @@ export function parseXml(text: string): { headers: string[]; rows: string[][] } 
   const root = doc.documentElement
   if (!root || root.children.length === 0) {
     throw new Error('XML is empty or has no records.')
+  }
+
+  const realName = (el: Element): string => tagNameMap.get(el.tagName) ?? el.tagName
+
+  // Helios shape: pivot `<timeseries label>` blocks into one column per label.
+  // Handles both `<helios>` wrapping the blocks and a bare top-level
+  // `<timeseries>`. Falls through to the generic finder if there's no data.
+  const timeseriesEls =
+    realName(root).toLowerCase() === 'timeseries'
+      ? [root]
+      : Array.from(root.children).filter((c) => realName(c).toLowerCase() === 'timeseries')
+  if (timeseriesEls.length > 0) {
+    const pivoted = parseHeliosTimeseries(timeseriesEls, realName)
+    if (pivoted) return pivoted
+  }
+
+  // CIMIS shape: pull date/time from `<date val hour>` attributes (which the
+  // generic finder drops) and add one column per measurement child. The
+  // attribute filter keeps generic `<date>` text nodes from triggering this.
+  const cimisDates = collectByName(root, realName, 'date').filter(
+    (d) => d.hasAttribute('val') || d.hasAttribute('hour')
+  )
+  if (cimisDates.length > 0) {
+    const parsed = parseCimisData(cimisDates, realName)
+    if (parsed) return parsed
   }
 
   const records = findXmlRecords(root)
