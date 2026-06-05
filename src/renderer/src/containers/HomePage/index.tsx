@@ -339,6 +339,7 @@ export function HomePage(): React.JSX.Element {
           }}
           inputProps={{
             ...formik.getFieldProps('projectName'),
+            placeholder: 'My Simulation',
             error:
               formik.touched.projectName || formik.values.projectName !== ''
                 ? (formik.errors.projectName as string | undefined)
@@ -355,6 +356,7 @@ export function HomePage(): React.JSX.Element {
           }}
           inputProps={{
             ...formik.getFieldProps('latitude'),
+            placeholder: '38.5449',
             error:
               formik.touched.latitude || formik.values.latitude !== ''
                 ? (formik.errors.latitude as string | undefined)
@@ -372,6 +374,7 @@ export function HomePage(): React.JSX.Element {
           }}
           inputProps={{
             ...formik.getFieldProps('longitude'),
+            placeholder: '-121.7405',
             error:
               formik.touched.longitude || formik.values.longitude !== ''
                 ? (formik.errors.longitude as string | undefined)
