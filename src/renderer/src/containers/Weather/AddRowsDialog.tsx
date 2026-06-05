@@ -5,6 +5,13 @@ import FormField from '@renderer/components/FormField'
 import { Spinner } from '@renderer/components/LoadingScreen/Spinner'
 import TimePicker24 from '@renderer/components/TimePicker24'
 import { addRowRequested, addRowReset } from 'containers/ProjectScreen/actions'
+import {
+  DATE_COL_ID,
+  TIME_COL_ID,
+  type CellValue,
+  type ColId,
+  type WeatherTable
+} from 'containers/ProjectScreen/types'
 import { useFormik } from 'formik'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
@@ -12,6 +19,7 @@ import messages from './messages'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
+  selectActiveWeatherTable,
   selectAddRowError,
   selectAddRowLoading,
   selectColumnOrder
@@ -41,8 +49,83 @@ const MAX_DATE = '3000-12-31'
 
 const MAX_ROWS = 10_000
 const MAX_DELTA_HOURS = 24
+const HOUR_MS = 3_600_000
 const WHOLE_NUMBER_PATTERN = /^\d+$/
 const WHOLE_NUMBER_INPUT_PATTERN = /^\d*$/
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+// Parse a row's stored date (YYYY-MM-DD) + time (HH:mm[:ss]) into UTC ms.
+// UTC keeps hour arithmetic linear (no DST). Returns null if either is absent
+// or malformed.
+function parseRowDateTimeMs(row: Record<ColId, CellValue> | undefined): number | null {
+  const date = row?.[DATE_COL_ID]
+  const time = row?.[TIME_COL_ID]
+  if (typeof date !== 'string' || typeof time !== 'string') return null
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  const tm = /^(\d{2}):(\d{2})/.exec(time)
+  if (!dm || !tm) return null
+  const ms = Date.UTC(+dm[1], +dm[2] - 1, +dm[3], +tm[1], +tm[2], 0, 0)
+  return Number.isFinite(ms) ? ms : null
+}
+
+// Default Delta = the hour spacing inferred from the first three rows. Uses the
+// first valid consecutive gap; falls back to '1' when fewer than two parseable
+// rows exist or the gap isn't a whole number of hours within bounds.
+function inferDeltaHours(table: WeatherTable | null): string {
+  const order = table?.rowOrder ?? []
+  const stamps: number[] = []
+  for (const rowId of order.slice(0, 3)) {
+    const ms = parseRowDateTimeMs(table?.rows[rowId])
+    if (ms != null) stamps.push(ms)
+  }
+  for (let i = 1; i < stamps.length; i++) {
+    const diffMs = stamps[i] - stamps[i - 1]
+    // Only adopt the spacing when it's an exact, positive whole number of hours
+    // within bounds — the Delta field can't represent anything else, so a
+    // fractional/odd gap falls back to '1'.
+    if (diffMs > 0 && diffMs % HOUR_MS === 0) {
+      const hours = diffMs / HOUR_MS
+      if (hours <= MAX_DELTA_HOURS) return String(hours)
+    }
+  }
+  return '1'
+}
+
+// Default Start Date + Time = the last row's full date-time advanced by the
+// inferred delta, so the new rows continue right after the existing data at its
+// own cadence. Crossing midnight rolls the date forward correctly across day /
+// month / year boundaries (e.g. 2026-01-31 23:00 + 1h → 2026-02-01 00:00)
+// because the arithmetic is done on a real timestamp, not on the time-of-day
+// alone.
+//
+// Falls back to { date: last row's date, time: '' } when the last data row has
+// a date but no parseable time, and to { date: '', time: '' } when there is no
+// usable data at all (native picker then shows today).
+function seededStart(
+  table: WeatherTable | null,
+  deltaHours: number
+): { date: string; time: string } {
+  const order = table?.rowOrder ?? []
+  let fallbackDate = '' // last row (doc order) with a valid date but no parseable time
+  for (let i = order.length - 1; i >= 0; i--) {
+    const row = table?.rows[order[i]]
+    const ms = parseRowDateTimeMs(row)
+    if (ms != null) {
+      const next = new Date(ms + deltaHours * HOUR_MS)
+      const date = `${next.getUTCFullYear()}-${pad2(next.getUTCMonth() + 1)}-${pad2(next.getUTCDate())}`
+      const time = `${pad2(next.getUTCHours())}:${pad2(next.getUTCMinutes())}`
+      return { date, time }
+    }
+    // First valid date hit scanning backward = last in doc order — exactly what
+    // the old lastRowDate fallback returned. Capture it once.
+    if (!fallbackDate) {
+      const date = row?.[DATE_COL_ID]
+      if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) fallbackDate = date
+    }
+  }
+  return { date: fallbackDate, time: '' }
+}
 
 const CalendarIcon = <img src={calendarIcon} alt="" aria-hidden="true" className="h-4 w-4" />
 
@@ -77,6 +160,7 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
   const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
   const columnIds = useSelector(selectColumnOrder)
+  const weatherTable = useSelector(selectActiveWeatherTable)
   const loading = useSelector(selectAddRowLoading)
   const error = useSelector(selectAddRowError)
 
@@ -190,6 +274,36 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
       dispatch(addRowReset())
     }
     // formik is intentionally omitted; we only want isOpen edge transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  // On open, seed the defaults from existing data: Start Date + Time = the last
+  // row's date-time + the inferred delta (rolling the date forward when it
+  // crosses midnight), Delta = the hour spacing inferred from the first three
+  // rows. When
+  // there is no usable data we leave Start Date and Start Time empty (native
+  // picker shows today) and Delta at its '1' default — matching the prior
+  // behaviour.
+  //
+  // Seed via a single resetForm rather than per-field setFieldValue: each
+  // setFieldValue validates against a *stale* values snapshot (the sibling
+  // fields it doesn't touch are still empty), so the last call would leave
+  // spurious "required" errors on the just-seeded Start Date / Start Time.
+  // resetForm sets every value at once and clears errors + touched, so no
+  // error shows until the user actually interacts (same as Number of Rows).
+  React.useEffect(() => {
+    if (!isOpen) return
+    const deltaHours = inferDeltaHours(weatherTable)
+    const { date, time } = seededStart(weatherTable, Number(deltaHours))
+    formik.resetForm({
+      values: {
+        numberOfRows: '',
+        startDate: date,
+        startTime: time,
+        deltaHours
+      }
+    })
+    // Only seed on the open edge; weatherTable is settled before the user opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 

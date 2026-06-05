@@ -4,10 +4,17 @@ import AddRowsDialog from '../AddRowsDialog'
 import * as projectActions from 'containers/ProjectScreen/actions'
 
 const mockDispatch = vi.fn()
+
+interface MockTable {
+  rows: Record<string, Record<string, string | null>>
+  rowOrder: string[]
+}
+
 const sel = {
   projectId: 'proj-1' as string | null,
   scenarioId: 'scen-1' as string | null,
   columnIds: ['date', 'time', 'check'] as string[],
+  weatherTable: null as MockTable | null,
   loading: false,
   error: null as string | null
 }
@@ -21,6 +28,7 @@ vi.mock('../selectors', () => ({
   selectActiveProjectId: () => sel.projectId,
   selectActiveScenarioId: () => sel.scenarioId,
   selectColumnOrder: () => sel.columnIds,
+  selectActiveWeatherTable: () => sel.weatherTable,
   selectAddRowLoading: () => sel.loading,
   selectAddRowError: () => sel.error
 }))
@@ -102,6 +110,7 @@ function resetSel(): void {
   sel.projectId = 'proj-1'
   sel.scenarioId = 'scen-1'
   sel.columnIds = ['date', 'time', 'check']
+  sel.weatherTable = null
   sel.loading = false
   sel.error = null
 }
@@ -129,8 +138,82 @@ describe('<AddRowsDialog />', () => {
     expect(screen.getByTestId('ff-deltaHours')).toBeInTheDocument()
   })
 
-  it('seeds delta hours to "1"', () => {
+  it('seeds delta hours to "1" and leaves start date/time empty when there is no data', () => {
     render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    expect(screen.getByTestId('input-deltaHours')).toHaveValue('1')
+    expect(screen.getByTestId('input-startDate')).toHaveValue('')
+    expect(screen.getByTestId('input-startTime')).toHaveValue('')
+  })
+
+  // ── Data-driven defaults ──────────────────────────────────────────────────
+
+  it('seeds date/time from the last row + inferred delta, and delta from the first three rows', () => {
+    sel.weatherTable = {
+      rowOrder: ['row_0', 'row_1', 'row_2', 'row_3'],
+      rows: {
+        row_0: { date: '2026-03-01', time: '00:00:00' },
+        row_1: { date: '2026-03-01', time: '03:00:00' },
+        row_2: { date: '2026-03-01', time: '06:00:00' },
+        row_3: { date: '2026-03-02', time: '06:00:00' }
+      }
+    }
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    // delta inferred = 3h, last row 2026-03-02 06:00 + 3h → 09:00 same day
+    expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-02')
+    expect(screen.getByTestId('input-startTime')).toHaveValue('09:00')
+    expect(screen.getByTestId('input-deltaHours')).toHaveValue('3')
+  })
+
+  it('shows no validation errors on open even though date/time are pre-filled', () => {
+    sel.weatherTable = {
+      rowOrder: ['row_0', 'row_1'],
+      rows: {
+        row_0: { date: '2024-12-31', time: '00:00:00' },
+        row_1: { date: '2024-12-31', time: '01:00:00' }
+      }
+    }
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    expect(screen.queryByTestId('error-startDate')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('error-startTime')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('error-deltaHours')).not.toBeInTheDocument()
+  })
+
+  it('rolls the date forward when the +1h start time crosses midnight', () => {
+    sel.weatherTable = {
+      rowOrder: ['row_0', 'row_1'],
+      rows: {
+        row_0: { date: '2026-03-01', time: '22:30:00' },
+        row_1: { date: '2026-03-01', time: '23:30:00' }
+      }
+    }
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    expect(screen.getByTestId('input-startTime')).toHaveValue('00:30')
+    expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-02')
+  })
+
+  it('rolls over month and year boundaries (Dec 31 23:00 → Jan 1 00:00)', () => {
+    sel.weatherTable = {
+      rowOrder: ['row_0', 'row_1'],
+      rows: {
+        row_0: { date: '2026-12-31', time: '22:00:00' },
+        row_1: { date: '2026-12-31', time: '23:00:00' }
+      }
+    }
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    expect(screen.getByTestId('input-startDate')).toHaveValue('2027-01-01')
+    expect(screen.getByTestId('input-startTime')).toHaveValue('00:00')
+  })
+
+  it('falls back to delta "1" when the row spacing is not a whole number of hours', () => {
+    sel.weatherTable = {
+      rowOrder: ['row_0', 'row_1'],
+      rows: {
+        row_0: { date: '2026-03-01', time: '00:00:00' },
+        row_1: { date: '2026-03-01', time: '00:30:00' }
+      }
+    }
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-01')
     expect(screen.getByTestId('input-deltaHours')).toHaveValue('1')
   })
 
