@@ -1,6 +1,6 @@
 {
   "name": "helios",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Professional Electron desktop application with integrated FastAPI backend",
   "author": "Navyug Designs",
   "homepage": "https://example.com",
