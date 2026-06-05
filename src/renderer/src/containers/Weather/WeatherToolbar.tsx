@@ -125,7 +125,7 @@ function WeatherToolbar({
         aria-label="Delete uploaded weather file"
         onClick={handleRequestDeleteImportedFile}
         disabled={!canDelete}
-        className={`flex min-w-0 items-center gap-1 rounded border border-[#4a4a4a] bg-[#2d2d2d] px-3 py-2 text-sm text-white ${
+        className={`flex h-[32px] min-w-0 items-center gap-1 rounded border border-[#4a4a4a] bg-[#2d2d2d] px-3 text-sm text-white ${
           canDelete ? 'cursor-pointer' : 'cursor-default opacity-50'
         }`}
       >

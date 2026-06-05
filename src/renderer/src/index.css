@@ -44,6 +44,15 @@ body {
   box-shadow: none;
 }
 
+/* Invalid fields keep a RED focus outline instead of the default blue, so a
+   focused invalid field reads as one consistent red rather than stacking a
+   blue focus ring on top of its red validation border. Must live here
+   (unlayered) — a Tailwind utility class can't win against the unlayered
+   :focus-visible rule above regardless of specificity. */
+[aria-invalid='true']:focus-visible {
+  outline-color: var(--color-red-500);
+}
+
 .text-primary {
   color: var(--color-text-primary);
 }

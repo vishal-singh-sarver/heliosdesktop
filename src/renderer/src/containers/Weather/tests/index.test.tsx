@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import * as weatherActions from '../actions'
 import Weather from '../index'
 import type { ImportedDataset, PickedFile } from '../types'
@@ -64,6 +65,20 @@ vi.mock('../WeatherToolbar', () => ({
 
 vi.mock('../WeatherTable', () => ({
   default: () => <div data-testid="table" />
+}))
+
+// jsdom doesn't implement <dialog>.showModal(), so render the real Dialog's
+// children inline when open (mirrors the WeatherToolbar test's Dialog mock).
+vi.mock('@renderer/components/Dialog', () => ({
+  default: ({
+    isOpen,
+    title,
+    children
+  }: {
+    isOpen: boolean
+    title: string
+    children: ReactNode
+  }) => (isOpen ? <div data-testid="dialog" aria-label={title}>{children}</div> : null)
 }))
 
 // `loadable(...)` returns a component. Use a regular component so the wizard
@@ -190,10 +205,23 @@ describe('<Weather />', () => {
     expect(mockDispatch).toHaveBeenCalledWith(weatherActions.importPickFileRequested())
   })
 
-  it('dispatches importFinalizeRequested with the dataset on wizard submit', () => {
+  it('confirms before importing, then dispatches importFinalizeRequested on Yes', () => {
     sel.wizardOpen = true
     render(<Weather />)
+    // Submitting the wizard only opens the confirmation — no API call yet.
     fireEvent.click(screen.getByTestId('wizard-submit'))
+    expect(mockDispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: weatherActions.importFinalizeRequested('p', 's', {
+          filename: '',
+          columns: [],
+          records: []
+        }).type
+      })
+    )
+    expect(screen.getByTestId('dialog')).toBeInTheDocument()
+    // Confirming fires the finalize with the stashed dataset.
+    fireEvent.click(screen.getByText('Yes'))
     expect(mockDispatch).toHaveBeenCalledWith(
       weatherActions.importFinalizeRequested(
         'proj-1',
@@ -205,6 +233,23 @@ describe('<Weather />', () => {
         },
         false
       )
+    )
+  })
+
+  it('does not dispatch importFinalizeRequested when the import confirmation is declined', () => {
+    sel.wizardOpen = true
+    render(<Weather />)
+    fireEvent.click(screen.getByTestId('wizard-submit'))
+    fireEvent.click(screen.getByText('No'))
+    expect(screen.queryByTestId('dialog')).not.toBeInTheDocument()
+    expect(mockDispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: weatherActions.importFinalizeRequested('p', 's', {
+          filename: '',
+          columns: [],
+          records: []
+        }).type
+      })
     )
   })
 
@@ -242,6 +287,7 @@ describe('<Weather />', () => {
     sel.wizardOpen = true
     render(<Weather />)
     fireEvent.click(screen.getByTestId('wizard-submit-truncated'))
+    fireEvent.click(screen.getByText('Yes'))
     expect(mockDispatch).toHaveBeenCalledWith(
       weatherActions.importFinalizeRequested(
         'proj-1',

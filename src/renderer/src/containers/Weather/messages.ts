@@ -42,6 +42,14 @@ const messages = {
     cancelButton: 'Cancel'
   },
 
+  importConfirm: {
+    dialogTitle: 'Import Weather Data',
+    heading: 'Replace existing weather data?',
+    body: 'Importing this file will erase the current weather data for this scenario. This action cannot be undone.',
+    confirmButton: 'Yes',
+    cancelButton: 'No'
+  },
+
   deleteColumn: {
     dialogTitle: 'Delete',
     heading: (name: string) => `Delete ${name}`,

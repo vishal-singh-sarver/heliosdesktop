@@ -553,7 +553,7 @@ function WeatherTable(): React.JSX.Element {
                 return (
                   <th
                     key={colId}
-                    className={`${widthCls} ${alignCls} ${headerDivider} px-3 py-2 text-left font-normal text-neutral-300`}
+                    className={`${widthCls} ${alignCls} ${headerDivider} px-3 py-2 text-left font-bold text-neutral-300`}
                   >
                     {managed ? (
                       <HeaderEditor
@@ -575,7 +575,7 @@ function WeatherTable(): React.JSX.Element {
                 )
               })}
               <th
-                className={`w-20 min-w-20 max-w-20 ${headerDivider} px-3 py-2 text-left align-middle font-normal text-neutral-300`}
+                className={`w-20 min-w-20 max-w-20 ${headerDivider} px-3 py-2 text-left align-middle font-bold text-neutral-300`}
               >
                 Action
               </th>

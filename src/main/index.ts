@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell, systemPreferences } from 'electron'
 import { promises as fs, mkdirSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
@@ -59,9 +59,14 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
       }
     : { frame: false }
 
+  // Open at the minimum of the available work area or 1920x1080. workAreaSize
+  // is in device-independent pixels (so it stays "fullscreen" on Retina
+  // laptops) and already excludes the menu bar / dock / taskbar.
+  const { width: workWidth, height: workHeight } = screen.getPrimaryDisplay().workAreaSize
+
   const mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 600,
+    width: Math.min(workWidth, 1920),
+    height: Math.min(workHeight, 1080),
     center: true,
     show: false,
     // Matches --color-bg in renderer/src/index.css. Without this the native

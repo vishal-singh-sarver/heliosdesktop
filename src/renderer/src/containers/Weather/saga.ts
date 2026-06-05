@@ -302,13 +302,23 @@ export function* finalizeImportWorker(action: ImportFinalizeRequestedAction): Ge
       ]
     }
 
-    yield call(api.post, API_ROUTES.weather.addCol(projectId, scenarioId), addColBody)
+    // Write the columns + cells. Capture (don't throw) any failure: clearData
+    // above already wiped the scenario, so the table must be refreshed either
+    // way — on failure to show the now-empty state, on success to show the
+    // imported data. Refreshing only on success would leave stale rows on
+    // screen after a failed import.
+    let addColError: string | null = null
+    try {
+      yield call(api.post, API_ROUTES.weather.addCol(projectId, scenarioId), addColBody)
+    } catch (err) {
+      addColError = (err as Error).message
+    }
 
-    // After /addCol, refetch headers + timeseries so the WeatherTable shows
-    // the freshly-imported data. ProjectScreen's loadScenario saga handles
-    // both /weather_data_header and /getAllTimeSeriesData in parallel —
-    // wait for its terminal action (filtered to this scenario) so the
-    // wizard only closes once the table is populated.
+    // Refetch headers + timeseries regardless of the /addCol outcome.
+    // ProjectScreen's loadScenario saga handles both /weather_data_header and
+    // /getAllTimeSeriesData in parallel — wait for its terminal action
+    // (filtered to this scenario) so the wizard only closes once the table
+    // reflects the new backend state.
     yield put(loadScenarioRequested(projectId, scenarioId))
     const raceResult = (yield race({
       succeeded: take(matchScenarioAction(LOAD_SCENARIO_SUCCEEDED, scenarioId)),
@@ -321,9 +331,18 @@ export function* finalizeImportWorker(action: ImportFinalizeRequestedAction): Ge
     if (raceResult.failed) {
       yield put(
         actions.importFinalizeFailed(
-          `Imported, but failed to refresh data: ${raceResult.failed.payload.error}`
+          addColError
+            ? `Import failed: ${addColError}`
+            : `Imported, but failed to refresh data: ${raceResult.failed.payload.error}`
         )
       )
+      return
+    }
+
+    // Refresh succeeded. If the column write itself failed, the scenario is now
+    // empty (cleared above) and the table reflects that — still report failure.
+    if (addColError) {
+      yield put(actions.importFinalizeFailed(`Import failed: ${addColError}`))
       return
     }
 

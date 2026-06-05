@@ -228,16 +228,23 @@ describe('finalizeImportWorker', () => {
     expect(gen.throw(err).value).toEqual(put(actions.importFinalizeFailed('cannot clear')))
   })
 
-  it('puts importFinalizeFailed when /addCol throws', () => {
+  it('still refreshes the scenario and reports failure when /addCol throws', () => {
     const gen = finalizeImportWorker(actions.importFinalizeRequested('proj-1', 'sce-1', dataset))
     gen.next() // clear_data
     gen.next() // select selectDataTypesLoadStatus
     gen.next('loaded') // select selectCheckDataTypeId
     gen.next(99) // select selectDateTimeDataTypeId
     gen.next(7) // select selectDateTimeBaseUnitId
-    gen.next(3) // addCol
+    gen.next(3) // addCol (call)
     const err = new Error('column conflict')
-    expect(gen.throw(err).value).toEqual(put(actions.importFinalizeFailed('column conflict')))
+    // The /addCol failure is caught — the scenario is still refreshed so the
+    // table reflects the cleared (now-empty) state instead of stale rows.
+    expect(gen.throw(err).value).toEqual(put(loadScenarioRequested('proj-1', 'sce-1')))
+    gen.next() // race(...)
+    // Even when the refresh succeeds, the import is still reported as failed.
+    const failure = gen.next({ succeeded: { payload: { scenarioId: 'sce-1' } } }).value
+    expect(failure).toEqual(put(actions.importFinalizeFailed('Import failed: column conflict')))
+    expect(gen.next().done).toBe(true)
   })
 
   it('truncates imported decimal values to 7 places before posting to addCol', () => {
