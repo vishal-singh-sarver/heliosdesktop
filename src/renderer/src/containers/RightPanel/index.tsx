@@ -22,7 +22,7 @@ export function RightPanel(): React.JSX.Element {
     <aside
       className={`${widthClass} shrink-0 overflow-hidden rounded-lg bg-[#202020] transition-[width] duration-150`}
     >
-      <div className="flex items-center justify-start p-1">
+      <div className="flex items-center justify-end p-1">
         <CollapseButton collapsed={collapsed} side="right" onToggle={toggle} />
       </div>
       {!collapsed && <div className="overflow-y-auto p-3">{/* Properties */}</div>}
