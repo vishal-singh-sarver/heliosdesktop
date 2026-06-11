@@ -55,5 +55,18 @@ export const API_ROUTES = {
     // Each data type carries its `units[]` inline, so a single round-trip on
     // ProjectScreen mount populates the entire catalog slice.
     dataTypes: '/api/data-types/'
+  },
+  // Geometry routes are scenario-scoped (like weather). The backend endpoints
+  // are not built yet — served from the in-memory mock while VITE_USE_MOCK is
+  // on. Shapes match the agreed contract so the swap is a flag flip.
+  geometry: {
+    list: (projectId: string, scenarioId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
+    create: (projectId: string, scenarioId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
+    rename: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    remove: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
   }
 } as const
