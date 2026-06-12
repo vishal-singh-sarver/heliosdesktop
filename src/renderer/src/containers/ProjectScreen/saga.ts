@@ -23,6 +23,14 @@ import {
 } from 'containers/Weather/service'
 import { buildConvertedColumnValues } from 'containers/Weather/unitConversion'
 import { validateCellValue } from 'containers/Weather/validation'
+import {
+  loadMaterialTypesRequest,
+  loadModelTypesRequest,
+  loadObjectTypesRequest,
+  type MaterialTypesResponse,
+  type ModelTypesResponse,
+  type ObjectTypesResponse
+} from './service'
 import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
 import { navigate } from 'store/navigationReducer'
 import { ApiError } from 'utils/api'
@@ -47,6 +55,9 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_REQUESTED,
   LOAD_SCENARIO_FAILED,
   LOAD_SCENARIO_REQUESTED,
   LOAD_SCENARIO_SUCCEEDED,
@@ -98,6 +109,39 @@ function* loadDataTypesWorker(): Generator {
     yield put(actions.loadDataTypesSucceeded(res.data_types))
   } catch (err) {
     yield put(actions.loadDataTypesFailed((err as Error).message))
+  }
+}
+
+// ── Catalog: object / material / model types ─────────────────────────────────
+//
+// Loaded in parallel with the data-types catalog on ProjectScreen mount. Each
+// is independent — one failing doesn't block the others (the component
+// dispatches all three; the root watcher runs a worker per type).
+
+function* loadObjectTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadObjectTypesRequest)) as ObjectTypesResponse
+    yield put(actions.loadObjectTypesSucceeded(res.object_types))
+  } catch (err) {
+    yield put(actions.loadObjectTypesFailed((err as Error).message))
+  }
+}
+
+function* loadMaterialTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadMaterialTypesRequest)) as MaterialTypesResponse
+    yield put(actions.loadMaterialTypesSucceeded(res.material_types))
+  } catch (err) {
+    yield put(actions.loadMaterialTypesFailed((err as Error).message))
+  }
+}
+
+function* loadModelTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadModelTypesRequest)) as ModelTypesResponse
+    yield put(actions.loadModelTypesSucceeded(res.model_types))
+  } catch (err) {
+    yield put(actions.loadModelTypesFailed((err as Error).message))
   }
 }
 
@@ -781,6 +825,9 @@ function* updateAllCheckboxesWorker(action: UpdateAllCheckboxesRequestedAction):
 
 export default function* projectScreenSaga(): Generator {
   yield takeLatest(LOAD_DATA_TYPES_REQUESTED, loadDataTypesWorker)
+  yield takeLatest(LOAD_OBJECT_TYPES_REQUESTED, loadObjectTypesWorker)
+  yield takeLatest(LOAD_MATERIAL_TYPES_REQUESTED, loadMaterialTypesWorker)
+  yield takeLatest(LOAD_MODEL_TYPES_REQUESTED, loadModelTypesWorker)
   yield takeLatest(UPDATE_PROJECT_REQUESTED, updateProjectWorker)
   yield takeLatest(LIST_SCENARIOS_REQUESTED, listScenariosWorker)
   yield takeLatest(LOAD_SCENARIO_REQUESTED, loadScenarioWorker)

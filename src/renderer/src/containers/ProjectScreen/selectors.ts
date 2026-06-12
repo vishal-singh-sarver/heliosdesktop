@@ -12,6 +12,9 @@ import {
   type ColumnDef,
   type DataTypeDef,
   type DataUnitDef,
+  type MaterialTypeDef,
+  type ModelTypeDef,
+  type ObjectTypeDef,
   type RowId,
   type Scenario,
   type WeatherHeader,
@@ -145,6 +148,60 @@ export const makeSelectUnitSymbol = (
     }
     return null
   })
+
+// ── Catalog: object types ────────────────────────────────────────────────────
+
+export const selectAllObjectTypes = createSelector(
+  selectProjectScreenDomain,
+  (s): ObjectTypeDef[] =>
+    s.catalog.objectTypes.allIds.map((id) => s.catalog.objectTypes.byId[id]).filter(Boolean)
+)
+
+export const selectObjectTypesLoadStatus = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.objectTypes.loadStatus
+)
+
+export const selectObjectTypesError = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.objectTypes.loadError
+)
+
+// ── Catalog: material types ──────────────────────────────────────────────────
+
+export const selectAllMaterialTypes = createSelector(
+  selectProjectScreenDomain,
+  (s): MaterialTypeDef[] =>
+    s.catalog.materialTypes.allIds.map((id) => s.catalog.materialTypes.byId[id]).filter(Boolean)
+)
+
+export const selectMaterialTypesLoadStatus = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.materialTypes.loadStatus
+)
+
+export const selectMaterialTypesError = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.materialTypes.loadError
+)
+
+// ── Catalog: model types ─────────────────────────────────────────────────────
+
+export const selectAllModelTypes = createSelector(
+  selectProjectScreenDomain,
+  (s): ModelTypeDef[] =>
+    s.catalog.modelTypes.allIds.map((id) => s.catalog.modelTypes.byId[id]).filter(Boolean)
+)
+
+export const selectModelTypesLoadStatus = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.modelTypes.loadStatus
+)
+
+export const selectModelTypesError = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.modelTypes.loadError
+)
 
 // ── Scenarios (per project) ──────────────────────────────────────────────────
 

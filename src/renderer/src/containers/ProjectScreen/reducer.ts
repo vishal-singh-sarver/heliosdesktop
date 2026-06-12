@@ -18,6 +18,15 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MATERIAL_TYPES_FAILED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MATERIAL_TYPES_SUCCEEDED,
+  LOAD_MODEL_TYPES_FAILED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_SUCCEEDED,
+  LOAD_OBJECT_TYPES_FAILED,
+  LOAD_OBJECT_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_SUCCEEDED,
   LOAD_HEADERS_FAILED,
   LOAD_HEADERS_REQUESTED,
   LOAD_HEADERS_SUCCEEDED,
@@ -53,6 +62,9 @@ import {
   emptyWeatherTable,
   type DataTypeDef,
   type LoadStatus,
+  type MaterialTypeDef,
+  type ModelTypeDef,
+  type ObjectTypeDef,
   type ProjectMetadata,
   type RowId,
   type Scenario,
@@ -68,6 +80,9 @@ export type {
   DataTypeDef,
   DataUnitDef,
   LoadStatus,
+  MaterialTypeDef,
+  ModelTypeDef,
+  ObjectTypeDef,
   RowId,
   Scenario,
   WeatherHeader,
@@ -83,8 +98,24 @@ export interface DataTypesSlice {
   loadError: string | null
 }
 
+// All four catalogs share the same normalized shape (byId + ordered allIds +
+// load lifecycle). Generic over the entry type so each keeps a precise byId.
+export interface CatalogTypeSlice<T> {
+  byId: Record<number, T>
+  allIds: number[]
+  loadStatus: LoadStatus
+  loadError: string | null
+}
+
+export type ObjectTypesSlice = CatalogTypeSlice<ObjectTypeDef>
+export type MaterialTypesSlice = CatalogTypeSlice<MaterialTypeDef>
+export type ModelTypesSlice = CatalogTypeSlice<ModelTypeDef>
+
 export interface CatalogSlice {
   dataTypes: DataTypesSlice
+  objectTypes: ObjectTypesSlice
+  materialTypes: MaterialTypesSlice
+  modelTypes: ModelTypesSlice
 }
 
 export interface ScenariosByProjectEntry {
@@ -144,6 +175,14 @@ const emptyDataTypesSlice = (): DataTypesSlice => ({
   loadError: null
 })
 
+// Fresh empty slice for any of the generic catalogs (object / material / model).
+const emptyCatalogTypeSlice = <T>(): CatalogTypeSlice<T> => ({
+  byId: {},
+  allIds: [],
+  loadStatus: 'idle',
+  loadError: null
+})
+
 const emptyScenariosEntry = (): ScenariosByProjectEntry => ({
   ids: [],
   byId: {},
@@ -162,7 +201,10 @@ const idleStatus = (): RequestStatus => ({ loading: false, error: null })
 
 export const initialState: ProjectScreenState = {
   catalog: {
-    dataTypes: emptyDataTypesSlice()
+    dataTypes: emptyDataTypesSlice(),
+    objectTypes: emptyCatalogTypeSlice(),
+    materialTypes: emptyCatalogTypeSlice(),
+    modelTypes: emptyCatalogTypeSlice()
   },
   scenarios: { byProject: {} },
   headers: { byScenario: {} },
@@ -234,6 +276,72 @@ const projectScreenReducer = (
       case LOAD_DATA_TYPES_FAILED:
         draft.catalog.dataTypes.loadStatus = 'error'
         draft.catalog.dataTypes.loadError = action.payload
+        break
+
+      // ── Catalog: object types ──────────────────────────────────────────────
+
+      case LOAD_OBJECT_TYPES_REQUESTED:
+        draft.catalog.objectTypes.loadStatus = 'loading'
+        draft.catalog.objectTypes.loadError = null
+        break
+
+      case LOAD_OBJECT_TYPES_SUCCEEDED:
+        draft.catalog.objectTypes.byId = {}
+        draft.catalog.objectTypes.allIds = []
+        for (const def of action.payload) {
+          draft.catalog.objectTypes.byId[def.id] = def
+          draft.catalog.objectTypes.allIds.push(def.id)
+        }
+        draft.catalog.objectTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_OBJECT_TYPES_FAILED:
+        draft.catalog.objectTypes.loadStatus = 'error'
+        draft.catalog.objectTypes.loadError = action.payload
+        break
+
+      // ── Catalog: material types ────────────────────────────────────────────
+
+      case LOAD_MATERIAL_TYPES_REQUESTED:
+        draft.catalog.materialTypes.loadStatus = 'loading'
+        draft.catalog.materialTypes.loadError = null
+        break
+
+      case LOAD_MATERIAL_TYPES_SUCCEEDED:
+        draft.catalog.materialTypes.byId = {}
+        draft.catalog.materialTypes.allIds = []
+        for (const def of action.payload) {
+          draft.catalog.materialTypes.byId[def.id] = def
+          draft.catalog.materialTypes.allIds.push(def.id)
+        }
+        draft.catalog.materialTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_MATERIAL_TYPES_FAILED:
+        draft.catalog.materialTypes.loadStatus = 'error'
+        draft.catalog.materialTypes.loadError = action.payload
+        break
+
+      // ── Catalog: model types ───────────────────────────────────────────────
+
+      case LOAD_MODEL_TYPES_REQUESTED:
+        draft.catalog.modelTypes.loadStatus = 'loading'
+        draft.catalog.modelTypes.loadError = null
+        break
+
+      case LOAD_MODEL_TYPES_SUCCEEDED:
+        draft.catalog.modelTypes.byId = {}
+        draft.catalog.modelTypes.allIds = []
+        for (const def of action.payload) {
+          draft.catalog.modelTypes.byId[def.id] = def
+          draft.catalog.modelTypes.allIds.push(def.id)
+        }
+        draft.catalog.modelTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_MODEL_TYPES_FAILED:
+        draft.catalog.modelTypes.loadStatus = 'error'
+        draft.catalog.modelTypes.loadError = action.payload
         break
 
       // ── Active project + scenario ──────────────────────────────────────────

@@ -54,7 +54,14 @@ export const API_ROUTES = {
   catalog: {
     // Each data type carries its `units[]` inline, so a single round-trip on
     // ProjectScreen mount populates the entire catalog slice.
-    dataTypes: '/api/data-types/'
+    dataTypes: '/api/data-types/',
+    // The remaining catalogs are loaded in parallel alongside dataTypes on
+    // ProjectScreen mount. Each returns a snake_case wire shape (id + nested
+    // properties / submodels) consumed by the Geometry, Materials and Models
+    // sections respectively.
+    objectTypes: '/api/catalog/object-types',
+    materialTypes: '/api/catalog/material-types',
+    modelTypes: '/api/catalog/model-types'
   },
   // Geometry routes are scenario-scoped (like weather). The backend endpoints
   // are not built yet — served from the in-memory mock while VITE_USE_MOCK is

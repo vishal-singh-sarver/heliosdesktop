@@ -34,6 +34,69 @@ export interface DataTypeDef {
   units: DataUnitDef[]
 }
 
+// ── Catalog: object / material / model types ────────────────────────────────
+//
+// Loaded in parallel with dataTypes on ProjectScreen mount, from the
+// /api/catalog/* endpoints. Wire shapes are snake_case; we keep them verbatim
+// so the service layer stays a pass-through (same convention as DataTypeDef).
+// `datatype` here is the backend's scalar kind string ("float" | "integer" |
+// "boolean" | "file" | "date" | "time" | "enum" | "string"), not a catalog id.
+
+export type CatalogPropertyDatatype =
+  | 'float'
+  | 'integer'
+  | 'boolean'
+  | 'file'
+  | 'date'
+  | 'time'
+  | 'enum'
+  | 'string'
+
+// One property row shared by object and material types. `group` and
+// `enum_values` are material-only (objects omit them); `required` is
+// object-only. All optional fields are absent — not null — when unused.
+export interface CatalogPropertyDef {
+  property_type_id: number
+  property: string
+  description: string
+  datatype: CatalogPropertyDatatype
+  min: number | null
+  max: number | null
+  display_order: number
+  required?: boolean // object-types only
+  group?: string // material-types only (e.g. "model" | "visualisation")
+  enum_values?: string[] // present only when datatype === 'enum'
+}
+
+// GET /api/catalog/object-types -> { object_types: ObjectTypeDef[] }
+export interface ObjectTypeDef {
+  id: number
+  object: string // "Ground" | "Crop"
+  properties: CatalogPropertyDef[]
+}
+
+// GET /api/catalog/material-types -> { material_types: MaterialTypeDef[] }
+export interface MaterialTypeDef {
+  id: number
+  materialtype: string // "Radiation" | "Energy Balance" | …
+  description: string
+  properties: CatalogPropertyDef[]
+}
+
+// GET /api/catalog/model-types -> { model_types: ModelTypeDef[] }
+export interface ModelSubmodelDef {
+  id: number
+  model: string
+  description: string
+}
+
+export interface ModelTypeDef {
+  id: number
+  model: string // "Radiation" | "Photosynthesis" | …
+  description: string
+  submodels: ModelSubmodelDef[]
+}
+
 // ── Project metadata ────────────────────────────────────────────────────────
 //
 // Subset of GET /api/project/{id} that the project screen needs in order

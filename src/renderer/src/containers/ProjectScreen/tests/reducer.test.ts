@@ -73,6 +73,7 @@ describe('projectScreenReducer', () => {
       const seed = {
         ...initialState,
         catalog: {
+          ...initialState.catalog,
           dataTypes: { ...initialState.catalog.dataTypes, loadError: 'prev' }
         }
       }
