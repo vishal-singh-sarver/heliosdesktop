@@ -1,3 +1,4 @@
+import chevronIcon from '@renderer/assets/chevron_leftpanel.svg'
 import React from 'react'
 
 interface CollapseButtonProps {
@@ -11,6 +12,7 @@ function CollapseButton({ collapsed, side, onToggle }: CollapseButtonProps): Rea
   // LeftPanel expanded  -> points left (collapse to the left).
   // LeftPanel collapsed -> points right (expand to the right).
   // RightPanel is mirrored.
+  // The asset triangle points left by default; rotate 180deg to point right.
   const pointsLeft = side === 'left' ? !collapsed : collapsed
 
   return (
@@ -20,19 +22,13 @@ function CollapseButton({ collapsed, side, onToggle }: CollapseButtonProps): Rea
       aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
       className="flex h-6 w-6 items-center justify-center rounded text-neutral-300 hover:bg-neutral-700/60 hover:text-white"
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ transform: pointsLeft ? 'rotate(0deg)' : 'rotate(180deg)' }}
-      >
-        <polyline points="15 18 9 12 15 6" />
-      </svg>
+      <img
+        src={chevronIcon}
+        alt=""
+        aria-hidden="true"
+        className="h-2.5 w-auto"
+        style={{ transform: pointsLeft ? 'none' : 'rotate(180deg)' }}
+      />
     </button>
   )
 }

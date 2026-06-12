@@ -2,16 +2,21 @@
 
 exports[`<SearchBar /> > should match the snapshot 1`] = `
 <div
-  class="relative w-56"
+  class="flex items-stretch overflow-hidden rounded border border-app-border focus-within:border-[#245AC5] w-56"
 >
-  <img
-    alt=""
-    class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 opacity-70"
-    src="search.svg"
-  />
+  <span
+    class="flex shrink-0 items-center justify-center w-8 bg-[#424242]"
+  >
+    <img
+      alt=""
+      aria-hidden="true"
+      class="h-4 w-4 opacity-70"
+      src="search.svg"
+    />
+  </span>
   <input
     aria-label="Search projects"
-    class="h-8 w-full rounded border border-app-border bg-dark pl-8 pr-3 text-sm text-neutral-200 outline-none focus:border-neutral-500"
+    class="min-w-0 flex-1 border-0 bg-dark px-2 text-neutral-200 outline-none focus-visible:outline-none h-8 text-sm"
     placeholder="Search..."
     value=""
   />

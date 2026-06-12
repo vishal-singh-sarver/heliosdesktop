@@ -27,35 +27,37 @@ describe('<CollapseButton />', () => {
   //   LeftPanel expanded → chevron points left (click to collapse left).
   //   LeftPanel collapsed → chevron points right (click to expand right).
   //   RightPanel is mirrored.
+  // The asset chevron points left by default; "points left" => no rotation,
+  // "points right" => rotate 180deg.
   it('points the chevron left for an expanded LeftPanel', () => {
     const { container } = render(
       <CollapseButton collapsed={false} side="left" onToggle={vi.fn()} />
     )
-    const svg = container.querySelector('svg')
-    expect(svg).toHaveStyle({ transform: 'rotate(0deg)' })
+    const icon = container.querySelector('img')
+    expect(icon).toHaveStyle({ transform: 'none' })
   })
 
   it('points the chevron right for a collapsed LeftPanel', () => {
     const { container } = render(
       <CollapseButton collapsed={true} side="left" onToggle={vi.fn()} />
     )
-    const svg = container.querySelector('svg')
-    expect(svg).toHaveStyle({ transform: 'rotate(180deg)' })
+    const icon = container.querySelector('img')
+    expect(icon).toHaveStyle({ transform: 'rotate(180deg)' })
   })
 
   it('mirrors direction for RightPanel — expanded points right', () => {
     const { container } = render(
       <CollapseButton collapsed={false} side="right" onToggle={vi.fn()} />
     )
-    const svg = container.querySelector('svg')
-    expect(svg).toHaveStyle({ transform: 'rotate(180deg)' })
+    const icon = container.querySelector('img')
+    expect(icon).toHaveStyle({ transform: 'rotate(180deg)' })
   })
 
   it('mirrors direction for RightPanel — collapsed points left', () => {
     const { container } = render(
       <CollapseButton collapsed={true} side="right" onToggle={vi.fn()} />
     )
-    const svg = container.querySelector('svg')
-    expect(svg).toHaveStyle({ transform: 'rotate(0deg)' })
+    const icon = container.querySelector('img')
+    expect(icon).toHaveStyle({ transform: 'none' })
   })
 })
