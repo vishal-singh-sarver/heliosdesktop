@@ -96,6 +96,32 @@ export async function mockCreateGeometry(
   })
 }
 
+// Persists a full object created from the Properties form. Mirrors
+// mockCreateGeometry but accepts the richer create payload and returns the
+// created node (the real backend assigns the id + visibility, so the mock does
+// too). Property values are ignored by the mock store — only the node shape
+// matters for the tree.
+export async function mockCreateObject(
+  projectId: string,
+  scenarioId: string,
+  input: { objectTypeId: number; name: string }
+): Promise<GeoNode> {
+  await sleep(mockConfig.latencyMs)
+  if (mockConfig.forceCreateError) throw new Error('Unable to create geometry')
+  const node: GeoNode = {
+    id: `geo-${crypto.randomUUID()}`,
+    name: input.name,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    modelVisibility: { mode: 'all' }
+  }
+  ensureScope(scopeKey(projectId, scenarioId)).push(node)
+  return clone(node)
+}
+
 export async function mockRenameGroup(
   projectId: string,
   scenarioId: string,

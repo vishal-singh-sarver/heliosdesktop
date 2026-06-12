@@ -3,15 +3,23 @@ import type { GeometryAction } from './actions'
 import {
   ADD_GEOMETRY_REQUESTED,
   ADD_GEOMETRY_SUCCEEDED,
+  CLOSE_CREATE_FORM,
+  CREATE_OBJECT_FAILED,
+  CREATE_OBJECT_REQUESTED,
+  CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
   GROUP_NODES,
   LIST_NODES_REQUESTED,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
   MOVE_NODES,
+  OPEN_CREATE_FORM,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
   SELECT,
+  SET_DRAFT_MATERIAL,
+  SET_DRAFT_NAME,
+  SET_DRAFT_VALUE,
   SET_MODEL_VISIBILITY,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
@@ -40,7 +48,7 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   loadError: null
 })
 
-export const initialState: GeometryState = { byScope: {} }
+export const initialState: GeometryState = { byScope: {}, createDraft: null, createDraftNonce: 0 }
 
 // Lazily create the per-scenario sub-state so reducers can write without a
 // separate "init scope" action.
@@ -280,6 +288,76 @@ const geometryReducer = (
         s.nodesById[id] = node
         s.rootOrder.push(id)
         s.selectedIds = [id]
+        break
+      }
+
+      // ── Create-object draft (right-panel Properties form) ────────────────────
+
+      case OPEN_CREATE_FORM: {
+        // Open a fresh, empty form. Replaces any in-progress draft (only one
+        // object is created at a time). Bump the nonce so the RightPanel
+        // re-expands even if a draft was already open.
+        draft.createDraft = {
+          objectTypeId: action.payload.objectTypeId,
+          objectName: action.payload.objectName,
+          name: action.payload.name,
+          values: {},
+          materialId: null,
+          saving: false,
+          saveError: null
+        }
+        draft.createDraftNonce += 1
+        break
+      }
+
+      case SET_DRAFT_VALUE: {
+        if (!draft.createDraft) break
+        draft.createDraft.values[action.property] = action.payload
+        // Typing clears the previous save error so a fresh attempt starts clean.
+        draft.createDraft.saveError = null
+        break
+      }
+
+      case SET_DRAFT_NAME: {
+        if (!draft.createDraft) break
+        draft.createDraft.name = action.payload
+        break
+      }
+
+      case SET_DRAFT_MATERIAL: {
+        if (!draft.createDraft) break
+        draft.createDraft.materialId = action.payload
+        break
+      }
+
+      case CLOSE_CREATE_FORM:
+        draft.createDraft = null
+        break
+
+      case CREATE_OBJECT_REQUESTED: {
+        if (!draft.createDraft) break
+        draft.createDraft.saving = true
+        draft.createDraft.saveError = null
+        break
+      }
+
+      case CREATE_OBJECT_SUCCEEDED: {
+        // The backend assigned the node; insert it into the active scope's tree,
+        // select it, advance the Ground counter, and clear the draft.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const node = action.payload
+        s.nodesById[node.id] = node
+        if (node.parentId === null) s.rootOrder.push(node.id)
+        s.selectedIds = [node.id]
+        if (node.kind === 'ground') s.counters.ground += 1
+        draft.createDraft = null
+        break
+      }
+
+      case CREATE_OBJECT_FAILED: {
+        if (!draft.createDraft) break
+        draft.createDraft.saving = false
+        draft.createDraft.saveError = action.payload
         break
       }
     }

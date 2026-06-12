@@ -1,6 +1,7 @@
 import {
   selectActiveScopeKey,
   selectActiveGeometry,
+  selectNextGroundName,
   selectRootNodes,
   selectSelectedIds,
   selectSearchQuery,
@@ -133,5 +134,26 @@ describe('selectVisibleRootNodes (search filter)', () => {
 
   it('returns nothing when nothing matches', () => {
     expect(namesOf(makeState(scenario('zzz')))).toEqual([])
+  })
+})
+
+describe('selectNextGroundName', () => {
+  it('returns Ground.001 when there are no grounds', () => {
+    expect(selectNextGroundName(makeState(emptyScenarioGeometry()))).toBe('Ground.001')
+  })
+
+  it('finds the highest Ground.NNN across roots + group children and returns the next', () => {
+    const geo: ScenarioGeometry = {
+      ...emptyScenarioGeometry(),
+      nodesById: {
+        a: ground('a', 'Ground.001'),
+        g: { ...ground('g', 'Group.001'), kind: 'group', childIds: ['c'] },
+        c: { ...ground('c', 'Ground.004'), parentId: 'g' }
+      },
+      rootOrder: ['a', 'g']
+    }
+    // Highest is Ground.004 (nested), so next is Ground.005 — independent of the
+    // stored counter.
+    expect(selectNextGroundName(makeState(geo))).toBe('Ground.005')
   })
 })

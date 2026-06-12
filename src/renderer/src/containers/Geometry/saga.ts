@@ -1,21 +1,23 @@
-import { call, put, select, takeEvery, takeLatest } from 'redux-saga/effects'
+import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import * as actions from './actions'
 import type {
   AddGeometryRequestedAction,
+  CreateObjectRequestedAction,
   DeleteNodeRequestedAction,
   ListNodesRequestedAction,
   RenameRequestedAction
 } from './actions'
 import {
   ADD_GEOMETRY_REQUESTED,
+  CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   LIST_NODES_REQUESTED,
   RENAME_REQUESTED
 } from './constants'
 import { formatName } from './naming'
-import { selectCounters } from './selectors'
+import { selectCounters, selectCreateDraft } from './selectors'
 import * as service from './service'
-import type { GeoNode, GeometryCounters } from './types'
+import type { CreateDraft, GeoNode, GeometryCounters } from './types'
 
 // Loads the saved-geometries tree for a scenario. takeLatest cancels a stale
 // load if the user switches scenario mid-request.
@@ -74,9 +76,37 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
   }
 }
 
+// Creates an object from the right-panel Properties form draft. The draft holds
+// raw string field values; we convert them to numbers for the backend payload.
+// Materials are deferred (sent empty) until the materials-instance flow exists.
+// takeLeading guards against a double-tap on Save.
+export function* createObjectWorker(action: CreateObjectRequestedAction): Generator {
+  const { projectId, scenarioId } = action
+  const draft = (yield select(selectCreateDraft)) as CreateDraft | null
+  if (!draft) return
+  try {
+    const properties: Record<string, number> = {}
+    for (const [property, raw] of Object.entries(draft.values)) {
+      const trimmed = raw.trim()
+      if (trimmed === '') continue
+      properties[property] = Number(trimmed)
+    }
+    const node = (yield call(service.createObject, projectId, scenarioId, {
+      objectTypeId: draft.objectTypeId,
+      name: draft.name,
+      properties,
+      materials: []
+    })) as GeoNode
+    yield put(actions.createObjectSucceeded(projectId, scenarioId, node))
+  } catch (err) {
+    yield put(actions.createObjectFailed((err as Error).message))
+  }
+}
+
 export default function* geometrySaga(): Generator {
   yield takeLatest(LIST_NODES_REQUESTED, listNodesWorker)
   yield takeEvery(ADD_GEOMETRY_REQUESTED, addGeometryWorker)
   yield takeEvery(RENAME_REQUESTED, renameWorker)
   yield takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker)
+  yield takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker)
 }

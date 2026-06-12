@@ -1,6 +1,7 @@
-import { call, put, select, takeEvery, takeLatest } from 'redux-saga/effects'
+import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import geometrySaga, {
   addGeometryWorker,
+  createObjectWorker,
   deleteNodeWorker,
   generateId,
   listNodesWorker,
@@ -9,13 +10,14 @@ import geometrySaga, {
 import * as actions from '../actions'
 import {
   ADD_GEOMETRY_REQUESTED,
+  CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   LIST_NODES_REQUESTED,
   RENAME_REQUESTED
 } from '../constants'
-import { selectCounters } from '../selectors'
+import { selectCounters, selectCreateDraft } from '../selectors'
 import * as service from '../service'
-import type { GeoNode, GeometryCounters } from '../types'
+import type { CreateDraft, GeoNode, GeometryCounters } from '../types'
 
 const P = 'p1'
 const S = 's1'
@@ -100,12 +102,64 @@ describe('deleteNodeWorker', () => {
   })
 })
 
+describe('createObjectWorker', () => {
+  const draft: CreateDraft = {
+    objectTypeId: 1,
+    objectName: 'Ground',
+    name: 'Ground.001',
+    values: { length: '10', breadth: ' ', position_x: '0' },
+    materialId: null,
+    saving: false,
+    saveError: null
+  }
+
+  it('converts non-empty draft values to numbers, creates, then succeeds', () => {
+    const gen = createObjectWorker(actions.createObjectRequested(P, S))
+    expect(gen.next().value).toEqual(select(selectCreateDraft))
+    // Blank values (breadth) are dropped; the rest become numbers.
+    const input = {
+      objectTypeId: 1,
+      name: 'Ground.001',
+      properties: { length: 10, position_x: 0 },
+      materials: []
+    }
+    expect(gen.next(draft).value).toEqual(call(service.createObject, P, S, input))
+
+    const node: GeoNode = {
+      id: '27',
+      name: 'Ground.001',
+      kind: 'ground',
+      parentId: null,
+      childIds: [],
+      expanded: false,
+      visibleInViewport: true,
+      modelVisibility: { mode: 'all' }
+    }
+    expect(gen.next(node).value).toEqual(put(actions.createObjectSucceeded(P, S, node)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('no-ops when there is no draft', () => {
+    const gen = createObjectWorker(actions.createObjectRequested(P, S))
+    gen.next() // select draft
+    expect(gen.next(null).done).toBe(true)
+  })
+
+  it('puts createObjectFailed when the service throws', () => {
+    const gen = createObjectWorker(actions.createObjectRequested(P, S))
+    gen.next() // select draft
+    gen.next(draft) // advance to the call
+    expect(gen.throw(new Error('bad')).value).toEqual(put(actions.createObjectFailed('bad')))
+  })
+})
+
 describe('geometrySaga', () => {
-  it('watches list, add, rename, then delete', () => {
+  it('watches list, add, rename, delete, then create-object', () => {
     const gen = geometrySaga()
     expect(gen.next().value).toEqual(takeLatest(LIST_NODES_REQUESTED, listNodesWorker))
     expect(gen.next().value).toEqual(takeEvery(ADD_GEOMETRY_REQUESTED, addGeometryWorker))
     expect(gen.next().value).toEqual(takeEvery(RENAME_REQUESTED, renameWorker))
     expect(gen.next().value).toEqual(takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker))
+    expect(gen.next().value).toEqual(takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker))
   })
 })

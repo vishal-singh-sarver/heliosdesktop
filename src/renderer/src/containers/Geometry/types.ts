@@ -44,6 +44,22 @@ export interface GeometryCounters {
   group: number
 }
 
+// ── Create-object draft (right-panel Properties form) ───────────────────────
+//
+// Plan B: clicking +Ground opens an empty form instead of creating a node.
+// The draft holds the in-progress form for ONE object at a time (the active
+// scenario's), keyed by raw string field values so inputs stay controlled.
+// Save POSTs and, on success, the node lands in the tree and the draft clears.
+export interface CreateDraft {
+  objectTypeId: number // catalog object type id (Ground = 1)
+  objectName: string // catalog `object` name, e.g. "Ground"
+  name: string // proposed node name (editable), e.g. "Ground.001"
+  values: Record<string, string> // catalog property name -> raw input value
+  materialId: number | null // selected material (optional)
+  saving: boolean
+  saveError: string | null
+}
+
 // All geometry state for one scenario scope (keyed in the slice by
 // `${projectId}::${scenarioId}`, matching the Weather *ByScope convention).
 export interface ScenarioGeometry {
@@ -58,9 +74,16 @@ export interface ScenarioGeometry {
   loadError: string | null
 }
 
-// Slice root: one ScenarioGeometry per scope key.
+// Slice root: one ScenarioGeometry per scope key, plus a single transient
+// create-object draft (the right-panel Properties form, one at a time).
 export interface GeometryState {
   byScope: Record<string, ScenarioGeometry>
+  createDraft: CreateDraft | null
+  // Bumped every time a create form is opened. The RightPanel watches this to
+  // re-expand on each +Ground, even when a draft is already active and the user
+  // had collapsed the panel (presence alone wouldn't change, so it wouldn't
+  // re-trigger).
+  createDraftNonce: number
 }
 
 // ── Action payload shapes ───────────────────────────────────────────────────

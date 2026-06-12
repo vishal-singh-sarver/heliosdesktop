@@ -4,6 +4,7 @@ import {
   selectActiveScenarioId
 } from 'containers/ProjectScreen/selectors'
 import type { RootState } from 'store/reducers'
+import { deriveCounters, formatName } from './naming'
 import { emptyScenarioGeometry, initialState, scopeKey, type GeometryState } from './reducer'
 import type { GeoNode, ScenarioGeometry } from './types'
 
@@ -115,3 +116,27 @@ export const selectVisibleRootNodes = createSelector(
   selectVisibleTree,
   ({ nodesById, rootOrder }): GeoNode[] => rootOrder.map((id) => nodesById[id]).filter(Boolean)
 )
+
+// ── Create-object draft (right-panel Properties form) ────────────────────────
+//
+// The draft lives at the slice root (one at a time), not per-scope, so it reads
+// straight off the domain.
+
+export const selectCreateDraft = createSelector(selectGeometryDomain, (d) => d.createDraft)
+
+export const selectHasCreateDraft = createSelector(selectCreateDraft, (draft) => draft !== null)
+
+// Monotonic open counter — the RightPanel re-expands whenever this changes.
+export const selectCreateDraftNonce = createSelector(
+  selectGeometryDomain,
+  (d) => d.createDraftNonce
+)
+
+// Next auto-generated Ground name, derived live from the current tree: scan
+// every existing geometry (roots + group children), find the highest
+// Ground.NNN, and return the next in sequence. Computed from the node set
+// rather than the stored counter so it always reflects the latest backend list.
+export const selectNextGroundName = createSelector(selectNodesById, (nodesById) => {
+  const counters = deriveCounters(Object.values(nodesById))
+  return formatName('ground', counters.ground + 1)
+})

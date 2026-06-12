@@ -2,6 +2,10 @@ import {
   ADD_GEOMETRY_FAILED,
   ADD_GEOMETRY_REQUESTED,
   ADD_GEOMETRY_SUCCEEDED,
+  CLOSE_CREATE_FORM,
+  CREATE_OBJECT_FAILED,
+  CREATE_OBJECT_REQUESTED,
+  CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_FAILED,
   DELETE_NODE_REQUESTED,
   DELETE_NODE_SUCCEEDED,
@@ -10,10 +14,14 @@ import {
   MOVE_NODES,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
+  OPEN_CREATE_FORM,
   RENAME_FAILED,
   RENAME_REQUESTED,
   RENAME_SUCCEEDED,
   SELECT,
+  SET_DRAFT_MATERIAL,
+  SET_DRAFT_NAME,
+  SET_DRAFT_VALUE,
   SET_MODEL_VISIBILITY,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
@@ -162,6 +170,43 @@ export type AddGeometryFailedAction = {
   payload: string
 }
 
+// ── Create-object draft (right-panel Properties form) ───────────────────────
+export type OpenCreateFormAction = {
+  type: typeof OPEN_CREATE_FORM
+  payload: { objectTypeId: number; objectName: string; name: string }
+}
+export type SetDraftValueAction = {
+  type: typeof SET_DRAFT_VALUE
+  property: string
+  payload: string
+}
+export type SetDraftNameAction = {
+  type: typeof SET_DRAFT_NAME
+  payload: string
+}
+export type SetDraftMaterialAction = {
+  type: typeof SET_DRAFT_MATERIAL
+  payload: number | null
+}
+export type CloseCreateFormAction = {
+  type: typeof CLOSE_CREATE_FORM
+}
+export type CreateObjectRequestedAction = {
+  type: typeof CREATE_OBJECT_REQUESTED
+  projectId: string
+  scenarioId: string
+}
+export type CreateObjectSucceededAction = {
+  type: typeof CREATE_OBJECT_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  payload: GeoNode
+}
+export type CreateObjectFailedAction = {
+  type: typeof CREATE_OBJECT_FAILED
+  payload: string
+}
+
 export type GeometryAction =
   | ListNodesRequestedAction
   | ListNodesSucceededAction
@@ -183,6 +228,14 @@ export type GeometryAction =
   | AddGeometryRequestedAction
   | AddGeometrySucceededAction
   | AddGeometryFailedAction
+  | OpenCreateFormAction
+  | SetDraftValueAction
+  | SetDraftNameAction
+  | SetDraftMaterialAction
+  | CloseCreateFormAction
+  | CreateObjectRequestedAction
+  | CreateObjectSucceededAction
+  | CreateObjectFailedAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -330,3 +383,53 @@ export const addGeometryFailed = (
   scenarioId: string,
   error: string
 ): AddGeometryFailedAction => ({ type: ADD_GEOMETRY_FAILED, projectId, scenarioId, payload: error })
+
+// ── Create-object draft creators ─────────────────────────────────────────────
+
+export const openCreateForm = (
+  objectTypeId: number,
+  objectName: string,
+  name: string
+): OpenCreateFormAction => ({
+  type: OPEN_CREATE_FORM,
+  payload: { objectTypeId, objectName, name }
+})
+
+export const setDraftValue = (property: string, value: string): SetDraftValueAction => ({
+  type: SET_DRAFT_VALUE,
+  property,
+  payload: value
+})
+
+export const setDraftName = (name: string): SetDraftNameAction => ({
+  type: SET_DRAFT_NAME,
+  payload: name
+})
+
+export const setDraftMaterial = (materialId: number | null): SetDraftMaterialAction => ({
+  type: SET_DRAFT_MATERIAL,
+  payload: materialId
+})
+
+export const closeCreateForm = (): CloseCreateFormAction => ({ type: CLOSE_CREATE_FORM })
+
+export const createObjectRequested = (
+  projectId: string,
+  scenarioId: string
+): CreateObjectRequestedAction => ({ type: CREATE_OBJECT_REQUESTED, projectId, scenarioId })
+
+export const createObjectSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  node: GeoNode
+): CreateObjectSucceededAction => ({
+  type: CREATE_OBJECT_SUCCEEDED,
+  projectId,
+  scenarioId,
+  payload: node
+})
+
+export const createObjectFailed = (error: string): CreateObjectFailedAction => ({
+  type: CREATE_OBJECT_FAILED,
+  payload: error
+})
