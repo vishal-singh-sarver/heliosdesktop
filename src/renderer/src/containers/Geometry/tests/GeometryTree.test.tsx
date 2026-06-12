@@ -288,7 +288,7 @@ describe('<GeometryTree />', () => {
     )
   })
 
-  it('dropping a leaf onto another leaf dispatches groupNodes', () => {
+  it('dropping a leaf onto another root leaf requests a new group', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
@@ -298,11 +298,14 @@ describe('<GeometryTree />', () => {
     const target = screen.getByText('Ground.002').closest('[role="button"]')!
     fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify(['a']) } })
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'app/Geometry/GROUP_NODES', nodeIds: ['a'], targetId: 'b' })
+      expect.objectContaining({
+        type: 'app/Geometry/GROUP_NODES_REQUESTED',
+        memberIds: ['b', 'a']
+      })
     )
   })
 
-  it('dropping a leaf onto a group dispatches moveNodes into that group', () => {
+  it('dropping a leaf onto a group requests a move into that group', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
@@ -312,7 +315,11 @@ describe('<GeometryTree />', () => {
     const target = screen.getByText('Group.001').closest('[role="button"]')!
     fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify(['a']) } })
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'app/Geometry/MOVE_NODES', nodeIds: ['a'], toGroupId: 'g' })
+      expect.objectContaining({
+        type: 'app/Geometry/MOVE_NODES_REQUESTED',
+        nodeIds: ['a'],
+        toGroupId: 'g'
+      })
     )
   })
 

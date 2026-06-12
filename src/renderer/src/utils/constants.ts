@@ -56,16 +56,24 @@ export const API_ROUTES = {
     // ProjectScreen mount populates the entire catalog slice.
     dataTypes: '/api/data-types/'
   },
-  // Geometry routes are scenario-scoped (like weather). The backend endpoints
-  // are not built yet — served from the in-memory mock while VITE_USE_MOCK is
-  // on. Shapes match the agreed contract so the swap is a flag flip.
+  // Geometry routes are scenario-scoped (like weather).
   geometry: {
     list: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
+    listGroups: (projectId: string, scenarioId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups`,
+    createGroup: (projectId: string, scenarioId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups`,
+    deleteGroup: (projectId: string, scenarioId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}`,
     create: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
-    rename: (projectId: string, scenarioId: string, objectId: string) =>
+    update: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    renameObject: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/rename`,
+    renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
   }

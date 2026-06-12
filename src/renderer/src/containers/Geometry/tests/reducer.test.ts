@@ -158,12 +158,15 @@ describe('geometryReducer', () => {
     expect(r.byScope[KEY].nameErrors['g']).toBeUndefined()
   })
 
-  it('GROUP_NODES creates a group from two root leaves', () => {
+  it('GROUP_NODES_SUCCEEDED inserts the server group from two root leaves', () => {
     const seeded = geometryReducer(
       initialState,
       actions.listNodesSucceeded(P, S, [ground('a', 'Ground.001'), ground('b', 'Ground.002')])
     )
-    const r = geometryReducer(seeded, actions.groupNodes(P, S, ['a'], 'b', 'grp-x'))
+    const r = geometryReducer(
+      seeded,
+      actions.groupNodesSucceeded(P, S, { id: 'grp-x', name: 'Group.001', memberIds: ['b', 'a'] })
+    )
     const s = r.byScope[KEY]
     expect(s.nodesById['grp-x']).toMatchObject({ kind: 'group', name: 'Group.001', expanded: true })
     expect(s.nodesById['grp-x'].childIds).toEqual(['b', 'a'])
@@ -173,24 +176,24 @@ describe('geometryReducer', () => {
     expect(s.selectedIds).toEqual(['grp-x'])
   })
 
-  it('MOVE_NODES moves a leaf into a group', () => {
+  it('MOVE_NODES_SUCCEEDED moves a leaf into a group', () => {
     const seeded = geometryReducer(
       initialState,
       actions.listNodesSucceeded(P, S, [group('g', 'Group.001', ['c']), ground('c', 'Ground.003', 'g'), ground('a', 'Ground.001')])
     )
-    const r = geometryReducer(seeded, actions.moveNodes(P, S, ['a'], 'g'))
+    const r = geometryReducer(seeded, actions.moveNodesSucceeded(P, S, ['a'], 'g'))
     const s = r.byScope[KEY]
     expect(s.nodesById['a'].parentId).toBe('g')
     expect(s.nodesById['g'].childIds).toContain('a')
     expect(s.rootOrder).not.toContain('a')
   })
 
-  it('MOVE_NODES to root ungroups, and prunes a now-empty group', () => {
+  it('MOVE_NODES_SUCCEEDED to root ungroups, and prunes a now-empty group', () => {
     const seeded = geometryReducer(
       initialState,
       actions.listNodesSucceeded(P, S, [group('g', 'Group.001', ['c']), ground('c', 'Ground.003', 'g')])
     )
-    const r = geometryReducer(seeded, actions.moveNodes(P, S, ['c'], null))
+    const r = geometryReducer(seeded, actions.moveNodesSucceeded(P, S, ['c'], null))
     const s = r.byScope[KEY]
     expect(s.nodesById['c'].parentId).toBeNull()
     expect(s.rootOrder).toContain('c')

@@ -53,6 +53,16 @@ export const selectGroupNamesLower = createSelector(selectNodesById, (nodesById)
   return names
 })
 
+// Same, for leaf geometries — geometry names are unique per project in their own
+// namespace (distinct from group names), so a ground rename checks against these.
+export const selectLeafNamesLower = createSelector(selectNodesById, (nodesById) => {
+  const names = new Set<string>()
+  for (const node of Object.values(nodesById)) {
+    if (node.kind !== 'group') names.add(node.name.toLowerCase())
+  }
+  return names
+})
+
 // Ordered top-level nodes (leaves + groups) for the tree, unfiltered.
 export const selectRootNodes = createSelector(
   selectNodesById,

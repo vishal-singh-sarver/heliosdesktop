@@ -3,17 +3,21 @@ import * as actions from './actions'
 import type {
   AddGeometryRequestedAction,
   DeleteNodeRequestedAction,
+  GroupNodesRequestedAction,
   ListNodesRequestedAction,
+  MoveNodesRequestedAction,
   RenameRequestedAction
 } from './actions'
 import {
   ADD_GEOMETRY_REQUESTED,
   DELETE_NODE_REQUESTED,
+  GROUP_NODES_REQUESTED,
   LIST_NODES_REQUESTED,
+  MOVE_NODES_REQUESTED,
   RENAME_REQUESTED
 } from './constants'
 import { formatName } from './naming'
-import { selectCounters } from './selectors'
+import { selectCounters, selectNodesById } from './selectors'
 import * as service from './service'
 import type { GeoNode, GeometryCounters } from './types'
 
@@ -55,7 +59,11 @@ export function* renameWorker(action: RenameRequestedAction): Generator {
   const { projectId, scenarioId, id } = action
   const name = action.payload
   try {
-    yield call(service.renameGroup, projectId, scenarioId, id, name)
+    // Groups and leaves rename through different endpoints (§6.3 vs §5.5); pick
+    // by the node's kind from state.
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const renameFn = nodesById[id]?.kind === 'group' ? service.renameGroup : service.renameObject
+    yield call(renameFn, projectId, scenarioId, id, name)
     yield put(actions.renameSucceeded(projectId, scenarioId, id, name))
   } catch (err) {
     yield put(actions.renameFailed(projectId, scenarioId, id, (err as Error).message))
@@ -74,9 +82,64 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
   }
 }
 
+// Drop leaf→leaf → create a group server-side (§6.1), then insert the returned
+// group (real id + name) into the slice. The optimistic local insert is gone:
+// we wait for the POST so the id/name match what a later refetch returns.
+export function* groupNodesWorker(action: GroupNodesRequestedAction): Generator {
+  const { projectId, scenarioId, memberIds } = action
+  try {
+    const group = (yield call(
+      service.createGroup,
+      projectId,
+      scenarioId,
+      memberIds
+    )) as service.CreatedGroup
+    yield put(actions.groupNodesSucceeded(projectId, scenarioId, group))
+  } catch (err) {
+    yield put(actions.groupNodesFailed(projectId, scenarioId, (err as Error).message))
+  }
+}
+
+// Drag leaf(s) into a group, between groups, or back to root → PATCH each
+// object's group_id (§5.4), then apply the reparent locally on success.
+export function* moveNodesWorker(action: MoveNodesRequestedAction): Generator {
+  const { projectId, scenarioId, nodeIds, toGroupId } = action
+  try {
+    // Note each moved node's source group (before the move) so we can clean up
+    // any group left empty afterwards.
+    const before = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const sourceGroupIds = new Set<string>()
+    for (const id of nodeIds) {
+      const parentId = before[id]?.parentId
+      if (parentId && parentId !== toGroupId) sourceGroupIds.add(parentId)
+    }
+
+    yield call(service.moveNodes, projectId, scenarioId, nodeIds, toGroupId)
+    yield put(actions.moveNodesSucceeded(projectId, scenarioId, nodeIds, toGroupId))
+
+    // The reducer prunes a group that just lost its last member; mirror that on
+    // the backend with DELETE /groups (§6.4). A group still present after the
+    // move kept other members, so we leave it. Best-effort: a failed/404 delete
+    // (e.g. the backend already auto-removed it) is ignored — the move stands.
+    const after = (yield select(selectNodesById)) as Record<string, GeoNode>
+    for (const groupId of sourceGroupIds) {
+      if (after[groupId]) continue
+      try {
+        yield call(service.deleteGroup, projectId, scenarioId, groupId)
+      } catch {
+        // cleanup is best-effort; the move already succeeded
+      }
+    }
+  } catch (err) {
+    yield put(actions.moveNodesFailed(projectId, scenarioId, (err as Error).message))
+  }
+}
+
 export default function* geometrySaga(): Generator {
   yield takeLatest(LIST_NODES_REQUESTED, listNodesWorker)
   yield takeEvery(ADD_GEOMETRY_REQUESTED, addGeometryWorker)
   yield takeEvery(RENAME_REQUESTED, renameWorker)
   yield takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker)
+  yield takeEvery(GROUP_NODES_REQUESTED, groupNodesWorker)
+  yield takeEvery(MOVE_NODES_REQUESTED, moveNodesWorker)
 }

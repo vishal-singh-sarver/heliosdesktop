@@ -1,9 +1,15 @@
+import chevronIcon from '@renderer/assets/chevron.svg'
 import Dialog from '@renderer/components/Dialog'
 import React from 'react'
 import { useDispatch } from 'react-redux'
-import { deleteNodeRequested, groupNodes, moveNodes, select, toggleExpand } from './actions'
-import GroupNameEditor from './GroupNameEditor'
-import { newGeoId } from './ids'
+import {
+  deleteNodeRequested,
+  groupNodesRequested,
+  moveNodesRequested,
+  select,
+  toggleExpand
+} from './actions'
+import NameEditor from './NameEditor'
 import messages from './messages'
 import RowActions, { KebabMenu } from './RowActions'
 import type { GeoNode } from './types'
@@ -29,8 +35,10 @@ interface TreeRowProps {
   projectId: string | null
   scenarioId: string | null
   selectedIds: string[]
-  // Lowercased names of all groups (for the rename unique check).
+  // Lowercased names of all groups / all leaves (for the rename unique check;
+  // geometry and group names are separate namespaces).
   groupNamesLower: Set<string>
+  leafNamesLower: Set<string>
   // Backend rename-failure messages, keyed by node id.
   nameErrors: Record<string, string>
 }
@@ -47,6 +55,7 @@ function TreeRow({
   scenarioId,
   selectedIds,
   groupNamesLower,
+  leafNamesLower,
   nameErrors
 }: TreeRowProps): React.JSX.Element {
   const dispatch = useDispatch()
@@ -92,10 +101,20 @@ function TreeRow({
     if (!ids.length || !projectId || !scenarioId) return
     if (isGroup) {
       // Drop into this group.
-      dispatch(moveNodes(projectId, scenarioId, ids.filter((id) => id !== node.id), node.id))
+      dispatch(
+        moveNodesRequested(projectId, scenarioId, ids.filter((id) => id !== node.id), node.id)
+      )
     } else if (!ids.includes(node.id)) {
-      // Drop a leaf onto another leaf → form a new group containing both.
-      dispatch(groupNodes(projectId, scenarioId, ids, node.id, newGeoId()))
+      if (node.parentId) {
+        // Target leaf already lives in a group → drop becomes a sibling child of
+        // that group, rather than nesting a new group inside it.
+        dispatch(moveNodesRequested(projectId, scenarioId, ids, node.parentId))
+      } else {
+        // Two root-level leaves → POST a new group containing both (target +
+        // dragged). The saga creates it server-side; the reducer inserts the
+        // returned group with its real id + name.
+        dispatch(groupNodesRequested(projectId, scenarioId, [node.id, ...ids]))
+      }
     }
   }
 
@@ -112,13 +131,13 @@ function TreeRow({
     }
   }
 
-  // Exclude this group's own name from the uniqueness set so an unchanged name
-  // is allowed.
-  const otherGroupNames = React.useMemo(() => {
-    const names = new Set(groupNamesLower)
+  // Names to check a rename against: same-kind names (groups vs leaves are
+  // separate namespaces), minus this node's own so an unchanged name is allowed.
+  const otherNames = React.useMemo(() => {
+    const names = new Set(isGroup ? groupNamesLower : leafNamesLower)
     names.delete(node.name.toLowerCase())
     return names
-  }, [groupNamesLower, node.name])
+  }, [isGroup, groupNamesLower, leafNamesLower, node.name])
 
   const children =
     isGroup && node.expanded
@@ -152,44 +171,35 @@ function TreeRow({
             aria-label={node.expanded ? 'Collapse group' : 'Expand group'}
             className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-400 hover:text-neutral-200"
           >
-            {/* Right-pointing chevron; rotates to point down when expanded. */}
-            <svg
+            {/* Down-pointing chevron asset; rotates to point right when collapsed. */}
+            <img
+              src={chevronIcon}
+              alt=""
+              aria-hidden="true"
               width="10"
               height="10"
-              viewBox="0 0 10 10"
-              fill="none"
               className="transition-transform"
-              style={{ transform: node.expanded ? 'rotate(90deg)' : 'none' }}
-            >
-              <path
-                d="M3.5 2L6.5 5L3.5 8"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+              style={{ transform: node.expanded ? 'none' : 'rotate(-90deg)' }}
+            />
           </button>
         ) : (
           <span className="h-4 w-4 shrink-0" aria-hidden="true" />
         )}
 
-        {isGroup && editing ? (
-          <GroupNameEditor
+        {editing ? (
+          <NameEditor
             id={node.id}
             initialName={node.name}
             projectId={projectId}
             scenarioId={scenarioId}
-            otherGroupNames={otherGroupNames}
+            existingNames={otherNames}
+            ariaLabel={isGroup ? 'Group name' : 'Geometry name'}
             onClose={() => setEditing(false)}
           />
         ) : (
           <>
             <span className="flex min-w-0 flex-col">
-              <span
-                className="truncate"
-                onDoubleClick={isGroup ? () => setEditing(true) : undefined}
-              >
+              <span className="truncate" onDoubleClick={() => setEditing(true)}>
                 {node.name}
               </span>
               {nameError && <span className="form-error-text">{nameError}</span>}
@@ -236,6 +246,7 @@ function TreeRow({
           scenarioId={scenarioId}
           selectedIds={selectedIds}
           groupNamesLower={groupNamesLower}
+          leafNamesLower={leafNamesLower}
           nameErrors={nameErrors}
         />
       ))}

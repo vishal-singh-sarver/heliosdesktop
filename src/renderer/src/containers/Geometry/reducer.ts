@@ -4,11 +4,11 @@ import {
   ADD_GEOMETRY_REQUESTED,
   ADD_GEOMETRY_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
-  GROUP_NODES,
+  GROUP_NODES_SUCCEEDED,
   LIST_NODES_REQUESTED,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
-  MOVE_NODES,
+  MOVE_NODES_SUCCEEDED,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
   SELECT,
@@ -18,7 +18,7 @@ import {
   TOGGLE_EXPAND,
   TOGGLE_VIEWPORT
 } from './constants'
-import { deriveCounters, formatName } from './naming'
+import { deriveCounters } from './naming'
 import type { GeoNode, GeometryState, ScenarioGeometry } from './types'
 
 export type { GeometryState }
@@ -204,20 +204,18 @@ const geometryReducer = (
         break
       }
 
-      case GROUP_NODES: {
+      case GROUP_NODES_SUCCEEDED: {
+        // The group was created on the backend; insert it with the server-owned
+        // id + name (so it survives a refetch). Members that still exist get
+        // reparented under it and pulled out of the root.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        const target = s.nodesById[action.targetId]
-        if (!target) break
-        // Members = target + dragged (deduped). Need at least two to form a group.
-        const memberIds = [action.targetId, ...action.nodeIds.filter((id) => id !== action.targetId)]
-        const members = memberIds.filter((id) => s.nodesById[id])
+        const { id, name, memberIds } = action.payload
+        const members = memberIds.filter((memberId) => s.nodesById[memberId])
         if (members.length < 2) break
 
-        s.counters.group += 1
-        const name = formatName('group', s.counters.group)
-        for (const id of members) detach(s, id)
-        s.nodesById[action.groupId] = {
-          id: action.groupId,
+        for (const memberId of members) detach(s, memberId)
+        s.nodesById[id] = {
+          id,
           name,
           kind: 'group',
           parentId: null,
@@ -226,14 +224,14 @@ const geometryReducer = (
           visibleInViewport: true,
           modelVisibility: { mode: 'all' }
         }
-        for (const id of members) s.nodesById[id].parentId = action.groupId
-        s.rootOrder.push(action.groupId)
-        s.selectedIds = [action.groupId]
+        for (const memberId of members) s.nodesById[memberId].parentId = id
+        s.rootOrder.push(id)
+        s.selectedIds = [id]
         pruneEmptyGroups(s)
         break
       }
 
-      case MOVE_NODES: {
+      case MOVE_NODES_SUCCEEDED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const target = action.toGroupId ? s.nodesById[action.toGroupId] : null
         // Reject a move into a non-existent or non-group target.

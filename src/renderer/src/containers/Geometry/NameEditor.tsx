@@ -3,28 +3,33 @@ import { useDispatch } from 'react-redux'
 import { renameRequested } from './actions'
 import { validateGroupName } from './validation'
 
-interface GroupNameEditorProps {
+interface NameEditorProps {
   id: string
   initialName: string
   projectId: string | null
   scenarioId: string | null
-  // Lowercased names of all OTHER groups (this one excluded), for the unique
-  // check.
-  otherGroupNames: Set<string>
+  // Lowercased names of OTHER nodes of the same kind (this one excluded), for
+  // the unique-name check (geometry and group names are separate namespaces).
+  existingNames: Set<string>
+  // a11y label — "Group name" or "Geometry name".
+  ariaLabel: string
   onClose: () => void
 }
 
-// Inline editor shown when a group name is double-clicked. Validates live
-// (≤20 chars, non-empty, unique case-insensitive) and blocks commit while
-// invalid; commits a changed, valid name via renameRequested.
-export default function GroupNameEditor({
+// Inline editor shown when a row's name is double-clicked — used for both groups
+// and leaf geometries. Validates live (≤20 chars, non-empty, unique
+// case-insensitive within its kind) and blocks commit while invalid; commits a
+// changed, valid name via renameRequested (the saga routes it to the group or
+// object rename endpoint based on the node's kind).
+export default function NameEditor({
   id,
   initialName,
   projectId,
   scenarioId,
-  otherGroupNames,
+  existingNames,
+  ariaLabel,
   onClose
-}: GroupNameEditorProps): React.JSX.Element {
+}: NameEditorProps): React.JSX.Element {
   const dispatch = useDispatch()
   const [value, setValue] = React.useState(initialName)
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -34,7 +39,7 @@ export default function GroupNameEditor({
     inputRef.current?.select()
   }, [])
 
-  const error = validateGroupName(value, otherGroupNames)
+  const error = validateGroupName(value, existingNames)
 
   const commit = (): void => {
     const trimmed = value.trim()
@@ -63,7 +68,7 @@ export default function GroupNameEditor({
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
         onBlur={() => (error ? onClose() : commit())}
-        aria-label="Group name"
+        aria-label={ariaLabel}
         aria-invalid={Boolean(error)}
         className={`h-6 w-full rounded border bg-app-bg px-1.5 text-[13px] text-neutral-100 outline-none ${
           error ? 'border-[#D92D20]' : 'border-neutral-500'

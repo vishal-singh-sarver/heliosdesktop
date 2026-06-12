@@ -5,10 +5,11 @@ import {
 } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { moveNodes } from './actions'
+import { moveNodesRequested } from './actions'
 import messages from './messages'
 import {
   selectGroupNamesLower,
+  selectLeafNamesLower,
   selectLoadError,
   selectLoadStatus,
   selectNameErrors,
@@ -29,6 +30,7 @@ export function GeometryTree(): React.JSX.Element {
   const query = useSelector(selectSearchQuery)
   const selectedIds = useSelector(selectSelectedIds)
   const groupNamesLower = useSelector(selectGroupNamesLower)
+  const leafNamesLower = useSelector(selectLeafNamesLower)
   const nameErrors = useSelector(selectNameErrors)
   const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
@@ -64,7 +66,7 @@ export function GeometryTree(): React.JSX.Element {
     } catch {
       ids = []
     }
-    if (ids.length) dispatch(moveNodes(projectId, scenarioId, ids, null))
+    if (ids.length) dispatch(moveNodesRequested(projectId, scenarioId, ids, null))
   }
 
   return (
@@ -83,6 +85,7 @@ export function GeometryTree(): React.JSX.Element {
           scenarioId={scenarioId}
           selectedIds={selectedIds}
           groupNamesLower={groupNamesLower}
+          leafNamesLower={leafNamesLower}
           nameErrors={nameErrors}
         />
       ))}

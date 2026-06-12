@@ -1,3 +1,10 @@
+import deleteIcon from '@renderer/assets/delete.svg'
+import dragHandleIcon from '@renderer/assets/DragHandleIco.svg'
+import eyeIcon from '@renderer/assets/EyeIcon.svg'
+import eyeOffIcon from '@renderer/assets/EyeOffIcon.svg'
+import kebabIcon from '@renderer/assets/Kebab Menu.svg'
+import renderIcon from '@renderer/assets/RenderIcon.svg'
+import renderOffIcon from '@renderer/assets/RenderOffIcon.svg'
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { useDispatch } from 'react-redux'
@@ -41,100 +48,35 @@ function IconButton({
   )
 }
 
-const stroke = {
-  width: 14,
-  height: 14,
-  viewBox: '0 0 16 16',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.3,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
-  'aria-hidden': true
-} as const
-
-const filled = {
-  width: 14,
-  height: 14,
-  viewBox: '0 0 16 16',
-  fill: 'currentColor',
-  'aria-hidden': true
-} as const
-
 // Models glyph — two overlapping rounded squares (render/duplicate).
 function RenderIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
-    </svg>
-  )
+  return <img src={renderIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 // Render glyph with a slash — hidden from all models.
 function RenderOffIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
-      <path d="M2.5 2.5l11 11" />
-    </svg>
-  )
+  return <img src={renderOffIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 // Viewport toggle — eye (visible) / eye with a slash (hidden).
 function EyeIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <path d="M1.5 8S4 3.75 8 3.75 14.5 8 14.5 8 12 12.25 8 12.25 1.5 8 1.5 8Z" />
-      <circle cx="8" cy="8" r="1.9" />
-    </svg>
-  )
+  return <img src={eyeIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function EyeOffIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <path d="M3 3l10 10" />
-      <path d="M6.2 6.25C3.4 7.05 1.5 8 1.5 8s2.5 4.25 6.5 4.25c1 0 1.9-.18 2.7-.47" />
-      <path d="M9.8 9.7A2 2 0 0 1 6.3 6.2" />
-      <path d="M11.6 10.3C13.4 9.3 14.5 8 14.5 8S12 3.75 8 3.75c-.4 0-.78.04-1.15.1" />
-    </svg>
-  )
+  return <img src={eyeOffIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function TrashIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <path d="M3 4.5h10" />
-      <path d="M6.5 4.5v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1" />
-      <path d="M4.5 4.5v8a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-8" />
-      <path d="M6.75 7v4M9.25 7v4" />
-    </svg>
-  )
+  return <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function DragHandleIcon(): React.JSX.Element {
-  return (
-    <svg {...filled}>
-      <circle cx="6" cy="4" r="1" />
-      <circle cx="10" cy="4" r="1" />
-      <circle cx="6" cy="8" r="1" />
-      <circle cx="10" cy="8" r="1" />
-      <circle cx="6" cy="12" r="1" />
-      <circle cx="10" cy="12" r="1" />
-    </svg>
-  )
+  return <img src={dragHandleIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function KebabIcon(): React.JSX.Element {
-  return (
-    <svg {...filled}>
-      <circle cx="8" cy="4" r="1.2" />
-      <circle cx="8" cy="8" r="1.2" />
-      <circle cx="8" cy="12" r="1.2" />
-    </svg>
-  )
+  return <img src={kebabIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 interface KebabMenuProps {
@@ -222,9 +164,7 @@ export function KebabMenu({
                     }`}
                   >
                     <span className="truncate">{model.label}</span>
-                    <span className={on ? 'text-neutral-200' : 'text-neutral-600'}>
-                      <RenderIcon />
-                    </span>
+                    <span>{on ? <RenderIcon /> : <RenderOffIcon />}</span>
                   </button>
                 )
               })}

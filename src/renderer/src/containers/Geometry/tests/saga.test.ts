@@ -13,7 +13,7 @@ import {
   LIST_NODES_REQUESTED,
   RENAME_REQUESTED
 } from '../constants'
-import { selectCounters } from '../selectors'
+import { selectCounters, selectNodesById } from '../selectors'
 import * as service from '../service'
 import type { GeoNode, GeometryCounters } from '../types'
 
@@ -67,16 +67,33 @@ describe('addGeometryWorker', () => {
 })
 
 describe('renameWorker', () => {
-  it('calls service.renameGroup then puts renameSucceeded', () => {
+  const groupState = { g: { id: 'g', name: 'Group.001', kind: 'group' } } as unknown as Record<
+    string,
+    GeoNode
+  >
+  const leafState = { a: { id: 'a', name: 'Ground.001', kind: 'ground' } } as unknown as Record<
+    string,
+    GeoNode
+  >
+
+  it('renames a group via service.renameGroup then puts renameSucceeded', () => {
     const gen = renameWorker(actions.renameRequested(P, S, 'g', 'Backyard'))
-    expect(gen.next().value).toEqual(call(service.renameGroup, P, S, 'g', 'Backyard'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(groupState).value).toEqual(call(service.renameGroup, P, S, 'g', 'Backyard'))
     expect(gen.next().value).toEqual(put(actions.renameSucceeded(P, S, 'g', 'Backyard')))
     expect(gen.next().done).toBe(true)
   })
 
+  it('renames a leaf via service.renameObject', () => {
+    const gen = renameWorker(actions.renameRequested(P, S, 'a', 'North'))
+    gen.next() // select
+    expect(gen.next(leafState).value).toEqual(call(service.renameObject, P, S, 'a', 'North'))
+  })
+
   it('puts renameFailed when the service throws', () => {
     const gen = renameWorker(actions.renameRequested(P, S, 'g', 'Backyard'))
-    gen.next() // advance to the call
+    gen.next() // select
+    gen.next(groupState) // advance to the call
     expect(gen.throw(new Error('nope')).value).toEqual(
       put(actions.renameFailed(P, S, 'g', 'nope'))
     )
