@@ -25,15 +25,26 @@ import type {
 export interface FormFieldBlueprint {
   property: string
   label?: string
+  // Seed value the create form opens with (e.g. Position "0", Resolution "1").
+  // Omit for fields the user must fill themselves (Ground Size length/breadth).
+  defaultValue?: string
 }
 
 // A labeled group of fields rendered together under one heading. `columns` is
 // how many fields sit on a single row before wrapping — 1 (Rotation), 2 (Ground
 // Size), 3 (Position), and 4+ for future object types. `heading` is the group
 // label; omit for an unlabeled group.
+//
+// `invalidMessage` is the single error string shown for ANY invalid (non-empty)
+// value in the group's fields — non-numeric, out-of-range, or negative all map
+// to this one message, matching the spec's per-field copy. `{min}` / `{max}`
+// tokens are interpolated from each field's catalog range at resolve time (so
+// "between {min}-{max}" becomes "between 1-25000"). Omit it to fall back to the
+// generic per-reason messages (Must be a number / Min N / Max N).
 export interface FormGroupBlueprint {
   heading?: string
   columns: number
+  invalidMessage?: string
   fields: FormFieldBlueprint[]
 }
 
@@ -52,6 +63,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Ground Size',
     columns: 2,
+    invalidMessage: 'Invalid Input: Can Accept only Numeric and Positive Values',
     fields: [
       { property: 'length', label: 'Length' },
       { property: 'breadth', label: 'Breadth' }
@@ -60,31 +72,35 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Ground Resolution',
     columns: 2,
+    invalidMessage: 'Invalid Input: Value should be between {min}-{max}',
     fields: [
-      { property: 'resolution_x', label: 'Width' },
-      { property: 'resolution_y', label: 'Height' }
+      { property: 'resolution_x', label: 'Width', defaultValue: '1' },
+      { property: 'resolution_y', label: 'Height', defaultValue: '1' }
     ]
   },
   {
     heading: 'Position',
     columns: 3,
+    invalidMessage: 'Invalid Input: Accept Numeric Values',
     fields: [
-      { property: 'position_x', label: 'X' },
-      { property: 'position_y', label: 'Y' },
-      { property: 'position_z', label: 'Z' }
+      { property: 'position_x', label: 'X', defaultValue: '0' },
+      { property: 'position_y', label: 'Y', defaultValue: '0' },
+      { property: 'position_z', label: 'Z', defaultValue: '0' }
     ]
   },
   {
     heading: 'Rotation',
     columns: 1,
-    fields: [{ property: 'rotation_z', label: 'degree' }]
+    invalidMessage: 'Accept Numeric Values within Range {min} to {max}',
+    fields: [{ property: 'rotation_z', label: 'degree', defaultValue: '0' }]
   },
   {
     heading: 'Number of Tiles',
     columns: 2,
+    invalidMessage: 'Invalid Input: Accept only Positive Value',
     fields: [
-      { property: 'texture_x', label: 'R' },
-      { property: 'texture_y', label: 'C' }
+      { property: 'texture_x', label: 'R', defaultValue: '1' },
+      { property: 'texture_y', label: 'C', defaultValue: '1' }
     ]
   }
 ]
@@ -109,6 +125,12 @@ export interface ResolvedFormField {
   min: number | null
   max: number | null
   required: boolean
+  // Group-level error copy with `{min}`/`{max}` already interpolated for this
+  // field's range. Shown for any invalid non-empty value; undefined falls back
+  // to the generic per-reason messages.
+  invalidMessage?: string
+  // Seed value the form opens with (from the blueprint); undefined = blank.
+  defaultValue?: string
 }
 
 export interface ResolvedFormGroup {
@@ -135,7 +157,19 @@ export function humanizeProperty(property: string): string {
     .join(' ')
 }
 
-const toResolvedField = (label: string, def: CatalogPropertyDef): ResolvedFormField => ({
+// Fill `{min}` / `{max}` tokens in a group message from this field's range.
+function interpolateRange(template: string, min: number | null, max: number | null): string {
+  return template
+    .replace(/\{min\}/g, min == null ? '' : String(min))
+    .replace(/\{max\}/g, max == null ? '' : String(max))
+}
+
+const toResolvedField = (
+  label: string,
+  def: CatalogPropertyDef,
+  invalidMessage?: string,
+  defaultValue?: string
+): ResolvedFormField => ({
   property: def.property,
   label,
   propertyTypeId: def.property_type_id,
@@ -143,7 +177,9 @@ const toResolvedField = (label: string, def: CatalogPropertyDef): ResolvedFormFi
   description: def.description,
   min: def.min,
   max: def.max,
-  required: def.required ?? false
+  required: def.required ?? false,
+  invalidMessage: invalidMessage ? interpolateRange(invalidMessage, def.min, def.max) : undefined,
+  defaultValue
 })
 
 // Join a blueprint with the catalog definition for one object type. Fields whose
@@ -171,7 +207,14 @@ export function resolveObjectForm(
       const def = defByProperty.get(field.property)
       if (!def) continue // blueprint references a property the catalog doesn't have
       used.add(field.property)
-      fields.push(toResolvedField(field.label ?? humanizeProperty(field.property), def))
+      fields.push(
+        toResolvedField(
+          field.label ?? humanizeProperty(field.property),
+          def,
+          group.invalidMessage,
+          field.defaultValue
+        )
+      )
     }
     // Drop a group that ended up with no resolvable fields.
     if (fields.length > 0) groups.push({ heading: group.heading, columns: group.columns, fields })
@@ -201,16 +244,46 @@ export function resolveObjectFormByType(
   return resolveObjectForm(objectType, OBJECT_FORM_BLUEPRINTS[objectType.object])
 }
 
+// The seed values the create form should open with for an object type — the
+// blueprint defaults (Resolution 1×1, Position 0,0,0, Rotation 0, Tiles 1×1),
+// keyed by catalog property name. Fields without a default are omitted (the
+// user fills them in, e.g. Ground Size). Empty object when the type has no
+// blueprint or no defaults.
+export function defaultValuesForObject(
+  objectType: ObjectTypeDef | undefined
+): Record<string, string> {
+  const { groups } = resolveObjectFormByType(objectType)
+  const values: Record<string, string> = {}
+  for (const group of groups) {
+    for (const field of group.fields) {
+      if (field.defaultValue != null) values[field.property] = field.defaultValue
+    }
+  }
+  return values
+}
+
+// Uniform empty-required copy across the app's forms (matches the spec image).
+export const REQUIRED_MESSAGE = 'Required Field'
+
 // Validate one field's raw input against its catalog metadata. Returns an error
 // message, or null when valid. Empty is an error only for required fields.
+//
+// When the field carries a group `invalidMessage`, every non-empty failure
+// (non-numeric, wrong datatype, out-of-range) collapses to that single message
+// — the spec shows one error string per field. Fields without custom copy fall
+// back to the granular per-reason messages.
 export function validateFieldValue(field: ResolvedFormField, raw: string): string | null {
   const trimmed = raw.trim()
-  if (trimmed === '') return field.required ? 'Required' : null
+  if (trimmed === '') return field.required ? REQUIRED_MESSAGE : null
+
+  const invalid = field.invalidMessage
   const num = Number(trimmed)
-  if (!Number.isFinite(num)) return 'Must be a number'
-  if (field.datatype === 'integer' && !Number.isInteger(num)) return 'Must be a whole number'
-  if (field.min != null && num < field.min) return `Min ${field.min}`
-  if (field.max != null && num > field.max) return `Max ${field.max}`
+  if (!Number.isFinite(num)) return invalid ?? 'Must be a number'
+  if (field.datatype === 'integer' && !Number.isInteger(num)) {
+    return invalid ?? 'Must be a whole number'
+  }
+  if (field.min != null && num < field.min) return invalid ?? `Min ${field.min}`
+  if (field.max != null && num > field.max) return invalid ?? `Max ${field.max}`
   return null
 }
 

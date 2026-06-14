@@ -48,7 +48,9 @@ export function RightPanel(): React.JSX.Element {
         <CollapseButton collapsed={collapsed} side="right" onToggle={toggle} />
       </div>
       {!collapsed && (
-        <div className="min-h-0 flex-1 overflow-hidden p-3">
+        // The form hugs its content (no inner scroll). This wrapper only scrolls
+        // as a fallback when the window is too short to show the whole form.
+        <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto p-3">
           <ObjectPropertiesForm />
         </div>
       )}

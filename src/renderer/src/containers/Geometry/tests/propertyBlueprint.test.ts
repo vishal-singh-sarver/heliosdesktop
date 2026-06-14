@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogPropertyDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
 import {
+  defaultValuesForObject,
   GROUND_FORM_BLUEPRINT,
   humanizeProperty,
   isObjectFormValid,
@@ -150,11 +151,11 @@ describe('validateFieldValue', () => {
   })
 
   it('flags empty required fields, allows empty optional ones', () => {
-    expect(validateFieldValue(field({ required: true }), '  ')).toBe('Required')
+    expect(validateFieldValue(field({ required: true }), '  ')).toBe('Required Field')
     expect(validateFieldValue(field({ required: false }), '')).toBeNull()
   })
 
-  it('rejects non-numeric and out-of-range values', () => {
+  it('rejects non-numeric and out-of-range values (generic fallback copy)', () => {
     expect(validateFieldValue(field(), 'abc')).toBe('Must be a number')
     expect(validateFieldValue(field({ min: 0 }), '-1')).toBe('Min 0')
     expect(validateFieldValue(field({ max: 360 }), '400')).toBe('Max 360')
@@ -163,6 +164,60 @@ describe('validateFieldValue', () => {
   it('enforces integer datatype', () => {
     expect(validateFieldValue(field({ datatype: 'integer' }), '1.5')).toBe('Must be a whole number')
     expect(validateFieldValue(field({ datatype: 'integer', min: 1 }), '100')).toBeNull()
+  })
+
+  it('collapses every non-empty failure to the field’s invalidMessage when present', () => {
+    const positive = field({ min: 0, invalidMessage: 'Invalid Input: Accept only Positive Value' })
+    expect(validateFieldValue(positive, 'abc')).toBe('Invalid Input: Accept only Positive Value')
+    expect(validateFieldValue(positive, '-5')).toBe('Invalid Input: Accept only Positive Value')
+    // Empty still uses the uniform required copy, not the invalidMessage.
+    expect(validateFieldValue(positive, '')).toBe('Required Field')
+    // Valid value passes.
+    expect(validateFieldValue(positive, '3')).toBeNull()
+  })
+})
+
+describe('defaultValuesForObject (Ground)', () => {
+  it('seeds the spec defaults (Resolution 1×1, Position 0,0,0, Rotation 0, Tiles 1×1)', () => {
+    expect(defaultValuesForObject(groundType)).toEqual({
+      resolution_x: '1',
+      resolution_y: '1',
+      position_x: '0',
+      position_y: '0',
+      position_z: '0',
+      rotation_z: '0',
+      texture_x: '1',
+      texture_y: '1'
+    })
+  })
+
+  it('omits fields without a default (Ground Size length/breadth stay blank)', () => {
+    const values = defaultValuesForObject(groundType)
+    expect(values).not.toHaveProperty('length')
+    expect(values).not.toHaveProperty('breadth')
+  })
+
+  it('returns an empty object for an unknown object type', () => {
+    expect(defaultValuesForObject(undefined)).toEqual({})
+  })
+})
+
+describe('resolveObjectForm invalidMessage', () => {
+  const resolved = resolveObjectFormByType(groundType)
+
+  it('carries the group message onto each field with {min}/{max} interpolated', () => {
+    // Ground Size: static positive-only copy.
+    expect(resolved.groups[0].fields[0].invalidMessage).toBe(
+      'Invalid Input: Can Accept only Numeric and Positive Values'
+    )
+    // Ground Resolution: range tokens filled from catalog (min 1, max 25000).
+    expect(resolved.groups[1].fields[0].invalidMessage).toBe(
+      'Invalid Input: Value should be between 1-25000'
+    )
+    // Rotation: range tokens filled from catalog (min 0, max 360).
+    expect(resolved.groups[3].fields[0].invalidMessage).toBe(
+      'Accept Numeric Values within Range 0 to 360'
+    )
   })
 })
 

@@ -301,7 +301,9 @@ const geometryReducer = (
           objectTypeId: action.payload.objectTypeId,
           objectName: action.payload.objectName,
           name: action.payload.name,
-          values: {},
+          // Seed with the blueprint defaults (Resolution 1×1, Position 0,0,0,
+          // Rotation 0, Tiles 1×1); Ground Size is left blank for the user.
+          values: { ...action.payload.values },
           materialId: null,
           saving: false,
           saveError: null
@@ -321,6 +323,11 @@ const geometryReducer = (
       case SET_DRAFT_NAME: {
         if (!draft.createDraft) break
         draft.createDraft.name = action.payload
+        // Editing the name clears a stale backend save error (e.g. the
+        // duplicate-name "Geometry name already exists" from a prior Save) so it
+        // doesn't linger while the user types a fresh name — mirrors
+        // SET_DRAFT_VALUE.
+        draft.createDraft.saveError = null
         break
       }
 

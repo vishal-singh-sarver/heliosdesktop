@@ -173,7 +173,7 @@ export type AddGeometryFailedAction = {
 // ── Create-object draft (right-panel Properties form) ───────────────────────
 export type OpenCreateFormAction = {
   type: typeof OPEN_CREATE_FORM
-  payload: { objectTypeId: number; objectName: string; name: string }
+  payload: { objectTypeId: number; objectName: string; name: string; values: Record<string, string> }
 }
 export type SetDraftValueAction = {
   type: typeof SET_DRAFT_VALUE
@@ -389,10 +389,11 @@ export const addGeometryFailed = (
 export const openCreateForm = (
   objectTypeId: number,
   objectName: string,
-  name: string
+  name: string,
+  values: Record<string, string> = {}
 ): OpenCreateFormAction => ({
   type: OPEN_CREATE_FORM,
-  payload: { objectTypeId, objectName, name }
+  payload: { objectTypeId, objectName, name, values }
 })
 
 export const setDraftValue = (property: string, value: string): SetDraftValueAction => ({

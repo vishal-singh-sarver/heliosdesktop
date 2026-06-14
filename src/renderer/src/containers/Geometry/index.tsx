@@ -15,6 +15,7 @@ import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { listNodesRequested, openCreateForm, setSearchQuery } from './actions'
 import GeometryTree from './GeometryTree'
+import { defaultValuesForObject } from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
 import { selectNextGroundName, selectSearchQuery } from './selectors'
@@ -46,7 +47,9 @@ export function Geometry(): React.JSX.Element {
   const onAddGround = (): void => {
     const ground = objectTypes.find((o) => o.object === 'Ground')
     if (!projectId || !scenarioId || !ground) return
-    dispatch(openCreateForm(ground.id, ground.object, nextGroundName))
+    // Seed the form with the spec's default values (Resolution 1×1, Position
+    // 0,0,0, Rotation 0, Tiles 1×1); Ground Size is left for the user to fill.
+    dispatch(openCreateForm(ground.id, ground.object, nextGroundName, defaultValuesForObject(ground)))
   }
   // Crop and Import-from-file are separate flows (deferred) — buttons shown,
   // but only Ground actually creates for now.

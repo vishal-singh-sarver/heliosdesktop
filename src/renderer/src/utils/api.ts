@@ -28,6 +28,16 @@ function parseErrorBody(data: unknown, fallback: string): ParsedError {
 
   if (typeof detail === 'string') return { message: detail, fieldErrors: {} }
 
+  // Custom backend error shape: { detail: { error, code } }. Surface the
+  // human-readable `error` (e.g. "Geometry name already exists") instead of the
+  // bare HTTP status text ("Conflict").
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const errorText = (detail as { error?: unknown }).error
+    if (typeof errorText === 'string' && errorText.trim()) {
+      return { message: errorText, fieldErrors: {} }
+    }
+  }
+
   if (Array.isArray(detail)) {
     const fieldErrors: Record<string, string> = {}
     const parts: string[] = []

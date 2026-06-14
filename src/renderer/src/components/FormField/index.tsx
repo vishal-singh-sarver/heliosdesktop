@@ -8,6 +8,11 @@ export interface FormFieldLabelProps {
   helpText?: string
   helpAriaLabel?: string
   helpPlace?: PlacesType
+  // Visually hide the label (kept for screen readers via sr-only) when the
+  // field name is shown as the input placeholder instead — and a separate
+  // section heading already labels the row. The htmlFor/id association is
+  // preserved, so the accessible name is unchanged.
+  hideLabel?: boolean
 }
 
 export interface FormFieldOption {
@@ -39,7 +44,7 @@ interface FormFieldProps {
 }
 
 function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Element {
-  const { label, optional = false, helpText, helpAriaLabel, helpPlace } = labelProps
+  const { label, optional = false, helpText, helpAriaLabel, helpPlace, hideLabel = false } = labelProps
   const {
     error,
     type = 'text',
@@ -60,7 +65,10 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
 
   return (
     <div className="block text-sm text-neutral-300">
-      <label htmlFor={restInputProps.name} className="flex items-center gap-1">
+      <label
+        htmlFor={restInputProps.name}
+        className={`flex items-center gap-1${hideLabel ? ' sr-only' : ''}`}
+      >
         {label}
         {!optional && <span className="text-red-400">*</span>}
         {helpText && helpAriaLabel && (
