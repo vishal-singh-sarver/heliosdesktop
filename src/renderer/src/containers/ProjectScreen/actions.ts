@@ -16,6 +16,9 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MODEL_TYPES_FAILED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_SUCCEEDED,
   LOAD_HEADERS_FAILED,
   LOAD_HEADERS_REQUESTED,
   LOAD_HEADERS_SUCCEEDED,
@@ -59,6 +62,7 @@ import type {
   DataTypeDef,
   DeleteColumnSnapshot,
   LoadedScenarioPayload,
+  ModelTypeDef,
   ProjectMetadata,
   RowId,
   Scenario,
@@ -90,6 +94,19 @@ export interface LoadDataTypesSucceededAction extends Idx {
 }
 export interface LoadDataTypesFailedAction extends Idx {
   type: typeof LOAD_DATA_TYPES_FAILED
+  payload: string
+}
+
+// Catalog: model types
+export interface LoadModelTypesRequestedAction extends Idx {
+  type: typeof LOAD_MODEL_TYPES_REQUESTED
+}
+export interface LoadModelTypesSucceededAction extends Idx {
+  type: typeof LOAD_MODEL_TYPES_SUCCEEDED
+  payload: ModelTypeDef[]
+}
+export interface LoadModelTypesFailedAction extends Idx {
+  type: typeof LOAD_MODEL_TYPES_FAILED
   payload: string
 }
 
@@ -338,6 +355,9 @@ export type ProjectScreenAction =
   | LoadDataTypesRequestedAction
   | LoadDataTypesSucceededAction
   | LoadDataTypesFailedAction
+  | LoadModelTypesRequestedAction
+  | LoadModelTypesSucceededAction
+  | LoadModelTypesFailedAction
   | SetActiveProjectAction
   | SetActiveScenarioAction
   | LoadProjectSucceededAction
@@ -396,6 +416,18 @@ export const loadDataTypesSucceeded = (payload: DataTypeDef[]): LoadDataTypesSuc
 })
 export const loadDataTypesFailed = (payload: string): LoadDataTypesFailedAction => ({
   type: LOAD_DATA_TYPES_FAILED,
+  payload
+})
+
+export const loadModelTypesRequested = (): LoadModelTypesRequestedAction => ({
+  type: LOAD_MODEL_TYPES_REQUESTED
+})
+export const loadModelTypesSucceeded = (payload: ModelTypeDef[]): LoadModelTypesSucceededAction => ({
+  type: LOAD_MODEL_TYPES_SUCCEEDED,
+  payload
+})
+export const loadModelTypesFailed = (payload: string): LoadModelTypesFailedAction => ({
+  type: LOAD_MODEL_TYPES_FAILED,
   payload
 })
 

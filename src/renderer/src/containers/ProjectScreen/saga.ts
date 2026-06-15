@@ -6,6 +6,7 @@ import {
   getProjectRequest,
   loadDataRequest,
   loadDataTypesRequest,
+  loadModelTypesRequest,
   loadHeadersRequest,
   normalizeWireCellValue,
   patchHeaderRequest,
@@ -16,6 +17,7 @@ import {
   type AddRowsResponse,
   type DataPage,
   type DataTypesResponse,
+  type ModelTypesResponse,
   type GetProjectResponse,
   type HeadersResponse,
   type PatchHeaderRequestBody,
@@ -47,6 +49,7 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MODEL_TYPES_REQUESTED,
   LOAD_SCENARIO_FAILED,
   LOAD_SCENARIO_REQUESTED,
   LOAD_SCENARIO_SUCCEEDED,
@@ -98,6 +101,22 @@ function* loadDataTypesWorker(): Generator {
     yield put(actions.loadDataTypesSucceeded(res.data_types))
   } catch (err) {
     yield put(actions.loadDataTypesFailed((err as Error).message))
+  }
+}
+
+// Model types are hierarchical on the wire; the GUI only needs the top-level
+// models, so we strip `submodels` here before the slice stores them.
+function* loadModelTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadModelTypesRequest)) as ModelTypesResponse
+    const topLevel = res.model_types.map(({ id, model, description }) => ({
+      id,
+      model,
+      description
+    }))
+    yield put(actions.loadModelTypesSucceeded(topLevel))
+  } catch (err) {
+    yield put(actions.loadModelTypesFailed((err as Error).message))
   }
 }
 
@@ -781,6 +800,7 @@ function* updateAllCheckboxesWorker(action: UpdateAllCheckboxesRequestedAction):
 
 export default function* projectScreenSaga(): Generator {
   yield takeLatest(LOAD_DATA_TYPES_REQUESTED, loadDataTypesWorker)
+  yield takeLatest(LOAD_MODEL_TYPES_REQUESTED, loadModelTypesWorker)
   yield takeLatest(UPDATE_PROJECT_REQUESTED, updateProjectWorker)
   yield takeLatest(LIST_SCENARIOS_REQUESTED, listScenariosWorker)
   yield takeLatest(LOAD_SCENARIO_REQUESTED, loadScenarioWorker)

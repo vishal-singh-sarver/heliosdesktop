@@ -18,13 +18,15 @@ import {
   RENAME_REQUESTED,
   RENAME_SUCCEEDED,
   SELECT,
-  SET_MODEL_VISIBILITY,
+  SET_MODEL_ON,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
   TOGGLE_EXPAND,
-  TOGGLE_VIEWPORT
+  TOGGLE_RENDER,
+  TOGGLE_VIEWPORT,
+  VISIBILITY_SYNC_FAILED
 } from './constants'
-import type { GeoNode, ModelVisibility } from './types'
+import type { GeoNode } from './types'
 
 // The kinds creatable from the action row. Import-from-file is a separate flow.
 export type CreatableKind = 'ground'
@@ -78,12 +80,36 @@ export type ToggleViewportAction = {
   scenarioId: string
   id: string
 }
-export type SetModelVisibilityAction = {
-  type: typeof SET_MODEL_VISIBILITY
+export type ToggleRenderAction = {
+  type: typeof TOGGLE_RENDER
   projectId: string
   scenarioId: string
   id: string
-  payload: ModelVisibility
+  // All catalog model ids — the render icon is a master switch that sets every
+  // model to the new render value (§5: render off ⇒ all models false).
+  modelIds: number[]
+}
+export type SetModelOnAction = {
+  type: typeof SET_MODEL_ON
+  projectId: string
+  scenarioId: string
+  id: string
+  modelId: number
+  on: boolean
+  // All catalog model ids — needed to keep the render flag (any model on) in sync.
+  modelIds: number[]
+}
+// Which optimistic toggle a sync result refers to — drives the FAILED revert.
+// For 'model', `modelId` identifies which per-model flag to flip back.
+export type VisibilityField = 'viewport' | 'render' | 'model'
+export type VisibilitySyncFailedAction = {
+  type: typeof VISIBILITY_SYNC_FAILED
+  projectId: string
+  scenarioId: string
+  id: string
+  field: VisibilityField
+  modelId?: number
+  payload: string
 }
 export type RenameRequestedAction = {
   type: typeof RENAME_REQUESTED
@@ -197,7 +223,9 @@ export type GeometryAction =
   | SetSearchQueryAction
   | ToggleExpandAction
   | ToggleViewportAction
-  | SetModelVisibilityAction
+  | ToggleRenderAction
+  | SetModelOnAction
+  | VisibilitySyncFailedAction
   | RenameRequestedAction
   | RenameSucceededAction
   | RenameFailedAction
@@ -263,6 +291,13 @@ export const toggleViewport = (
   scenarioId: string,
   id: string
 ): ToggleViewportAction => ({ type: TOGGLE_VIEWPORT, projectId, scenarioId, id })
+
+export const toggleRender = (
+  projectId: string,
+  scenarioId: string,
+  id: string,
+  modelIds: number[]
+): ToggleRenderAction => ({ type: TOGGLE_RENDER, projectId, scenarioId, id, modelIds })
 
 export const renameRequested = (
   projectId: string,
@@ -366,17 +401,38 @@ export const moveNodesFailed = (
   error: string
 ): MoveNodesFailedAction => ({ type: MOVE_NODES_FAILED, projectId, scenarioId, payload: error })
 
-export const setModelVisibility = (
+export const setModelOn = (
   projectId: string,
   scenarioId: string,
   id: string,
-  visibility: ModelVisibility
-): SetModelVisibilityAction => ({
-  type: SET_MODEL_VISIBILITY,
+  modelId: number,
+  on: boolean,
+  modelIds: number[]
+): SetModelOnAction => ({
+  type: SET_MODEL_ON,
   projectId,
   scenarioId,
   id,
-  payload: visibility
+  modelId,
+  on,
+  modelIds
+})
+
+export const visibilitySyncFailed = (
+  projectId: string,
+  scenarioId: string,
+  id: string,
+  field: VisibilityField,
+  error: string,
+  modelId?: number
+): VisibilitySyncFailedAction => ({
+  type: VISIBILITY_SYNC_FAILED,
+  projectId,
+  scenarioId,
+  id,
+  field,
+  modelId,
+  payload: error
 })
 
 export const addGeometryRequested = (

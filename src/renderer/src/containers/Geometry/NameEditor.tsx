@@ -13,6 +13,9 @@ interface NameEditorProps {
   existingNames: Set<string>
   // a11y label — "Group name" or "Geometry name".
   ariaLabel: string
+  // Reports the current validation error (or null) so the row box can colour
+  // itself (blue while valid, red on error) — this editor is borderless.
+  onErrorChange?: (error: string | null) => void
   onClose: () => void
 }
 
@@ -28,6 +31,7 @@ export default function NameEditor({
   scenarioId,
   existingNames,
   ariaLabel,
+  onErrorChange,
   onClose
 }: NameEditorProps): React.JSX.Element {
   const dispatch = useDispatch()
@@ -40,6 +44,13 @@ export default function NameEditor({
   }, [])
 
   const error = validateGroupName(value, existingNames)
+
+  // Push the current validity to the parent (drives the row box colour), and
+  // clear it when the editor unmounts.
+  React.useEffect(() => {
+    onErrorChange?.(error)
+  }, [error, onErrorChange])
+  React.useEffect(() => () => onErrorChange?.(null), [onErrorChange])
 
   const commit = (): void => {
     const trimmed = value.trim()
@@ -70,11 +81,17 @@ export default function NameEditor({
         onBlur={() => (error ? onClose() : commit())}
         aria-label={ariaLabel}
         aria-invalid={Boolean(error)}
-        className={`h-6 w-full rounded border bg-app-bg px-1.5 text-[13px] text-neutral-100 outline-none ${
-          error ? 'border-[#D92D20]' : 'border-neutral-500'
-        }`}
+        className="h-5 w-full bg-transparent px-1.5 text-[14px] font-normal text-neutral-100"
+        // Borderless: the row is the single box (it turns blue while editing, red
+        // on error). Suppress the global :focus-visible blue outline (inline beats
+        // the unlayered rule) so there's nothing bordered inside the row box.
+        style={{ outline: 'none' }}
       />
-      {error && <span className="form-error-text mt-0.5">{error}</span>}
+      {error && (
+        <span className="form-error-text mt-0.5" style={{ color: '#F04438' }}>
+          {error}
+        </span>
+      )}
     </span>
   )
 }

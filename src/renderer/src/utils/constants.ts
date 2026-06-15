@@ -54,7 +54,11 @@ export const API_ROUTES = {
   catalog: {
     // Each data type carries its `units[]` inline, so a single round-trip on
     // ProjectScreen mount populates the entire catalog slice.
-    dataTypes: '/api/data-types/'
+    dataTypes: '/api/data-types/',
+    // Runnable simulation models (revision 5). Hierarchical — a model can have
+    // submodels — but the GUI consumes only the top-level models; their ids key
+    // visibility.models on geometry objects (§5).
+    modelTypes: '/api/catalog/model-types'
   },
   // Geometry routes are scenario-scoped (like weather).
   geometry: {
@@ -65,7 +69,7 @@ export const API_ROUTES = {
     createGroup: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups`,
     deleteGroup: (projectId: string, scenarioId: string, groupId: string) =>
-      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}`,
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/objects `,
     create: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
     update: (projectId: string, scenarioId: string, objectId: string) =>
@@ -74,6 +78,10 @@ export const API_ROUTES = {
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/rename`,
     renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
+    // Group-level visibility (viewport / render / per-model) — the backend
+    // cascades to the group's members. Body is nested under `visibility`.
+    groupVisibility: (projectId: string, scenarioId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/visibility`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
   }

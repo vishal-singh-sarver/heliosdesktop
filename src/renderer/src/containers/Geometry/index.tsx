@@ -1,7 +1,7 @@
 import addIcon from '@renderer/assets/add.svg'
 import searchIcon from '@renderer/assets/search.svg'
 import uploadIcon from '@renderer/assets/Upload.svg'
-import ActionButton from '@renderer/components/ActionButton'
+import ToolbarButton from '@renderer/components/ToolbarButton'
 import SearchBar from '@renderer/components/SearchBar'
 import {
   selectActiveProjectId,
@@ -54,13 +54,37 @@ export function Geometry(): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap gap-2">
-        <ActionButton label="Crop" icon={addIcon} onClick={onAddCrop} />
-        <ActionButton label="Ground" icon={addIcon} onClick={onAddGround} />
-        <ActionButton label="Import from File" icon={uploadIcon} onClick={onImportFromFile} />
+        <ToolbarButton
+          label="Crop"
+          icon={addIcon}
+          size="sm"
+          bgColor="#ffffff"
+          textColor="#000000"
+          iconColor="dark"
+          onClick={onAddCrop}
+        />
+        <ToolbarButton
+          label="Ground"
+          icon={addIcon}
+          size="sm"
+          bgColor="#ffffff"
+          textColor="#000000"
+          iconColor="dark"
+          onClick={onAddGround}
+        />
+        <ToolbarButton
+          label="Import from File"
+          icon={uploadIcon}
+          size="sm"
+          bgColor="#ffffff"
+          textColor="#000000"
+          iconColor="dark"
+          onClick={onImportFromFile}
+        />
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-2">
-        <span className="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3]">
+        <span className="shrink-0 font-['Geist'] text-[12px] font-semibold leading-[15px] tracking-normal text-[#D3D3D3]">
           Saved Geometries
         </span>
         <SearchBar

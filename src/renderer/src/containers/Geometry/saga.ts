@@ -6,7 +6,10 @@ import type {
   GroupNodesRequestedAction,
   ListNodesRequestedAction,
   MoveNodesRequestedAction,
-  RenameRequestedAction
+  RenameRequestedAction,
+  SetModelOnAction,
+  ToggleRenderAction,
+  ToggleViewportAction
 } from './actions'
 import {
   ADD_GEOMETRY_REQUESTED,
@@ -14,7 +17,10 @@ import {
   GROUP_NODES_REQUESTED,
   LIST_NODES_REQUESTED,
   MOVE_NODES_REQUESTED,
-  RENAME_REQUESTED
+  RENAME_REQUESTED,
+  SET_MODEL_ON,
+  TOGGLE_RENDER,
+  TOGGLE_VIEWPORT
 } from './constants'
 import { formatName } from './naming'
 import { selectCounters, selectNodesById } from './selectors'
@@ -70,13 +76,50 @@ export function* renameWorker(action: RenameRequestedAction): Generator {
   }
 }
 
-// Deletes a node (a group also drops its children). Pessimistic: the row is
-// removed only on success, so a failed delete leaves the tree intact.
+// Mirror the reducer's "a group holds ≥2 geometries" rule on the backend. After
+// a member leaves a group (drag-out, delete, or being pulled into a new group),
+// the reducer dissolves any source group that dropped below 2 — ejecting its lone
+// leftover to the root. Here we persist that: for each source group that no
+// longer exists, ungroup the leftover(s) (group_id → null) then DELETE the group.
+// `removedIds` are the members the triggering action took out (excluded from the
+// leftovers). Best-effort — a failed/404 cleanup leaves the primary action intact.
+function* cleanupDissolvedGroups(
+  projectId: string,
+  scenarioId: string,
+  before: Record<string, GeoNode>,
+  sourceGroupIds: Iterable<string>,
+  removedIds: string[]
+): Generator {
+  const after = (yield select(selectNodesById)) as Record<string, GeoNode>
+  for (const groupId of sourceGroupIds) {
+    if (after[groupId]) continue // group kept ≥2 members → nothing to clean
+    const ejected = (before[groupId]?.childIds ?? []).filter((cid) => !removedIds.includes(cid))
+    try {
+      if (ejected.length) yield call(service.moveNodes, projectId, scenarioId, ejected, null)
+      yield call(service.deleteGroup, projectId, scenarioId, groupId)
+    } catch {
+      // cleanup is best-effort; the primary action already succeeded
+    }
+  }
+}
+
+// Deletes a node. A group hits the group endpoint (DELETE /groups/{id}, which
+// drops the group and its members); a leaf hits the object endpoint. Pessimistic:
+// the row is removed only on success, so a failed delete leaves the tree intact.
+// Deleting a leaf that was one of a group's two members dissolves that group
+// (min 2).
 export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator {
   const { projectId, scenarioId, id } = action
   try {
-    yield call(service.deleteNode, projectId, scenarioId, id)
+    const before = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const node = before[id]
+    const sourceGroupId = node?.parentId ?? null
+    const deleteFn = node?.kind === 'group' ? service.deleteGroup : service.deleteNode
+    yield call(deleteFn, projectId, scenarioId, id)
     yield put(actions.deleteNodeSucceeded(projectId, scenarioId, id))
+    if (sourceGroupId) {
+      yield* cleanupDissolvedGroups(projectId, scenarioId, before, [sourceGroupId], [id])
+    }
   } catch (err) {
     yield put(actions.deleteNodeFailed(projectId, scenarioId, id, (err as Error).message))
   }
@@ -84,10 +127,19 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
 
 // Drop leaf→leaf → create a group server-side (§6.1), then insert the returned
 // group (real id + name) into the slice. The optimistic local insert is gone:
-// we wait for the POST so the id/name match what a later refetch returns.
+// we wait for the POST so the id/name match what a later refetch returns. If a
+// member came from an existing group, that source group may drop below 2 and is
+// dissolved (min 2).
 export function* groupNodesWorker(action: GroupNodesRequestedAction): Generator {
   const { projectId, scenarioId, memberIds } = action
   try {
+    const before = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const sourceGroupIds = new Set<string>()
+    for (const memberId of memberIds) {
+      const parentId = before[memberId]?.parentId
+      if (parentId) sourceGroupIds.add(parentId)
+    }
+
     const group = (yield call(
       service.createGroup,
       projectId,
@@ -95,6 +147,8 @@ export function* groupNodesWorker(action: GroupNodesRequestedAction): Generator 
       memberIds
     )) as service.CreatedGroup
     yield put(actions.groupNodesSucceeded(projectId, scenarioId, group))
+
+    yield* cleanupDissolvedGroups(projectId, scenarioId, before, sourceGroupIds, memberIds)
   } catch (err) {
     yield put(actions.groupNodesFailed(projectId, scenarioId, (err as Error).message))
   }
@@ -117,21 +171,81 @@ export function* moveNodesWorker(action: MoveNodesRequestedAction): Generator {
     yield call(service.moveNodes, projectId, scenarioId, nodeIds, toGroupId)
     yield put(actions.moveNodesSucceeded(projectId, scenarioId, nodeIds, toGroupId))
 
-    // The reducer prunes a group that just lost its last member; mirror that on
-    // the backend with DELETE /groups (§6.4). A group still present after the
-    // move kept other members, so we leave it. Best-effort: a failed/404 delete
-    // (e.g. the backend already auto-removed it) is ignored — the move stands.
-    const after = (yield select(selectNodesById)) as Record<string, GeoNode>
-    for (const groupId of sourceGroupIds) {
-      if (after[groupId]) continue
-      try {
-        yield call(service.deleteGroup, projectId, scenarioId, groupId)
-      } catch {
-        // cleanup is best-effort; the move already succeeded
-      }
-    }
+    // A move out can drop the source group below 2 members; mirror the reducer's
+    // dissolve on the backend (ungroup the leftover, delete the group).
+    yield* cleanupDissolvedGroups(projectId, scenarioId, before, sourceGroupIds, nodeIds)
   } catch (err) {
     yield put(actions.moveNodesFailed(projectId, scenarioId, (err as Error).message))
+  }
+}
+
+// Persist an eye (viewport) toggle. The reducer already flipped state
+// optimistically; here we persist (§5.4) and revert on failure. A group uses the
+// dedicated group-visibility endpoint (which cascades server-side); a leaf
+// PATCHes its own object.
+export function* toggleViewportWorker(action: ToggleViewportAction): Generator {
+  const { projectId, scenarioId, id } = action
+  try {
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const node = nodesById[id]
+    if (!node) return
+    const viewport = node.visibleInViewport // post-flip value
+    if (node.kind === 'group') {
+      yield call(service.updateGroupVisibility, projectId, scenarioId, id, { viewport })
+    } else {
+      yield call(service.updateVisibility, projectId, scenarioId, id, { viewport })
+    }
+  } catch (err) {
+    yield put(actions.visibilitySyncFailed(projectId, scenarioId, id, 'viewport', (err as Error).message))
+  }
+}
+
+// Persist a render-icon toggle. A group uses the dedicated group-visibility
+// endpoint with just { render } (it cascades to members server-side). A leaf is
+// the render master switch, so it PATCHes its object with both { render, models }
+// (the reducer already flipped render AND every model to match) per §5.
+export function* toggleRenderWorker(action: ToggleRenderAction): Generator {
+  const { projectId, scenarioId, id } = action
+  try {
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const node = nodesById[id]
+    if (!node) return
+    if (node.kind === 'group') {
+      yield call(service.updateGroupVisibility, projectId, scenarioId, id, {
+        render: node.renderEnabled
+      })
+    } else {
+      yield call(service.updateVisibility, projectId, scenarioId, id, {
+        render: node.renderEnabled,
+        models: node.modelVisibility
+      })
+    }
+  } catch (err) {
+    yield put(actions.visibilitySyncFailed(projectId, scenarioId, id, 'render', (err as Error).message))
+  }
+}
+
+// Persist a per-model kebab toggle. Sends the one model AND the render flag,
+// which the reducer kept in sync (render is on iff any model is on) — so the
+// backend's visibility.render never drifts from the per-model state. A group
+// uses the group endpoint (cascades to members); a leaf PATCHes its own object.
+// The model id is stringified to match the API map shape.
+export function* setModelOnWorker(action: SetModelOnAction): Generator {
+  const { projectId, scenarioId, id, modelId, on } = action
+  try {
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const node = nodesById[id]
+    if (!node) return
+    const visibility = { models: { [String(modelId)]: on }, render: node.renderEnabled }
+    if (node.kind === 'group') {
+      yield call(service.updateGroupVisibility, projectId, scenarioId, id, visibility)
+    } else {
+      yield call(service.updateVisibility, projectId, scenarioId, id, visibility)
+    }
+  } catch (err) {
+    yield put(
+      actions.visibilitySyncFailed(projectId, scenarioId, id, 'model', (err as Error).message, modelId)
+    )
   }
 }
 
@@ -142,4 +256,7 @@ export default function* geometrySaga(): Generator {
   yield takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker)
   yield takeEvery(GROUP_NODES_REQUESTED, groupNodesWorker)
   yield takeEvery(MOVE_NODES_REQUESTED, moveNodesWorker)
+  yield takeEvery(TOGGLE_VIEWPORT, toggleViewportWorker)
+  yield takeEvery(TOGGLE_RENDER, toggleRenderWorker)
+  yield takeEvery(SET_MODEL_ON, setModelOnWorker)
 }

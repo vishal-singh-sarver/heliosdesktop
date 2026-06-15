@@ -62,6 +62,9 @@ function TreeRow({
   const isGroup = node.kind === 'group'
   const selected = selectedIds.includes(node.id)
   const [editing, setEditing] = React.useState(false)
+  // Current rename validation error, lifted from NameEditor so the row box can
+  // turn red (vs blue) while editing an invalid name.
+  const [editError, setEditError] = React.useState<string | null>(null)
   const [dragOver, setDragOver] = React.useState(false)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
@@ -157,14 +160,20 @@ function TreeRow({
         onDragOver={handleDragOver}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1.5 text-[13px] text-neutral-200 ${
-          selected ? 'bg-neutral-700/60' : 'hover:bg-neutral-700/40'
+        className={`group mb-1 flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
+          editing
+            ? editError
+              ? 'border-[#F04438] bg-[#2a2a2a]'
+              : 'border-[#245AC5] bg-[#2a2a2a]'
+            : selected
+              ? 'border-app-border bg-[#2a2a2a]'
+              : 'border-transparent hover:bg-neutral-700/40'
         } ${node.visibleInViewport ? '' : 'opacity-50'} ${
           dragOver ? 'ring-1 ring-blue-500' : ''
         }`}
-        style={{ paddingLeft: 8 + depth * 16 }}
+        style={{ paddingLeft: 10 + depth * 16 }}
       >
-        {isGroup ? (
+        {isGroup && (
           <button
             type="button"
             onClick={handleToggle}
@@ -182,8 +191,6 @@ function TreeRow({
               style={{ transform: node.expanded ? 'none' : 'rotate(-90deg)' }}
             />
           </button>
-        ) : (
-          <span className="h-4 w-4 shrink-0" aria-hidden="true" />
         )}
 
         {editing ? (
@@ -194,7 +201,11 @@ function TreeRow({
             scenarioId={scenarioId}
             existingNames={otherNames}
             ariaLabel={isGroup ? 'Group name' : 'Geometry name'}
-            onClose={() => setEditing(false)}
+            onErrorChange={setEditError}
+            onClose={() => {
+              setEditing(false)
+              setEditError(null)
+            }}
           />
         ) : (
           <>

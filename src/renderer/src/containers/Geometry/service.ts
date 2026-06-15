@@ -1,6 +1,14 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
-import type { GeoNode } from './types'
+import type { GeoNode, ModelVisibility } from './types'
+
+// The API's visibility.models is keyed by stringified model id; convert to the
+// numeric-keyed map the slice holds. Absent → empty (every model defaults on).
+function parseModels(models: Record<string, boolean> | undefined): ModelVisibility {
+  const out: ModelVisibility = {}
+  if (models) for (const [id, on] of Object.entries(models)) out[Number(id)] = on
+  return out
+}
 
 // Minimal create payload — only the two fields the backend needs for now; the
 // full geometry params are filled in later by the right-panel Properties form.
@@ -67,7 +75,8 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
         expanded: false,
         // Groups carry no visibility in the API; default for display only.
         visibleInViewport: true,
-        modelVisibility: { mode: 'all' }
+        renderEnabled: true,
+        modelVisibility: {}
       }
     })
   }
@@ -86,10 +95,9 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
         childIds: [],
         expanded: false,
         visibleInViewport: o.visibility?.viewport ?? true,
-        // Read-only slice: collapse to all/none for display. The per-model
-        // 'custom' state lands with the visibility-write feature (keyed by
-        // model-type id), which this view never edits.
-        modelVisibility: o.visibility?.render === false ? { mode: 'none' } : { mode: 'all' }
+        renderEnabled: o.visibility?.render ?? true,
+        // Per-model map keyed by catalog model id; absent ids default to on.
+        modelVisibility: parseModels(o.visibility?.models)
       }
     })
   }
@@ -145,6 +153,36 @@ export function deleteGroup(
 ): Promise<void> {
   return api
     .delete(API_ROUTES.geometry.deleteGroup(projectId, scenarioId, groupId))
+    .then(() => undefined)
+}
+
+// Persist an object visibility toggle (§5.4). Partial PATCH: only the keys
+// present in `visibility` change. The eye sends { viewport }, the render icon
+// sends { render }, a kebab per-model toggle sends { models: { "<id>": bool } }.
+// Called per object/leaf id — group viewport/render go through
+// updateGroupVisibility instead.
+export function updateVisibility(
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  visibility: { viewport?: boolean; render?: boolean; models?: Record<string, boolean> }
+): Promise<void> {
+  return api
+    .patch(API_ROUTES.geometry.update(projectId, scenarioId, objectId), { visibility })
+    .then(() => undefined)
+}
+
+// Group-level visibility toggle — viewport, render, and per-model (models) all
+// go through the dedicated group endpoint, which cascades to members
+// server-side. Body is nested under `visibility` (same shape as the object PATCH).
+export function updateGroupVisibility(
+  projectId: string,
+  scenarioId: string,
+  groupId: string,
+  visibility: { viewport?: boolean; render?: boolean; models?: Record<string, boolean> }
+): Promise<void> {
+  return api
+    .patch(API_ROUTES.geometry.groupVisibility(projectId, scenarioId, groupId), { visibility })
     .then(() => undefined)
 }
 

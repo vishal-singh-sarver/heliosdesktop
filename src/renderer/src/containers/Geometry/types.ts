@@ -2,23 +2,13 @@
 // selectors.ts to avoid circular deps. Everything here is plain JSON (no Dates,
 // Maps, or class instances) so it is safe to hold in Redux.
 
-// The five models shown in the Models dropdown / left-panel Models section.
-export type ModelKey =
-  | 'solar_position'
-  | 'radiation'
-  | 'energy_balance'
-  | 'photosynthesis'
-  | 'stomatal_conductance'
-
 // Leaf kinds vs. a group container. Groups hold leaves only (single-level).
 export type GeoNodeKind = 'ground' | 'imported' | 'group'
 
-// Model visibility is mutually exclusive between the render-icon toggle
-// (`all` / `none`) and the per-model dropdown (`custom`). When `none`, the
-// dropdown is disabled (spec).
-export type ModelVisibility =
-  | { mode: 'all' | 'none' }
-  | { mode: 'custom'; perModel: Record<ModelKey, boolean> }
+// Per-model visibility, keyed by the catalog model id (GET /api/catalog/
+// model-types, §4.4). Mirrors the API's `visibility.models` map. A model id
+// absent from the map defaults to visible (`true`).
+export type ModelVisibility = Record<number, boolean>
 
 // A node in the Saved Geometries tree — either a leaf geometry or a group.
 export interface GeoNode {
@@ -28,12 +18,10 @@ export interface GeoNode {
   parentId: string | null // group id, or null at the root
   childIds: string[] // ordered children; always [] for leaves
   expanded: boolean // groups only (ignored for leaves)
-  visibleInViewport: boolean // 👁 eye toggle
-  modelVisibility: ModelVisibility // render icon / models dropdown
+  visibleInViewport: boolean // 👁 eye toggle → visibility.viewport
+  renderEnabled: boolean // render icon (row) → visibility.render
+  modelVisibility: ModelVisibility // per-model kebab toggles → visibility.models
 }
-
-// Per-node optimistic-sync status (mirrors Weather's cellSync convention).
-export type NodeSyncStatus = 'idle' | 'pending' | 'error'
 
 // Tree load lifecycle for the active scenario.
 export type LoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
@@ -52,7 +40,6 @@ export interface ScenarioGeometry {
   selectedIds: string[]
   searchQuery: string
   counters: GeometryCounters
-  syncById: Record<string, NodeSyncStatus>
   nameErrors: Record<string, string> // inline rename validation, keyed by node id
   loadStatus: LoadStatus
   loadError: string | null
@@ -111,7 +98,9 @@ export interface MoveNodesPayload extends ScopeRef {
   toGroupId: string | null
 }
 
-export interface SetModelVisibilityPayload extends ScopeRef {
+// SET_MODEL_ON — toggle one model (by catalog id) for one node.
+export interface SetModelOnPayload extends ScopeRef {
   id: string
-  visibility: ModelVisibility
+  modelId: number
+  on: boolean
 }

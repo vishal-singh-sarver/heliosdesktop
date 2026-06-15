@@ -34,6 +34,18 @@ export interface DataTypeDef {
   units: DataUnitDef[]
 }
 
+// ── Catalog: model types (runnable simulation models) ───────────────────────
+//
+//   GET /api/catalog/model-types -> { model_types: ModelTypeDef[] }
+// The wire shape is hierarchical (each model carries a `submodels[]` array), but
+// the GUI consumes only the top-level models, so we drop submodels on ingest.
+// `model` is the display name; ids key `visibility.models` on geometry objects (§5).
+export interface ModelTypeDef {
+  id: number
+  model: string
+  description: string
+}
+
 // ── Project metadata ────────────────────────────────────────────────────────
 //
 // Subset of GET /api/project/{id} that the project screen needs in order

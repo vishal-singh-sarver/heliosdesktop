@@ -63,13 +63,6 @@ export const selectLeafNamesLower = createSelector(selectNodesById, (nodesById) 
   return names
 })
 
-// Ordered top-level nodes (leaves + groups) for the tree, unfiltered.
-export const selectRootNodes = createSelector(
-  selectNodesById,
-  selectRootOrder,
-  (nodesById, rootOrder): GeoNode[] => rootOrder.map((id) => nodesById[id]).filter(Boolean)
-)
-
 // ── Filtered tree (search) ──────────────────────────────────────────────────
 //
 // Case-insensitive. A leaf is kept when its name matches. A group is kept when
@@ -119,9 +112,4 @@ export const selectVisibleTree = createSelector(
 
     return { nodesById: outNodes, rootOrder: outRoot }
   }
-)
-
-export const selectVisibleRootNodes = createSelector(
-  selectVisibleTree,
-  ({ nodesById, rootOrder }): GeoNode[] => rootOrder.map((id) => nodesById[id]).filter(Boolean)
 )

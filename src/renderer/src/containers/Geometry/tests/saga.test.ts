@@ -4,7 +4,11 @@ import geometrySaga, {
   deleteNodeWorker,
   generateId,
   listNodesWorker,
-  renameWorker
+  moveNodesWorker,
+  renameWorker,
+  setModelOnWorker,
+  toggleRenderWorker,
+  toggleViewportWorker
 } from '../saga'
 import * as actions from '../actions'
 import {
@@ -101,19 +105,291 @@ describe('renameWorker', () => {
 })
 
 describe('deleteNodeWorker', () => {
-  it('calls service.deleteNode then puts deleteNodeSucceeded', () => {
+  const leaf = (id: string, parentId: string | null): GeoNode => ({
+    id,
+    name: id,
+    kind: 'ground',
+    parentId,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('deletes a group via service.deleteGroup (group endpoint, no cleanup)', () => {
+    const before: Record<string, GeoNode> = {
+      g: {
+        id: 'g',
+        name: 'Group.001',
+        kind: 'group',
+        parentId: null,
+        childIds: ['c1', 'c2'],
+        expanded: true,
+        visibleInViewport: true,
+        renderEnabled: true,
+        modelVisibility: {}
+      }
+    }
     const gen = deleteNodeWorker(actions.deleteNodeRequested(P, S, 'g'))
-    expect(gen.next().value).toEqual(call(service.deleteNode, P, S, 'g'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(before).value).toEqual(call(service.deleteGroup, P, S, 'g'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'g')))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('deletes a root leaf via service.deleteNode (object endpoint, no cleanup)', () => {
+    const before: Record<string, GeoNode> = { a: leaf('a', null) }
+    const gen = deleteNodeWorker(actions.deleteNodeRequested(P, S, 'a'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(before).value).toEqual(call(service.deleteNode, P, S, 'a'))
+    expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'a')))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('deleting one of a group’s two members dissolves the group', () => {
+    const before: Record<string, GeoNode> = {
+      g: {
+        id: 'g',
+        name: 'Group.001',
+        kind: 'group',
+        parentId: null,
+        childIds: ['c1', 'c2'],
+        expanded: true,
+        visibleInViewport: true,
+        renderEnabled: true,
+        modelVisibility: {}
+      },
+      c1: leaf('c1', 'g'),
+      c2: leaf('c2', 'g')
+    }
+    const after: Record<string, GeoNode> = { c2: leaf('c2', null) } // c1 gone, g dissolved
+
+    const gen = deleteNodeWorker(actions.deleteNodeRequested(P, S, 'c1'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(before).value).toEqual(call(service.deleteNode, P, S, 'c1'))
+    expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'c1')))
+    expect(gen.next().value).toEqual(select(selectNodesById)) // cleanup re-reads state
+    expect(gen.next(after).value).toEqual(call(service.moveNodes, P, S, ['c2'], null))
+    expect(gen.next().value).toEqual(call(service.deleteGroup, P, S, 'g'))
     expect(gen.next().done).toBe(true)
   })
 
   it('puts deleteNodeFailed when the service throws', () => {
     const gen = deleteNodeWorker(actions.deleteNodeRequested(P, S, 'g'))
-    gen.next()
+    gen.next() // select
+    gen.next({}) // advance to call(deleteNode)
     expect(gen.throw(new Error('nope')).value).toEqual(
       put(actions.deleteNodeFailed(P, S, 'g', 'nope'))
     )
+  })
+})
+
+describe('toggleViewportWorker', () => {
+  const leaf: GeoNode = {
+    id: 'a',
+    name: 'Ground.001',
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: false, // reducer already flipped it
+    renderEnabled: true,
+    modelVisibility: {}
+  }
+  const group: GeoNode = {
+    id: 'g',
+    name: 'Group.001',
+    kind: 'group',
+    parentId: null,
+    childIds: ['a', 'b'],
+    expanded: true,
+    visibleInViewport: false,
+    renderEnabled: true,
+    modelVisibility: {}
+  }
+
+  it('PATCHes the leaf object with the post-flip viewport value, then succeeds', () => {
+    const gen = toggleViewportWorker(actions.toggleViewport(P, S, 'a'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next({ a: leaf }).value).toEqual(
+      call(service.updateVisibility, P, S, 'a', { viewport: false })
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('uses the group-visibility endpoint for a group toggle', () => {
+    const gen = toggleViewportWorker(actions.toggleViewport(P, S, 'g'))
+    gen.next() // select
+    expect(gen.next({ g: group }).value).toEqual(
+      call(service.updateGroupVisibility, P, S, 'g', { viewport: false })
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('reverts via visibilitySyncFailed(viewport) when a PATCH throws', () => {
+    const gen = toggleViewportWorker(actions.toggleViewport(P, S, 'a'))
+    gen.next() // select
+    gen.next({ a: leaf }) // advance to the all()
+    expect(gen.throw(new Error('boom')).value).toEqual(
+      put(actions.visibilitySyncFailed(P, S, 'a', 'viewport', 'boom'))
+    )
+  })
+})
+
+describe('toggleRenderWorker', () => {
+  // Post-flip state the reducer produced: render off ⇒ every model false.
+  const leaf: GeoNode = {
+    id: 'a',
+    name: 'Ground.001',
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: false,
+    modelVisibility: { 1: false, 2: false }
+  }
+  const group: GeoNode = {
+    id: 'g',
+    name: 'Group.001',
+    kind: 'group',
+    parentId: null,
+    childIds: ['a', 'b'],
+    expanded: true,
+    visibleInViewport: true,
+    renderEnabled: false,
+    modelVisibility: {}
+  }
+
+  it('PATCHes the leaf object with both render and the full models map', () => {
+    const gen = toggleRenderWorker(actions.toggleRender(P, S, 'a', [1, 2]))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next({ a: leaf }).value).toEqual(
+      call(service.updateVisibility, P, S, 'a', {
+        render: false,
+        models: { 1: false, 2: false }
+      })
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('uses the group-visibility endpoint with just { render } for a group', () => {
+    const gen = toggleRenderWorker(actions.toggleRender(P, S, 'g', [1, 2]))
+    gen.next() // select
+    expect(gen.next({ g: group }).value).toEqual(
+      call(service.updateGroupVisibility, P, S, 'g', { render: false })
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('reverts via visibilitySyncFailed(render) when a PATCH throws', () => {
+    const gen = toggleRenderWorker(actions.toggleRender(P, S, 'a', [1, 2]))
+    gen.next() // select
+    gen.next({ a: leaf }) // advance to the all()
+    expect(gen.throw(new Error('nope')).value).toEqual(
+      put(actions.visibilitySyncFailed(P, S, 'a', 'render', 'nope'))
+    )
+  })
+})
+
+describe('setModelOnWorker', () => {
+  const leaf: GeoNode = {
+    id: 'a',
+    name: 'Ground.001',
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: { 4: false }
+  }
+  const group: GeoNode = {
+    id: 'g',
+    name: 'Group.001',
+    kind: 'group',
+    parentId: null,
+    childIds: ['a', 'b'],
+    expanded: true,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  }
+
+  it('PATCHes the leaf object with visibility.models AND the synced render flag', () => {
+    // leaf.renderEnabled (true) is the reducer-synced value the saga forwards.
+    const gen = setModelOnWorker(actions.setModelOn(P, S, 'a', 4, false, [4, 5]))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next({ a: leaf }).value).toEqual(
+      call(service.updateVisibility, P, S, 'a', { models: { '4': false }, render: true })
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('uses the group-visibility endpoint (models + render) for a group toggle', () => {
+    const gen = setModelOnWorker(actions.setModelOn(P, S, 'g', 2, true, [2]))
+    gen.next() // select
+    expect(gen.next({ g: group }).value).toEqual(
+      call(service.updateGroupVisibility, P, S, 'g', { models: { '2': true }, render: true })
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('reverts via visibilitySyncFailed(model) carrying the modelId when a PATCH throws', () => {
+    const gen = setModelOnWorker(actions.setModelOn(P, S, 'a', 4, false, [4, 5]))
+    gen.next() // select
+    gen.next({ a: leaf }) // advance to the all()
+    expect(gen.throw(new Error('nope')).value).toEqual(
+      put(actions.visibilitySyncFailed(P, S, 'a', 'model', 'nope', 4))
+    )
+  })
+})
+
+describe('moveNodesWorker', () => {
+  const leaf = (id: string, parentId: string | null): GeoNode => ({
+    id,
+    name: id,
+    kind: 'ground',
+    parentId,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('dragging one out of a 2-member group ejects the leftover and deletes the group', () => {
+    // Before: group g holds c1 + c2.
+    const before: Record<string, GeoNode> = {
+      g: {
+        id: 'g',
+        name: 'Group.001',
+        kind: 'group',
+        parentId: null,
+        childIds: ['c1', 'c2'],
+        expanded: true,
+        visibleInViewport: true,
+        renderEnabled: true,
+        modelVisibility: {}
+      },
+      c1: leaf('c1', 'g'),
+      c2: leaf('c2', 'g')
+    }
+    // After the reducer ran: g dissolved, both leaves at root.
+    const after: Record<string, GeoNode> = { c1: leaf('c1', null), c2: leaf('c2', null) }
+
+    const gen = moveNodesWorker(actions.moveNodesRequested(P, S, ['c1'], null))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    // PATCH the dragged node's group_id → null.
+    expect(gen.next(before).value).toEqual(call(service.moveNodes, P, S, ['c1'], null))
+    expect(gen.next().value).toEqual(put(actions.moveNodesSucceeded(P, S, ['c1'], null)))
+    // Re-read state; g is gone, so clean up the backend.
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    // Eject the leftover member (c2) to the root, then delete the group.
+    expect(gen.next(after).value).toEqual(call(service.moveNodes, P, S, ['c2'], null))
+    expect(gen.next().value).toEqual(call(service.deleteGroup, P, S, 'g'))
+    expect(gen.next().done).toBe(true)
   })
 })
 

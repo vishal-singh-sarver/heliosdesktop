@@ -1,12 +1,11 @@
 import {
   selectActiveScopeKey,
   selectActiveGeometry,
-  selectRootNodes,
   selectSelectedIds,
   selectSearchQuery,
   selectLoadStatus,
   selectNodesById,
-  selectVisibleRootNodes
+  selectVisibleTree
 } from '../selectors'
 import { emptyScenarioGeometry, initialState, scopeKey } from '../reducer'
 import type { GeoNode, ScenarioGeometry } from '../types'
@@ -19,7 +18,8 @@ const ground = (id: string, name: string): GeoNode => ({
   childIds: [],
   expanded: false,
   visibleInViewport: true,
-  modelVisibility: { mode: 'all' }
+  renderEnabled: true,
+  modelVisibility: {}
 })
 
 // Geometry selectors derive the active scope from ProjectScreen's active
@@ -66,11 +66,10 @@ describe('Geometry selectors', () => {
     expect(selectSearchQuery(st)).toBe('gr')
     expect(selectLoadStatus(st)).toBe('loaded')
     expect(selectNodesById(st)).toEqual(geo.nodesById)
-    expect(selectRootNodes(st)).toEqual([ground('a', 'Ground.001')])
   })
 })
 
-describe('selectVisibleRootNodes (search filter)', () => {
+describe('selectVisibleTree (search filter)', () => {
   const group = (id: string, name: string, childIds: string[]): GeoNode => ({
     id,
     name,
@@ -79,7 +78,8 @@ describe('selectVisibleRootNodes (search filter)', () => {
     childIds,
     expanded: false,
     visibleInViewport: true,
-    modelVisibility: { mode: 'all' }
+    renderEnabled: true,
+    modelVisibility: {}
   })
   const child = (id: string, name: string, parentId: string): GeoNode => ({
     ...ground(id, name),
@@ -99,7 +99,13 @@ describe('selectVisibleRootNodes (search filter)', () => {
     rootOrder: ['a', 'g']
   })
 
-  const namesOf = (state: never): string[] => selectVisibleRootNodes(state).map((n) => n.name)
+  // The app reads selectVisibleTree (a {nodesById, rootOrder} map); flatten it to
+  // the ordered root nodes the way GeometryTree does, to assert the filter.
+  const visibleRootNodes = (state: never): GeoNode[] => {
+    const { nodesById, rootOrder } = selectVisibleTree(state)
+    return rootOrder.map((id) => nodesById[id])
+  }
+  const namesOf = (state: never): string[] => visibleRootNodes(state).map((n) => n.name)
 
   it('returns everything when the query is empty', () => {
     expect(namesOf(makeState(scenario('')))).toEqual(['Ground.001', 'Group.001'])
@@ -115,14 +121,14 @@ describe('selectVisibleRootNodes (search filter)', () => {
     expect(rootOrder).toEqual(['a', 'g'])
     expect(nodesById.g.childIds).toHaveLength(2)
 
-    const tree = selectVisibleRootNodes(st)
+    const tree = visibleRootNodes(st)
     expect(tree.map((n) => n.name)).toEqual(['Group.001'])
     expect(tree[0].childIds).toEqual(['c1', 'c2']) // all children kept
     expect(tree[0].expanded).toBe(true) // force-expanded
   })
 
   it('keeps only matching children when a child matches but the group does not', () => {
-    const tree = selectVisibleRootNodes(makeState(scenario('Ground.500')))
+    const tree = visibleRootNodes(makeState(scenario('Ground.500')))
     expect(tree.map((n) => n.name)).toEqual(['Group.001'])
     expect(tree[0].childIds).toEqual(['c1']) // only the matching child
   })

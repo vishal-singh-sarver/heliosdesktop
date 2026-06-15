@@ -19,9 +19,16 @@ export const SELECT = 'app/Geometry/SELECT' as const
 export const SET_SEARCH_QUERY = 'app/Geometry/SET_SEARCH_QUERY' as const
 export const TOGGLE_EXPAND = 'app/Geometry/TOGGLE_EXPAND' as const
 
-// ── Visibility: eye = 3D viewport, render icon / dropdown = models ───────────
+// ── Visibility: eye = viewport, render icon = render, kebab = per-model ──────
+// All three apply optimistically in the reducer, then a saga persists each via
+// PATCH /objects/{id} { visibility } (§5.4): TOGGLE_VIEWPORT → { viewport },
+// TOGGLE_RENDER → { render }, SET_MODEL_ON → { models: { "<id>": bool } }. On a
+// failed PATCH the saga dispatches FAILED, which reverts the optimistic flip
+// (by field, and modelId for a per-model revert).
 export const TOGGLE_VIEWPORT = 'app/Geometry/TOGGLE_VIEWPORT' as const
-export const SET_MODEL_VISIBILITY = 'app/Geometry/SET_MODEL_VISIBILITY' as const
+export const TOGGLE_RENDER = 'app/Geometry/TOGGLE_RENDER' as const
+export const SET_MODEL_ON = 'app/Geometry/SET_MODEL_ON' as const
+export const VISIBILITY_SYNC_FAILED = 'app/Geometry/VISIBILITY_SYNC_FAILED' as const
 
 // ── Rename a group (inline edit + validation) ───────────────────────────────
 export const RENAME_REQUESTED = 'app/Geometry/RENAME_REQUESTED' as const

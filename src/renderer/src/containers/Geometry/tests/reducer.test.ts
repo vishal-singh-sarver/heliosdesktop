@@ -14,7 +14,8 @@ const ground = (id: string, name: string, parentId: string | null = null): GeoNo
   childIds: [],
   expanded: false,
   visibleInViewport: true,
-  modelVisibility: { mode: 'all' }
+  renderEnabled: true,
+  modelVisibility: {}
 })
 
 const group = (id: string, name: string, childIds: string[] = []): GeoNode => ({
@@ -25,7 +26,8 @@ const group = (id: string, name: string, childIds: string[] = []): GeoNode => ({
   childIds,
   expanded: true,
   visibleInViewport: true,
-  modelVisibility: { mode: 'all' }
+  renderEnabled: true,
+  modelVisibility: {}
 })
 
 describe('geometryReducer', () => {
@@ -124,14 +126,67 @@ describe('geometryReducer', () => {
     expect(r.byScope[KEY].nodesById['b'].visibleInViewport).toBe(false)
   })
 
-  it('SET_MODEL_VISIBILITY sets the node value and cascades to group children', () => {
+  it('TOGGLE_RENDER flips render AND all models, cascading to group children', () => {
     const seeded = geometryReducer(
       initialState,
       actions.listNodesSucceeded(P, S, [group('g', 'Group.001', ['b']), ground('b', 'Ground.002', 'g')])
     )
-    const r = geometryReducer(seeded, actions.setModelVisibility(P, S, 'g', { mode: 'none' }))
-    expect(r.byScope[KEY].nodesById['g'].modelVisibility).toEqual({ mode: 'none' })
-    expect(r.byScope[KEY].nodesById['b'].modelVisibility).toEqual({ mode: 'none' })
+    // Master switch over the catalog ids [1, 2]: render off ⇒ every model false.
+    const r = geometryReducer(seeded, actions.toggleRender(P, S, 'g', [1, 2]))
+    expect(r.byScope[KEY].nodesById['g'].renderEnabled).toBe(false)
+    expect(r.byScope[KEY].nodesById['g'].modelVisibility).toEqual({ 1: false, 2: false })
+    expect(r.byScope[KEY].nodesById['b'].renderEnabled).toBe(false)
+    expect(r.byScope[KEY].nodesById['b'].modelVisibility).toEqual({ 1: false, 2: false })
+  })
+
+  it('TOGGLE_RENDER turns everything back on when all models are currently off', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [ground('b', 'Ground.002')])
+    )
+    // Drive all models off first, then the render toggle should flip them on.
+    const allOff = geometryReducer(seeded, actions.toggleRender(P, S, 'b', [1, 2]))
+    expect(allOff.byScope[KEY].nodesById['b'].modelVisibility).toEqual({ 1: false, 2: false })
+    const backOn = geometryReducer(allOff, actions.toggleRender(P, S, 'b', [1, 2]))
+    expect(backOn.byScope[KEY].nodesById['b'].modelVisibility).toEqual({ 1: true, 2: true })
+    expect(backOn.byScope[KEY].nodesById['b'].renderEnabled).toBe(true)
+  })
+
+  it('SET_MODEL_ON sets one model id, cascades to children, and keeps render in sync', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [group('g', 'Group.001', ['b']), ground('b', 'Ground.002', 'g')])
+    )
+    // Catalog ids [4, 5]: turning 4 off leaves 5 on, so render stays true.
+    const r = geometryReducer(seeded, actions.setModelOn(P, S, 'g', 4, false, [4, 5]))
+    expect(r.byScope[KEY].nodesById['g'].modelVisibility).toEqual({ 4: false })
+    expect(r.byScope[KEY].nodesById['b'].modelVisibility).toEqual({ 4: false })
+    expect(r.byScope[KEY].nodesById['g'].renderEnabled).toBe(true)
+    expect(r.byScope[KEY].nodesById['b'].renderEnabled).toBe(true)
+  })
+
+  it('SET_MODEL_ON turns render off once the last model goes off', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [ground('b', 'Ground.002')])
+    )
+    // Only one model in the catalog; turning it off ⇒ render off.
+    const off4 = geometryReducer(seeded, actions.setModelOn(P, S, 'b', 4, false, [4]))
+    expect(off4.byScope[KEY].nodesById['b'].renderEnabled).toBe(false)
+  })
+
+  it('VISIBILITY_SYNC_FAILED(model) reverts the model flag', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [ground('b', 'Ground.002')])
+    )
+    const toggled = geometryReducer(seeded, actions.setModelOn(P, S, 'b', 4, false, [4]))
+    const reverted = geometryReducer(
+      toggled,
+      actions.visibilitySyncFailed(P, S, 'b', 'model', 'boom', 4)
+    )
+    // 4 was set to false, revert flips it back to true (default-on restored)
+    expect(reverted.byScope[KEY].nodesById['b'].modelVisibility[4]).toBe(true)
   })
 
   it('RENAME_SUCCEEDED updates the name and clears any name error', () => {
@@ -199,6 +254,42 @@ describe('geometryReducer', () => {
     expect(s.rootOrder).toContain('c')
     expect(s.nodesById['g']).toBeUndefined() // empty group pruned
     expect(s.rootOrder).not.toContain('g')
+  })
+
+  it('MOVE_NODES_SUCCEEDED dissolves a 2-member group when one is dragged out (min 2)', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['c1', 'c2']),
+        ground('c1', 'Ground.001', 'g'),
+        ground('c2', 'Ground.002', 'g')
+      ])
+    )
+    // Drag c1 out to the root — c2 would be left alone, so the group dissolves
+    // and c2 is ejected to the root too.
+    const r = geometryReducer(seeded, actions.moveNodesSucceeded(P, S, ['c1'], null))
+    const s = r.byScope[KEY]
+    expect(s.nodesById['g']).toBeUndefined() // group deleted
+    expect(s.rootOrder).not.toContain('g')
+    expect(s.nodesById['c1'].parentId).toBeNull()
+    expect(s.nodesById['c2'].parentId).toBeNull() // lone member ejected
+    expect(s.rootOrder).toEqual(expect.arrayContaining(['c1', 'c2']))
+  })
+
+  it('MOVE_NODES_SUCCEEDED keeps a group that still has ≥2 members after a move out', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.001', 'g'),
+        ground('c2', 'Ground.002', 'g'),
+        ground('c3', 'Ground.003', 'g')
+      ])
+    )
+    const r = geometryReducer(seeded, actions.moveNodesSucceeded(P, S, ['c1'], null))
+    const s = r.byScope[KEY]
+    expect(s.nodesById['g'].childIds).toEqual(['c2', 'c3']) // group survives
+    expect(s.nodesById['c1'].parentId).toBeNull()
   })
 
   it('DELETE_NODE_SUCCEEDED removes a root leaf', () => {

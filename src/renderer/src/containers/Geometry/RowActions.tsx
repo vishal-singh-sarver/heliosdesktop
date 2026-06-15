@@ -5,11 +5,12 @@ import eyeOffIcon from '@renderer/assets/EyeOffIcon.svg'
 import kebabIcon from '@renderer/assets/Kebab Menu.svg'
 import renderIcon from '@renderer/assets/RenderIcon.svg'
 import renderOffIcon from '@renderer/assets/RenderOffIcon.svg'
+import { selectModelTypes } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { createPortal } from 'react-dom'
-import { useDispatch } from 'react-redux'
-import { setModelVisibility, toggleViewport } from './actions'
-import { MODELS, isAllHidden, isModelOn, toggleAllModels, toggleOneModel } from './models'
+import { useDispatch, useSelector } from 'react-redux'
+import { setModelOn, toggleRender, toggleViewport } from './actions'
+import { isModelOn } from './models'
 import type { GeoNode } from './types'
 
 // Row action affordances for a tree row. Icons are inline SVG (vector, never
@@ -96,6 +97,7 @@ export function KebabMenu({
   scenarioId
 }: KebabMenuProps): React.JSX.Element {
   const dispatch = useDispatch()
+  const modelTypes = useSelector(selectModelTypes)
   const anchorRef = React.useRef<HTMLSpanElement>(null)
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null)
   const open = coords !== null
@@ -117,8 +119,10 @@ export function KebabMenu({
 
   const close = (): void => setCoords(null)
 
-  const setVisibility = (next: GeoNode['modelVisibility']): void => {
-    if (projectId && scenarioId) dispatch(setModelVisibility(projectId, scenarioId, node.id, next))
+  const modelIds = modelTypes.map((m) => m.id)
+  const onToggleModel = (modelId: number, on: boolean): void => {
+    if (projectId && scenarioId)
+      dispatch(setModelOn(projectId, scenarioId, node.id, modelId, on, modelIds))
   }
 
   return (
@@ -148,26 +152,30 @@ export function KebabMenu({
                 Models
               </p>
 
-              {/* Per-model toggles. A hidden model is shown with a greyed,
-                  dimmed row so its hidden state is obvious. */}
-              {MODELS.map((model) => {
-                const on = isModelOn(node.modelVisibility, model.key)
-                return (
-                  <button
-                    key={model.key}
-                    type="button"
-                    role="menuitemcheckbox"
-                    aria-checked={on}
-                    onClick={() => setVisibility(toggleOneModel(node.modelVisibility, model.key))}
-                    className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-neutral-700/50 ${
-                      on ? 'text-neutral-200' : 'bg-neutral-800/70 text-neutral-500'
-                    }`}
-                  >
-                    <span className="truncate">{model.label}</span>
-                    <span>{on ? <RenderIcon /> : <RenderOffIcon />}</span>
-                  </button>
-                )
-              })}
+              {/* Per-model toggles from the catalog (top-level models). A hidden
+                  model is shown with a greyed, dimmed row so its state is obvious. */}
+              {modelTypes.length === 0 ? (
+                <p className="px-2 py-1.5 text-[12px] text-neutral-500">No models</p>
+              ) : (
+                modelTypes.map((model) => {
+                  const on = isModelOn(node.modelVisibility, model.id)
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={on}
+                      onClick={() => onToggleModel(model.id, !on)}
+                      className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-neutral-700/50 ${
+                        on ? 'text-neutral-200' : 'bg-neutral-800/70 text-neutral-500'
+                      }`}
+                    >
+                      <span className="truncate">{model.model}</span>
+                      <span>{on ? <RenderIcon /> : <RenderOffIcon />}</span>
+                    </button>
+                  )
+                })
+              )}
             </div>
           </>,
           document.body
@@ -186,8 +194,10 @@ interface RowActionsProps {
   onDelete: () => void
 }
 
-// The selection-revealed cluster pinned to the right edge of the row. Shown for
-// both leaves and groups: hide-all-models, viewport, delete, plus a drag handle.
+// The action cluster pinned to the right edge of the row: render, viewport,
+// delete, plus a drag handle. Always present, but only visible when the row is
+// hovered, focused, or selected (so it doesn't clutter idle rows). Shown for
+// both leaves and groups.
 export default function RowActions({
   node,
   projectId,
@@ -196,13 +206,24 @@ export default function RowActions({
   onDelete
 }: RowActionsProps): React.JSX.Element | null {
   const dispatch = useDispatch()
-  if (!selected) return null
+  // The render icon is a master switch over every catalog model, so it needs the
+  // full model id list to set them all (render off ⇒ all models false).
+  const modelIds = useSelector(selectModelTypes).map((m) => m.id)
 
-  const modelsHidden = isAllHidden(node.modelVisibility)
-  const onToggleAllModels = (): void => {
-    if (projectId && scenarioId) {
-      dispatch(setModelVisibility(projectId, scenarioId, node.id, toggleAllModels(node.modelVisibility)))
-    }
+  // Reveal on hover/focus (Tailwind group-* off the row) or while selected.
+  const visibility = selected
+    ? 'opacity-100'
+    : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+
+  // Reflect the kebab's per-model state: the icon is "shown" if any model is on,
+  // and only "hidden" when every model is off. Falls back to the render flag
+  // before the catalog has loaded.
+  const renderHidden =
+    modelIds.length > 0
+      ? modelIds.every((id) => !isModelOn(node.modelVisibility, id))
+      : !node.renderEnabled
+  const onToggleRender = (): void => {
+    if (projectId && scenarioId) dispatch(toggleRender(projectId, scenarioId, node.id, modelIds))
   }
 
   const onToggleViewport = (): void => {
@@ -210,13 +231,15 @@ export default function RowActions({
   }
 
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+    <div
+      className={`ml-auto flex shrink-0 items-center gap-0.5 transition-opacity ${visibility}`}
+    >
       <IconButton
-        label={modelsHidden ? 'Show in all models' : 'Hide from all models'}
-        active={modelsHidden}
-        onClick={onToggleAllModels}
+        label={renderHidden ? 'Show in render' : 'Hide from render'}
+        active={renderHidden}
+        onClick={onToggleRender}
       >
-        {modelsHidden ? <RenderOffIcon /> : <RenderIcon />}
+        {renderHidden ? <RenderOffIcon /> : <RenderIcon />}
       </IconButton>
       <IconButton
         label={node.visibleInViewport ? 'Hide from viewport' : 'Show in viewport'}

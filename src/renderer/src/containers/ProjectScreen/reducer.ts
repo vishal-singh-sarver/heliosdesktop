@@ -18,6 +18,9 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MODEL_TYPES_FAILED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_SUCCEEDED,
   LOAD_HEADERS_FAILED,
   LOAD_HEADERS_REQUESTED,
   LOAD_HEADERS_SUCCEEDED,
@@ -53,6 +56,7 @@ import {
   emptyWeatherTable,
   type DataTypeDef,
   type LoadStatus,
+  type ModelTypeDef,
   type ProjectMetadata,
   type RowId,
   type Scenario,
@@ -83,8 +87,16 @@ export interface DataTypesSlice {
   loadError: string | null
 }
 
+export interface ModelTypesSlice {
+  byId: Record<number, ModelTypeDef>
+  allIds: number[]
+  loadStatus: LoadStatus
+  loadError: string | null
+}
+
 export interface CatalogSlice {
   dataTypes: DataTypesSlice
+  modelTypes: ModelTypesSlice
 }
 
 export interface ScenariosByProjectEntry {
@@ -144,6 +156,13 @@ const emptyDataTypesSlice = (): DataTypesSlice => ({
   loadError: null
 })
 
+const emptyModelTypesSlice = (): ModelTypesSlice => ({
+  byId: {},
+  allIds: [],
+  loadStatus: 'idle',
+  loadError: null
+})
+
 const emptyScenariosEntry = (): ScenariosByProjectEntry => ({
   ids: [],
   byId: {},
@@ -162,7 +181,8 @@ const idleStatus = (): RequestStatus => ({ loading: false, error: null })
 
 export const initialState: ProjectScreenState = {
   catalog: {
-    dataTypes: emptyDataTypesSlice()
+    dataTypes: emptyDataTypesSlice(),
+    modelTypes: emptyModelTypesSlice()
   },
   scenarios: { byProject: {} },
   headers: { byScenario: {} },
@@ -234,6 +254,29 @@ const projectScreenReducer = (
       case LOAD_DATA_TYPES_FAILED:
         draft.catalog.dataTypes.loadStatus = 'error'
         draft.catalog.dataTypes.loadError = action.payload
+        break
+
+      // ── Catalog: model types ───────────────────────────────────────────────
+
+      case LOAD_MODEL_TYPES_REQUESTED:
+        draft.catalog.modelTypes.loadStatus = 'loading'
+        draft.catalog.modelTypes.loadError = null
+        break
+
+      case LOAD_MODEL_TYPES_SUCCEEDED:
+        draft.catalog.modelTypes.byId = {}
+        draft.catalog.modelTypes.allIds = []
+        // Store only the top-level models (the saga already strips submodels).
+        for (const def of action.payload) {
+          draft.catalog.modelTypes.byId[def.id] = def
+          draft.catalog.modelTypes.allIds.push(def.id)
+        }
+        draft.catalog.modelTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_MODEL_TYPES_FAILED:
+        draft.catalog.modelTypes.loadStatus = 'error'
+        draft.catalog.modelTypes.loadError = action.payload
         break
 
       // ── Active project + scenario ──────────────────────────────────────────
