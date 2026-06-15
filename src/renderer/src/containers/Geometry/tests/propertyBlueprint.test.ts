@@ -167,9 +167,9 @@ describe('validateFieldValue', () => {
   })
 
   it('collapses every non-empty failure to the field’s invalidMessage when present', () => {
-    const positive = field({ min: 0, invalidMessage: 'Invalid Input: Accept only Positive Value' })
-    expect(validateFieldValue(positive, 'abc')).toBe('Invalid Input: Accept only Positive Value')
-    expect(validateFieldValue(positive, '-5')).toBe('Invalid Input: Accept only Positive Value')
+    const positive = field({ min: 0, invalidMessage: 'Invalid Input' })
+    expect(validateFieldValue(positive, 'abc')).toBe('Invalid Input')
+    expect(validateFieldValue(positive, '-5')).toBe('Invalid Input')
     // Empty still uses the uniform required copy, not the invalidMessage.
     expect(validateFieldValue(positive, '')).toBe('Required Field')
     // Valid value passes.
@@ -208,17 +208,15 @@ describe('resolveObjectForm invalidMessage', () => {
   const resolved = resolveObjectFormByType(groundType)
 
   it('carries the group message onto each field with {min}/{max} interpolated', () => {
-    // Ground Size: static positive-only copy.
-    expect(resolved.groups[0].fields[0].invalidMessage).toBe(
-      'Invalid Input: Can Accept only Numeric and Positive Values'
-    )
+    // Ground Size: generic invalid copy (no range tokens).
+    expect(resolved.groups[0].fields[0].invalidMessage).toBe('Invalid Input')
     // Ground Resolution: range tokens filled from catalog (min 1, max 25000).
     expect(resolved.groups[1].fields[0].invalidMessage).toBe(
       'Values should be between 1-25000'
     )
     // Rotation: range tokens filled from catalog (min 0, max 360).
     expect(resolved.groups[3].fields[0].invalidMessage).toBe(
-      'Accept Numeric Values within Range 0 to 360'
+      'Values should be between 0-360'
     )
   })
 })

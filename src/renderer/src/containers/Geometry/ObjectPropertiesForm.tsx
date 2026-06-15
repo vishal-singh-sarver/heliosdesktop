@@ -1,3 +1,6 @@
+import deleteIcon from '@renderer/assets/delete.svg'
+import pencilIcon from '@renderer/assets/pencil.svg'
+import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import {
   selectActiveProjectId,
@@ -23,7 +26,12 @@ import messages from './messages'
 import { isObjectFormValid, resolveObjectFormByType, validateFieldValue } from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
-import { selectCreateDraft, selectCreateDraftNonce, selectNodesById } from './selectors'
+import {
+  selectCreateDraft,
+  selectCreateDraftNonce,
+  selectDetailsById,
+  selectNodesById
+} from './selectors'
 import type { CreateDraft } from './types'
 import { validateGroupName } from './validation'
 
@@ -32,11 +40,22 @@ import { validateGroupName } from './validation'
 // branch a no-op, leaving the cheap instant rules: non-empty + ≤20 characters.
 const NO_NAME_CONFLICTS = new Set<string>()
 
+// Raw-string equality over the union of both maps' keys (a missing key reads as
+// ''). Drives the Save button's dirty check: any field whose current value
+// differs from the loaded/last-saved baseline makes the form dirty.
+function sameValues(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const k of keys) {
+    if ((a[k] ?? '') !== (b[k] ?? '')) return false
+  }
+  return true
+}
+
 // The right-panel Properties form for editing an object: +Ground creates the
 // object and opens this form populated from the persisted values, and clicking a
 // ground opens it populated from a GET. Save PATCHes properties (and renames if
-// the name changed); Cancel DELETEs a brand-new object or just closes an existing
-// one. Renders nothing when there is no active draft. Injects the geometry slice
+// the name changed); the name-row trash discards a brand-new object or deletes an
+// existing one. Renders nothing when there is no active draft. Injects the geometry slice
 // so it works mounted in the RightPanel independently of the LeftPanel's
 // <Geometry />. Keyed by the open-nonce so touched/submitted state resets when a
 // different object opens.
@@ -57,6 +76,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const objectTypes = useSelector(selectAllObjectTypes)
   const materialTypes = useSelector(selectAllMaterialTypes)
   const nodesById = useSelector(selectNodesById)
+  const detailsById = useSelector(selectDetailsById)
 
   // The form's object was removed from the tree (deleted via the left panel)
   // while this form was open. It no longer exists on the backend, so editing /
@@ -73,6 +93,18 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // so this lives in local state — not the Redux value — and clears on blur.
   // Mirrors Weather's CellInput guard, reusing the same decimalValidation util.
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
+  // The name is read-only until the pencil is tapped (spec: "edit icon which
+  // should be tapped only to edit the name"); the trash icon's confirmation lives
+  // here too (saved objects confirm before delete; brand-new ones discard).
+  const [nameEditing, setNameEditing] = React.useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
+  const nameInputRef = React.useRef<HTMLInputElement>(null)
+
+  // Focus the name field the moment the pencil unlocks it (it's read-only until
+  // then, so we can't focus in the same click handler before the re-render).
+  React.useEffect(() => {
+    if (nameEditing) nameInputRef.current?.focus()
+  }, [nameEditing])
 
   const objectType = objectTypes.find((o) => o.id === draft.objectTypeId)
   const { groups } = resolveObjectFormByType(objectType)
@@ -80,6 +112,17 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Instant name rules (non-empty, ≤20 chars); uniqueness is left to the backend.
   const nameError = validateGroupName(draft.name, NO_NAME_CONFLICTS)
   const valid = fieldsValid && nameError == null
+
+  // Save is enabled only once the form differs from its loaded/last-saved
+  // baseline. The baseline is the cached object detail (values) + the node's
+  // persisted name; material has no persisted baseline yet, so any selection
+  // counts as a change. Editing back to the original values disables Save again.
+  const original = detailsById[draft.objectId]
+  const node = nodesById[draft.objectId]
+  const valuesDirty = !original || !sameValues(draft.values, original.values)
+  const nameDirty = node ? draft.name !== node.name : false
+  const materialDirty = draft.materialId != null
+  const dirty = valuesDirty || nameDirty || materialDirty
 
   // Block the keystroke when the in-progress value isn't numeric, or would add
   // an 8th decimal place — surfacing the matching message instead of storing it.
@@ -112,14 +155,20 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     dispatch(updateObjectRequested(projectId, scenarioId))
   }
 
-  // A freshly-created object (isNew) is discarded with a DELETE (reuses the
-  // delete flow); an existing object opened by clicking a ground just closes.
-  // If the object was already deleted from the tree, there's nothing to remove —
-  // just dismiss the form.
-  const onCancel = (): void => {
-    if (draft.isNew && !objectDeleted && projectId && scenarioId) {
+  // Trash icon. Always confirm first — for both brand-new (in-progress) and
+  // already-saved grounds — so a stray tap can't silently wipe a geometry, and
+  // the delete is always an explicit, visible action rather than an instant
+  // close. Confirming runs performDelete (delete + close the panel).
+  const onDeleteClick = (): void => {
+    if (objectDeleted) return
+    setConfirmDeleteOpen(true)
+  }
+
+  const performDelete = (): void => {
+    if (!objectDeleted && projectId && scenarioId) {
       dispatch(deleteNodeRequested(projectId, scenarioId, draft.objectId))
     }
+    setConfirmDeleteOpen(false)
     dispatch(closeCreateForm())
   }
 
@@ -128,20 +177,48 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // the form never needs an inner scrollbar — even with every field showing an
     // error. Overflow on very short windows is absorbed by the RightPanel wrapper.
     <div className="flex flex-col gap-2.5">
-      {/* Header: editable object name (persisted via the rename endpoint on Save) */}
+      {/* Header: object name with a pencil (unlock to rename) and a trash
+          (discard/delete). The name is read-only until the pencil is tapped. */}
       <div>
-        <input
-          aria-label="Object name"
-          aria-invalid={nameError != null}
-          value={draft.name}
-          disabled={objectDeleted}
-          onChange={(e) => dispatch(setDraftName(e.target.value))}
-          className={`w-full rounded border bg-transparent px-1 text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-            nameError
-              ? 'border-red-500'
-              : 'border-transparent hover:border-app-border focus:border-neutral-500'
-          }`}
-        />
+        <div className="flex items-center gap-1">
+          <input
+            ref={nameInputRef}
+            aria-label="Object name"
+            aria-invalid={nameError != null}
+            value={draft.name}
+            readOnly={!nameEditing}
+            disabled={objectDeleted}
+            onChange={(e) => dispatch(setDraftName(e.target.value))}
+            onBlur={() => setNameEditing(false)}
+            className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+              !nameEditing ? 'cursor-default ' : ''
+            }${
+              nameError
+                ? 'border-red-500'
+                : nameEditing
+                  ? 'border-neutral-500'
+                  : 'border-transparent hover:border-app-border'
+            }`}
+          />
+          <button
+            type="button"
+            aria-label="Edit name"
+            disabled={objectDeleted}
+            onClick={() => setNameEditing(true)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Delete geometry"
+            disabled={objectDeleted}
+            onClick={onDeleteClick}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
         {nameError && !objectDeleted && <p className="form-error-text mt-1">{nameError}</p>}
       </div>
 
@@ -156,7 +233,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         {groups.map((group, gi) => (
           <div key={group.heading ?? `group-${gi}`}>
             {group.heading && (
-              <p className="mb-1.5 text-[12px] text-[#D3D3D3]">{group.heading}</p>
+              <p className="mb-1.5 text-[14px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">{group.heading}</p>
             )}
             <div
               className="grid gap-2"
@@ -189,6 +266,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                       placeholder: field.label,
                       error: error ?? undefined,
                       disabled: objectDeleted,
+                      inputClassName: 'bg-[#121212]',
                       onChange: (e) => handleFieldChange(field.property, e.target.value),
                       onBlur: () => handleFieldBlur(field.property)
                     }}
@@ -204,7 +282,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             materials-instance flow); the create payload sends an empty list.
             Heading + sr-only label match the group pattern above. */}
         <div>
-          <p className="mb-1.5 text-[12px] text-[#D3D3D3]">Select Material</p>
+          <p className="mb-1.5 text-[14px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">Select Material</p>
           <FormField
             labelProps={{ label: 'Select Material', hideLabel: true, optional: true }}
             inputProps={{
@@ -212,6 +290,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               value: draft.materialId == null ? '' : String(draft.materialId),
               placeholder: 'Select',
               disabled: objectDeleted,
+              inputClassName: 'bg-[#121212]',
               options: materialTypes.map((m) => ({ value: String(m.id), label: m.materialtype })),
               onChange: (e) =>
                 dispatch(setDraftMaterial(e.target.value === '' ? null : Number(e.target.value))),
@@ -226,25 +305,51 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         {draft.saveError && !objectDeleted && <p className="form-error-text">{draft.saveError}</p>}
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2">
+      {/* Actions — a single full-width Save (Figma). Discard/delete lives in the
+          name-row trash icon. When the object was deleted out from under the form
+          there's nothing to save, so only a Close remains. */}
+      {objectDeleted ? (
         <button
           type="button"
-          onClick={onCancel}
-          disabled={draft.saving}
-          className="h-9 rounded border border-app-border px-4 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+          onClick={() => dispatch(closeCreateForm())}
+          className="h-9 w-full rounded border border-app-border text-sm text-neutral-200 hover:bg-neutral-800"
         >
-          {draft.isNew && !objectDeleted ? 'Cancel' : 'Close'}
+          Close
         </button>
+      ) : (
         <button
           type="button"
           onClick={onSave}
-          disabled={draft.saving || objectDeleted}
-          className="h-9 flex-1 rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          disabled={draft.saving || !dirty}
+          className="h-9 w-full rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {draft.saving ? 'Saving…' : 'Save'}
         </button>
-      </div>
+      )}
+
+      <Dialog
+        isOpen={confirmDeleteOpen}
+        title={messages.deleteTitle}
+        onClose={() => setConfirmDeleteOpen(false)}
+      >
+        <p className="text-sm text-neutral-200">{`Delete "${draft.name}"?`}</p>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteOpen(false)}
+            className="rounded border border-app-border px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-700/50"
+          >
+            {messages.deleteCancel}
+          </button>
+          <button
+            type="button"
+            onClick={performDelete}
+            className="rounded bg-[#D92D20] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#b42318]"
+          >
+            {messages.deleteConfirm}
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }

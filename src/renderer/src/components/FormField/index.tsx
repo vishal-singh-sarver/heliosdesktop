@@ -36,6 +36,9 @@ export interface FormFieldInputProps {
   lang?: string
   min?: string
   max?: string
+  // Extra classes appended to the <input>/<select> (e.g. a custom background).
+  // Appended last so they override the defaults.
+  inputClassName?: string
 }
 
 interface FormFieldProps {
@@ -54,13 +57,14 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     iconLeft,
     onIconLeftClick,
     inputRef,
+    inputClassName = '',
     ...restInputProps
   } = inputProps
   const errorId = useId()
 
   const outlineClasses = error ? 'outline outline-1 -outline-offset-1 outline-red-500' : 'outline-none'
   const focusBorderClassName = error ? 'focus:border-red-500' : 'focus:border-neutral-500'
-  const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}`
+  const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
   const paddedClassName = iconLeft ? `${baseClassName} pl-9 pr-3` : `${baseClassName} px-3`
 
   return (

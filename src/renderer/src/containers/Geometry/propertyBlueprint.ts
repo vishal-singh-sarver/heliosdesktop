@@ -63,7 +63,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Ground Size',
     columns: 2,
-    invalidMessage: 'Invalid Input: Can Accept only Numeric and Positive Values',
+    invalidMessage: 'Invalid Input',
     fields: [
       { property: 'length', label: 'Length', defaultValue: '10' },
       { property: 'breadth', label: 'Breadth', defaultValue: '10' }
@@ -81,7 +81,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Position',
     columns: 3,
-    invalidMessage: 'Invalid Input: Accept Numeric Values',
+    invalidMessage: 'Invalid Input',
     fields: [
       { property: 'position_x', label: 'X', defaultValue: '0' },
       { property: 'position_y', label: 'Y', defaultValue: '0' },
@@ -91,13 +91,13 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Rotation',
     columns: 1,
-    invalidMessage: 'Accept Numeric Values within Range {min} to {max}',
+    invalidMessage: 'Values should be between {min}-{max}',
     fields: [{ property: 'rotation_z', label: 'degree', defaultValue: '0' }]
   },
   {
     heading: 'Number of Tiles',
     columns: 2,
-    invalidMessage: 'Invalid Input: Accept only Positive Value',
+    invalidMessage: 'Invalid Input',
     fields: [
       { property: 'texture_x', label: 'R', defaultValue: '1' },
       { property: 'texture_y', label: 'C', defaultValue: '1' }
