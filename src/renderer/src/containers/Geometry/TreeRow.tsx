@@ -1,7 +1,14 @@
 import Dialog from '@renderer/components/Dialog'
 import React from 'react'
 import { useDispatch } from 'react-redux'
-import { deleteNodeRequested, groupNodes, moveNodes, select, toggleExpand } from './actions'
+import {
+  deleteNodeRequested,
+  groupNodes,
+  loadObjectRequested,
+  moveNodes,
+  select,
+  toggleExpand
+} from './actions'
 import GroupNameEditor from './GroupNameEditor'
 import { newGeoId } from './ids'
 import messages from './messages'
@@ -100,9 +107,11 @@ function TreeRow({
   }
 
   const handleSelect = (e: React.MouseEvent): void => {
-    if (projectId && scenarioId) {
-      dispatch(select(projectId, scenarioId, node.id, e.metaKey || e.ctrlKey))
-    }
+    if (!projectId || !scenarioId) return
+    const multi = e.metaKey || e.ctrlKey
+    dispatch(select(projectId, scenarioId, node.id, multi))
+    // Single-clicking a leaf loads its properties into the right-panel form.
+    if (!multi && !isGroup) dispatch(loadObjectRequested(projectId, scenarioId, node.id))
   }
 
   const handleToggle = (e: React.MouseEvent): void => {

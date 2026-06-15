@@ -274,10 +274,43 @@ describe('geometryReducer', () => {
         name: 'Ground.001',
         values: { length: '10', breadth: '10' },
         materialId: null,
+        isNew: true,
         saving: false,
         saveError: null
       })
       expect(r.createDraftNonce).toBe(1)
+    })
+
+    it('LOAD_OBJECT_SUCCEEDED opens the form for an existing ground (isNew:false, no insert)', () => {
+      // The ground is already in the tree; loading just opens the form.
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      const r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground'
+        })
+      )
+      expect(r.createDraft).toMatchObject({
+        objectId: '27',
+        isNew: false,
+        values: { length: '10', breadth: '10' }
+      })
+      // No duplicate insert / counter bump from a load.
+      expect(r.byScope[KEY].rootOrder).toEqual(['27'])
+      expect(r.byScope[KEY].counters.ground).toBe(1)
+      expect(r.createDraftNonce).toBe(1)
+      // The fetched values are cached so a re-click won't refetch.
+      expect(r.byScope[KEY].detailsById['27']).toEqual({
+        values: { length: '10', breadth: '10' },
+        objectTypeId: 1,
+        objectName: 'Ground'
+      })
     })
 
     it('SET_DRAFT_VALUE / MATERIAL update the open draft', () => {
@@ -298,11 +331,14 @@ describe('geometryReducer', () => {
       expect(r.createDraft).toMatchObject({ saving: false, saveError: 'nope' })
     })
 
-    it('UPDATE_OBJECT_SUCCEEDED closes the form, leaving the node in the tree', () => {
+    it('UPDATE_OBJECT_SUCCEEDED keeps the form open, syncs the node name, clears saving/new', () => {
       let r = created()
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S))
-      expect(r.createDraft).toBeNull()
-      expect(r.byScope[KEY].nodesById['27']).toBeDefined()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A' }))
+      // Form stays open (panel must not blank) showing the saved values.
+      expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
+      // The renamed name is synced into the tree node.
+      expect(r.byScope[KEY].nodesById['27'].name).toBe('Plot A')
     })
 
     it('CLOSE_CREATE_FORM discards the draft (but keeps the nonce)', () => {

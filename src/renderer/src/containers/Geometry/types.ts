@@ -44,6 +44,15 @@ export interface GeometryCounters {
   group: number
 }
 
+// Cached per-object detail for the right-panel form, keyed by node id. Filled
+// the first time a ground is fetched (or created/saved) so re-clicking it serves
+// from memory instead of a fresh GET.
+export interface ObjectDetail {
+  values: Record<string, string>
+  objectTypeId: number
+  objectName: string
+}
+
 // ── Edit-object draft (right-panel Properties form) ─────────────────────────
 //
 // Clicking +Ground POSTs an object with default values immediately; the response
@@ -52,12 +61,15 @@ export interface GeometryCounters {
 // by raw string field values so inputs stay controlled. Save PATCHes the object;
 // Cancel DELETEs it. The node is already in the tree (it exists on the backend).
 export interface CreateDraft {
-  objectId: string // backend id of the created object (PATCH/DELETE target)
+  objectId: string // backend id of the object (PATCH/DELETE target)
   objectTypeId: number // catalog object type id (Ground = 1)
   objectName: string // catalog `object` name, e.g. "Ground"
   name: string // node name, e.g. "Ground.001" (read-only; rename is separate)
   values: Record<string, string> // catalog property name -> raw input value
   materialId: number | null // selected material (optional)
+  // true = just created via +Ground (Cancel DELETEs it); false = opened by
+  // clicking an existing ground (Cancel just closes).
+  isNew: boolean
   saving: boolean
   saveError: string | null
 }
@@ -72,6 +84,7 @@ export interface ScenarioGeometry {
   counters: GeometryCounters
   syncById: Record<string, NodeSyncStatus>
   nameErrors: Record<string, string> // inline rename validation, keyed by node id
+  detailsById: Record<string, ObjectDetail> // cached property values per object
   loadStatus: LoadStatus
   loadError: string | null
 }

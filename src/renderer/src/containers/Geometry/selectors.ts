@@ -36,6 +36,7 @@ export const selectActiveGeometry = createSelector(
 // ── Field selectors ────────────────────────────────────────────────────────────
 
 export const selectNodesById = createSelector(selectActiveGeometry, (g) => g.nodesById)
+export const selectDetailsById = createSelector(selectActiveGeometry, (g) => g.detailsById)
 export const selectRootOrder = createSelector(selectActiveGeometry, (g) => g.rootOrder)
 export const selectSelectedIds = createSelector(selectActiveGeometry, (g) => g.selectedIds)
 export const selectSearchQuery = createSelector(selectActiveGeometry, (g) => g.searchQuery)

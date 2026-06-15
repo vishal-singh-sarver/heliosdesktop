@@ -124,6 +124,20 @@ export function renameGroup(
     .then(() => undefined)
 }
 
+// Renames a leaf object — PATCH /objects/{id}/rename. Distinct from the
+// properties update (which has no name field); the right-panel Save calls this
+// when the name changed.
+export function renameObject(
+  projectId: string,
+  scenarioId: string,
+  id: string,
+  name: string
+): Promise<void> {
+  return api
+    .patch(API_ROUTES.geometry.renameObject(projectId, scenarioId, id), { name })
+    .then(() => undefined)
+}
+
 // Deletes a node. A group also removes its children server-side; the reducer
 // mirrors that on success.
 export function deleteNode(projectId: string, scenarioId: string, id: string): Promise<void> {
@@ -156,6 +170,35 @@ export function createObject(
     .then((res) => {
       const obj = 'object' in res ? res.object : res
       return { node: wireObjectToNode(obj), values: wireObjectToValues(obj) }
+    })
+}
+
+// The full detail the right-panel form needs to edit an existing object: its
+// tree node, raw form values, and the catalog type (to resolve the form fields).
+export interface LoadedObject {
+  node: GeoNode
+  values: Record<string, string>
+  objectTypeId: number
+  objectName: string
+}
+
+// GET one object's detail — used when a ground is clicked in the tree. Tolerant
+// of a { success, object } wrapper or a bare object (same as createObject).
+export function getObject(
+  projectId: string,
+  scenarioId: string,
+  id: string
+): Promise<LoadedObject> {
+  return api
+    .get<CreateObjectResponse | WireObject>(API_ROUTES.geometry.getObject(projectId, scenarioId, id))
+    .then((res) => {
+      const obj = 'object' in res ? res.object : res
+      return {
+        node: wireObjectToNode(obj),
+        values: wireObjectToValues(obj),
+        objectTypeId: obj.object_type_id,
+        objectName: obj.object_type
+      }
     })
 }
 

@@ -71,6 +71,14 @@ export const API_ROUTES = {
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
     rename: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // PATCH an object's name (separate from the properties update). Used by the
+    // right-panel Save when the name field changed.
+    renameObject: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/rename`,
+    // GET one object's full detail (properties + visibility). Used when a ground
+    // is clicked in the tree to populate the right-panel form.
+    getObject: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
     // PATCH the object's properties / visibility / group (same path as remove,
     // different verb). Used by the right-panel Save.
     update: (projectId: string, scenarioId: string, objectId: string) =>

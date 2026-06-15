@@ -12,6 +12,7 @@ import {
   LIST_NODES_REQUESTED,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
+  LOAD_OBJECT_SUCCEEDED,
   MOVE_NODES,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
@@ -46,6 +47,7 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   counters: { ground: 0, group: 0 },
   syncById: {},
   nameErrors: {},
+  detailsById: {},
   loadStatus: 'idle',
   loadError: null
 })
@@ -102,6 +104,7 @@ const geometryReducer = (
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         s.nodesById = {}
         s.rootOrder = []
+        s.detailsById = {} // a fresh load invalidates the cached property values
         for (const node of action.payload) {
           s.nodesById[node.id] = node
           if (node.parentId === null) s.rootOrder.push(node.id)
@@ -209,6 +212,7 @@ const geometryReducer = (
         s.rootOrder = s.rootOrder.filter((r) => !toRemove.includes(r))
         s.selectedIds = s.selectedIds.filter((sid) => !toRemove.includes(sid))
         for (const id of toRemove) delete s.nameErrors[id]
+        for (const id of toRemove) delete s.detailsById[id]
         // Removing a leaf may leave its parent group empty.
         pruneEmptyGroups(s)
         break
@@ -338,6 +342,7 @@ const geometryReducer = (
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
         if (node.kind === 'ground') s.counters.ground += 1
+        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
         draft.createDraft = {
           objectId: node.id,
           objectTypeId,
@@ -345,6 +350,29 @@ const geometryReducer = (
           name: node.name,
           values: { ...values },
           materialId: null,
+          isNew: true,
+          saving: false,
+          saveError: null
+        }
+        draft.createDraftNonce += 1
+        break
+      }
+
+      case LOAD_OBJECT_SUCCEEDED: {
+        // Clicking a ground GETs its detail; open the form to view/edit it. The
+        // node is already in the tree (and selected), so we don't insert it; this
+        // is an existing object (isNew: false) so Cancel won't delete it.
+        const { node, values, objectTypeId, objectName } = action.payload
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
+        draft.createDraft = {
+          objectId: node.id,
+          objectTypeId,
+          objectName,
+          name: node.name,
+          values: { ...values },
+          materialId: null,
+          isNew: false,
           saving: false,
           saveError: null
         }
@@ -364,10 +392,25 @@ const geometryReducer = (
         break
       }
 
-      case UPDATE_OBJECT_SUCCEEDED:
-        // PATCH committed — close the form. The node is already in the tree.
-        draft.createDraft = null
+      case UPDATE_OBJECT_SUCCEEDED: {
+        // PATCH committed. Keep the form OPEN showing the saved values (so the
+        // panel doesn't blank out), sync the node's name in the tree, and mark
+        // it no longer new (Cancel→Close, won't delete).
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const node = s.nodesById[action.payload.objectId]
+        if (node) node.name = action.payload.name
+        if (draft.createDraft) {
+          draft.createDraft.saving = false
+          draft.createDraft.isNew = false
+          // Refresh the cache with the just-saved values.
+          s.detailsById[action.payload.objectId] = {
+            values: { ...draft.createDraft.values },
+            objectTypeId: draft.createDraft.objectTypeId,
+            objectName: draft.createDraft.objectName
+          }
+        }
         break
+      }
 
       case UPDATE_OBJECT_FAILED: {
         if (!draft.createDraft) break

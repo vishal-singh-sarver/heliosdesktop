@@ -10,6 +10,9 @@ import {
   DELETE_NODE_REQUESTED,
   DELETE_NODE_SUCCEEDED,
   GROUP_NODES,
+  LOAD_OBJECT_FAILED,
+  LOAD_OBJECT_REQUESTED,
+  LOAD_OBJECT_SUCCEEDED,
   LIST_NODES_REQUESTED,
   MOVE_NODES,
   LIST_NODES_SUCCEEDED,
@@ -227,9 +230,35 @@ export type UpdateObjectSucceededAction = {
   type: typeof UPDATE_OBJECT_SUCCEEDED
   projectId: string
   scenarioId: string
+  // The saved object id + (possibly renamed) name, so the reducer can sync the
+  // tree node and keep the form open showing the saved values.
+  payload: { objectId: string; name: string }
 }
 export type UpdateObjectFailedAction = {
   type: typeof UPDATE_OBJECT_FAILED
+  payload: string
+}
+// Clicking a ground fires this; the saga GETs its detail. Succeeded opens the
+// form (the node is already in the tree).
+export type LoadObjectRequestedAction = {
+  type: typeof LOAD_OBJECT_REQUESTED
+  projectId: string
+  scenarioId: string
+  id: string
+}
+export type LoadObjectSucceededAction = {
+  type: typeof LOAD_OBJECT_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  payload: {
+    node: GeoNode
+    values: Record<string, string>
+    objectTypeId: number
+    objectName: string
+  }
+}
+export type LoadObjectFailedAction = {
+  type: typeof LOAD_OBJECT_FAILED
   payload: string
 }
 
@@ -264,6 +293,9 @@ export type GeometryAction =
   | UpdateObjectRequestedAction
   | UpdateObjectSucceededAction
   | UpdateObjectFailedAction
+  | LoadObjectRequestedAction
+  | LoadObjectSucceededAction
+  | LoadObjectFailedAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -475,10 +507,33 @@ export const updateObjectRequested = (
 
 export const updateObjectSucceeded = (
   projectId: string,
-  scenarioId: string
-): UpdateObjectSucceededAction => ({ type: UPDATE_OBJECT_SUCCEEDED, projectId, scenarioId })
+  scenarioId: string,
+  payload: { objectId: string; name: string }
+): UpdateObjectSucceededAction => ({ type: UPDATE_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
 
 export const updateObjectFailed = (error: string): UpdateObjectFailedAction => ({
   type: UPDATE_OBJECT_FAILED,
+  payload: error
+})
+
+export const loadObjectRequested = (
+  projectId: string,
+  scenarioId: string,
+  id: string
+): LoadObjectRequestedAction => ({ type: LOAD_OBJECT_REQUESTED, projectId, scenarioId, id })
+
+export const loadObjectSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  payload: {
+    node: GeoNode
+    values: Record<string, string>
+    objectTypeId: number
+    objectName: string
+  }
+): LoadObjectSucceededAction => ({ type: LOAD_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
+
+export const loadObjectFailed = (error: string): LoadObjectFailedAction => ({
+  type: LOAD_OBJECT_FAILED,
   payload: error
 })

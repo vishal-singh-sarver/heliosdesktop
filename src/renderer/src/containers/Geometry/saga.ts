@@ -7,6 +7,7 @@ import type {
   CreateObjectRequestedAction,
   DeleteNodeRequestedAction,
   ListNodesRequestedAction,
+  LoadObjectRequestedAction,
   RenameRequestedAction,
   UpdateObjectRequestedAction
 } from './actions'
@@ -15,14 +16,20 @@ import {
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   LIST_NODES_REQUESTED,
+  LOAD_OBJECT_REQUESTED,
   RENAME_REQUESTED,
   UPDATE_OBJECT_REQUESTED
 } from './constants'
 import { formatName } from './naming'
 import { defaultValuesForObject } from './propertyBlueprint'
-import { selectCounters, selectCreateDraft, selectNodesById } from './selectors'
+import {
+  selectCounters,
+  selectCreateDraft,
+  selectDetailsById,
+  selectNodesById
+} from './selectors'
 import * as service from './service'
-import type { CreateDraft, GeoNode, GeometryCounters } from './types'
+import type { CreateDraft, GeoNode, GeometryCounters, ObjectDetail } from './types'
 
 // Raw string form values → numeric properties for the backend (blank fields are
 // dropped). Shared by create (defaults) and update (edited values).
@@ -122,8 +129,19 @@ export function* createObjectWorker(action: CreateObjectRequestedAction): Genera
   }
 }
 
-// Save: PATCH the draft's object with the current form values, plus its current
-// viewport/render visibility and group. takeLeading guards a double-tap on Save.
+// Shallow equality for the flat numeric-property maps — used to skip the
+// properties PATCH when nothing in the form's values actually changed.
+function sameProperties(a: Record<string, number>, b: Record<string, number>): boolean {
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((k) => a[k] === b[k])
+}
+
+// Save: persist ONLY what changed. Properties/visibility/group go through the
+// update endpoint (§5.4); the name has its own endpoint (§5.5, no `name` field
+// on update — they can't be one call). A rename-only save therefore fires just
+// the rename; a properties-only save fires just the update. takeLeading guards
+// a double-tap on Save.
 export function* updateObjectWorker(action: UpdateObjectRequestedAction): Generator {
   const { projectId, scenarioId } = action
   const draft = (yield select(selectCreateDraft)) as CreateDraft | null
@@ -131,17 +149,56 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
   try {
     const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
     const node = nodesById[draft.objectId]
-    yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
-      properties: numericProperties(draft.values),
-      visibility: {
-        viewport: node?.visibleInViewport ?? true,
-        render: node ? node.modelVisibility.mode !== 'none' : true
-      },
-      groupId: node?.parentId ?? null
-    })
-    yield put(actions.updateObjectSucceeded(projectId, scenarioId))
+    // Compare against the values cached when the form opened (or last saved).
+    const detailsById = (yield select(selectDetailsById)) as Record<string, ObjectDetail>
+    const original = detailsById[draft.objectId]
+    const nextProps = numericProperties(draft.values)
+    const propsChanged = !original || !sameProperties(nextProps, numericProperties(original.values))
+    const nameChanged = !!node && draft.name !== node.name
+
+    if (propsChanged) {
+      yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
+        properties: nextProps,
+        visibility: {
+          viewport: node?.visibleInViewport ?? true,
+          render: node ? node.modelVisibility.mode !== 'none' : true
+        },
+        groupId: node?.parentId ?? null
+      })
+    }
+    if (nameChanged) {
+      yield call(service.renameObject, projectId, scenarioId, draft.objectId, draft.name)
+    }
+    yield put(
+      actions.updateObjectSucceeded(projectId, scenarioId, {
+        objectId: draft.objectId,
+        name: draft.name
+      })
+    )
   } catch (err) {
     yield put(actions.updateObjectFailed((err as Error).message))
+  }
+}
+
+// Clicking a ground opens the right-panel form. Served from the per-scope cache
+// if this object's detail was already fetched; otherwise GET it (and the reducer
+// caches the result). takeLatest cancels a stale load on a fast re-click.
+export function* loadObjectWorker(action: LoadObjectRequestedAction): Generator {
+  const { projectId, scenarioId, id } = action
+  try {
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const node = nodesById[id]
+    if (!node) return
+    const detailsById = (yield select(selectDetailsById)) as Record<string, ObjectDetail>
+    const cached = detailsById[id]
+    if (cached) {
+      yield put(actions.loadObjectSucceeded(projectId, scenarioId, { node, ...cached }))
+      return
+    }
+    const loaded = (yield call(service.getObject, projectId, scenarioId, id)) as service.LoadedObject
+    yield put(actions.loadObjectSucceeded(projectId, scenarioId, loaded))
+  } catch (err) {
+    yield put(actions.loadObjectFailed((err as Error).message))
   }
 }
 
@@ -152,4 +209,5 @@ export default function* geometrySaga(): Generator {
   yield takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker)
   yield takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker)
   yield takeLeading(UPDATE_OBJECT_REQUESTED, updateObjectWorker)
+  yield takeLatest(LOAD_OBJECT_REQUESTED, loadObjectWorker)
 }

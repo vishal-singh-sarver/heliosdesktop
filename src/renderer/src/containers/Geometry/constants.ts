@@ -52,3 +52,7 @@ export const CREATE_OBJECT_FAILED = 'app/Geometry/CREATE_OBJECT_FAILED' as const
 export const UPDATE_OBJECT_REQUESTED = 'app/Geometry/UPDATE_OBJECT_REQUESTED' as const
 export const UPDATE_OBJECT_SUCCEEDED = 'app/Geometry/UPDATE_OBJECT_SUCCEEDED' as const
 export const UPDATE_OBJECT_FAILED = 'app/Geometry/UPDATE_OBJECT_FAILED' as const
+// Clicking a ground GETs its detail and opens the form to view/edit it.
+export const LOAD_OBJECT_REQUESTED = 'app/Geometry/LOAD_OBJECT_REQUESTED' as const
+export const LOAD_OBJECT_SUCCEEDED = 'app/Geometry/LOAD_OBJECT_SUCCEEDED' as const
+export const LOAD_OBJECT_FAILED = 'app/Geometry/LOAD_OBJECT_FAILED' as const
