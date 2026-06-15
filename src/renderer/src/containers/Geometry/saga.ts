@@ -1,3 +1,5 @@
+import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
+import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import * as actions from './actions'
 import type {
@@ -5,19 +7,34 @@ import type {
   CreateObjectRequestedAction,
   DeleteNodeRequestedAction,
   ListNodesRequestedAction,
-  RenameRequestedAction
+  RenameRequestedAction,
+  UpdateObjectRequestedAction
 } from './actions'
 import {
   ADD_GEOMETRY_REQUESTED,
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   LIST_NODES_REQUESTED,
-  RENAME_REQUESTED
+  RENAME_REQUESTED,
+  UPDATE_OBJECT_REQUESTED
 } from './constants'
 import { formatName } from './naming'
-import { selectCounters, selectCreateDraft } from './selectors'
+import { defaultValuesForObject } from './propertyBlueprint'
+import { selectCounters, selectCreateDraft, selectNodesById } from './selectors'
 import * as service from './service'
 import type { CreateDraft, GeoNode, GeometryCounters } from './types'
+
+// Raw string form values → numeric properties for the backend (blank fields are
+// dropped). Shared by create (defaults) and update (edited values).
+function numericProperties(values: Record<string, string>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [property, raw] of Object.entries(values)) {
+    const trimmed = raw.trim()
+    if (trimmed === '') continue
+    out[property] = Number(trimmed)
+  }
+  return out
+}
 
 // Loads the saved-geometries tree for a scenario. takeLatest cancels a stale
 // load if the user switches scenario mid-request.
@@ -76,30 +93,55 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
   }
 }
 
-// Creates an object from the right-panel Properties form draft. The draft holds
-// raw string field values; we convert them to numbers for the backend payload.
-// Materials are deferred (sent empty) until the materials-instance flow exists.
-// takeLeading guards against a double-tap on Save.
+// +Ground: POST a new object with the blueprint's default values (Ground Size
+// 10×10, Resolution 1×1, …), then open the right-panel form from the persisted
+// object the backend returns. Materials are deferred (sent empty) until the
+// materials-instance flow exists. takeLeading guards a double-click on +Ground.
 export function* createObjectWorker(action: CreateObjectRequestedAction): Generator {
+  const { projectId, scenarioId, objectTypeId, objectName, name } = action
+  try {
+    const objectTypes = (yield select(selectAllObjectTypes)) as ObjectTypeDef[]
+    const objectType = objectTypes.find((o) => o.id === objectTypeId)
+    const properties = numericProperties(defaultValuesForObject(objectType))
+    const created = (yield call(service.createObject, projectId, scenarioId, {
+      objectTypeId,
+      name,
+      properties,
+      materials: []
+    })) as service.CreatedObject
+    yield put(
+      actions.createObjectSucceeded(projectId, scenarioId, {
+        node: created.node,
+        values: created.values,
+        objectTypeId,
+        objectName
+      })
+    )
+  } catch (err) {
+    yield put(actions.createObjectFailed((err as Error).message))
+  }
+}
+
+// Save: PATCH the draft's object with the current form values, plus its current
+// viewport/render visibility and group. takeLeading guards a double-tap on Save.
+export function* updateObjectWorker(action: UpdateObjectRequestedAction): Generator {
   const { projectId, scenarioId } = action
   const draft = (yield select(selectCreateDraft)) as CreateDraft | null
   if (!draft) return
   try {
-    const properties: Record<string, number> = {}
-    for (const [property, raw] of Object.entries(draft.values)) {
-      const trimmed = raw.trim()
-      if (trimmed === '') continue
-      properties[property] = Number(trimmed)
-    }
-    const node = (yield call(service.createObject, projectId, scenarioId, {
-      objectTypeId: draft.objectTypeId,
-      name: draft.name,
-      properties,
-      materials: []
-    })) as GeoNode
-    yield put(actions.createObjectSucceeded(projectId, scenarioId, node))
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const node = nodesById[draft.objectId]
+    yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
+      properties: numericProperties(draft.values),
+      visibility: {
+        viewport: node?.visibleInViewport ?? true,
+        render: node ? node.modelVisibility.mode !== 'none' : true
+      },
+      groupId: node?.parentId ?? null
+    })
+    yield put(actions.updateObjectSucceeded(projectId, scenarioId))
   } catch (err) {
-    yield put(actions.createObjectFailed((err as Error).message))
+    yield put(actions.updateObjectFailed((err as Error).message))
   }
 }
 
@@ -109,4 +151,5 @@ export default function* geometrySaga(): Generator {
   yield takeEvery(RENAME_REQUESTED, renameWorker)
   yield takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker)
   yield takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker)
+  yield takeLeading(UPDATE_OBJECT_REQUESTED, updateObjectWorker)
 }

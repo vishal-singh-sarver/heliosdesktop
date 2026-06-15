@@ -44,16 +44,18 @@ export interface GeometryCounters {
   group: number
 }
 
-// ── Create-object draft (right-panel Properties form) ───────────────────────
+// ── Edit-object draft (right-panel Properties form) ─────────────────────────
 //
-// Plan B: clicking +Ground opens an empty form instead of creating a node.
-// The draft holds the in-progress form for ONE object at a time (the active
-// scenario's), keyed by raw string field values so inputs stay controlled.
-// Save POSTs and, on success, the node lands in the tree and the draft clears.
+// Clicking +Ground POSTs an object with default values immediately; the response
+// opens this draft, populated with the persisted object's values. The draft is
+// the in-progress edit for ONE object at a time (the active scenario's), keyed
+// by raw string field values so inputs stay controlled. Save PATCHes the object;
+// Cancel DELETEs it. The node is already in the tree (it exists on the backend).
 export interface CreateDraft {
+  objectId: string // backend id of the created object (PATCH/DELETE target)
   objectTypeId: number // catalog object type id (Ground = 1)
   objectName: string // catalog `object` name, e.g. "Ground"
-  name: string // proposed node name (editable), e.g. "Ground.001"
+  name: string // node name, e.g. "Ground.001" (read-only; rename is separate)
   values: Record<string, string> // catalog property name -> raw input value
   materialId: number | null // selected material (optional)
   saving: boolean

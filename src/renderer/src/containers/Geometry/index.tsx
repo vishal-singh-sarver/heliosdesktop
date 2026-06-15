@@ -13,9 +13,8 @@ import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import { listNodesRequested, openCreateForm, setSearchQuery } from './actions'
+import { createObjectRequested, listNodesRequested, setSearchQuery } from './actions'
 import GeometryTree from './GeometryTree'
-import { defaultValuesForObject } from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
 import { selectNextGroundName, selectSearchQuery } from './selectors'
@@ -41,15 +40,14 @@ export function Geometry(): React.JSX.Element {
     if (projectId && scenarioId) dispatch(listNodesRequested(projectId, scenarioId))
   }, [projectId, scenarioId, dispatch])
 
-  // Plan B: +Ground opens an empty Properties form in the right panel (it does
-  // NOT create the node yet). The catalog supplies the object type id; Save in
-  // the form POSTs to create. Proposed name continues the Ground.NNN sequence.
+  // +Ground POSTs a new object with default values immediately (the saga builds
+  // the payload from the blueprint defaults — Ground Size 10×10, Resolution 1×1,
+  // …). The response opens the Properties form in the right panel for editing.
+  // Proposed name continues the Ground.NNN sequence.
   const onAddGround = (): void => {
     const ground = objectTypes.find((o) => o.object === 'Ground')
     if (!projectId || !scenarioId || !ground) return
-    // Seed the form with the spec's default values (Resolution 1×1, Position
-    // 0,0,0, Rotation 0, Tiles 1×1); Ground Size is left for the user to fill.
-    dispatch(openCreateForm(ground.id, ground.object, nextGroundName, defaultValuesForObject(ground)))
+    dispatch(createObjectRequested(projectId, scenarioId, ground.id, ground.object, nextGroundName))
   }
   // Crop and Import-from-file are separate flows (deferred) — buttons shown,
   // but only Ground actually creates for now.

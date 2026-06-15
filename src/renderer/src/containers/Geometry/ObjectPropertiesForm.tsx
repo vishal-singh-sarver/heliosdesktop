@@ -17,31 +17,23 @@ import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import {
   closeCreateForm,
-  createObjectRequested,
+  deleteNodeRequested,
   setDraftMaterial,
-  setDraftName,
-  setDraftValue
+  setDraftValue,
+  updateObjectRequested
 } from './actions'
 import { isObjectFormValid, resolveObjectFormByType, validateFieldValue } from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
 import { selectCreateDraft, selectCreateDraftNonce } from './selectors'
 import type { CreateDraft } from './types'
-import { validateGroupName } from './validation'
 
-// Name uniqueness is enforced by the backend on Save (it returns
-// "Geometry name already exists"), so we don't scan every geometry on each
-// keystroke. The empty set makes validateGroupName's uniqueness branch a no-op
-// here, leaving just the cheap, instant rules: non-empty + ≤20 characters.
-const NO_NAME_CONFLICTS = new Set<string>()
-
-// The right-panel Properties form for creating an object (Plan B): +Ground opens
-// an empty form here; Save POSTs. Renders nothing when there is no active draft.
-// Injects the geometry slice so it works mounted in the RightPanel independently
-// of the LeftPanel's <Geometry />. The form is keyed by the open-nonce (which
-// bumps once per +Ground) so its touched/submitted state resets when a NEW draft
-// opens — but NOT while the user edits the name, which would remount the form
-// every keystroke and drop input focus.
+// The right-panel Properties form for editing an object: +Ground creates the
+// object and opens this form populated from the persisted values. Save PATCHes
+// it; Cancel DELETEs it. Renders nothing when there is no active draft. Injects
+// the geometry slice so it works mounted in the RightPanel independently of the
+// LeftPanel's <Geometry />. The form is keyed by the open-nonce (which bumps once
+// per +Ground) so its touched/submitted state resets when a NEW object opens.
 export function ObjectPropertiesForm(): React.JSX.Element | null {
   useInjectReducer({ key: 'geometry', reducer: reducer as Reducer })
   useInjectSaga({ key: 'geometry', saga })
@@ -71,14 +63,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
 
   const objectType = objectTypes.find((o) => o.id === draft.objectTypeId)
   const { groups } = resolveObjectFormByType(objectType)
-  const fieldsValid = isObjectFormValid(groups, draft.values)
-
-  // Local name check is only the instant rules (non-empty, ≤20 chars incl.
-  // spaces) → "Character limit exceeded". Uniqueness is left to the backend,
-  // whose "Geometry name already exists" response shows in the save-error slot
-  // below — so we don't rescan the whole geometry list on every keystroke.
-  const nameError = validateGroupName(draft.name, NO_NAME_CONFLICTS)
-  const valid = fieldsValid && nameError == null
+  // The object already exists; the form just edits its properties. The name is
+  // read-only here (renaming is a separate flow), so validity is the fields only.
+  const valid = isObjectFormValid(groups, draft.values)
 
   // Block the keystroke when the in-progress value isn't numeric, or would add
   // an 8th decimal place — surfacing the matching message instead of storing it.
@@ -108,7 +95,14 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const onSave = (): void => {
     setSubmitted(true)
     if (!valid || !projectId || !scenarioId) return
-    dispatch(createObjectRequested(projectId, scenarioId))
+    dispatch(updateObjectRequested(projectId, scenarioId))
+  }
+
+  // Cancel discards the just-created object: DELETE it on the backend (reuses the
+  // delete flow) and close the form.
+  const onCancel = (): void => {
+    if (projectId && scenarioId) dispatch(deleteNodeRequested(projectId, scenarioId, draft.objectId))
+    dispatch(closeCreateForm())
   }
 
   return (
@@ -116,20 +110,14 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // the form never needs an inner scrollbar — even with every field showing an
     // error. Overflow on very short windows is absorbed by the RightPanel wrapper.
     <div className="flex flex-col gap-2.5">
-      {/* Header: editable object name */}
+      {/* Header: object name (read-only — renaming is a separate flow) */}
       <div>
-        <input
+        <p
           aria-label="Object name"
-          aria-invalid={nameError != null}
-          value={draft.name}
-          onChange={(e) => dispatch(setDraftName(e.target.value))}
-          className={`w-full rounded border bg-transparent px-1 text-sm font-medium text-neutral-100 outline-none ${
-            nameError
-              ? 'border-red-500'
-              : 'border-transparent hover:border-app-border focus:border-neutral-500'
-          }`}
-        />
-        {nameError && <p className="form-error-text mt-1">{nameError}</p>}
+          className="truncate px-1 text-sm font-medium text-neutral-100"
+        >
+          {draft.name}
+        </p>
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -208,7 +196,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => dispatch(closeCreateForm())}
+          onClick={onCancel}
           disabled={draft.saving}
           className="h-9 rounded border border-app-border px-4 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
         >

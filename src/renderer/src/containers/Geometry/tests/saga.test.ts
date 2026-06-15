@@ -1,3 +1,5 @@
+import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
+import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import geometrySaga, {
   addGeometryWorker,
@@ -5,7 +7,8 @@ import geometrySaga, {
   deleteNodeWorker,
   generateId,
   listNodesWorker,
-  renameWorker
+  renameWorker,
+  updateObjectWorker
 } from '../saga'
 import * as actions from '../actions'
 import {
@@ -13,11 +16,23 @@ import {
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   LIST_NODES_REQUESTED,
-  RENAME_REQUESTED
+  RENAME_REQUESTED,
+  UPDATE_OBJECT_REQUESTED
 } from '../constants'
-import { selectCounters, selectCreateDraft } from '../selectors'
+import { selectCounters, selectCreateDraft, selectNodesById } from '../selectors'
 import * as service from '../service'
 import type { CreateDraft, GeoNode, GeometryCounters } from '../types'
+
+const groundNode = (id: string, parentId: string | null = null): GeoNode => ({
+  id,
+  name: 'Ground.001',
+  kind: 'ground',
+  parentId,
+  childIds: [],
+  expanded: false,
+  visibleInViewport: true,
+  modelVisibility: { mode: 'all' }
+})
 
 const P = 'p1'
 const S = 's1'
@@ -103,63 +118,91 @@ describe('deleteNodeWorker', () => {
 })
 
 describe('createObjectWorker', () => {
+  // Minimal catalog: no properties → defaultValuesForObject yields {} (exact
+  // defaults are covered by propertyBlueprint.test); the worker just wires
+  // select → POST → succeed.
+  const objectTypes = [{ id: 1, object: 'Ground', properties: [] }] as unknown as ObjectTypeDef[]
+
+  it('POSTs an object with default values, then succeeds with node + values', () => {
+    const gen = createObjectWorker(actions.createObjectRequested(P, S, 1, 'Ground', 'Ground.001'))
+    expect(gen.next().value).toEqual(select(selectAllObjectTypes))
+    const input = { objectTypeId: 1, name: 'Ground.001', properties: {}, materials: [] }
+    expect(gen.next(objectTypes).value).toEqual(call(service.createObject, P, S, input))
+
+    const created = { node: groundNode('27'), values: { length: '10', breadth: '10' } }
+    expect(gen.next(created).value).toEqual(
+      put(
+        actions.createObjectSucceeded(P, S, {
+          node: created.node,
+          values: created.values,
+          objectTypeId: 1,
+          objectName: 'Ground'
+        })
+      )
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('puts createObjectFailed when the service throws', () => {
+    const gen = createObjectWorker(actions.createObjectRequested(P, S, 1, 'Ground', 'Ground.001'))
+    gen.next() // select objectTypes
+    gen.next(objectTypes) // advance to the call
+    expect(gen.throw(new Error('bad')).value).toEqual(put(actions.createObjectFailed('bad')))
+  })
+})
+
+describe('updateObjectWorker', () => {
   const draft: CreateDraft = {
+    objectId: '27',
     objectTypeId: 1,
     objectName: 'Ground',
     name: 'Ground.001',
-    values: { length: '10', breadth: ' ', position_x: '0' },
+    values: { length: '20', breadth: '10', position_x: ' ' },
     materialId: null,
     saving: false,
     saveError: null
   }
 
-  it('converts non-empty draft values to numbers, creates, then succeeds', () => {
-    const gen = createObjectWorker(actions.createObjectRequested(P, S))
+  it('PATCHes the draft object with values + visibility + group, then succeeds', () => {
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     expect(gen.next().value).toEqual(select(selectCreateDraft))
-    // Blank values (breadth) are dropped; the rest become numbers.
-    const input = {
-      objectTypeId: 1,
-      name: 'Ground.001',
-      properties: { length: 10, position_x: 0 },
-      materials: []
-    }
-    expect(gen.next(draft).value).toEqual(call(service.createObject, P, S, input))
-
-    const node: GeoNode = {
-      id: '27',
-      name: 'Ground.001',
-      kind: 'ground',
-      parentId: null,
-      childIds: [],
-      expanded: false,
-      visibleInViewport: true,
-      modelVisibility: { mode: 'all' }
-    }
-    expect(gen.next(node).value).toEqual(put(actions.createObjectSucceeded(P, S, node)))
+    expect(gen.next(draft).value).toEqual(select(selectNodesById))
+    // Blank values dropped; the rest become numbers. Visibility/group derive from
+    // the tree node (root, visible → render on).
+    expect(gen.next({ '27': groundNode('27') }).value).toEqual(
+      call(service.updateObject, P, S, '27', {
+        properties: { length: 20, breadth: 10 },
+        visibility: { viewport: true, render: true },
+        groupId: null
+      })
+    )
+    expect(gen.next().value).toEqual(put(actions.updateObjectSucceeded(P, S)))
     expect(gen.next().done).toBe(true)
   })
 
   it('no-ops when there is no draft', () => {
-    const gen = createObjectWorker(actions.createObjectRequested(P, S))
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     gen.next() // select draft
     expect(gen.next(null).done).toBe(true)
   })
 
-  it('puts createObjectFailed when the service throws', () => {
-    const gen = createObjectWorker(actions.createObjectRequested(P, S))
+  it('puts updateObjectFailed when the service throws', () => {
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     gen.next() // select draft
-    gen.next(draft) // advance to the call
-    expect(gen.throw(new Error('bad')).value).toEqual(put(actions.createObjectFailed('bad')))
+    gen.next(draft) // select nodesById
+    gen.next({ '27': groundNode('27') }) // advance to the call
+    expect(gen.throw(new Error('boom')).value).toEqual(put(actions.updateObjectFailed('boom')))
   })
 })
 
 describe('geometrySaga', () => {
-  it('watches list, add, rename, delete, then create-object', () => {
+  it('watches list, add, rename, delete, create-object, then update-object', () => {
     const gen = geometrySaga()
     expect(gen.next().value).toEqual(takeLatest(LIST_NODES_REQUESTED, listNodesWorker))
     expect(gen.next().value).toEqual(takeEvery(ADD_GEOMETRY_REQUESTED, addGeometryWorker))
     expect(gen.next().value).toEqual(takeEvery(RENAME_REQUESTED, renameWorker))
     expect(gen.next().value).toEqual(takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker))
     expect(gen.next().value).toEqual(takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker))
+    expect(gen.next().value).toEqual(takeLeading(UPDATE_OBJECT_REQUESTED, updateObjectWorker))
   })
 })

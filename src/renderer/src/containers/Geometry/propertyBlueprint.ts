@@ -25,8 +25,8 @@ import type {
 export interface FormFieldBlueprint {
   property: string
   label?: string
-  // Seed value the create form opens with (e.g. Position "0", Resolution "1").
-  // Omit for fields the user must fill themselves (Ground Size length/breadth).
+  // Seed value the create form opens with (e.g. Position "0", Resolution "1",
+  // Ground Size "10"). Omit for fields the user must fill themselves.
   defaultValue?: string
 }
 
@@ -65,8 +65,8 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
     columns: 2,
     invalidMessage: 'Invalid Input: Can Accept only Numeric and Positive Values',
     fields: [
-      { property: 'length', label: 'Length' },
-      { property: 'breadth', label: 'Breadth' }
+      { property: 'length', label: 'Length', defaultValue: '10' },
+      { property: 'breadth', label: 'Breadth', defaultValue: '10' }
     ]
   },
   {
@@ -244,11 +244,10 @@ export function resolveObjectFormByType(
   return resolveObjectForm(objectType, OBJECT_FORM_BLUEPRINTS[objectType.object])
 }
 
-// The seed values the create form should open with for an object type — the
-// blueprint defaults (Resolution 1×1, Position 0,0,0, Rotation 0, Tiles 1×1),
-// keyed by catalog property name. Fields without a default are omitted (the
-// user fills them in, e.g. Ground Size). Empty object when the type has no
-// blueprint or no defaults.
+// The seed values a new object is created with for an object type — the
+// blueprint defaults (Ground Size 10×10, Resolution 1×1, Position 0,0,0,
+// Rotation 0, Tiles 1×1), keyed by catalog property name. Fields without a
+// default are omitted. Empty object when the type has no blueprint or defaults.
 export function defaultValuesForObject(
   objectType: ObjectTypeDef | undefined
 ): Record<string, string> {

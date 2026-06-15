@@ -246,67 +246,69 @@ describe('geometryReducer', () => {
     expect(s.selectedIds).toEqual(['x'])
   })
 
-  describe('create-object draft', () => {
-    const opened = () =>
-      geometryReducer(initialState, actions.openCreateForm(1, 'Ground', 'Ground.001'))
-
-    it('OPEN_CREATE_FORM starts an empty draft', () => {
-      const r = opened()
-      expect(r.createDraft).toEqual({
-        objectTypeId: 1,
-        objectName: 'Ground',
-        name: 'Ground.001',
-        values: {},
-        materialId: null,
-        saving: false,
-        saveError: null
-      })
-    })
-
-    it('SET_DRAFT_VALUE / NAME / MATERIAL update the draft', () => {
-      let r = opened()
-      r = geometryReducer(r, actions.setDraftValue('length', '10'))
-      r = geometryReducer(r, actions.setDraftName('Plot A'))
-      r = geometryReducer(r, actions.setDraftMaterial(3))
-      expect(r.createDraft).toMatchObject({
-        name: 'Plot A',
-        values: { length: '10' },
-        materialId: 3
-      })
-    })
-
-    it('CREATE_OBJECT_REQUESTED marks the draft saving; FAILED records the error', () => {
-      let r = opened()
-      r = geometryReducer(r, actions.createObjectRequested(P, S))
-      expect(r.createDraft?.saving).toBe(true)
-      r = geometryReducer(r, actions.createObjectFailed('nope'))
-      expect(r.createDraft).toMatchObject({ saving: false, saveError: 'nope' })
-    })
-
-    it('CREATE_OBJECT_SUCCEEDED inserts the node, selects it, bumps the counter, clears the draft', () => {
-      const r = geometryReducer(
-        opened(),
-        actions.createObjectSucceeded(P, S, ground('27', 'Ground.001'))
+  describe('edit-object draft', () => {
+    // +Ground POSTs first; CREATE_OBJECT_SUCCEEDED inserts the node AND opens the
+    // edit form populated from the persisted object's values.
+    const created = (values: Record<string, string> = { length: '10', breadth: '10' }) =>
+      geometryReducer(
+        initialState,
+        actions.createObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values,
+          objectTypeId: 1,
+          objectName: 'Ground'
+        })
       )
+
+    it('CREATE_OBJECT_SUCCEEDED inserts+selects the node, bumps counter, and opens the draft', () => {
+      const r = created()
       const s = r.byScope[KEY]
       expect(s.nodesById['27']).toMatchObject({ id: '27', kind: 'ground' })
       expect(s.rootOrder).toEqual(['27'])
       expect(s.selectedIds).toEqual(['27'])
       expect(s.counters.ground).toBe(1)
+      expect(r.createDraft).toEqual({
+        objectId: '27',
+        objectTypeId: 1,
+        objectName: 'Ground',
+        name: 'Ground.001',
+        values: { length: '10', breadth: '10' },
+        materialId: null,
+        saving: false,
+        saveError: null
+      })
+      expect(r.createDraftNonce).toBe(1)
+    })
+
+    it('SET_DRAFT_VALUE / MATERIAL update the open draft', () => {
+      let r = created()
+      r = geometryReducer(r, actions.setDraftValue('length', '20'))
+      r = geometryReducer(r, actions.setDraftMaterial(3))
+      expect(r.createDraft).toMatchObject({
+        values: { length: '20', breadth: '10' },
+        materialId: 3
+      })
+    })
+
+    it('UPDATE_OBJECT_REQUESTED marks the draft saving; FAILED records the error', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      expect(r.createDraft?.saving).toBe(true)
+      r = geometryReducer(r, actions.updateObjectFailed('nope'))
+      expect(r.createDraft).toMatchObject({ saving: false, saveError: 'nope' })
+    })
+
+    it('UPDATE_OBJECT_SUCCEEDED closes the form, leaving the node in the tree', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S))
       expect(r.createDraft).toBeNull()
+      expect(r.byScope[KEY].nodesById['27']).toBeDefined()
     })
 
     it('CLOSE_CREATE_FORM discards the draft (but keeps the nonce)', () => {
-      const r = geometryReducer(opened(), actions.closeCreateForm())
+      const r = geometryReducer(created(), actions.closeCreateForm())
       expect(r.createDraft).toBeNull()
       expect(r.createDraftNonce).toBe(1)
-    })
-
-    it('OPEN_CREATE_FORM bumps the nonce on every open (drives panel re-expand)', () => {
-      let r = geometryReducer(initialState, actions.openCreateForm(1, 'Ground', 'Ground.001'))
-      expect(r.createDraftNonce).toBe(1)
-      r = geometryReducer(r, actions.openCreateForm(1, 'Ground', 'Ground.002'))
-      expect(r.createDraftNonce).toBe(2)
     })
   })
 })

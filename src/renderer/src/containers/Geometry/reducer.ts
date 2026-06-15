@@ -13,7 +13,6 @@ import {
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
   MOVE_NODES,
-  OPEN_CREATE_FORM,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
   SELECT,
@@ -24,7 +23,10 @@ import {
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
   TOGGLE_EXPAND,
-  TOGGLE_VIEWPORT
+  TOGGLE_VIEWPORT,
+  UPDATE_OBJECT_FAILED,
+  UPDATE_OBJECT_REQUESTED,
+  UPDATE_OBJECT_SUCCEEDED
 } from './constants'
 import { deriveCounters, formatName } from './naming'
 import type { GeoNode, GeometryState, ScenarioGeometry } from './types'
@@ -291,26 +293,7 @@ const geometryReducer = (
         break
       }
 
-      // ── Create-object draft (right-panel Properties form) ────────────────────
-
-      case OPEN_CREATE_FORM: {
-        // Open a fresh, empty form. Replaces any in-progress draft (only one
-        // object is created at a time). Bump the nonce so the RightPanel
-        // re-expands even if a draft was already open.
-        draft.createDraft = {
-          objectTypeId: action.payload.objectTypeId,
-          objectName: action.payload.objectName,
-          name: action.payload.name,
-          // Seed with the blueprint defaults (Resolution 1×1, Position 0,0,0,
-          // Rotation 0, Tiles 1×1); Ground Size is left blank for the user.
-          values: { ...action.payload.values },
-          materialId: null,
-          saving: false,
-          saveError: null
-        }
-        draft.createDraftNonce += 1
-        break
-      }
+      // ── Edit-object draft (right-panel Properties form) ──────────────────────
 
       case SET_DRAFT_VALUE: {
         if (!draft.createDraft) break
@@ -341,27 +324,52 @@ const geometryReducer = (
         draft.createDraft = null
         break
 
-      case CREATE_OBJECT_REQUESTED: {
+      case CREATE_OBJECT_REQUESTED:
+        // +Ground POST is in flight; no draft exists yet, so nothing to mark.
+        break
+
+      case CREATE_OBJECT_SUCCEEDED: {
+        // The backend created the object; insert it into the active scope's tree,
+        // select it, advance the Ground counter, and open the edit form populated
+        // from the persisted object's values.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const { node, values, objectTypeId, objectName } = action.payload
+        s.nodesById[node.id] = node
+        if (node.parentId === null) s.rootOrder.push(node.id)
+        s.selectedIds = [node.id]
+        if (node.kind === 'ground') s.counters.ground += 1
+        draft.createDraft = {
+          objectId: node.id,
+          objectTypeId,
+          objectName,
+          name: node.name,
+          values: { ...values },
+          materialId: null,
+          saving: false,
+          saveError: null
+        }
+        draft.createDraftNonce += 1
+        break
+      }
+
+      case CREATE_OBJECT_FAILED:
+        // POST failed before the form opened — nothing to roll back. (The error
+        // surfaces via the saga; no draft slot exists to show it yet.)
+        break
+
+      case UPDATE_OBJECT_REQUESTED: {
         if (!draft.createDraft) break
         draft.createDraft.saving = true
         draft.createDraft.saveError = null
         break
       }
 
-      case CREATE_OBJECT_SUCCEEDED: {
-        // The backend assigned the node; insert it into the active scope's tree,
-        // select it, advance the Ground counter, and clear the draft.
-        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        const node = action.payload
-        s.nodesById[node.id] = node
-        if (node.parentId === null) s.rootOrder.push(node.id)
-        s.selectedIds = [node.id]
-        if (node.kind === 'ground') s.counters.ground += 1
+      case UPDATE_OBJECT_SUCCEEDED:
+        // PATCH committed — close the form. The node is already in the tree.
         draft.createDraft = null
         break
-      }
 
-      case CREATE_OBJECT_FAILED: {
+      case UPDATE_OBJECT_FAILED: {
         if (!draft.createDraft) break
         draft.createDraft.saving = false
         draft.createDraft.saveError = action.payload

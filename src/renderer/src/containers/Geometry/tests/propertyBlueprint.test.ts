@@ -178,8 +178,10 @@ describe('validateFieldValue', () => {
 })
 
 describe('defaultValuesForObject (Ground)', () => {
-  it('seeds the spec defaults (Resolution 1×1, Position 0,0,0, Rotation 0, Tiles 1×1)', () => {
+  it('seeds the spec defaults (Ground Size 10×10, Resolution 1×1, Position 0,0,0, Rotation 0, Tiles 1×1)', () => {
     expect(defaultValuesForObject(groundType)).toEqual({
+      length: '10',
+      breadth: '10',
       resolution_x: '1',
       resolution_y: '1',
       position_x: '0',
@@ -191,10 +193,10 @@ describe('defaultValuesForObject (Ground)', () => {
     })
   })
 
-  it('omits fields without a default (Ground Size length/breadth stay blank)', () => {
+  it('seeds Ground Size length/breadth to 10', () => {
     const values = defaultValuesForObject(groundType)
-    expect(values).not.toHaveProperty('length')
-    expect(values).not.toHaveProperty('breadth')
+    expect(values.length).toBe('10')
+    expect(values.breadth).toBe('10')
   })
 
   it('returns an empty object for an unknown object type', () => {

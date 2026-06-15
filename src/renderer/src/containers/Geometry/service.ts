@@ -1,12 +1,5 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
-import {
-  mockCreateGeometry,
-  mockCreateObject,
-  mockDeleteNode,
-  mockListNodes,
-  mockRenameGroup
-} from './mockData'
 import type { GeoNode, ModelVisibility } from './types'
 
 // ── Create-object payload + wire shapes ──────────────────────────────────────
@@ -21,13 +14,16 @@ export interface CreateObjectInput {
   materials: Array<{ material_id: number; sync: boolean }>
 }
 
-// Subset of the backend's persisted object we actually consume.
+// Subset of the backend's persisted object we actually consume. `properties` is
+// the flat catalog-property→value map (e.g. { length: 10, position_x: 0 }) the
+// POST/GET returns; the right-panel form reads it to show the saved values.
 interface WireObject {
   id: number
   name: string
   object_type_id: number
   object_type: string
   group_id: number | null
+  properties?: Record<string, number | null>
   visibility?: {
     viewport?: boolean
     render?: boolean
@@ -60,6 +56,16 @@ export function wireObjectToNode(obj: WireObject): GeoNode {
   }
 }
 
+// The backend's flat `properties` map → the form's raw string values (the form
+// keeps every field as a controlled string). Null/absent values become "".
+export function wireObjectToValues(obj: WireObject): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const [property, value] of Object.entries(obj.properties ?? {})) {
+    values[property] = value == null ? '' : String(value)
+  }
+  return values
+}
+
 // Minimal create payload — only the two fields the backend needs for now; the
 // full geometry params are filled in later by the right-panel Properties form.
 export interface CreateGeometryInput {
@@ -68,11 +74,9 @@ export interface CreateGeometryInput {
   kind: 'ground'
 }
 
-// The single seam between the Geometry sagas and the data source. While
-// VITE_USE_MOCK is "true", every call resolves from the in-memory mock; flip
-// the env flag (no code change) once the scenario-scoped backend endpoints
-// exist. Sagas import only this module — never the mock or `api` directly.
-const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
+// The single seam between the Geometry sagas and the backend: every call goes
+// through `api` to the scenario-scoped endpoints. Sagas import only this module
+// — never `api` directly.
 
 // The backend returns the object list wrapped under one of a few keys (the
 // Swagger schema is loose). Pull the array out wherever it lives, then map each
@@ -91,7 +95,6 @@ export function parseListResponse(res: unknown): GeoNode[] {
 }
 
 export function listNodes(projectId: string, scenarioId: string): Promise<GeoNode[]> {
-  if (USE_MOCK) return mockListNodes(projectId, scenarioId)
   return api
     .get<unknown>(API_ROUTES.geometry.list(projectId, scenarioId))
     .then(parseListResponse)
@@ -105,7 +108,6 @@ export function createGeometry(
   scenarioId: string,
   input: CreateGeometryInput
 ): Promise<void> {
-  if (USE_MOCK) return mockCreateGeometry(projectId, scenarioId, input)
   return api
     .post(API_ROUTES.geometry.create(projectId, scenarioId), { id: input.id, name: input.name })
     .then(() => undefined)
@@ -117,7 +119,6 @@ export function renameGroup(
   id: string,
   name: string
 ): Promise<void> {
-  if (USE_MOCK) return mockRenameGroup(projectId, scenarioId, id, name)
   return api
     .patch(API_ROUTES.geometry.rename(projectId, scenarioId, id), { name })
     .then(() => undefined)
@@ -126,18 +127,24 @@ export function renameGroup(
 // Deletes a node. A group also removes its children server-side; the reducer
 // mirrors that on success.
 export function deleteNode(projectId: string, scenarioId: string, id: string): Promise<void> {
-  if (USE_MOCK) return mockDeleteNode(projectId, scenarioId, id)
   return api.delete(API_ROUTES.geometry.remove(projectId, scenarioId, id)).then(() => undefined)
 }
 
-// Creates an object (e.g. a Ground) from the right-panel Properties form. Sends
-// the full create payload and returns the persisted node mapped to a GeoNode.
+// The persisted object as the slice needs it: the tree node plus its raw form
+// values (so the right-panel form can show the just-created object's properties).
+export interface CreatedObject {
+  node: GeoNode
+  values: Record<string, string>
+}
+
+// Creates an object (e.g. a Ground) with its default property values. The
+// backend returns the full persisted object ({ success, object }); we map it to
+// the tree node AND extract the property values for the form (no extra GET).
 export function createObject(
   projectId: string,
   scenarioId: string,
   input: CreateObjectInput
-): Promise<GeoNode> {
-  if (USE_MOCK) return mockCreateObject(projectId, scenarioId, input)
+): Promise<CreatedObject> {
   return api
     .post<CreateObjectResponse | WireObject>(API_ROUTES.geometry.create(projectId, scenarioId), {
       object_type_id: input.objectTypeId,
@@ -146,5 +153,32 @@ export function createObject(
       visibility: {},
       materials: input.materials
     })
-    .then((res) => wireObjectToNode('object' in res ? res.object : res))
+    .then((res) => {
+      const obj = 'object' in res ? res.object : res
+      return { node: wireObjectToNode(obj), values: wireObjectToValues(obj) }
+    })
+}
+
+// PATCH an existing object's properties / visibility / group — the right-panel
+// Save. The backend keys objects by integer; group_id is sent as a number (null
+// at the root). The response is ignored (the tree node already holds name/parent).
+export interface UpdateObjectInput {
+  properties: Record<string, number>
+  visibility: { viewport: boolean; render: boolean }
+  groupId: string | null
+}
+
+export function updateObject(
+  projectId: string,
+  scenarioId: string,
+  id: string,
+  input: UpdateObjectInput
+): Promise<void> {
+  return api
+    .patch(API_ROUTES.geometry.update(projectId, scenarioId, id), {
+      properties: input.properties,
+      visibility: input.visibility,
+      group_id: input.groupId == null ? null : Number(input.groupId)
+    })
+    .then(() => undefined)
 }

@@ -63,15 +63,17 @@ export const API_ROUTES = {
     materialTypes: '/api/catalog/material-types',
     modelTypes: '/api/catalog/model-types'
   },
-  // Geometry routes are scenario-scoped (like weather). The backend endpoints
-  // are not built yet — served from the in-memory mock while VITE_USE_MOCK is
-  // on. Shapes match the agreed contract so the swap is a flag flip.
+  // Geometry routes are scenario-scoped (like weather).
   geometry: {
     list: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
     create: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
     rename: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // PATCH the object's properties / visibility / group (same path as remove,
+    // different verb). Used by the right-panel Save.
+    update: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
