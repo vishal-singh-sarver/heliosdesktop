@@ -8,11 +8,7 @@ import {
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
-import {
-  exceedsMaxDecimals,
-  isPartialNumericInput,
-  VALIDATION_MESSAGES
-} from 'utils/decimalValidation'
+import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import {
@@ -23,6 +19,7 @@ import {
   setDraftValue,
   updateObjectRequested
 } from './actions'
+import messages from './messages'
 import { isObjectFormValid, resolveObjectFormByType, validateFieldValue } from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
@@ -92,11 +89,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // subsequent keystroke that happens to be invalid.
     if (submitted) setSubmitted(false)
     if (!isPartialNumericInput(next)) {
-      setGuardErrors((g) => ({ ...g, [property]: VALIDATION_MESSAGES.NUMERIC_ONLY }))
+      setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
       return
     }
     if (exceedsMaxDecimals(next)) {
-      setGuardErrors((g) => ({ ...g, [property]: VALIDATION_MESSAGES.MANUAL_INPUT }))
+      setGuardErrors((g) => ({ ...g, [property]: messages.decimalLimit }))
       return
     }
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))

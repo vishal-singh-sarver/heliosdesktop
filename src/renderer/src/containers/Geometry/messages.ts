@@ -11,6 +11,10 @@ const messages = {
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Geometry name already exists',
   renameFailed: 'Unable to rename group. Please try again',
+  // Per-keystroke input guards (story copy). Geometry-specific so they don't
+  // change the shared decimalValidation copy used elsewhere (e.g. Weather).
+  decimalLimit: 'Only 7 Decimal places are supported',
+  inputNotSupported: 'This input is not supported',
   // Delete confirmation
   deleteTitle: 'Delete geometry',
   deleteConfirm: 'Delete',

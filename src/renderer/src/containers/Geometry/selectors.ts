@@ -4,7 +4,7 @@ import {
   selectActiveScenarioId
 } from 'containers/ProjectScreen/selectors'
 import type { RootState } from 'store/reducers'
-import { deriveCounters, formatName } from './naming'
+import { formatName, nextAvailableNumber } from './naming'
 import { emptyScenarioGeometry, initialState, scopeKey, type GeometryState } from './reducer'
 import type { GeoNode, ScenarioGeometry } from './types'
 
@@ -134,10 +134,9 @@ export const selectCreateDraftNonce = createSelector(
 )
 
 // Next auto-generated Ground name, derived live from the current tree: scan
-// every existing geometry (roots + group children), find the highest
-// Ground.NNN, and return the next in sequence. Computed from the node set
-// rather than the stored counter so it always reflects the latest backend list.
-export const selectNextGroundName = createSelector(selectNodesById, (nodesById) => {
-  const counters = deriveCounters(Object.values(nodesById))
-  return formatName('ground', counters.ground + 1)
-})
+// every existing geometry (roots + group children) and pick the lowest unused
+// Ground.NNN — gap-filling, so {001, 002, 015} suggests 003, not 016. Computed
+// from the node set so it always reflects the latest backend list.
+export const selectNextGroundName = createSelector(selectNodesById, (nodesById) =>
+  formatName('ground', nextAvailableNumber(Object.values(nodesById), 'ground'))
+)

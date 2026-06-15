@@ -72,7 +72,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Ground Resolution',
     columns: 2,
-    invalidMessage: 'Invalid Input: Value should be between {min}-{max}',
+    invalidMessage: 'Values should be between {min}-{max}',
     fields: [
       { property: 'resolution_x', label: 'Width', defaultValue: '1' },
       { property: 'resolution_y', label: 'Height', defaultValue: '1' }

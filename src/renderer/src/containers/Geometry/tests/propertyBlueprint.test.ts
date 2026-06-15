@@ -214,7 +214,7 @@ describe('resolveObjectForm invalidMessage', () => {
     )
     // Ground Resolution: range tokens filled from catalog (min 1, max 25000).
     expect(resolved.groups[1].fields[0].invalidMessage).toBe(
-      'Invalid Input: Value should be between 1-25000'
+      'Values should be between 1-25000'
     )
     // Rotation: range tokens filled from catalog (min 0, max 360).
     expect(resolved.groups[3].fields[0].invalidMessage).toBe(

@@ -142,7 +142,7 @@ describe('selectNextGroundName', () => {
     expect(selectNextGroundName(makeState(emptyScenarioGeometry()))).toBe('Ground.001')
   })
 
-  it('finds the highest Ground.NNN across roots + group children and returns the next', () => {
+  it('fills the lowest gap across roots + group children, not max+1', () => {
     const geo: ScenarioGeometry = {
       ...emptyScenarioGeometry(),
       nodesById: {
@@ -152,8 +152,21 @@ describe('selectNextGroundName', () => {
       },
       rootOrder: ['a', 'g']
     }
-    // Highest is Ground.004 (nested), so next is Ground.005 — independent of the
-    // stored counter.
-    expect(selectNextGroundName(makeState(geo))).toBe('Ground.005')
+    // 001 and 004 used (004 nested); the lowest free number is 002 — gap-filling,
+    // not Ground.005.
+    expect(selectNextGroundName(makeState(geo))).toBe('Ground.002')
+  })
+
+  it('fills the gap for {001, 002, 015} → Ground.003', () => {
+    const geo: ScenarioGeometry = {
+      ...emptyScenarioGeometry(),
+      nodesById: {
+        a: ground('a', 'Ground.001'),
+        b: ground('b', 'Ground.002'),
+        c: ground('c', 'Ground.015')
+      },
+      rootOrder: ['a', 'b', 'c']
+    }
+    expect(selectNextGroundName(makeState(geo))).toBe('Ground.003')
   })
 })
