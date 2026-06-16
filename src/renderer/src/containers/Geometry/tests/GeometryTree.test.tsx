@@ -251,7 +251,7 @@ describe('<GeometryTree />', () => {
     )
   })
 
-  it('dims a row that is hidden from the viewport', () => {
+  it('does not dim a row that is hidden from the viewport (only the eye glyph reflects it)', () => {
     const hidden = { ...ground('a', 'Ground.001'), visibleInViewport: false }
     renderTree({
       ...emptyScenarioGeometry(),
@@ -260,7 +260,7 @@ describe('<GeometryTree />', () => {
       rootOrder: ['a']
     })
     const row = screen.getByText('Ground.001').closest('[role="button"]')
-    expect(row?.className).toContain('opacity-50')
+    expect(row?.className).not.toContain('opacity-50')
   })
 
   it('a selected GROUP row also reveals the cluster (render/eye/delete)', () => {

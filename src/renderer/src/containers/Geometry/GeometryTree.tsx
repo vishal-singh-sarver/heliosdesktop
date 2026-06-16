@@ -89,7 +89,7 @@ export function GeometryTree(): React.JSX.Element {
 
   return (
     <div
-      className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto"
+      className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleRootDrop}
     >

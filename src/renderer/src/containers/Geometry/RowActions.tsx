@@ -24,6 +24,8 @@ interface IconButtonProps {
   children: React.ReactNode
   className?: string
   active?: boolean
+  // Suppresses the hover background tint (icon still brightens via text colour).
+  noHoverBg?: boolean
   onClick?: () => void
   // Optional handle on the underlying <button> (e.g. to restore focus on Esc).
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -34,6 +36,7 @@ function IconButton({
   children,
   className = '',
   active = false,
+  noHoverBg = false,
   onClick,
   buttonRef
 }: IconButtonProps): React.JSX.Element {
@@ -47,7 +50,9 @@ function IconButton({
         e.stopPropagation()
         onClick?.()
       }}
-      className={`flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:bg-neutral-600/50 hover:text-neutral-100 ${className}`}
+      className={`flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:text-neutral-100 ${
+        noHoverBg ? '' : 'hover:bg-neutral-600/50'
+      } ${className}`}
     >
       {children}
     </button>
@@ -261,6 +266,7 @@ export default function RowActions({
       <IconButton
         label={node.visibleInViewport ? 'Hide from viewport' : 'Show in viewport'}
         active={!node.visibleInViewport}
+        noHoverBg
         onClick={onToggleViewport}
       >
         {node.visibleInViewport ? <EyeIcon /> : <EyeOffIcon />}

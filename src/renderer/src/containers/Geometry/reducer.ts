@@ -268,6 +268,18 @@ const geometryReducer = (
       case RENAME_SUCCEEDED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const node = s.nodesById[action.id]
+        // Keep the open right-panel form in sync when it's showing the renamed
+        // object — but only if its name field hasn't been edited away from the
+        // old value (don't clobber an in-progress rename in the form). Update
+        // before overwriting node.name so we compare against the old name.
+        if (
+          draft.createDraft &&
+          draft.createDraft.objectId === action.id &&
+          node &&
+          draft.createDraft.name === node.name
+        ) {
+          draft.createDraft.name = action.payload
+        }
         if (node) node.name = action.payload
         delete s.nameErrors[action.id]
         break
