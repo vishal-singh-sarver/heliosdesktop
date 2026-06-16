@@ -31,7 +31,7 @@ import {
   UPDATE_OBJECT_SUCCEEDED,
   VISIBILITY_SYNC_FAILED
 } from './constants'
-import { anyModelOn } from './models'
+import { anyModelOn, unionVisibility } from './models'
 import { deriveCounters } from './naming'
 import type { GeoNode, GeometryState, ScenarioGeometry } from './types'
 
@@ -163,6 +163,23 @@ function flipModel(s: ScenarioGeometry, id: string, modelId: number): void {
   setModel(s, id, modelId, !(node.modelVisibility[modelId] ?? true))
 }
 
+// A group has no visibility of its own — it's the union of its children (see
+// unionVisibility). After a child toggle we recompute the parent group, the same
+// derivation service.ts applies at refresh time, so the group's row stays in sync
+// when a single member is turned on/off (any child on ⇒ group on; all off ⇒ off).
+// No-op when the node has no parent group (root leaves and groups themselves).
+function recomputeParentGroup(s: ScenarioGeometry, id: string): void {
+  const parentId = s.nodesById[id]?.parentId
+  if (!parentId) return
+  const group = s.nodesById[parentId]
+  if (!group || group.kind !== 'group') return
+  const children = group.childIds.map((cid) => s.nodesById[cid]).filter(Boolean) as GeoNode[]
+  const { modelVisibility, renderEnabled, visibleInViewport } = unionVisibility(children)
+  group.modelVisibility = modelVisibility
+  group.renderEnabled = renderEnabled
+  group.visibleInViewport = visibleInViewport
+}
+
 const geometryReducer = (
   state: GeometryState = initialState,
   action: GeometryAction
@@ -231,6 +248,7 @@ const geometryReducer = (
         // Optimistic: flip now (cascading to a group's children); the saga
         // persists via PATCH and reverts on failure.
         flipViewport(s, action.id)
+        recomputeParentGroup(s, action.id)
         break
       }
 
@@ -243,6 +261,7 @@ const geometryReducer = (
         // from the map defaults to on). Render bool tracks the same value.
         const anyOn = action.modelIds.some((mid) => node.modelVisibility[mid] ?? true)
         setRenderAll(s, action.id, action.modelIds, !anyOn)
+        recomputeParentGroup(s, action.id)
         break
       }
 
@@ -279,6 +298,7 @@ const geometryReducer = (
         applyToNodeAndChildren(s, action.id, (n) => {
           n.renderEnabled = render
         })
+        recomputeParentGroup(s, action.id)
         break
       }
 
@@ -288,6 +308,7 @@ const geometryReducer = (
         if (action.field === 'viewport') flipViewport(s, action.id)
         else if (action.field === 'render') flipRenderAll(s, action.id)
         else if (action.modelId !== undefined) flipModel(s, action.id, action.modelId)
+        recomputeParentGroup(s, action.id)
         break
       }
 

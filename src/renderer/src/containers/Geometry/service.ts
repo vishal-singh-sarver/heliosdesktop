@@ -1,5 +1,6 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
+import { unionVisibility, type VisibilityLike } from './models'
 import type { GeoNode, ModelVisibility } from './types'
 
 // ── Create-object payload + wire shapes ──────────────────────────────────────
@@ -112,6 +113,22 @@ interface ListGroupsResponse {
   groups: ApiGroup[]
 }
 
+// A group carries no visibility of its own in the API — its render state is the
+// union of its members (see unionVisibility): a model/viewport/render is "on" for
+// the group iff it's on for any member. So the group's render icon shows on while
+// any member is still rendered, and only goes off once every member is off
+// (matching the cascade the reducer applies optimistically). Built from the
+// per-object visibility (in VisibilityLike shape) parsed in mergeTree.
+function deriveGroupVisibility(
+  memberIds: number[],
+  visByObject: Map<number, VisibilityLike>
+): VisibilityLike {
+  const members = memberIds
+    .map((id) => visByObject.get(id))
+    .filter((v): v is VisibilityLike => v !== undefined)
+  return unionVisibility(members)
+}
+
 // Merge the two endpoints into the flat node list. `member_ids` is authoritative
 // for group membership and child order; a leaf whose group_id points at a group
 // not in the list falls back to the root so it never disappears. Root rows
@@ -122,6 +139,18 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
   const parentByChild = new Map<string, string>()
   for (const g of groups) {
     for (const memberId of g.member_ids) parentByChild.set(String(memberId), String(g.id))
+  }
+
+  // Per-object visibility (in VisibilityLike shape), used both for the leaf rows
+  // below and to derive each group's (union) render state — otherwise a refreshed
+  // group always reads as on.
+  const visByObject = new Map<number, VisibilityLike>()
+  for (const o of objects) {
+    visByObject.set(o.id, {
+      modelVisibility: parseModels(o.visibility?.models),
+      renderEnabled: o.visibility?.render ?? true,
+      visibleInViewport: o.visibility?.viewport ?? true
+    })
   }
 
   const rows: Array<{ node: GeoNode; ts: string }> = []
@@ -136,10 +165,8 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
         parentId: null,
         childIds: g.member_ids.map(String),
         expanded: false,
-        // Groups carry no visibility in the API; default for display only.
-        visibleInViewport: true,
-        renderEnabled: true,
-        modelVisibility: {}
+        // Derived from members — a group has no visibility of its own (§6).
+        ...deriveGroupVisibility(g.member_ids, visByObject)
       }
     })
   }
@@ -148,6 +175,7 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
     const id = String(o.id)
     let parentId = parentByChild.get(id) ?? (o.group_id == null ? null : String(o.group_id))
     if (parentId && !groupIds.has(parentId)) parentId = null
+    const vis = visByObject.get(o.id)
     rows.push({
       ts: o.created_at,
       node: {
@@ -157,10 +185,11 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
         parentId,
         childIds: [],
         expanded: false,
-        visibleInViewport: o.visibility?.viewport ?? true,
-        renderEnabled: o.visibility?.render ?? true,
+        // VisibilityLike already carries the node's visibility fields verbatim.
+        visibleInViewport: vis?.visibleInViewport ?? true,
+        renderEnabled: vis?.renderEnabled ?? true,
         // Per-model map keyed by catalog model id; absent ids default to on.
-        modelVisibility: parseModels(o.visibility?.models)
+        modelVisibility: vis?.modelVisibility ?? {}
       }
     })
   }

@@ -175,6 +175,58 @@ describe('geometryReducer', () => {
     expect(off4.byScope[KEY].nodesById['b'].renderEnabled).toBe(false)
   })
 
+  it('TOGGLE_RENDER on one child turns the group back on (any child on ⇒ group on)', () => {
+    let r = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['b', 'c']),
+        ground('b', 'Ground.002', 'g'),
+        ground('c', 'Ground.003', 'g')
+      ])
+    )
+    // Group render off ⇒ both children + the group go off (all models false).
+    r = geometryReducer(r, actions.toggleRender(P, S, 'g', [1, 2]))
+    expect(r.byScope[KEY].nodesById['g'].renderEnabled).toBe(false)
+    expect(r.byScope[KEY].nodesById['g'].modelVisibility).toEqual({ 1: false, 2: false })
+    // Turn one child back on ⇒ the group reflects it (render on, that child's models on).
+    r = geometryReducer(r, actions.toggleRender(P, S, 'b', [1, 2]))
+    expect(r.byScope[KEY].nodesById['b'].modelVisibility).toEqual({ 1: true, 2: true })
+    expect(r.byScope[KEY].nodesById['g'].renderEnabled).toBe(true)
+    expect(r.byScope[KEY].nodesById['g'].modelVisibility).toEqual({ 1: true, 2: true })
+  })
+
+  it('TOGGLE_RENDER keeps the group off only once every child is off', () => {
+    let r = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['b', 'c']),
+        ground('b', 'Ground.002', 'g'),
+        ground('c', 'Ground.003', 'g')
+      ])
+    )
+    // Turn each child off individually; the group stays on until the last one.
+    r = geometryReducer(r, actions.toggleRender(P, S, 'b', [1, 2]))
+    expect(r.byScope[KEY].nodesById['g'].renderEnabled).toBe(true)
+    r = geometryReducer(r, actions.toggleRender(P, S, 'c', [1, 2]))
+    expect(r.byScope[KEY].nodesById['g'].renderEnabled).toBe(false)
+    expect(r.byScope[KEY].nodesById['g'].modelVisibility).toEqual({ 1: false, 2: false })
+  })
+
+  it('TOGGLE_VIEWPORT on one child turns the group eye back on (any child visible ⇒ group visible)', () => {
+    let r = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['b', 'c']),
+        ground('b', 'Ground.002', 'g'),
+        ground('c', 'Ground.003', 'g')
+      ])
+    )
+    r = geometryReducer(r, actions.toggleViewport(P, S, 'g')) // group + children hidden
+    expect(r.byScope[KEY].nodesById['g'].visibleInViewport).toBe(false)
+    r = geometryReducer(r, actions.toggleViewport(P, S, 'b')) // one child shown again
+    expect(r.byScope[KEY].nodesById['g'].visibleInViewport).toBe(true)
+  })
+
   it('VISIBILITY_SYNC_FAILED(model) reverts the model flag', () => {
     const seeded = geometryReducer(
       initialState,
