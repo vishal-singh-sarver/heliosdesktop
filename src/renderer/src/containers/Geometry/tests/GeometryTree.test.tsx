@@ -23,7 +23,8 @@ const ground = (id: string, name: string, parentId: string | null = null): GeoNo
   childIds: [],
   expanded: false,
   visibleInViewport: true,
-  modelVisibility: { mode: 'all' }
+  renderEnabled: true,
+  modelVisibility: {}
 })
 
 const group = (id: string, name: string, childIds: string[], expanded = false): GeoNode => ({
@@ -34,17 +35,40 @@ const group = (id: string, name: string, childIds: string[], expanded = false): 
   childIds,
   expanded,
   visibleInViewport: true,
-  modelVisibility: { mode: 'all' }
+  renderEnabled: true,
+  modelVisibility: {}
 })
 
 const dispatch = vi.fn()
 
 // Minimal mock store: getState returns the shape the geometry + ProjectScreen
 // selectors read; dispatch is a spy so we can assert toggleExpand fires.
+// The kebab reads the model catalog via selectModelTypes; seed the six top-level
+// models so the per-model rows render (Radiation = id 1).
+const MODEL_TYPES = [
+  { id: 1, model: 'Radiation', description: '' },
+  { id: 2, model: 'Energy Balance', description: '' },
+  { id: 3, model: 'Solar Position', description: '' },
+  { id: 4, model: 'Photosynthesis', description: '' },
+  { id: 5, model: 'Boundary Layer Conductance', description: '' },
+  { id: 6, model: 'Stomatal Conductance', description: '' }
+]
+
 const makeStore = (scenario: ScenarioGeometry): never => {
   const state = {
     geometry: { byScope: { [scopeKey('p1', 's1')]: scenario } },
-    projectScreen: { activeProjectId: 'p1', activeScenarioId: 's1' }
+    projectScreen: {
+      activeProjectId: 'p1',
+      activeScenarioId: 's1',
+      catalog: {
+        modelTypes: {
+          byId: Object.fromEntries(MODEL_TYPES.map((m) => [m.id, m])),
+          allIds: MODEL_TYPES.map((m) => m.id),
+          loadStatus: 'loaded',
+          loadError: null
+        }
+      }
+    }
   }
   return {
     getState: () => state,
@@ -71,6 +95,14 @@ describe('<GeometryTree />', () => {
   it('shows the error copy on failure', () => {
     renderTree({ ...emptyScenarioGeometry(), loadStatus: 'error', loadError: 'Unable to load Geometries' })
     expect(screen.getByText('Unable to load Geometries')).toBeInTheDocument()
+  })
+
+  it('Retry on the error state re-dispatches the load', () => {
+    renderTree({ ...emptyScenarioGeometry(), loadStatus: 'error', loadError: 'Unable to load Geometries' })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/LIST_NODES_REQUESTED', projectId: 'p1', scenarioId: 's1' })
+    )
   })
 
   it('shows the empty hint when there are no nodes', () => {
@@ -116,7 +148,7 @@ describe('<GeometryTree />', () => {
     expect(screen.getByText('Ground.002')).toBeInTheDocument()
   })
 
-  it('always shows the kebab; hides the visibility cluster until selected', () => {
+  it('always shows the kebab; keeps the cluster present but hidden until hover/selected', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
@@ -124,9 +156,23 @@ describe('<GeometryTree />', () => {
       rootOrder: ['a']
     })
     expect(screen.getByLabelText('More options')).toBeInTheDocument()
-    // Not selected → no eye/trash cluster.
-    expect(screen.queryByLabelText('Hide from viewport')).toBeNull()
-    expect(screen.queryByLabelText('Delete')).toBeNull()
+    // Not selected → the cluster is in the DOM but hidden, revealed on row hover.
+    const cluster = screen.getByLabelText('Hide from viewport').closest('div')
+    expect(cluster?.className).toContain('opacity-0')
+    expect(cluster?.className).toContain('group-hover:opacity-100')
+  })
+
+  it('reveals the cluster (opacity-100) on the selected row', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    const cluster = screen.getByLabelText('Hide from viewport').closest('div')
+    expect(cluster?.className).toContain('opacity-100')
+    expect(cluster?.className).not.toContain('opacity-0')
   })
 
   it('clicking a row dispatches select', () => {
@@ -163,11 +209,13 @@ describe('<GeometryTree />', () => {
     })
     fireEvent.click(screen.getByLabelText('More options'))
     fireEvent.click(screen.getByText('Radiation'))
+    // Radiation is model id 1; it was default-on, so the click turns it off.
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'app/Geometry/SET_MODEL_VISIBILITY',
+        type: 'app/Geometry/SET_MODEL_ON',
         id: 'a',
-        payload: expect.objectContaining({ mode: 'custom' })
+        modelId: 1,
+        on: false
       })
     )
   })
@@ -175,16 +223,7 @@ describe('<GeometryTree />', () => {
   it('shows a hidden model with a greyed, unchecked row', () => {
     const customHidden = {
       ...ground('a', 'Ground.001'),
-      modelVisibility: {
-        mode: 'custom' as const,
-        perModel: {
-          solar_position: true,
-          radiation: false,
-          energy_balance: true,
-          photosynthesis: true,
-          stomatal_conductance: true
-        }
-      }
+      modelVisibility: { 1: false } // Radiation hidden
     }
     renderTree({
       ...emptyScenarioGeometry(),
@@ -232,12 +271,39 @@ describe('<GeometryTree />', () => {
       rootOrder: ['g'],
       selectedIds: ['g']
     })
-    expect(screen.getByLabelText('Hide from all models')).toBeInTheDocument()
+    expect(screen.getByLabelText('Hide from render')).toBeInTheDocument()
     expect(screen.getByLabelText('Hide from viewport')).toBeInTheDocument()
     expect(screen.getByLabelText('Delete')).toBeInTheDocument()
   })
 
-  it('clicking the cluster render icon dispatches setModelVisibility (hide all)', () => {
+  it('the cluster render icon reflects the per-model state (all off → "Show in render")', () => {
+    const allOff = {
+      ...ground('a', 'Ground.001'),
+      modelVisibility: { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false }
+    }
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: allOff },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    expect(screen.getByLabelText('Show in render')).toBeInTheDocument()
+  })
+
+  it('the cluster render icon shows "Hide from render" when some model is on', () => {
+    const someOn = { ...ground('a', 'Ground.001'), modelVisibility: { 1: false, 2: true } }
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: someOn },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    expect(screen.getByLabelText('Hide from render')).toBeInTheDocument()
+  })
+
+  it('clicking the cluster render icon dispatches toggleRender', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
@@ -245,13 +311,9 @@ describe('<GeometryTree />', () => {
       rootOrder: ['a'],
       selectedIds: ['a']
     })
-    fireEvent.click(screen.getByLabelText('Hide from all models'))
+    fireEvent.click(screen.getByLabelText('Hide from render'))
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'app/Geometry/SET_MODEL_VISIBILITY',
-        id: 'a',
-        payload: { mode: 'none' }
-      })
+      expect.objectContaining({ type: 'app/Geometry/TOGGLE_RENDER', id: 'a' })
     )
   })
 
@@ -288,7 +350,7 @@ describe('<GeometryTree />', () => {
     )
   })
 
-  it('dropping a leaf onto another leaf dispatches groupNodes', () => {
+  it('dropping a leaf onto another root leaf requests a new group', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
@@ -298,11 +360,14 @@ describe('<GeometryTree />', () => {
     const target = screen.getByText('Ground.002').closest('[role="button"]')!
     fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify(['a']) } })
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'app/Geometry/GROUP_NODES', nodeIds: ['a'], targetId: 'b' })
+      expect.objectContaining({
+        type: 'app/Geometry/GROUP_NODES_REQUESTED',
+        memberIds: ['b', 'a']
+      })
     )
   })
 
-  it('dropping a leaf onto a group dispatches moveNodes into that group', () => {
+  it('dropping a leaf onto a group requests a move into that group', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
@@ -312,7 +377,11 @@ describe('<GeometryTree />', () => {
     const target = screen.getByText('Group.001').closest('[role="button"]')!
     fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify(['a']) } })
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'app/Geometry/MOVE_NODES', nodeIds: ['a'], toGroupId: 'g' })
+      expect.objectContaining({
+        type: 'app/Geometry/MOVE_NODES_REQUESTED',
+        nodeIds: ['a'],
+        toGroupId: 'g'
+      })
     )
   })
 

@@ -1,8 +1,6 @@
 // User-facing strings for the Geometry feature. Validation/error copy lives
 // here (not inline) so it stays consistent and translatable.
 const messages = {
-  savedGeometries: 'Saved Geometries',
-  searchPlaceholder: 'Search...',
   loadError: 'Unable to load Geometries',
   emptyTree: 'No saved geometries yet.',
   noMatches: 'No geometries match your search.',
@@ -10,7 +8,6 @@ const messages = {
   nameRequired: 'Name is required',
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Geometry name already exists',
-  renameFailed: 'Unable to rename group. Please try again',
   // Delete confirmation
   deleteTitle: 'Delete geometry',
   deleteConfirm: 'Delete',

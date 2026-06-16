@@ -19,9 +19,16 @@ export const SELECT = 'app/Geometry/SELECT' as const
 export const SET_SEARCH_QUERY = 'app/Geometry/SET_SEARCH_QUERY' as const
 export const TOGGLE_EXPAND = 'app/Geometry/TOGGLE_EXPAND' as const
 
-// ── Visibility: eye = 3D viewport, render icon / dropdown = models ───────────
+// ── Visibility: eye = viewport, render icon = render, kebab = per-model ──────
+// All three apply optimistically in the reducer, then a saga persists each via
+// PATCH /objects/{id} { visibility } (§5.4): TOGGLE_VIEWPORT → { viewport },
+// TOGGLE_RENDER → { render }, SET_MODEL_ON → { models: { "<id>": bool } }. On a
+// failed PATCH the saga dispatches FAILED, which reverts the optimistic flip
+// (by field, and modelId for a per-model revert).
 export const TOGGLE_VIEWPORT = 'app/Geometry/TOGGLE_VIEWPORT' as const
-export const SET_MODEL_VISIBILITY = 'app/Geometry/SET_MODEL_VISIBILITY' as const
+export const TOGGLE_RENDER = 'app/Geometry/TOGGLE_RENDER' as const
+export const SET_MODEL_ON = 'app/Geometry/SET_MODEL_ON' as const
+export const VISIBILITY_SYNC_FAILED = 'app/Geometry/VISIBILITY_SYNC_FAILED' as const
 
 // ── Rename a group (inline edit + validation) ───────────────────────────────
 export const RENAME_REQUESTED = 'app/Geometry/RENAME_REQUESTED' as const
@@ -29,9 +36,17 @@ export const RENAME_SUCCEEDED = 'app/Geometry/RENAME_SUCCEEDED' as const
 export const RENAME_FAILED = 'app/Geometry/RENAME_FAILED' as const
 export const SET_NAME_ERROR = 'app/Geometry/SET_NAME_ERROR' as const
 
-// ── Grouping (single level): leaf→leaf creates a group; leaf→group/root moves ─
-export const GROUP_NODES = 'app/Geometry/GROUP_NODES' as const
-export const MOVE_NODES = 'app/Geometry/MOVE_NODES' as const
+// ── Grouping (single level): leaf→leaf creates a group (persisted via
+//    POST /groups); leaf→group/root moves. The create flow is the async
+//    triplet; MOVE is still local-only (separate PATCH task). ────────────────
+export const GROUP_NODES_REQUESTED = 'app/Geometry/GROUP_NODES_REQUESTED' as const
+export const GROUP_NODES_SUCCEEDED = 'app/Geometry/GROUP_NODES_SUCCEEDED' as const
+export const GROUP_NODES_FAILED = 'app/Geometry/GROUP_NODES_FAILED' as const
+// Move leaf(s) into a group, between groups, or back to root — persisted via
+// PATCH /objects/{id} { group_id } (§5.4).
+export const MOVE_NODES_REQUESTED = 'app/Geometry/MOVE_NODES_REQUESTED' as const
+export const MOVE_NODES_SUCCEEDED = 'app/Geometry/MOVE_NODES_SUCCEEDED' as const
+export const MOVE_NODES_FAILED = 'app/Geometry/MOVE_NODES_FAILED' as const
 
 // ── Delete a node. A leaf deletes itself; a group also removes its children. ─
 export const DELETE_NODE_REQUESTED = 'app/Geometry/DELETE_NODE_REQUESTED' as const

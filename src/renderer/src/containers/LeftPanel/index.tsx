@@ -21,7 +21,8 @@ export function LeftPanel(): React.JSX.Element {
   useInjectReducer({ key: 'leftPanel', reducer: reducer as Reducer })
   useInjectSaga({ key: 'leftPanel', saga })
 
-  const [collapsed, setCollapsed] = React.useState(true)
+  // Open (expanded) by default when the app launches; the user can collapse it.
+  const [collapsed, setCollapsed] = React.useState(false)
   const toggle = (): void => setCollapsed((prev) => !prev)
 
   // Which sections are expanded. Each open section shares the panel height

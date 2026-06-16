@@ -5,22 +5,28 @@ import {
   DELETE_NODE_FAILED,
   DELETE_NODE_REQUESTED,
   DELETE_NODE_SUCCEEDED,
-  GROUP_NODES,
+  GROUP_NODES_REQUESTED,
+  GROUP_NODES_SUCCEEDED,
+  GROUP_NODES_FAILED,
   LIST_NODES_REQUESTED,
-  MOVE_NODES,
+  MOVE_NODES_REQUESTED,
+  MOVE_NODES_SUCCEEDED,
+  MOVE_NODES_FAILED,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
   RENAME_FAILED,
   RENAME_REQUESTED,
   RENAME_SUCCEEDED,
   SELECT,
-  SET_MODEL_VISIBILITY,
+  SET_MODEL_ON,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
   TOGGLE_EXPAND,
-  TOGGLE_VIEWPORT
+  TOGGLE_RENDER,
+  TOGGLE_VIEWPORT,
+  VISIBILITY_SYNC_FAILED
 } from './constants'
-import type { GeoNode, ModelVisibility } from './types'
+import type { GeoNode } from './types'
 
 // The kinds creatable from the action row. Import-from-file is a separate flow.
 export type CreatableKind = 'ground'
@@ -74,12 +80,36 @@ export type ToggleViewportAction = {
   scenarioId: string
   id: string
 }
-export type SetModelVisibilityAction = {
-  type: typeof SET_MODEL_VISIBILITY
+export type ToggleRenderAction = {
+  type: typeof TOGGLE_RENDER
   projectId: string
   scenarioId: string
   id: string
-  payload: ModelVisibility
+  // All catalog model ids — the render icon is a master switch that sets every
+  // model to the new render value (§5: render off ⇒ all models false).
+  modelIds: number[]
+}
+export type SetModelOnAction = {
+  type: typeof SET_MODEL_ON
+  projectId: string
+  scenarioId: string
+  id: string
+  modelId: number
+  on: boolean
+  // All catalog model ids — needed to keep the render flag (any model on) in sync.
+  modelIds: number[]
+}
+// Which optimistic toggle a sync result refers to — drives the FAILED revert.
+// For 'model', `modelId` identifies which per-model flag to flip back.
+export type VisibilityField = 'viewport' | 'render' | 'model'
+export type VisibilitySyncFailedAction = {
+  type: typeof VISIBILITY_SYNC_FAILED
+  projectId: string
+  scenarioId: string
+  id: string
+  field: VisibilityField
+  modelId?: number
+  payload: string
 }
 export type RenameRequestedAction = {
   type: typeof RENAME_REQUESTED
@@ -109,20 +139,43 @@ export type SetNameErrorAction = {
   id: string
   payload: string | null
 }
-export type GroupNodesAction = {
-  type: typeof GROUP_NODES
+export type GroupNodesRequestedAction = {
+  type: typeof GROUP_NODES_REQUESTED
   projectId: string
   scenarioId: string
-  nodeIds: string[] // the dragged leaves
-  targetId: string // the leaf they were dropped onto
-  groupId: string // client-generated id for the new group
+  memberIds: string[] // target + dragged leaves, in member order
 }
-export type MoveNodesAction = {
-  type: typeof MOVE_NODES
+export type GroupNodesSucceededAction = {
+  type: typeof GROUP_NODES_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  payload: { id: string; name: string; memberIds: string[] } // server-owned id + name
+}
+export type GroupNodesFailedAction = {
+  type: typeof GROUP_NODES_FAILED
+  projectId: string
+  scenarioId: string
+  payload: string
+}
+export type MoveNodesRequestedAction = {
+  type: typeof MOVE_NODES_REQUESTED
   projectId: string
   scenarioId: string
   nodeIds: string[]
   toGroupId: string | null // null = move to root (ungroup)
+}
+export type MoveNodesSucceededAction = {
+  type: typeof MOVE_NODES_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  nodeIds: string[]
+  toGroupId: string | null
+}
+export type MoveNodesFailedAction = {
+  type: typeof MOVE_NODES_FAILED
+  projectId: string
+  scenarioId: string
+  payload: string
 }
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
@@ -170,13 +223,19 @@ export type GeometryAction =
   | SetSearchQueryAction
   | ToggleExpandAction
   | ToggleViewportAction
-  | SetModelVisibilityAction
+  | ToggleRenderAction
+  | SetModelOnAction
+  | VisibilitySyncFailedAction
   | RenameRequestedAction
   | RenameSucceededAction
   | RenameFailedAction
   | SetNameErrorAction
-  | GroupNodesAction
-  | MoveNodesAction
+  | GroupNodesRequestedAction
+  | GroupNodesSucceededAction
+  | GroupNodesFailedAction
+  | MoveNodesRequestedAction
+  | MoveNodesSucceededAction
+  | MoveNodesFailedAction
   | DeleteNodeRequestedAction
   | DeleteNodeSucceededAction
   | DeleteNodeFailedAction
@@ -233,6 +292,13 @@ export const toggleViewport = (
   id: string
 ): ToggleViewportAction => ({ type: TOGGLE_VIEWPORT, projectId, scenarioId, id })
 
+export const toggleRender = (
+  projectId: string,
+  scenarioId: string,
+  id: string,
+  modelIds: number[]
+): ToggleRenderAction => ({ type: TOGGLE_RENDER, projectId, scenarioId, id, modelIds })
+
 export const renameRequested = (
   projectId: string,
   scenarioId: string,
@@ -280,32 +346,93 @@ export const deleteNodeFailed = (
   error: string
 ): DeleteNodeFailedAction => ({ type: DELETE_NODE_FAILED, projectId, scenarioId, id, payload: error })
 
-export const groupNodes = (
+export const groupNodesRequested = (
   projectId: string,
   scenarioId: string,
-  nodeIds: string[],
-  targetId: string,
-  groupId: string
-): GroupNodesAction => ({ type: GROUP_NODES, projectId, scenarioId, nodeIds, targetId, groupId })
+  memberIds: string[]
+): GroupNodesRequestedAction => ({ type: GROUP_NODES_REQUESTED, projectId, scenarioId, memberIds })
 
-export const moveNodes = (
+export const groupNodesSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  group: { id: string; name: string; memberIds: string[] }
+): GroupNodesSucceededAction => ({
+  type: GROUP_NODES_SUCCEEDED,
+  projectId,
+  scenarioId,
+  payload: group
+})
+
+export const groupNodesFailed = (
+  projectId: string,
+  scenarioId: string,
+  error: string
+): GroupNodesFailedAction => ({ type: GROUP_NODES_FAILED, projectId, scenarioId, payload: error })
+
+export const moveNodesRequested = (
   projectId: string,
   scenarioId: string,
   nodeIds: string[],
   toGroupId: string | null
-): MoveNodesAction => ({ type: MOVE_NODES, projectId, scenarioId, nodeIds, toGroupId })
+): MoveNodesRequestedAction => ({
+  type: MOVE_NODES_REQUESTED,
+  projectId,
+  scenarioId,
+  nodeIds,
+  toGroupId
+})
 
-export const setModelVisibility = (
+export const moveNodesSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  nodeIds: string[],
+  toGroupId: string | null
+): MoveNodesSucceededAction => ({
+  type: MOVE_NODES_SUCCEEDED,
+  projectId,
+  scenarioId,
+  nodeIds,
+  toGroupId
+})
+
+export const moveNodesFailed = (
+  projectId: string,
+  scenarioId: string,
+  error: string
+): MoveNodesFailedAction => ({ type: MOVE_NODES_FAILED, projectId, scenarioId, payload: error })
+
+export const setModelOn = (
   projectId: string,
   scenarioId: string,
   id: string,
-  visibility: ModelVisibility
-): SetModelVisibilityAction => ({
-  type: SET_MODEL_VISIBILITY,
+  modelId: number,
+  on: boolean,
+  modelIds: number[]
+): SetModelOnAction => ({
+  type: SET_MODEL_ON,
   projectId,
   scenarioId,
   id,
-  payload: visibility
+  modelId,
+  on,
+  modelIds
+})
+
+export const visibilitySyncFailed = (
+  projectId: string,
+  scenarioId: string,
+  id: string,
+  field: VisibilityField,
+  error: string,
+  modelId?: number
+): VisibilitySyncFailedAction => ({
+  type: VISIBILITY_SYNC_FAILED,
+  projectId,
+  scenarioId,
+  id,
+  field,
+  modelId,
+  payload: error
 })
 
 export const addGeometryRequested = (

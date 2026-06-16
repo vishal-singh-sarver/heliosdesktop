@@ -9,7 +9,8 @@ const node = (name: string, kind: GeoNode['kind'] = 'ground'): GeoNode => ({
   childIds: [],
   expanded: false,
   visibleInViewport: true,
-  modelVisibility: { mode: 'all' }
+  renderEnabled: true,
+  modelVisibility: {}
 })
 
 describe('naming', () => {

@@ -4,21 +4,24 @@ import {
   ADD_GEOMETRY_REQUESTED,
   ADD_GEOMETRY_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
-  GROUP_NODES,
+  GROUP_NODES_SUCCEEDED,
   LIST_NODES_REQUESTED,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
-  MOVE_NODES,
+  MOVE_NODES_SUCCEEDED,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
   SELECT,
-  SET_MODEL_VISIBILITY,
+  SET_MODEL_ON,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
   TOGGLE_EXPAND,
-  TOGGLE_VIEWPORT
+  TOGGLE_RENDER,
+  TOGGLE_VIEWPORT,
+  VISIBILITY_SYNC_FAILED
 } from './constants'
-import { deriveCounters, formatName } from './naming'
+import { anyModelOn } from './models'
+import { deriveCounters } from './naming'
 import type { GeoNode, GeometryState, ScenarioGeometry } from './types'
 
 export type { GeometryState }
@@ -34,7 +37,6 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   selectedIds: [],
   searchQuery: '',
   counters: { ground: 0, group: 0 },
-  syncById: {},
   nameErrors: {},
   loadStatus: 'idle',
   loadError: null
@@ -62,17 +64,91 @@ function detach(s: ScenarioGeometry, id: string): void {
   }
 }
 
-// Drop any group left with no children (e.g. after its last child was dragged
-// out). Keeps the single-level tree free of empty group husks.
-function pruneEmptyGroups(s: ScenarioGeometry): void {
+// Enforce the "a group holds ≥2 geometries" rule after a member leaves (drag-out,
+// delete, or being pulled into a new group). A group left with a single member is
+// no longer a group: eject that member back to the root, then delete the group.
+// (0-member groups are just deleted.)
+function dissolveUndersizedGroups(s: ScenarioGeometry): void {
   for (const id of Object.keys(s.nodesById)) {
     const node = s.nodesById[id]
-    if (node.kind === 'group' && node.childIds.length === 0) {
-      s.rootOrder = s.rootOrder.filter((r) => r !== id)
-      s.selectedIds = s.selectedIds.filter((sid) => sid !== id)
-      delete s.nodesById[id]
+    if (node.kind !== 'group' || node.childIds.length >= 2) continue
+    // Eject the lone remaining child (if any) back to the root.
+    for (const childId of node.childIds) {
+      const child = s.nodesById[childId]
+      if (!child) continue
+      child.parentId = null
+      if (!s.rootOrder.includes(childId)) s.rootOrder.push(childId)
+    }
+    s.rootOrder = s.rootOrder.filter((r) => r !== id)
+    s.selectedIds = s.selectedIds.filter((sid) => sid !== id)
+    delete s.nodesById[id]
+  }
+}
+
+// Apply a mutation to a node and, when it's a group, to each of its children —
+// the cascade every visibility change shares. The callback mutates the draft
+// node in place (Immer). No-op for a missing node.
+function applyToNodeAndChildren(
+  s: ScenarioGeometry,
+  id: string,
+  mutate: (node: GeoNode) => void
+): void {
+  const node = s.nodesById[id]
+  if (!node) return
+  mutate(node)
+  if (node.kind === 'group') {
+    for (const childId of node.childIds) {
+      const child = s.nodesById[childId]
+      if (child) mutate(child)
     }
   }
+}
+
+// Flip a node's viewport visibility. Its own inverse, so it serves both the
+// optimistic toggle and the failure revert.
+function flipViewport(s: ScenarioGeometry, id: string): void {
+  const next = s.nodesById[id] && !s.nodesById[id].visibleInViewport
+  applyToNodeAndChildren(s, id, (n) => {
+    n.visibleInViewport = next
+  })
+}
+
+// The render icon is a master switch: it sets the node's render bool AND every
+// model to the same value (§5 — render off ⇒ all models false). `modelIds` is
+// the catalog model list (every model gets set).
+function setRenderAll(s: ScenarioGeometry, id: string, modelIds: number[], value: boolean): void {
+  applyToNodeAndChildren(s, id, (n) => {
+    n.renderEnabled = value
+    for (const mid of modelIds) n.modelVisibility[mid] = value
+  })
+}
+
+// Revert a failed render toggle: flip the render bool back and reset every model
+// already in the map to that value. Self-inverse for a uniform prior state
+// (which a render toggle always produces).
+function flipRenderAll(s: ScenarioGeometry, id: string): void {
+  const node = s.nodesById[id]
+  if (!node) return
+  const next = !node.renderEnabled
+  applyToNodeAndChildren(s, id, (n) => {
+    n.renderEnabled = next
+    for (const key of Object.keys(n.modelVisibility)) n.modelVisibility[Number(key)] = next
+  })
+}
+
+// Set one model's per-node visibility (by catalog id). `setModel` writes an
+// explicit value (forward toggle); `flipModel` inverts the current value
+// (failure revert — self-inverse restores the pre-toggle state).
+function setModel(s: ScenarioGeometry, id: string, modelId: number, on: boolean): void {
+  applyToNodeAndChildren(s, id, (n) => {
+    n.modelVisibility[modelId] = on
+  })
+}
+
+function flipModel(s: ScenarioGeometry, id: string, modelId: number): void {
+  const node = s.nodesById[id]
+  if (!node) return
+  setModel(s, id, modelId, !(node.modelVisibility[modelId] ?? true))
 }
 
 const geometryReducer = (
@@ -138,17 +214,22 @@ const geometryReducer = (
 
       case TOGGLE_VIEWPORT: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        if (!s.nodesById[action.id]) break
+        // Optimistic: flip now (cascading to a group's children); the saga
+        // persists via PATCH and reverts on failure.
+        flipViewport(s, action.id)
+        break
+      }
+
+      case TOGGLE_RENDER: {
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const node = s.nodesById[action.id]
         if (!node) break
-        const next = !node.visibleInViewport
-        node.visibleInViewport = next
-        // A group's visibility cascades to its children.
-        if (node.kind === 'group') {
-          for (const childId of node.childIds) {
-            const child = s.nodesById[childId]
-            if (child) child.visibleInViewport = next
-          }
-        }
+        // Master switch derived from the per-model state: if any model is on,
+        // turn them all off; if all are off, turn them all on (a model id absent
+        // from the map defaults to on). Render bool tracks the same value.
+        const anyOn = action.modelIds.some((mid) => node.modelVisibility[mid] ?? true)
+        setRenderAll(s, action.id, action.modelIds, !anyOn)
         break
       }
 
@@ -173,18 +254,27 @@ const geometryReducer = (
         break
       }
 
-      case SET_MODEL_VISIBILITY: {
+      case SET_MODEL_ON: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const node = s.nodesById[action.id]
         if (!node) break
-        node.modelVisibility = action.payload
-        // A group's model visibility cascades to its children.
-        if (node.kind === 'group') {
-          for (const childId of node.childIds) {
-            const child = s.nodesById[childId]
-            if (child) child.modelVisibility = action.payload
-          }
-        }
+        // Optimistic: set the one model (cascading to a group's children).
+        setModel(s, action.id, action.modelId, action.on)
+        // Keep render in sync with the per-model state: render is on iff any
+        // model is on. The saga PATCHes both { models, render } together.
+        const render = anyModelOn(node.modelVisibility, action.modelIds)
+        applyToNodeAndChildren(s, action.id, (n) => {
+          n.renderEnabled = render
+        })
+        break
+      }
+
+      case VISIBILITY_SYNC_FAILED: {
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        // Revert the optimistic flip for whichever field's PATCH failed.
+        if (action.field === 'viewport') flipViewport(s, action.id)
+        else if (action.field === 'render') flipRenderAll(s, action.id)
+        else if (action.modelId !== undefined) flipModel(s, action.id, action.modelId)
         break
       }
 
@@ -200,40 +290,39 @@ const geometryReducer = (
         s.selectedIds = s.selectedIds.filter((sid) => !toRemove.includes(sid))
         for (const id of toRemove) delete s.nameErrors[id]
         // Removing a leaf may leave its parent group empty.
-        pruneEmptyGroups(s)
+        dissolveUndersizedGroups(s)
         break
       }
 
-      case GROUP_NODES: {
+      case GROUP_NODES_SUCCEEDED: {
+        // The group was created on the backend; insert it with the server-owned
+        // id + name (so it survives a refetch). Members that still exist get
+        // reparented under it and pulled out of the root.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        const target = s.nodesById[action.targetId]
-        if (!target) break
-        // Members = target + dragged (deduped). Need at least two to form a group.
-        const memberIds = [action.targetId, ...action.nodeIds.filter((id) => id !== action.targetId)]
-        const members = memberIds.filter((id) => s.nodesById[id])
+        const { id, name, memberIds } = action.payload
+        const members = memberIds.filter((memberId) => s.nodesById[memberId])
         if (members.length < 2) break
 
-        s.counters.group += 1
-        const name = formatName('group', s.counters.group)
-        for (const id of members) detach(s, id)
-        s.nodesById[action.groupId] = {
-          id: action.groupId,
+        for (const memberId of members) detach(s, memberId)
+        s.nodesById[id] = {
+          id,
           name,
           kind: 'group',
           parentId: null,
           childIds: members,
           expanded: true,
           visibleInViewport: true,
-          modelVisibility: { mode: 'all' }
+          renderEnabled: true,
+          modelVisibility: {}
         }
-        for (const id of members) s.nodesById[id].parentId = action.groupId
-        s.rootOrder.push(action.groupId)
-        s.selectedIds = [action.groupId]
-        pruneEmptyGroups(s)
+        for (const memberId of members) s.nodesById[memberId].parentId = id
+        s.rootOrder.push(id)
+        s.selectedIds = [id]
+        dissolveUndersizedGroups(s)
         break
       }
 
-      case MOVE_NODES: {
+      case MOVE_NODES_SUCCEEDED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const target = action.toGroupId ? s.nodesById[action.toGroupId] : null
         // Reject a move into a non-existent or non-group target.
@@ -251,7 +340,9 @@ const geometryReducer = (
             s.rootOrder.push(id)
           }
         }
-        pruneEmptyGroups(s)
+        // A move out can leave the source group with <2 members; dissolve it
+        // (ejecting the lone remaining geometry to the root).
+        dissolveUndersizedGroups(s)
         break
       }
 
@@ -275,7 +366,8 @@ const geometryReducer = (
           childIds: [],
           expanded: false,
           visibleInViewport: true,
-          modelVisibility: { mode: 'all' }
+          renderEnabled: true,
+          modelVisibility: {}
         }
         s.nodesById[id] = node
         s.rootOrder.push(id)

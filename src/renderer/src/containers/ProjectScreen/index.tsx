@@ -17,6 +17,7 @@ import { TOOLBAR_ITEMS } from '../../types/project'
 import {
   listScenariosRequested,
   loadDataTypesRequested,
+  loadModelTypesRequested,
   setActiveProject,
   updateProjectRequested
 } from './actions'
@@ -88,10 +89,11 @@ export function ProjectScreen(): React.JSX.Element {
   const activeProjectId = useSelector(selectActiveProjectId)
   const activeProject = useSelector(selectActiveProject)
 
-  // Load the data-types-with-units catalog once per mount. The reducer
-  // dedupes by overwriting, so re-mounting the screen refreshes the slice.
+  // Load the catalogs (data types + model types) once per mount. Each reducer
+  // dedupes by overwriting, so re-mounting the screen refreshes the slices.
   React.useEffect(() => {
     dispatch(loadDataTypesRequested())
+    dispatch(loadModelTypesRequested())
   }, [dispatch])
 
   // Mirrors the appReady signal in HomePage — whichever screen mounts first

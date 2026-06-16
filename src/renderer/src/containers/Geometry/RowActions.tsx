@@ -1,8 +1,16 @@
+import deleteIcon from '@renderer/assets/delete.svg'
+import dragHandleIcon from '@renderer/assets/DragHandleIco.svg'
+import eyeIcon from '@renderer/assets/EyeIcon.svg'
+import eyeOffIcon from '@renderer/assets/EyeOffIcon.svg'
+import kebabIcon from '@renderer/assets/Kebab Menu.svg'
+import renderIcon from '@renderer/assets/RenderIcon.svg'
+import renderOffIcon from '@renderer/assets/RenderOffIcon.svg'
+import { selectModelTypes } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { createPortal } from 'react-dom'
-import { useDispatch } from 'react-redux'
-import { setModelVisibility, toggleViewport } from './actions'
-import { MODELS, isAllHidden, isModelOn, toggleAllModels, toggleOneModel } from './models'
+import { useDispatch, useSelector } from 'react-redux'
+import { setModelOn, toggleRender, toggleViewport } from './actions'
+import { isModelOn } from './models'
 import type { GeoNode } from './types'
 
 // Row action affordances for a tree row. Icons are inline SVG (vector, never
@@ -41,100 +49,35 @@ function IconButton({
   )
 }
 
-const stroke = {
-  width: 14,
-  height: 14,
-  viewBox: '0 0 16 16',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.3,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
-  'aria-hidden': true
-} as const
-
-const filled = {
-  width: 14,
-  height: 14,
-  viewBox: '0 0 16 16',
-  fill: 'currentColor',
-  'aria-hidden': true
-} as const
-
 // Models glyph — two overlapping rounded squares (render/duplicate).
 function RenderIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
-    </svg>
-  )
+  return <img src={renderIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 // Render glyph with a slash — hidden from all models.
 function RenderOffIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
-      <path d="M2.5 2.5l11 11" />
-    </svg>
-  )
+  return <img src={renderOffIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 // Viewport toggle — eye (visible) / eye with a slash (hidden).
 function EyeIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <path d="M1.5 8S4 3.75 8 3.75 14.5 8 14.5 8 12 12.25 8 12.25 1.5 8 1.5 8Z" />
-      <circle cx="8" cy="8" r="1.9" />
-    </svg>
-  )
+  return <img src={eyeIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function EyeOffIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <path d="M3 3l10 10" />
-      <path d="M6.2 6.25C3.4 7.05 1.5 8 1.5 8s2.5 4.25 6.5 4.25c1 0 1.9-.18 2.7-.47" />
-      <path d="M9.8 9.7A2 2 0 0 1 6.3 6.2" />
-      <path d="M11.6 10.3C13.4 9.3 14.5 8 14.5 8S12 3.75 8 3.75c-.4 0-.78.04-1.15.1" />
-    </svg>
-  )
+  return <img src={eyeOffIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function TrashIcon(): React.JSX.Element {
-  return (
-    <svg {...stroke}>
-      <path d="M3 4.5h10" />
-      <path d="M6.5 4.5v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1" />
-      <path d="M4.5 4.5v8a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-8" />
-      <path d="M6.75 7v4M9.25 7v4" />
-    </svg>
-  )
+  return <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function DragHandleIcon(): React.JSX.Element {
-  return (
-    <svg {...filled}>
-      <circle cx="6" cy="4" r="1" />
-      <circle cx="10" cy="4" r="1" />
-      <circle cx="6" cy="8" r="1" />
-      <circle cx="10" cy="8" r="1" />
-      <circle cx="6" cy="12" r="1" />
-      <circle cx="10" cy="12" r="1" />
-    </svg>
-  )
+  return <img src={dragHandleIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 function KebabIcon(): React.JSX.Element {
-  return (
-    <svg {...filled}>
-      <circle cx="8" cy="4" r="1.2" />
-      <circle cx="8" cy="8" r="1.2" />
-      <circle cx="8" cy="12" r="1.2" />
-    </svg>
-  )
+  return <img src={kebabIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
 }
 
 interface KebabMenuProps {
@@ -154,6 +97,7 @@ export function KebabMenu({
   scenarioId
 }: KebabMenuProps): React.JSX.Element {
   const dispatch = useDispatch()
+  const modelTypes = useSelector(selectModelTypes)
   const anchorRef = React.useRef<HTMLSpanElement>(null)
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null)
   const open = coords !== null
@@ -175,8 +119,10 @@ export function KebabMenu({
 
   const close = (): void => setCoords(null)
 
-  const setVisibility = (next: GeoNode['modelVisibility']): void => {
-    if (projectId && scenarioId) dispatch(setModelVisibility(projectId, scenarioId, node.id, next))
+  const modelIds = modelTypes.map((m) => m.id)
+  const onToggleModel = (modelId: number, on: boolean): void => {
+    if (projectId && scenarioId)
+      dispatch(setModelOn(projectId, scenarioId, node.id, modelId, on, modelIds))
   }
 
   return (
@@ -206,28 +152,30 @@ export function KebabMenu({
                 Models
               </p>
 
-              {/* Per-model toggles. A hidden model is shown with a greyed,
-                  dimmed row so its hidden state is obvious. */}
-              {MODELS.map((model) => {
-                const on = isModelOn(node.modelVisibility, model.key)
-                return (
-                  <button
-                    key={model.key}
-                    type="button"
-                    role="menuitemcheckbox"
-                    aria-checked={on}
-                    onClick={() => setVisibility(toggleOneModel(node.modelVisibility, model.key))}
-                    className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-neutral-700/50 ${
-                      on ? 'text-neutral-200' : 'bg-neutral-800/70 text-neutral-500'
-                    }`}
-                  >
-                    <span className="truncate">{model.label}</span>
-                    <span className={on ? 'text-neutral-200' : 'text-neutral-600'}>
-                      <RenderIcon />
-                    </span>
-                  </button>
-                )
-              })}
+              {/* Per-model toggles from the catalog (top-level models). A hidden
+                  model is shown with a greyed, dimmed row so its state is obvious. */}
+              {modelTypes.length === 0 ? (
+                <p className="px-2 py-1.5 text-[12px] text-neutral-500">No models</p>
+              ) : (
+                modelTypes.map((model) => {
+                  const on = isModelOn(node.modelVisibility, model.id)
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={on}
+                      onClick={() => onToggleModel(model.id, !on)}
+                      className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-neutral-700/50 ${
+                        on ? 'text-neutral-200' : 'bg-neutral-800/70 text-neutral-500'
+                      }`}
+                    >
+                      <span className="truncate">{model.model}</span>
+                      <span>{on ? <RenderIcon /> : <RenderOffIcon />}</span>
+                    </button>
+                  )
+                })
+              )}
             </div>
           </>,
           document.body
@@ -246,8 +194,10 @@ interface RowActionsProps {
   onDelete: () => void
 }
 
-// The selection-revealed cluster pinned to the right edge of the row. Shown for
-// both leaves and groups: hide-all-models, viewport, delete, plus a drag handle.
+// The action cluster pinned to the right edge of the row: render, viewport,
+// delete, plus a drag handle. Always present, but only visible when the row is
+// hovered, focused, or selected (so it doesn't clutter idle rows). Shown for
+// both leaves and groups.
 export default function RowActions({
   node,
   projectId,
@@ -256,13 +206,24 @@ export default function RowActions({
   onDelete
 }: RowActionsProps): React.JSX.Element | null {
   const dispatch = useDispatch()
-  if (!selected) return null
+  // The render icon is a master switch over every catalog model, so it needs the
+  // full model id list to set them all (render off ⇒ all models false).
+  const modelIds = useSelector(selectModelTypes).map((m) => m.id)
 
-  const modelsHidden = isAllHidden(node.modelVisibility)
-  const onToggleAllModels = (): void => {
-    if (projectId && scenarioId) {
-      dispatch(setModelVisibility(projectId, scenarioId, node.id, toggleAllModels(node.modelVisibility)))
-    }
+  // Reveal on hover/focus (Tailwind group-* off the row) or while selected.
+  const visibility = selected
+    ? 'opacity-100'
+    : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+
+  // Reflect the kebab's per-model state: the icon is "shown" if any model is on,
+  // and only "hidden" when every model is off. Falls back to the render flag
+  // before the catalog has loaded.
+  const renderHidden =
+    modelIds.length > 0
+      ? modelIds.every((id) => !isModelOn(node.modelVisibility, id))
+      : !node.renderEnabled
+  const onToggleRender = (): void => {
+    if (projectId && scenarioId) dispatch(toggleRender(projectId, scenarioId, node.id, modelIds))
   }
 
   const onToggleViewport = (): void => {
@@ -270,13 +231,15 @@ export default function RowActions({
   }
 
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+    <div
+      className={`ml-auto flex shrink-0 items-center gap-0.5 transition-opacity ${visibility}`}
+    >
       <IconButton
-        label={modelsHidden ? 'Show in all models' : 'Hide from all models'}
-        active={modelsHidden}
-        onClick={onToggleAllModels}
+        label={renderHidden ? 'Show in render' : 'Hide from render'}
+        active={renderHidden}
+        onClick={onToggleRender}
       >
-        {modelsHidden ? <RenderOffIcon /> : <RenderIcon />}
+        {renderHidden ? <RenderOffIcon /> : <RenderIcon />}
       </IconButton>
       <IconButton
         label={node.visibleInViewport ? 'Hide from viewport' : 'Show in viewport'}
