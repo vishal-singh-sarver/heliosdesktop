@@ -3,7 +3,6 @@ import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import * as actions from './actions'
 import type {
-  AddGeometryRequestedAction,
   CreateObjectRequestedAction,
   DeleteNodeRequestedAction,
   GroupNodesRequestedAction,
@@ -17,7 +16,6 @@ import type {
   ToggleViewportAction
 } from './actions'
 import {
-  ADD_GEOMETRY_REQUESTED,
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   GROUP_NODES_REQUESTED,
@@ -30,16 +28,10 @@ import {
   TOGGLE_RENDER,
   TOGGLE_VIEWPORT
 } from './constants'
-import { formatName } from './naming'
 import { defaultValuesForObject } from './propertyBlueprint'
-import {
-  selectCounters,
-  selectCreateDraft,
-  selectDetailsById,
-  selectNodesById
-} from './selectors'
+import { selectCreateDraft, selectDetailsById, selectNodesById } from './selectors'
 import * as service from './service'
-import type { CreateDraft, GeoNode, GeometryCounters, ObjectDetail } from './types'
+import type { CreateDraft, GeoNode, ObjectDetail } from './types'
 
 // Raw string form values → numeric properties for the backend (blank fields are
 // dropped). Shared by create (defaults) and update (edited values).
@@ -62,26 +54,6 @@ export function* listNodesWorker(action: ListNodesRequestedAction): Generator {
     yield put(actions.listNodesSucceeded(projectId, scenarioId, nodes))
   } catch (err) {
     yield put(actions.listNodesFailed(projectId, scenarioId, (err as Error).message))
-  }
-}
-
-// Client-generated id; wrapped so the saga test can step over it. The backend
-// receives this id (we send only { id, name }), so no reconcile is needed.
-export const generateId = (): string => `geo-${crypto.randomUUID()}`
-
-// Creates a Ground. The counter was already bumped by the reducer on the
-// REQUESTED action, so reading it here yields this create's number.
-export function* addGeometryWorker(action: AddGeometryRequestedAction): Generator {
-  const { projectId, scenarioId } = action
-  const kind = action.payload
-  try {
-    const counters = (yield select(selectCounters)) as GeometryCounters
-    const name = formatName(kind, counters[kind])
-    const id = (yield call(generateId)) as string
-    yield call(service.createGeometry, projectId, scenarioId, { id, name, kind })
-    yield put(actions.addGeometrySucceeded(projectId, scenarioId, { id, name, kind }))
-  } catch (err) {
-    yield put(actions.addGeometryFailed(projectId, scenarioId, (err as Error).message))
   }
 }
 
@@ -379,7 +351,6 @@ export function* setModelOnWorker(action: SetModelOnAction): Generator {
 
 export default function* geometrySaga(): Generator {
   yield takeLatest(LIST_NODES_REQUESTED, listNodesWorker)
-  yield takeEvery(ADD_GEOMETRY_REQUESTED, addGeometryWorker)
   yield takeEvery(RENAME_REQUESTED, renameWorker)
   yield takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker)
   yield takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker)

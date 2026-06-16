@@ -1,7 +1,4 @@
 import {
-  ADD_GEOMETRY_FAILED,
-  ADD_GEOMETRY_REQUESTED,
-  ADD_GEOMETRY_SUCCEEDED,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
   CREATE_OBJECT_REQUESTED,
@@ -40,9 +37,6 @@ import {
   VISIBILITY_SYNC_FAILED
 } from './constants'
 import type { GeoNode } from './types'
-
-// The kinds creatable from the action row. Import-from-file is a separate flow.
-export type CreatableKind = 'ground'
 
 // ── Action types ────────────────────────────────────────────────────────────
 //
@@ -209,25 +203,6 @@ export type DeleteNodeFailedAction = {
   id: string
   payload: string
 }
-export type AddGeometryRequestedAction = {
-  type: typeof ADD_GEOMETRY_REQUESTED
-  projectId: string
-  scenarioId: string
-  payload: CreatableKind
-}
-export type AddGeometrySucceededAction = {
-  type: typeof ADD_GEOMETRY_SUCCEEDED
-  projectId: string
-  scenarioId: string
-  payload: { id: string; name: string; kind: CreatableKind }
-}
-export type AddGeometryFailedAction = {
-  type: typeof ADD_GEOMETRY_FAILED
-  projectId: string
-  scenarioId: string
-  payload: string
-}
-
 // ── Edit-object draft (right-panel Properties form) ─────────────────────────
 export type SetDraftValueAction = {
   type: typeof SET_DRAFT_VALUE
@@ -339,9 +314,6 @@ export type GeometryAction =
   | DeleteNodeRequestedAction
   | DeleteNodeSucceededAction
   | DeleteNodeFailedAction
-  | AddGeometryRequestedAction
-  | AddGeometrySucceededAction
-  | AddGeometryFailedAction
   | SetDraftValueAction
   | SetDraftNameAction
   | SetDraftMaterialAction
@@ -547,29 +519,6 @@ export const visibilitySyncFailed = (
   modelId,
   payload: error
 })
-
-export const addGeometryRequested = (
-  projectId: string,
-  scenarioId: string,
-  kind: CreatableKind
-): AddGeometryRequestedAction => ({ type: ADD_GEOMETRY_REQUESTED, projectId, scenarioId, payload: kind })
-
-export const addGeometrySucceeded = (
-  projectId: string,
-  scenarioId: string,
-  node: { id: string; name: string; kind: CreatableKind }
-): AddGeometrySucceededAction => ({
-  type: ADD_GEOMETRY_SUCCEEDED,
-  projectId,
-  scenarioId,
-  payload: node
-})
-
-export const addGeometryFailed = (
-  projectId: string,
-  scenarioId: string,
-  error: string
-): AddGeometryFailedAction => ({ type: ADD_GEOMETRY_FAILED, projectId, scenarioId, payload: error })
 
 // ── Edit-object draft creators ───────────────────────────────────────────────
 

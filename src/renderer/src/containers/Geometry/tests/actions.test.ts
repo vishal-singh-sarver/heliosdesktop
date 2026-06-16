@@ -1,7 +1,5 @@
 import * as actions from '../actions'
 import {
-  ADD_GEOMETRY_REQUESTED,
-  ADD_GEOMETRY_SUCCEEDED,
   DELETE_NODE_REQUESTED,
   GROUP_NODES_REQUESTED,
   LIST_NODES_REQUESTED,
@@ -82,25 +80,6 @@ describe('Geometry actions', () => {
       projectId: P,
       scenarioId: S,
       id: 'g'
-    })
-  })
-
-  it('addGeometryRequested carries the kind', () => {
-    expect(actions.addGeometryRequested(P, S, 'ground')).toEqual({
-      type: ADD_GEOMETRY_REQUESTED,
-      projectId: P,
-      scenarioId: S,
-      payload: 'ground'
-    })
-  })
-
-  it('addGeometrySucceeded carries the created node', () => {
-    const node = { id: 'x', name: 'Ground.001', kind: 'ground' as const }
-    expect(actions.addGeometrySucceeded(P, S, node)).toEqual({
-      type: ADD_GEOMETRY_SUCCEEDED,
-      projectId: P,
-      scenarioId: S,
-      payload: node
     })
   })
 

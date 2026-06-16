@@ -7,13 +7,6 @@ export const LIST_NODES_REQUESTED = 'app/Geometry/LIST_NODES_REQUESTED' as const
 export const LIST_NODES_SUCCEEDED = 'app/Geometry/LIST_NODES_SUCCEEDED' as const
 export const LIST_NODES_FAILED = 'app/Geometry/LIST_NODES_FAILED' as const
 
-// ── Create a geometry (Ground). The payload to the backend is just the
-//    generated { id, name } for now; the full params come from the right-panel
-//    Properties form later (separate task). ─────────────────────────────────
-export const ADD_GEOMETRY_REQUESTED = 'app/Geometry/ADD_GEOMETRY_REQUESTED' as const
-export const ADD_GEOMETRY_SUCCEEDED = 'app/Geometry/ADD_GEOMETRY_SUCCEEDED' as const
-export const ADD_GEOMETRY_FAILED = 'app/Geometry/ADD_GEOMETRY_FAILED' as const
-
 // ── Local UI state (no async) ───────────────────────────────────────────────
 export const SELECT = 'app/Geometry/SELECT' as const
 export const SET_SEARCH_QUERY = 'app/Geometry/SET_SEARCH_QUERY' as const

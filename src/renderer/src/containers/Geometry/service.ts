@@ -74,14 +74,6 @@ function parseModels(models: Record<string, boolean> | undefined): ModelVisibili
   return out
 }
 
-// Minimal create payload — only the two fields the backend needs for now; the
-// full geometry params are filled in later by the right-panel Properties form.
-export interface CreateGeometryInput {
-  id: string
-  name: string
-  kind: 'ground'
-}
-
 // The single seam between the Geometry sagas and the backend — sagas import only
 // this module, never `api` directly.
 
@@ -293,19 +285,6 @@ export function moveNodes(
       api.patch(API_ROUTES.geometry.update(projectId, scenarioId, id), { group_id: groupId })
     )
   ).then(() => undefined)
-}
-
-// Sends only { id, name } to the backend (the agreed minimal payload). The
-// client owns the id, so no reconcile is needed — the slice inserts the node
-// on success.
-export function createGeometry(
-  projectId: string,
-  scenarioId: string,
-  input: CreateGeometryInput
-): Promise<void> {
-  return api
-    .post(API_ROUTES.geometry.create(projectId, scenarioId), { id: input.id, name: input.name })
-    .then(() => undefined)
 }
 
 // Rename a leaf geometry (§5.5). Membership/name live on the object; the backend

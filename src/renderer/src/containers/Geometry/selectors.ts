@@ -52,7 +52,6 @@ export const selectSelectedIds = createSelector(selectActiveGeometry, (g) => g.s
 export const selectSearchQuery = createSelector(selectActiveGeometry, (g) => g.searchQuery)
 export const selectLoadStatus = createSelector(selectActiveGeometry, (g) => g.loadStatus)
 export const selectLoadError = createSelector(selectActiveGeometry, (g) => g.loadError)
-export const selectCounters = createSelector(selectActiveGeometry, (g) => g.counters)
 export const selectNameErrors = createSelector(selectActiveGeometry, (g) => g.nameErrors)
 
 // Lowercased names of all groups in the active scenario — used for the unique-
