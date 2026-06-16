@@ -52,3 +52,22 @@ export const MOVE_NODES_FAILED = 'app/Geometry/MOVE_NODES_FAILED' as const
 export const DELETE_NODE_REQUESTED = 'app/Geometry/DELETE_NODE_REQUESTED' as const
 export const DELETE_NODE_SUCCEEDED = 'app/Geometry/DELETE_NODE_SUCCEEDED' as const
 export const DELETE_NODE_FAILED = 'app/Geometry/DELETE_NODE_FAILED' as const
+
+// ── Create-then-edit object (right-panel Properties form). +Ground POSTs an
+//    object with default values immediately (CREATE_OBJECT), which opens the
+//    form populated from the response; Save PATCHes it (UPDATE_OBJECT); Cancel
+//    DELETEs it (reuses DELETE_NODE + CLOSE_CREATE_FORM). ─
+export const SET_DRAFT_VALUE = 'app/Geometry/SET_DRAFT_VALUE' as const
+export const SET_DRAFT_NAME = 'app/Geometry/SET_DRAFT_NAME' as const
+export const SET_DRAFT_MATERIAL = 'app/Geometry/SET_DRAFT_MATERIAL' as const
+export const CLOSE_CREATE_FORM = 'app/Geometry/CLOSE_CREATE_FORM' as const
+export const CREATE_OBJECT_REQUESTED = 'app/Geometry/CREATE_OBJECT_REQUESTED' as const
+export const CREATE_OBJECT_SUCCEEDED = 'app/Geometry/CREATE_OBJECT_SUCCEEDED' as const
+export const CREATE_OBJECT_FAILED = 'app/Geometry/CREATE_OBJECT_FAILED' as const
+export const UPDATE_OBJECT_REQUESTED = 'app/Geometry/UPDATE_OBJECT_REQUESTED' as const
+export const UPDATE_OBJECT_SUCCEEDED = 'app/Geometry/UPDATE_OBJECT_SUCCEEDED' as const
+export const UPDATE_OBJECT_FAILED = 'app/Geometry/UPDATE_OBJECT_FAILED' as const
+// Clicking a ground GETs its detail and opens the form to view/edit it.
+export const LOAD_OBJECT_REQUESTED = 'app/Geometry/LOAD_OBJECT_REQUESTED' as const
+export const LOAD_OBJECT_SUCCEEDED = 'app/Geometry/LOAD_OBJECT_SUCCEEDED' as const
+export const LOAD_OBJECT_FAILED = 'app/Geometry/LOAD_OBJECT_FAILED' as const

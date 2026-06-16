@@ -3,7 +3,17 @@ export const LOAD_DATA_TYPES_REQUESTED = 'app/ProjectScreen/LOAD_DATA_TYPES_REQU
 export const LOAD_DATA_TYPES_SUCCEEDED = 'app/ProjectScreen/LOAD_DATA_TYPES_SUCCEEDED' as const
 export const LOAD_DATA_TYPES_FAILED = 'app/ProjectScreen/LOAD_DATA_TYPES_FAILED' as const
 
-// Catalog: runnable simulation models (loaded once per session, on mount)
+// Catalog: object / material / model types (loaded in parallel with data types)
+export const LOAD_OBJECT_TYPES_REQUESTED = 'app/ProjectScreen/LOAD_OBJECT_TYPES_REQUESTED' as const
+export const LOAD_OBJECT_TYPES_SUCCEEDED = 'app/ProjectScreen/LOAD_OBJECT_TYPES_SUCCEEDED' as const
+export const LOAD_OBJECT_TYPES_FAILED = 'app/ProjectScreen/LOAD_OBJECT_TYPES_FAILED' as const
+
+export const LOAD_MATERIAL_TYPES_REQUESTED =
+  'app/ProjectScreen/LOAD_MATERIAL_TYPES_REQUESTED' as const
+export const LOAD_MATERIAL_TYPES_SUCCEEDED =
+  'app/ProjectScreen/LOAD_MATERIAL_TYPES_SUCCEEDED' as const
+export const LOAD_MATERIAL_TYPES_FAILED = 'app/ProjectScreen/LOAD_MATERIAL_TYPES_FAILED' as const
+
 export const LOAD_MODEL_TYPES_REQUESTED = 'app/ProjectScreen/LOAD_MODEL_TYPES_REQUESTED' as const
 export const LOAD_MODEL_TYPES_SUCCEEDED = 'app/ProjectScreen/LOAD_MODEL_TYPES_SUCCEEDED' as const
 export const LOAD_MODEL_TYPES_FAILED = 'app/ProjectScreen/LOAD_MODEL_TYPES_FAILED' as const

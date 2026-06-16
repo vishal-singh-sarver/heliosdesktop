@@ -5,6 +5,7 @@ import { useDispatch } from 'react-redux'
 import {
   deleteNodeRequested,
   groupNodesRequested,
+  loadObjectRequested,
   moveNodesRequested,
   select,
   toggleExpand
@@ -122,9 +123,11 @@ function TreeRow({
   }
 
   const handleSelect = (e: React.MouseEvent): void => {
-    if (projectId && scenarioId) {
-      dispatch(select(projectId, scenarioId, node.id, e.metaKey || e.ctrlKey))
-    }
+    if (!projectId || !scenarioId) return
+    const multi = e.metaKey || e.ctrlKey
+    dispatch(select(projectId, scenarioId, node.id, multi))
+    // Single-clicking a leaf loads its properties into the right-panel form.
+    if (!multi && !isGroup) dispatch(loadObjectRequested(projectId, scenarioId, node.id))
   }
 
   const handleToggle = (e: React.MouseEvent): void => {

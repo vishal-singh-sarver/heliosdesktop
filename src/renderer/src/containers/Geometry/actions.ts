@@ -2,12 +2,19 @@ import {
   ADD_GEOMETRY_FAILED,
   ADD_GEOMETRY_REQUESTED,
   ADD_GEOMETRY_SUCCEEDED,
+  CLOSE_CREATE_FORM,
+  CREATE_OBJECT_FAILED,
+  CREATE_OBJECT_REQUESTED,
+  CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_FAILED,
   DELETE_NODE_REQUESTED,
   DELETE_NODE_SUCCEEDED,
   GROUP_NODES_REQUESTED,
   GROUP_NODES_SUCCEEDED,
   GROUP_NODES_FAILED,
+  LOAD_OBJECT_FAILED,
+  LOAD_OBJECT_REQUESTED,
+  LOAD_OBJECT_SUCCEEDED,
   LIST_NODES_REQUESTED,
   MOVE_NODES_REQUESTED,
   MOVE_NODES_SUCCEEDED,
@@ -18,12 +25,18 @@ import {
   RENAME_REQUESTED,
   RENAME_SUCCEEDED,
   SELECT,
+  SET_DRAFT_MATERIAL,
+  SET_DRAFT_NAME,
+  SET_DRAFT_VALUE,
   SET_MODEL_ON,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
   TOGGLE_EXPAND,
   TOGGLE_RENDER,
   TOGGLE_VIEWPORT,
+  UPDATE_OBJECT_FAILED,
+  UPDATE_OBJECT_REQUESTED,
+  UPDATE_OBJECT_SUCCEEDED,
   VISIBILITY_SYNC_FAILED
 } from './constants'
 import type { GeoNode } from './types'
@@ -215,6 +228,93 @@ export type AddGeometryFailedAction = {
   payload: string
 }
 
+// ── Edit-object draft (right-panel Properties form) ─────────────────────────
+export type SetDraftValueAction = {
+  type: typeof SET_DRAFT_VALUE
+  property: string
+  payload: string
+}
+export type SetDraftNameAction = {
+  type: typeof SET_DRAFT_NAME
+  payload: string
+}
+export type SetDraftMaterialAction = {
+  type: typeof SET_DRAFT_MATERIAL
+  payload: number | null
+}
+export type CloseCreateFormAction = {
+  type: typeof CLOSE_CREATE_FORM
+}
+// +Ground fires this; the saga POSTs an object with default values. Carries the
+// catalog type + proposed name needed to build the create payload and open the
+// form (no draft exists yet).
+export type CreateObjectRequestedAction = {
+  type: typeof CREATE_OBJECT_REQUESTED
+  projectId: string
+  scenarioId: string
+  objectTypeId: number
+  objectName: string
+  name: string
+}
+// The POST resolved: the persisted node + its property values, plus the catalog
+// type the form needs to render. The reducer inserts the node and opens the draft.
+export type CreateObjectSucceededAction = {
+  type: typeof CREATE_OBJECT_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  payload: {
+    node: GeoNode
+    values: Record<string, string>
+    objectTypeId: number
+    objectName: string
+  }
+}
+export type CreateObjectFailedAction = {
+  type: typeof CREATE_OBJECT_FAILED
+  payload: string
+}
+// Save fires this; the saga PATCHes the draft's object. Succeeded closes the form.
+export type UpdateObjectRequestedAction = {
+  type: typeof UPDATE_OBJECT_REQUESTED
+  projectId: string
+  scenarioId: string
+}
+export type UpdateObjectSucceededAction = {
+  type: typeof UPDATE_OBJECT_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  // The saved object id + (possibly renamed) name, so the reducer can sync the
+  // tree node and keep the form open showing the saved values.
+  payload: { objectId: string; name: string }
+}
+export type UpdateObjectFailedAction = {
+  type: typeof UPDATE_OBJECT_FAILED
+  payload: string
+}
+// Clicking a ground fires this; the saga GETs its detail. Succeeded opens the
+// form (the node is already in the tree).
+export type LoadObjectRequestedAction = {
+  type: typeof LOAD_OBJECT_REQUESTED
+  projectId: string
+  scenarioId: string
+  id: string
+}
+export type LoadObjectSucceededAction = {
+  type: typeof LOAD_OBJECT_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  payload: {
+    node: GeoNode
+    values: Record<string, string>
+    objectTypeId: number
+    objectName: string
+  }
+}
+export type LoadObjectFailedAction = {
+  type: typeof LOAD_OBJECT_FAILED
+  payload: string
+}
+
 export type GeometryAction =
   | ListNodesRequestedAction
   | ListNodesSucceededAction
@@ -242,6 +342,19 @@ export type GeometryAction =
   | AddGeometryRequestedAction
   | AddGeometrySucceededAction
   | AddGeometryFailedAction
+  | SetDraftValueAction
+  | SetDraftNameAction
+  | SetDraftMaterialAction
+  | CloseCreateFormAction
+  | CreateObjectRequestedAction
+  | CreateObjectSucceededAction
+  | CreateObjectFailedAction
+  | UpdateObjectRequestedAction
+  | UpdateObjectSucceededAction
+  | UpdateObjectFailedAction
+  | LoadObjectRequestedAction
+  | LoadObjectSucceededAction
+  | LoadObjectFailedAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -457,3 +570,97 @@ export const addGeometryFailed = (
   scenarioId: string,
   error: string
 ): AddGeometryFailedAction => ({ type: ADD_GEOMETRY_FAILED, projectId, scenarioId, payload: error })
+
+// ── Edit-object draft creators ───────────────────────────────────────────────
+
+export const setDraftValue = (property: string, value: string): SetDraftValueAction => ({
+  type: SET_DRAFT_VALUE,
+  property,
+  payload: value
+})
+
+export const setDraftName = (name: string): SetDraftNameAction => ({
+  type: SET_DRAFT_NAME,
+  payload: name
+})
+
+export const setDraftMaterial = (materialId: number | null): SetDraftMaterialAction => ({
+  type: SET_DRAFT_MATERIAL,
+  payload: materialId
+})
+
+export const closeCreateForm = (): CloseCreateFormAction => ({ type: CLOSE_CREATE_FORM })
+
+export const createObjectRequested = (
+  projectId: string,
+  scenarioId: string,
+  objectTypeId: number,
+  objectName: string,
+  name: string
+): CreateObjectRequestedAction => ({
+  type: CREATE_OBJECT_REQUESTED,
+  projectId,
+  scenarioId,
+  objectTypeId,
+  objectName,
+  name
+})
+
+export const createObjectSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  payload: {
+    node: GeoNode
+    values: Record<string, string>
+    objectTypeId: number
+    objectName: string
+  }
+): CreateObjectSucceededAction => ({
+  type: CREATE_OBJECT_SUCCEEDED,
+  projectId,
+  scenarioId,
+  payload
+})
+
+export const createObjectFailed = (error: string): CreateObjectFailedAction => ({
+  type: CREATE_OBJECT_FAILED,
+  payload: error
+})
+
+export const updateObjectRequested = (
+  projectId: string,
+  scenarioId: string
+): UpdateObjectRequestedAction => ({ type: UPDATE_OBJECT_REQUESTED, projectId, scenarioId })
+
+export const updateObjectSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  payload: { objectId: string; name: string }
+): UpdateObjectSucceededAction => ({ type: UPDATE_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
+
+export const updateObjectFailed = (error: string): UpdateObjectFailedAction => ({
+  type: UPDATE_OBJECT_FAILED,
+  payload: error
+})
+
+export const loadObjectRequested = (
+  projectId: string,
+  scenarioId: string,
+  id: string
+): LoadObjectRequestedAction => ({ type: LOAD_OBJECT_REQUESTED, projectId, scenarioId, id })
+
+export const loadObjectSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  payload: {
+    node: GeoNode
+    values: Record<string, string>
+    objectTypeId: number
+    objectName: string
+  }
+): LoadObjectSucceededAction => ({ type: LOAD_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
+
+export const loadObjectFailed = (error: string): LoadObjectFailedAction => ({
+  type: LOAD_OBJECT_FAILED,
+  payload: error
+})

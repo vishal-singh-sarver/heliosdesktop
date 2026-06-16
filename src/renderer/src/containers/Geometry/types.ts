@@ -32,6 +32,36 @@ export interface GeometryCounters {
   group: number
 }
 
+// Cached per-object detail for the right-panel form, keyed by node id. Filled
+// the first time a ground is fetched (or created/saved) so re-clicking it serves
+// from memory instead of a fresh GET.
+export interface ObjectDetail {
+  values: Record<string, string>
+  objectTypeId: number
+  objectName: string
+}
+
+// ── Edit-object draft (right-panel Properties form) ─────────────────────────
+//
+// Clicking +Ground POSTs an object with default values immediately; the response
+// opens this draft, populated with the persisted object's values. The draft is
+// the in-progress edit for ONE object at a time (the active scenario's), keyed
+// by raw string field values so inputs stay controlled. Save PATCHes the object;
+// Cancel DELETEs it. The node is already in the tree (it exists on the backend).
+export interface CreateDraft {
+  objectId: string // backend id of the object (PATCH/DELETE target)
+  objectTypeId: number // catalog object type id (Ground = 1)
+  objectName: string // catalog `object` name, e.g. "Ground"
+  name: string // node name, e.g. "Ground.001" (read-only; rename is separate)
+  values: Record<string, string> // catalog property name -> raw input value
+  materialId: number | null // selected material (optional)
+  // true = just created via +Ground (Cancel DELETEs it); false = opened by
+  // clicking an existing ground (Cancel just closes).
+  isNew: boolean
+  saving: boolean
+  saveError: string | null
+}
+
 // All geometry state for one scenario scope (keyed in the slice by
 // `${projectId}::${scenarioId}`, matching the Weather *ByScope convention).
 export interface ScenarioGeometry {
@@ -41,13 +71,21 @@ export interface ScenarioGeometry {
   searchQuery: string
   counters: GeometryCounters
   nameErrors: Record<string, string> // inline rename validation, keyed by node id
+  detailsById: Record<string, ObjectDetail> // cached property values per object
   loadStatus: LoadStatus
   loadError: string | null
 }
 
-// Slice root: one ScenarioGeometry per scope key.
+// Slice root: one ScenarioGeometry per scope key, plus a single transient
+// create-object draft (the right-panel Properties form, one at a time).
 export interface GeometryState {
   byScope: Record<string, ScenarioGeometry>
+  createDraft: CreateDraft | null
+  // Bumped every time a create form is opened. The RightPanel watches this to
+  // re-expand on each +Ground, even when a draft is already active and the user
+  // had collapsed the panel (presence alone wouldn't change, so it wouldn't
+  // re-trigger).
+  createDraftNonce: number
 }
 
 // ── Action payload shapes ───────────────────────────────────────────────────

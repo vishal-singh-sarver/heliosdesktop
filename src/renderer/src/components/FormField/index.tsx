@@ -8,6 +8,11 @@ export interface FormFieldLabelProps {
   helpText?: string
   helpAriaLabel?: string
   helpPlace?: PlacesType
+  // Visually hide the label (kept for screen readers via sr-only) when the
+  // field name is shown as the input placeholder instead — and a separate
+  // section heading already labels the row. The htmlFor/id association is
+  // preserved, so the accessible name is unchanged.
+  hideLabel?: boolean
 }
 
 export interface FormFieldOption {
@@ -31,6 +36,9 @@ export interface FormFieldInputProps {
   lang?: string
   min?: string
   max?: string
+  // Extra classes appended to the <input>/<select> (e.g. a custom background).
+  // Appended last so they override the defaults.
+  inputClassName?: string
 }
 
 interface FormFieldProps {
@@ -39,7 +47,7 @@ interface FormFieldProps {
 }
 
 function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Element {
-  const { label, optional = false, helpText, helpAriaLabel, helpPlace } = labelProps
+  const { label, optional = false, helpText, helpAriaLabel, helpPlace, hideLabel = false } = labelProps
   const {
     error,
     type = 'text',
@@ -49,18 +57,22 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     iconLeft,
     onIconLeftClick,
     inputRef,
+    inputClassName = '',
     ...restInputProps
   } = inputProps
   const errorId = useId()
 
   const outlineClasses = error ? 'outline outline-1 -outline-offset-1 outline-red-500' : 'outline-none'
   const focusBorderClassName = error ? 'focus:border-red-500' : 'focus:border-neutral-500'
-  const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}`
+  const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
   const paddedClassName = iconLeft ? `${baseClassName} pl-9 pr-3` : `${baseClassName} px-3`
 
   return (
     <div className="block text-sm text-neutral-300">
-      <label htmlFor={restInputProps.name} className="flex items-center gap-1">
+      <label
+        htmlFor={restInputProps.name}
+        className={`flex items-center gap-1${hideLabel ? ' sr-only' : ''}`}
+      >
         {label}
         {!optional && <span className="text-red-400">*</span>}
         {helpText && helpAriaLabel && (

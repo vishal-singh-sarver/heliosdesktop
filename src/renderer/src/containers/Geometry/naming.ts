@@ -34,3 +34,17 @@ export function deriveCounters(nodes: GeoNode[]): GeometryCounters {
   }
   return counters
 }
+
+// Smallest positive number N (≥1) whose `<Prefix>.NNN` name is not already in
+// use for this kind — fills the lowest gap rather than continuing past the max.
+// e.g. Ground.001, Ground.002, Ground.015 → next is Ground.003.
+export function nextAvailableNumber(nodes: GeoNode[], kind: CounterKind): number {
+  const used = new Set<number>()
+  for (const node of nodes) {
+    const parsed = parseNameNumber(node.name)
+    if (parsed && parsed.kind === kind) used.add(parsed.num)
+  }
+  let n = 1
+  while (used.has(n)) n += 1
+  return n
+}

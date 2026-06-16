@@ -16,9 +16,15 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MATERIAL_TYPES_FAILED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MATERIAL_TYPES_SUCCEEDED,
   LOAD_MODEL_TYPES_FAILED,
   LOAD_MODEL_TYPES_REQUESTED,
   LOAD_MODEL_TYPES_SUCCEEDED,
+  LOAD_OBJECT_TYPES_FAILED,
+  LOAD_OBJECT_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_SUCCEEDED,
   LOAD_HEADERS_FAILED,
   LOAD_HEADERS_REQUESTED,
   LOAD_HEADERS_SUCCEEDED,
@@ -62,7 +68,9 @@ import type {
   DataTypeDef,
   DeleteColumnSnapshot,
   LoadedScenarioPayload,
+  MaterialTypeDef,
   ModelTypeDef,
+  ObjectTypeDef,
   ProjectMetadata,
   RowId,
   Scenario,
@@ -94,6 +102,32 @@ export interface LoadDataTypesSucceededAction extends Idx {
 }
 export interface LoadDataTypesFailedAction extends Idx {
   type: typeof LOAD_DATA_TYPES_FAILED
+  payload: string
+}
+
+// Catalog: object types
+export interface LoadObjectTypesRequestedAction extends Idx {
+  type: typeof LOAD_OBJECT_TYPES_REQUESTED
+}
+export interface LoadObjectTypesSucceededAction extends Idx {
+  type: typeof LOAD_OBJECT_TYPES_SUCCEEDED
+  payload: ObjectTypeDef[]
+}
+export interface LoadObjectTypesFailedAction extends Idx {
+  type: typeof LOAD_OBJECT_TYPES_FAILED
+  payload: string
+}
+
+// Catalog: material types
+export interface LoadMaterialTypesRequestedAction extends Idx {
+  type: typeof LOAD_MATERIAL_TYPES_REQUESTED
+}
+export interface LoadMaterialTypesSucceededAction extends Idx {
+  type: typeof LOAD_MATERIAL_TYPES_SUCCEEDED
+  payload: MaterialTypeDef[]
+}
+export interface LoadMaterialTypesFailedAction extends Idx {
+  type: typeof LOAD_MATERIAL_TYPES_FAILED
   payload: string
 }
 
@@ -355,6 +389,12 @@ export type ProjectScreenAction =
   | LoadDataTypesRequestedAction
   | LoadDataTypesSucceededAction
   | LoadDataTypesFailedAction
+  | LoadObjectTypesRequestedAction
+  | LoadObjectTypesSucceededAction
+  | LoadObjectTypesFailedAction
+  | LoadMaterialTypesRequestedAction
+  | LoadMaterialTypesSucceededAction
+  | LoadMaterialTypesFailedAction
   | LoadModelTypesRequestedAction
   | LoadModelTypesSucceededAction
   | LoadModelTypesFailedAction
@@ -416,6 +456,34 @@ export const loadDataTypesSucceeded = (payload: DataTypeDef[]): LoadDataTypesSuc
 })
 export const loadDataTypesFailed = (payload: string): LoadDataTypesFailedAction => ({
   type: LOAD_DATA_TYPES_FAILED,
+  payload
+})
+
+export const loadObjectTypesRequested = (): LoadObjectTypesRequestedAction => ({
+  type: LOAD_OBJECT_TYPES_REQUESTED
+})
+export const loadObjectTypesSucceeded = (
+  payload: ObjectTypeDef[]
+): LoadObjectTypesSucceededAction => ({
+  type: LOAD_OBJECT_TYPES_SUCCEEDED,
+  payload
+})
+export const loadObjectTypesFailed = (payload: string): LoadObjectTypesFailedAction => ({
+  type: LOAD_OBJECT_TYPES_FAILED,
+  payload
+})
+
+export const loadMaterialTypesRequested = (): LoadMaterialTypesRequestedAction => ({
+  type: LOAD_MATERIAL_TYPES_REQUESTED
+})
+export const loadMaterialTypesSucceeded = (
+  payload: MaterialTypeDef[]
+): LoadMaterialTypesSucceededAction => ({
+  type: LOAD_MATERIAL_TYPES_SUCCEEDED,
+  payload
+})
+export const loadMaterialTypesFailed = (payload: string): LoadMaterialTypesFailedAction => ({
+  type: LOAD_MATERIAL_TYPES_FAILED,
   payload
 })
 

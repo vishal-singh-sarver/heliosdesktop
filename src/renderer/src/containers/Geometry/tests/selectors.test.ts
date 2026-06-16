@@ -1,6 +1,7 @@
 import {
   selectActiveScopeKey,
   selectActiveGeometry,
+  selectNextGroundName,
   selectSelectedIds,
   selectSearchQuery,
   selectLoadStatus,
@@ -139,5 +140,39 @@ describe('selectVisibleTree (search filter)', () => {
 
   it('returns nothing when nothing matches', () => {
     expect(namesOf(makeState(scenario('zzz')))).toEqual([])
+  })
+})
+
+describe('selectNextGroundName', () => {
+  it('returns Ground.001 when there are no grounds', () => {
+    expect(selectNextGroundName(makeState(emptyScenarioGeometry()))).toBe('Ground.001')
+  })
+
+  it('fills the lowest gap across roots + group children, not max+1', () => {
+    const geo: ScenarioGeometry = {
+      ...emptyScenarioGeometry(),
+      nodesById: {
+        a: ground('a', 'Ground.001'),
+        g: { ...ground('g', 'Group.001'), kind: 'group', childIds: ['c'] },
+        c: { ...ground('c', 'Ground.004'), parentId: 'g' }
+      },
+      rootOrder: ['a', 'g']
+    }
+    // 001 and 004 used (004 nested); the lowest free number is 002 — gap-filling,
+    // not Ground.005.
+    expect(selectNextGroundName(makeState(geo))).toBe('Ground.002')
+  })
+
+  it('fills the gap for {001, 002, 015} → Ground.003', () => {
+    const geo: ScenarioGeometry = {
+      ...emptyScenarioGeometry(),
+      nodesById: {
+        a: ground('a', 'Ground.001'),
+        b: ground('b', 'Ground.002'),
+        c: ground('c', 'Ground.015')
+      },
+      rootOrder: ['a', 'b', 'c']
+    }
+    expect(selectNextGroundName(makeState(geo))).toBe('Ground.003')
   })
 })

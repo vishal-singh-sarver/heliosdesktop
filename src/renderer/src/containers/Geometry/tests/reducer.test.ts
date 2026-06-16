@@ -339,4 +339,106 @@ describe('geometryReducer', () => {
     expect(s.rootOrder).toEqual(['x'])
     expect(s.selectedIds).toEqual(['x'])
   })
+
+  describe('edit-object draft', () => {
+    // +Ground POSTs first; CREATE_OBJECT_SUCCEEDED inserts the node AND opens the
+    // edit form populated from the persisted object's values.
+    const created = (values: Record<string, string> = { length: '10', breadth: '10' }) =>
+      geometryReducer(
+        initialState,
+        actions.createObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values,
+          objectTypeId: 1,
+          objectName: 'Ground'
+        })
+      )
+
+    it('CREATE_OBJECT_SUCCEEDED inserts+selects the node, bumps counter, and opens the draft', () => {
+      const r = created()
+      const s = r.byScope[KEY]
+      expect(s.nodesById['27']).toMatchObject({ id: '27', kind: 'ground' })
+      expect(s.rootOrder).toEqual(['27'])
+      expect(s.selectedIds).toEqual(['27'])
+      expect(s.counters.ground).toBe(1)
+      expect(r.createDraft).toEqual({
+        objectId: '27',
+        objectTypeId: 1,
+        objectName: 'Ground',
+        name: 'Ground.001',
+        values: { length: '10', breadth: '10' },
+        materialId: null,
+        isNew: true,
+        saving: false,
+        saveError: null
+      })
+      expect(r.createDraftNonce).toBe(1)
+    })
+
+    it('LOAD_OBJECT_SUCCEEDED opens the form for an existing ground (isNew:false, no insert)', () => {
+      // The ground is already in the tree; loading just opens the form.
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      const r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground'
+        })
+      )
+      expect(r.createDraft).toMatchObject({
+        objectId: '27',
+        isNew: false,
+        values: { length: '10', breadth: '10' }
+      })
+      // No duplicate insert / counter bump from a load.
+      expect(r.byScope[KEY].rootOrder).toEqual(['27'])
+      expect(r.byScope[KEY].counters.ground).toBe(1)
+      expect(r.createDraftNonce).toBe(1)
+      // The fetched values are cached so a re-click won't refetch.
+      expect(r.byScope[KEY].detailsById['27']).toEqual({
+        values: { length: '10', breadth: '10' },
+        objectTypeId: 1,
+        objectName: 'Ground'
+      })
+    })
+
+    it('SET_DRAFT_VALUE / MATERIAL update the open draft', () => {
+      let r = created()
+      r = geometryReducer(r, actions.setDraftValue('length', '20'))
+      r = geometryReducer(r, actions.setDraftMaterial(3))
+      expect(r.createDraft).toMatchObject({
+        values: { length: '20', breadth: '10' },
+        materialId: 3
+      })
+    })
+
+    it('UPDATE_OBJECT_REQUESTED marks the draft saving; FAILED records the error', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      expect(r.createDraft?.saving).toBe(true)
+      r = geometryReducer(r, actions.updateObjectFailed('nope'))
+      expect(r.createDraft).toMatchObject({ saving: false, saveError: 'nope' })
+    })
+
+    it('UPDATE_OBJECT_SUCCEEDED keeps the form open, syncs the node name, clears saving/new', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A' }))
+      // Form stays open (panel must not blank) showing the saved values.
+      expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
+      // The renamed name is synced into the tree node.
+      expect(r.byScope[KEY].nodesById['27'].name).toBe('Plot A')
+    })
+
+    it('CLOSE_CREATE_FORM discards the draft (but keeps the nonce)', () => {
+      const r = geometryReducer(created(), actions.closeCreateForm())
+      expect(r.createDraft).toBeNull()
+      expect(r.createDraftNonce).toBe(1)
+    })
+  })
 })

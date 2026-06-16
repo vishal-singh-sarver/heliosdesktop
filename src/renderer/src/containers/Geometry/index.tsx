@@ -5,18 +5,19 @@ import ToolbarButton from '@renderer/components/ToolbarButton'
 import SearchBar from '@renderer/components/SearchBar'
 import {
   selectActiveProjectId,
-  selectActiveScenarioId
+  selectActiveScenarioId,
+  selectAllObjectTypes
 } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import { addGeometryRequested, listNodesRequested, setSearchQuery } from './actions'
+import { createObjectRequested, listNodesRequested, setSearchQuery } from './actions'
 import GeometryTree from './GeometryTree'
 import reducer from './reducer'
 import saga from './saga'
-import { selectSearchQuery } from './selectors'
+import { selectNextGroundName, selectSearchQuery } from './selectors'
 
 // Geometry feature section rendered inside the LeftPanel's Geometry accordion.
 // Owns the geometry slice (saved-geometries tree, selection, search, async
@@ -29,6 +30,8 @@ export function Geometry(): React.JSX.Element {
   const dispatch = useDispatch()
   const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
+  const objectTypes = useSelector(selectAllObjectTypes)
+  const nextGroundName = useSelector(selectNextGroundName)
 
   // Load the saved-geometries tree whenever the active scenario changes. We
   // dispatch and let the saga own the fetch (never call the service from a
@@ -37,8 +40,14 @@ export function Geometry(): React.JSX.Element {
     if (projectId && scenarioId) dispatch(listNodesRequested(projectId, scenarioId))
   }, [projectId, scenarioId, dispatch])
 
+  // +Ground POSTs a new object with default values immediately (the saga builds
+  // the payload from the blueprint defaults — Ground Size 10×10, Resolution 1×1,
+  // …). The response opens the Properties form in the right panel for editing.
+  // Proposed name continues the Ground.NNN sequence.
   const onAddGround = (): void => {
-    if (projectId && scenarioId) dispatch(addGeometryRequested(projectId, scenarioId, 'ground'))
+    const ground = objectTypes.find((o) => o.object === 'Ground')
+    if (!projectId || !scenarioId || !ground) return
+    dispatch(createObjectRequested(projectId, scenarioId, ground.id, ground.object, nextGroundName))
   }
   // Crop and Import-from-file are separate flows (deferred) — buttons shown,
   // but only Ground actually creates for now.

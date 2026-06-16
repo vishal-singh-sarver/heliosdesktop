@@ -55,9 +55,12 @@ export const API_ROUTES = {
     // Each data type carries its `units[]` inline, so a single round-trip on
     // ProjectScreen mount populates the entire catalog slice.
     dataTypes: '/api/data-types/',
-    // Runnable simulation models (revision 5). Hierarchical — a model can have
-    // submodels — but the GUI consumes only the top-level models; their ids key
-    // visibility.models on geometry objects (§5).
+    // The remaining catalogs are loaded in parallel alongside dataTypes on
+    // ProjectScreen mount. Each returns a snake_case wire shape (id + nested
+    // properties / submodels) consumed by the Geometry, Materials and Models
+    // sections respectively.
+    objectTypes: '/api/catalog/object-types',
+    materialTypes: '/api/catalog/material-types',
     modelTypes: '/api/catalog/model-types'
   },
   // Geometry routes are scenario-scoped (like weather).
@@ -72,10 +75,20 @@ export const API_ROUTES = {
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/objects `,
     create: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
-    update: (projectId: string, scenarioId: string, objectId: string) =>
+    rename: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // PATCH an object's name (separate from the properties update). Used by the
+    // right-panel Save when the name field changed.
     renameObject: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/rename`,
+    // GET one object's full detail (properties + visibility). Used when a ground
+    // is clicked in the tree to populate the right-panel form.
+    getObject: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // PATCH the object's properties / visibility / group (same path as remove,
+    // different verb). Used by the right-panel Save.
+    update: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
     renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
     // Group-level visibility (viewport / render / per-model) — the backend

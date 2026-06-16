@@ -4,6 +4,7 @@ import {
   selectActiveScenarioId
 } from 'containers/ProjectScreen/selectors'
 import type { RootState } from 'store/reducers'
+import { formatName, nextAvailableNumber } from './naming'
 import { emptyScenarioGeometry, initialState, scopeKey, type GeometryState } from './reducer'
 import type { GeoNode, ScenarioGeometry } from './types'
 
@@ -35,6 +36,7 @@ export const selectActiveGeometry = createSelector(
 // ── Field selectors ────────────────────────────────────────────────────────────
 
 export const selectNodesById = createSelector(selectActiveGeometry, (g) => g.nodesById)
+export const selectDetailsById = createSelector(selectActiveGeometry, (g) => g.detailsById)
 export const selectRootOrder = createSelector(selectActiveGeometry, (g) => g.rootOrder)
 export const selectSelectedIds = createSelector(selectActiveGeometry, (g) => g.selectedIds)
 export const selectSearchQuery = createSelector(selectActiveGeometry, (g) => g.searchQuery)
@@ -112,4 +114,32 @@ export const selectVisibleTree = createSelector(
 
     return { nodesById: outNodes, rootOrder: outRoot }
   }
+)
+
+export const selectVisibleRootNodes = createSelector(
+  selectVisibleTree,
+  ({ nodesById, rootOrder }): GeoNode[] => rootOrder.map((id) => nodesById[id]).filter(Boolean)
+)
+
+// ── Create-object draft (right-panel Properties form) ────────────────────────
+//
+// The draft lives at the slice root (one at a time), not per-scope, so it reads
+// straight off the domain.
+
+export const selectCreateDraft = createSelector(selectGeometryDomain, (d) => d.createDraft)
+
+export const selectHasCreateDraft = createSelector(selectCreateDraft, (draft) => draft !== null)
+
+// Monotonic open counter — the RightPanel re-expands whenever this changes.
+export const selectCreateDraftNonce = createSelector(
+  selectGeometryDomain,
+  (d) => d.createDraftNonce
+)
+
+// Next auto-generated Ground name, derived live from the current tree: scan
+// every existing geometry (roots + group children) and pick the lowest unused
+// Ground.NNN — gap-filling, so {001, 002, 015} suggests 003, not 016. Computed
+// from the node set so it always reflects the latest backend list.
+export const selectNextGroundName = createSelector(selectNodesById, (nodesById) =>
+  formatName('ground', nextAvailableNumber(Object.values(nodesById), 'ground'))
 )
