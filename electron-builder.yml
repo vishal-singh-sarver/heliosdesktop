@@ -2,9 +2,14 @@
 # Helios Desktop Application - electron-builder Configuration
 #
 # This file configures cross-platform packaging for:
-# - Windows (NSIS assisted installer)        -> x64 (Windows 10 + 11)
-# - macOS (DMG + PKG installers)             -> SEPARATE Intel (x64) + Apple Silicon (arm64)
+# - Windows (NSIS assisted installer)
+# - macOS (DMG + PKG installers)
 # - Linux (AppImage + DEB packages)
+#
+# Build outputs are created in dist/
+# Do not use absolute paths for build resources - all paths are relative to repo root
+#
+# For CI/CD: This configuration is platform-agnostic and works in any environment
 ################################################################################
 
 appId: com.navyug.helios
@@ -52,21 +57,14 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
-
-################################################################################
-# macOS - SEPARATE Intel (x64) + Apple Silicon (arm64) files
-#
-# Changes:
-#  1. minimumSystemVersion: "12.0"  -> macOS 12 (Monterey) se 26 (Tahoe) tak chalega
-#  2. har target ke andar arch [x64, arm64] -> dono chips ki ALAG files
-#  3. artifactName mein ${arch} -> files aapas mein overwrite na ho
-#
-# Banegi (4 alag files):
-#   helios-1.0.0-x64-setup.dmg     (Intel Mac)
-#   helios-1.0.0-arm64-setup.dmg   (Apple Silicon - M1/M2/M3/M4)
-#   helios-1.0.0-x64-setup.pkg
-#   helios-1.0.0-arm64-setup.pkg
-################################################################################
+  ################################################################################
+  # macOS - Professional App Bundle + Installers
+  ################################################################################
+  # Targets:
+  # - DMG: Simple drag-and-drop installer (Helios.dmg)
+  # - PKG: Professional installer with license (Helios.pkg)
+  # App bundle: /Applications/Helios.app
+  #
 mac:
   identity: null
   sign: null
@@ -74,14 +72,14 @@ mac:
   icon: build/icon.icns
   minimumSystemVersion: "12.0"
   target:
-  - dmg
+  #- dmg
   - pkg
 
-dmg:
-  artifactName: ${name}-${version}-${arch}-setup.${ext}
+# dmg:
+#   artifactName: ${name}-${version}-setup.${ext}
 
 pkg:
-  artifactName: ${name}-${version}-${arch}-setup.${ext}
+  artifactName: ${name}-${version}-setup.${ext}
   license: build/license.txt
   installLocation: /Applications
   allowAnywhere: true
