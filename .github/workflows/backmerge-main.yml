@@ -1,27 +1,155 @@
+# ============================================================================
+# Back-merge main
+# ============================================================================
 name: Back-merge main
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [main]
 
-jobs:
-  backmerge-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Open PR main to release
-        run: |
-          gh pr create --base release --head main --title "Back-merge main -> release" --body "Auto-generated after push to main. Review and merge ASAP to prevent drift." || echo "PR already exists"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  ## Manual trigger - emergency cases me agar koi merge accidental hua tha
+  #workflow_dispatch:
 
-  backmerge-develop:
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 1. BACKMERGE-RELEASE - main -> release
+  # Pehle release ko catch up karte hain
+  # --------------------------------------------------------------------------
+  backmerge-release:
+    name: Back-merge main -> release
     runs-on: ubuntu-latest
-    needs: [backmerge-release]
+    if: |
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       startsWith(github.event.pull_request.head.ref, 'hotfix/')) ||
+      github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
-      - name: Open PR release to develop
+        with:
+          fetch-depth: 0  # poora history chahiye merge ke liye
+          token: ${{ secrets.BACKMERGE_PAT }}
+
+      - name: Skip if main = release already
+        id: check-diff
         run: |
-          gh pr create --base develop --head release --title "Back-merge release -> develop" --body "Auto-generated after cascading main catch up. Review and merge ASAP to prevent drift." || echo "PR already exists"
+          set -e
+          git fetch origin release main
+          if git merge-base --is-ancestor origin/main origin/release; then
+            echo "main already merged in release. Skip kar rahe hain."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "main par naye commits hain jo release mein nahi. PR banayenge."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR main -> release
+        if: steps.check-diff.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BACKMERGE_PAT }}
+        run: |
+          set -e
+
+          EXISTING=$(gh pr list \
+            --base release --head main \
+            --state open \
+            --json number --jq '.[0].number' || true)
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "PR #$EXISTING already open from main -> release. Skip."
+            exit 0
+          fi
+
+          HOTFIX_BRANCH="${{ github.event.pull_request.head.ref }}"
+          HOTFIX_PR="${{ github.event.pull_request.number }}"
+
+          gh pr create \
+            --base release \
+            --head main \
+            --title "Back-merge main -> release (auto)" \
+            --body "$(cat <<EOF
+          Auto-generated after hotfix merge to main.
+
+          - **Hotfix source:** \`$HOTFIX_BRANCH\` (PR #$HOTFIX_PR)
+          - **Trigger commit:** \`${GITHUB_SHA:0:7}\`
+          - **Pushed by:** @${{ github.actor }}
+
+          Review aur merge ASAP karo taaki release branch main ke saath
+          sync mein rahe. Agar conflicts hain, manually resolve karke
+          merge karo.
+          EOF
+          )"
+
+  # --------------------------------------------------------------------------
+  # 2. BACKMERGE-DEVELOP - main -> develop
+  # backmerge-release ke baad chalega (needs:)
+  # NOTE: backmerge-release ko complete hone do (PR open ho gayi) - merge
+  # hone ka wait nahi karte. Develop wala PR independently parallel chalega.
+  # --------------------------------------------------------------------------
+  backmerge-develop:
+    name: Back-merge main -> develop
+    runs-on: ubuntu-latest
+    needs: backmerge-release
+    if: |
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       startsWith(github.event.pull_request.head.ref, 'hotfix/')) ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BACKMERGE_PAT }}
+
+      - name: Skip if main = develop already
+        id: check-diff
+        run: |
+          set -e
+          git fetch origin develop main
+          if git merge-base --is-ancestor origin/main origin/develop; then
+            echo "main already in develop. Skip."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "main par naye commits hain. PR banayenge."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR main -> develop
+        if: steps.check-diff.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BACKMERGE_PAT }}
+        run: |
+          set -e
+
+          EXISTING=$(gh pr list \
+            --base develop --head main \
+            --state open \
+            --json number --jq '.[0].number' || true)
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "PR #$EXISTING already open from main -> develop. Skip."
+            exit 0
+          fi
+
+          HOTFIX_BRANCH="${{ github.event.pull_request.head.ref }}"
+          HOTFIX_PR="${{ github.event.pull_request.number }}"
+
+          gh pr create \
+            --base develop \
+            --head main \
+            --title "Back-merge main -> develop (auto)" \
+            --body "$(cat <<EOF
+          Auto-generated after push to main.
+
+          - **Hotfix source:** \`$HOTFIX_BRANCH\` (PR #$HOTFIX_PR)
+          - **Trigger commit:** \`${GITHUB_SHA:0:7}\`
+          - **Pushed by:** @${{ github.actor }}
+
+          Ye PR release wali backmerge ke baad merge karo (varna conflict
+          aa sakte hain). Develop ko bhi main ke latest changes mil jaayenge.
+          EOF
+          )"
