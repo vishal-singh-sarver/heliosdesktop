@@ -1,3 +1,5 @@
+import alertIcon from '@renderer/assets/Alert.svg'
+import refreshIcon from '@renderer/assets/Refresh.svg'
 import Spinner from '@renderer/components/LoadingScreen/Spinner'
 import {
   selectActiveProjectId,
@@ -5,10 +7,11 @@ import {
 } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { moveNodes } from './actions'
+import { listNodesRequested, moveNodesRequested } from './actions'
 import messages from './messages'
 import {
   selectGroupNamesLower,
+  selectLeafNamesLower,
   selectLoadError,
   selectLoadStatus,
   selectNameErrors,
@@ -19,8 +22,8 @@ import {
 import TreeRow from './TreeRow'
 
 // Renders the Saved Geometries tree from the slice: a spinner while loading,
-// the error copy on failure, an empty hint when there are no nodes, otherwise
-// the ordered root rows (groups recurse into their children via TreeRow).
+// an error state with a Retry on failure, an empty hint when there are no nodes,
+// otherwise the ordered root rows (groups recurse into their children via TreeRow).
 export function GeometryTree(): React.JSX.Element {
   const dispatch = useDispatch()
   const status = useSelector(selectLoadStatus)
@@ -29,6 +32,7 @@ export function GeometryTree(): React.JSX.Element {
   const query = useSelector(selectSearchQuery)
   const selectedIds = useSelector(selectSelectedIds)
   const groupNamesLower = useSelector(selectGroupNamesLower)
+  const leafNamesLower = useSelector(selectLeafNamesLower)
   const nameErrors = useSelector(selectNameErrors)
   const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
@@ -42,7 +46,23 @@ export function GeometryTree(): React.JSX.Element {
   }
 
   if (status === 'error') {
-    return <p className="form-error-text py-2">{error ?? messages.loadError}</p>
+    const onRetry = (): void => {
+      if (projectId && scenarioId) dispatch(listNodesRequested(projectId, scenarioId))
+    }
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+        <img src={alertIcon} alt="" aria-hidden="true" className="h-9 w-9" />
+        <p className="text-[13px] text-neutral-300">{error ?? messages.loadError}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+        >
+          <img src={refreshIcon} alt="" aria-hidden="true" className="h-4 w-4" />
+          Retry
+        </button>
+      </div>
+    )
   }
 
   if (rootOrder.length === 0) {
@@ -64,7 +84,7 @@ export function GeometryTree(): React.JSX.Element {
     } catch {
       ids = []
     }
-    if (ids.length) dispatch(moveNodes(projectId, scenarioId, ids, null))
+    if (ids.length) dispatch(moveNodesRequested(projectId, scenarioId, ids, null))
   }
 
   return (
@@ -83,6 +103,7 @@ export function GeometryTree(): React.JSX.Element {
           scenarioId={scenarioId}
           selectedIds={selectedIds}
           groupNamesLower={groupNamesLower}
+          leafNamesLower={leafNamesLower}
           nameErrors={nameErrors}
         />
       ))}

@@ -2,6 +2,7 @@ import type {
   CellValue,
   ColumnDef,
   DataTypeDef,
+  ModelTypeDef,
   Scenario,
   WeatherHeader
 } from 'containers/ProjectScreen/types'
@@ -21,6 +22,17 @@ export interface DataTypesResponse {
 
 export function loadDataTypesRequest(): Promise<DataTypesResponse> {
   return api.get<DataTypesResponse>(API_ROUTES.catalog.dataTypes)
+}
+
+// Model types are hierarchical on the wire (each carries a `submodels[]`); the
+// GUI only needs the top-level models, so the type intersection lets us read and
+// discard `submodels` in the reducer. One call on ProjectScreen mount.
+export interface ModelTypesResponse {
+  model_types: Array<ModelTypeDef & { submodels?: ModelTypeDef[] }>
+}
+
+export function loadModelTypesRequest(): Promise<ModelTypesResponse> {
+  return api.get<ModelTypesResponse>(API_ROUTES.catalog.modelTypes)
 }
 
 // ── Project (with scenarios) ────────────────────────────────────────────────

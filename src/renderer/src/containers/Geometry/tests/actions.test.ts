@@ -3,11 +3,11 @@ import {
   ADD_GEOMETRY_REQUESTED,
   ADD_GEOMETRY_SUCCEEDED,
   DELETE_NODE_REQUESTED,
-  GROUP_NODES,
+  GROUP_NODES_REQUESTED,
   LIST_NODES_REQUESTED,
   LIST_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
-  MOVE_NODES,
+  MOVE_NODES_REQUESTED,
   RENAME_REQUESTED,
   SELECT,
   SET_NAME_ERROR,
@@ -124,20 +124,18 @@ describe('Geometry actions', () => {
     })
   })
 
-  it('groupNodes carries dragged ids, target and new group id', () => {
-    expect(actions.groupNodes(P, S, ['a'], 'b', 'grp-x')).toEqual({
-      type: GROUP_NODES,
+  it('groupNodesRequested carries the member ids (target + dragged)', () => {
+    expect(actions.groupNodesRequested(P, S, ['b', 'a'])).toEqual({
+      type: GROUP_NODES_REQUESTED,
       projectId: P,
       scenarioId: S,
-      nodeIds: ['a'],
-      targetId: 'b',
-      groupId: 'grp-x'
+      memberIds: ['b', 'a']
     })
   })
 
-  it('moveNodes carries ids and the target group (or null)', () => {
-    expect(actions.moveNodes(P, S, ['a'], null)).toEqual({
-      type: MOVE_NODES,
+  it('moveNodesRequested carries ids and the target group (or null)', () => {
+    expect(actions.moveNodesRequested(P, S, ['a'], null)).toEqual({
+      type: MOVE_NODES_REQUESTED,
       projectId: P,
       scenarioId: S,
       nodeIds: ['a'],

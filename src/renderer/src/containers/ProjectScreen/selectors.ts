@@ -37,6 +37,14 @@ export const selectAllDataTypes = createSelector(selectProjectScreenDomain, (s):
   s.catalog.dataTypes.allIds.map((id) => s.catalog.dataTypes.byId[id]).filter(Boolean)
 )
 
+// ── Catalog: model types ─────────────────────────────────────────────────────
+
+// Top-level simulation models in load order — the Geometry kebab renders one row
+// per model and uses each id to key visibility.models (§5).
+export const selectModelTypes = createSelector(selectProjectScreenDomain, (s): ModelTypeDef[] =>
+  s.catalog.modelTypes.allIds.map((id) => s.catalog.modelTypes.byId[id]).filter(Boolean)
+)
+
 // User-facing data-type list — excludes the dedicated `check` and `date_time`
 // data types so they never appear in the column header's data-type dropdown.
 // Both are bound to seeded columns (check / date-time) whose headers render

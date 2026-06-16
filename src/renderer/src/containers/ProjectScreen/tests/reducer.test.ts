@@ -99,6 +99,39 @@ describe('projectScreenReducer', () => {
     })
   })
 
+  describe('catalog: model types', () => {
+    const sampleModel = { id: 3, model: 'Solar Position', description: 'Sun position model' }
+
+    it('LOAD_MODEL_TYPES_REQUESTED sets loading and clears error', () => {
+      const seed = {
+        ...initialState,
+        catalog: {
+          ...initialState.catalog,
+          modelTypes: { ...initialState.catalog.modelTypes, loadError: 'prev' }
+        }
+      }
+      const result = projectScreenReducer(seed, actions.loadModelTypesRequested())
+      expect(result.catalog.modelTypes.loadStatus).toBe('loading')
+      expect(result.catalog.modelTypes.loadError).toBeNull()
+    })
+
+    it('LOAD_MODEL_TYPES_SUCCEEDED populates byId / allIds and flips status', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.loadModelTypesSucceeded([sampleModel])
+      )
+      expect(result.catalog.modelTypes.byId[sampleModel.id]).toEqual(sampleModel)
+      expect(result.catalog.modelTypes.allIds).toEqual([sampleModel.id])
+      expect(result.catalog.modelTypes.loadStatus).toBe('loaded')
+    })
+
+    it('LOAD_MODEL_TYPES_FAILED stores the error and flips status', () => {
+      const result = projectScreenReducer(initialState, actions.loadModelTypesFailed('boom'))
+      expect(result.catalog.modelTypes.loadStatus).toBe('error')
+      expect(result.catalog.modelTypes.loadError).toBe('boom')
+    })
+  })
+
   describe('active project + scenario', () => {
     it('SET_ACTIVE_PROJECT on a fresh state stores the projectId', () => {
       const result = projectScreenReducer(initialState, actions.setActiveProject(PROJ))

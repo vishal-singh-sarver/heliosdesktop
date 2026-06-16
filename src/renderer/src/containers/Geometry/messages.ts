@@ -1,8 +1,6 @@
 // User-facing strings for the Geometry feature. Validation/error copy lives
 // here (not inline) so it stays consistent and translatable.
 const messages = {
-  savedGeometries: 'Saved Geometries',
-  searchPlaceholder: 'Search...',
   loadError: 'Unable to load Geometries',
   emptyTree: 'No saved geometries yet.',
   noMatches: 'No geometries match your search.',

@@ -136,10 +136,17 @@ function* loadMaterialTypesWorker(): Generator {
   }
 }
 
+// Model types are hierarchical on the wire; the GUI only needs the top-level
+// models, so we strip `submodels` here before the slice stores them.
 function* loadModelTypesWorker(): Generator {
   try {
     const res = (yield call(loadModelTypesRequest)) as ModelTypesResponse
-    yield put(actions.loadModelTypesSucceeded(res.model_types))
+    const topLevel = res.model_types.map(({ id, model, description }) => ({
+      id,
+      model,
+      description
+    }))
+    yield put(actions.loadModelTypesSucceeded(topLevel))
   } catch (err) {
     yield put(actions.loadModelTypesFailed((err as Error).message))
   }

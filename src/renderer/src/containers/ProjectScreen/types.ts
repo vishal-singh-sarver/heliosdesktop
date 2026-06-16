@@ -83,18 +83,16 @@ export interface MaterialTypeDef {
   properties: CatalogPropertyDef[]
 }
 
-// GET /api/catalog/model-types -> { model_types: ModelTypeDef[] }
-export interface ModelSubmodelDef {
+// ── Catalog: model types (runnable simulation models) ───────────────────────
+//
+//   GET /api/catalog/model-types -> { model_types: ModelTypeDef[] }
+// The wire shape is hierarchical (each model carries a `submodels[]` array), but
+// the GUI consumes only the top-level models, so we drop submodels on ingest.
+// `model` is the display name; ids key `visibility.models` on geometry objects (§5).
+export interface ModelTypeDef {
   id: number
   model: string
   description: string
-}
-
-export interface ModelTypeDef {
-  id: number
-  model: string // "Radiation" | "Photosynthesis" | …
-  description: string
-  submodels: ModelSubmodelDef[]
 }
 
 // ── Project metadata ────────────────────────────────────────────────────────

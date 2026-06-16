@@ -8,47 +8,56 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
     class="flex shrink-0 flex-wrap gap-2"
   >
     <button
-      class="flex items-center gap-1 rounded-md bg-white px-3 py-1.5 font-['Geist'] text-[12px] font-bold leading-[15px] tracking-normal text-[#344054] hover:bg-neutral-200"
+      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+      style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
       <img
         alt=""
         aria-hidden="true"
-        class="h-3 w-3 shrink-0"
+        class="h-3.5 w-3.5 shrink-0 object-contain opacity-90 [filter:brightness(0)]"
         src="data:image/svg+xml,%3csvg%20width='12'%20height='12'%20viewBox='0%200%2012%2012'%20fill='none'%20xmlns='http://www.w3.org/2000/svg'%3e%3cpath%20d='M4.66663%208.91699V6.16699H1.91663C1.50241%206.16699%201.16663%205.83121%201.16663%205.41699C1.16663%205.00278%201.50241%204.66699%201.91663%204.66699H4.66663V1.91699C4.66663%201.50278%205.00241%201.16699%205.41663%201.16699C5.83084%201.16699%206.16663%201.50278%206.16663%201.91699V4.66699H8.91663C9.33084%204.66699%209.66663%205.00278%209.66663%205.41699C9.66663%205.83121%209.33084%206.16699%208.91663%206.16699H6.16663V8.91699C6.16663%209.33121%205.83084%209.66699%205.41663%209.66699C5.00241%209.66699%204.66663%209.33121%204.66663%208.91699Z'%20fill='%23344054'/%3e%3c/svg%3e"
       />
-      Crop
+      <span>
+        Crop
+      </span>
     </button>
     <button
-      class="flex items-center gap-1 rounded-md bg-white px-3 py-1.5 font-['Geist'] text-[12px] font-bold leading-[15px] tracking-normal text-[#344054] hover:bg-neutral-200"
+      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+      style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
       <img
         alt=""
         aria-hidden="true"
-        class="h-3 w-3 shrink-0"
+        class="h-3.5 w-3.5 shrink-0 object-contain opacity-90 [filter:brightness(0)]"
         src="data:image/svg+xml,%3csvg%20width='12'%20height='12'%20viewBox='0%200%2012%2012'%20fill='none'%20xmlns='http://www.w3.org/2000/svg'%3e%3cpath%20d='M4.66663%208.91699V6.16699H1.91663C1.50241%206.16699%201.16663%205.83121%201.16663%205.41699C1.16663%205.00278%201.50241%204.66699%201.91663%204.66699H4.66663V1.91699C4.66663%201.50278%205.00241%201.16699%205.41663%201.16699C5.83084%201.16699%206.16663%201.50278%206.16663%201.91699V4.66699H8.91663C9.33084%204.66699%209.66663%205.00278%209.66663%205.41699C9.66663%205.83121%209.33084%206.16699%208.91663%206.16699H6.16663V8.91699C6.16663%209.33121%205.83084%209.66699%205.41663%209.66699C5.00241%209.66699%204.66663%209.33121%204.66663%208.91699Z'%20fill='%23344054'/%3e%3c/svg%3e"
       />
-      Ground
+      <span>
+        Ground
+      </span>
     </button>
     <button
-      class="flex items-center gap-1 rounded-md bg-white px-3 py-1.5 font-['Geist'] text-[12px] font-bold leading-[15px] tracking-normal text-[#344054] hover:bg-neutral-200"
+      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+      style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
       <img
         alt=""
         aria-hidden="true"
-        class="h-3 w-3 shrink-0"
+        class="h-3.5 w-3.5 shrink-0 object-contain opacity-90 [filter:brightness(0)]"
         src="data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='utf-8'?%3e%3c!--%20License:%20CC%20Attribution.%20Made%20by%20tetrisly:%20https://tetrisly.gumroad.com/l/freeicons%20--%3e%3csvg%20fill='%23000000'%20width='8px'%20height='8px'%20viewBox='0%200%2024%2024'%20xmlns='http://www.w3.org/2000/svg'%3e%3cpath%20fill-rule='evenodd'%20d='M21,16%20C21.5128358,16%2021.9355072,16.3860402%2021.9932723,16.8833789%20L22,17%20L22,19%20C22,20.5976809%2020.75108,21.9036609%2019.1762728,21.9949073%20L19,22%20L5,22%20C3.40231912,22%202.09633912,20.75108%202.00509269,19.1762728%20L2,19%20L2,17%20C2,16.4477153%202.44771525,16%203,16%20C3.51283584,16%203.93550716,16.3860402%203.99327227,16.8833789%20L4,17%20L4,19%20C4,19.5128358%204.38604019,19.9355072%204.88337887,19.9932723%20L5,20%20L19,20%20C19.5128358,20%2019.9355072,19.6139598%2019.9932723,19.1166211%20L20,19%20L20,17%20C20,16.4477153%2020.4477153,16%2021,16%20Z%20M11.8515331,2.0110178%20L11.909968,2.00399798%20L11.909968,2.00399798%20L12,2%20L12.0752385,2.00278786%20L12.0752385,2.00278786%20L12.2007258,2.02024007%20L12.2007258,2.02024007%20L12.3121425,2.04973809%20L12.3121425,2.04973809%20L12.4232215,2.09367336%20L12.4232215,2.09367336%20L12.5207088,2.14599545%20L12.5207088,2.14599545%20L12.625449,2.21968877%20L12.625449,2.21968877%20L12.7071068,2.29289322%20L15.7071068,5.29289322%20C16.0976311,5.68341751%2016.0976311,6.31658249%2015.7071068,6.70710678%20C15.3165825,7.09763107%2014.6834175,7.09763107%2014.2928932,6.70710678%20L13,5.414%20L13,15%20C13,15.5522847%2012.5522847,16%2012,16%20C11.4477153,16%2011,15.5522847%2011,15%20L11,5.414%20L9.70710678,6.70710678%20C9.31658249,7.09763107%208.68341751,7.09763107%208.29289322,6.70710678%20C7.90236893,6.31658249%207.90236893,5.68341751%208.29289322,5.29289322%20L11.2928932,2.29289322%20C11.3282873,2.25749917%2011.3656744,2.22531295%2011.4046934,2.19633458%20L11.5159379,2.12467117%20L11.5159379,2.12467117%20L11.628664,2.07122549%20L11.628664,2.07122549%20L11.734007,2.03584514%20L11.734007,2.03584514%20L11.8515331,2.0110178%20L11.8515331,2.0110178%20Z'/%3e%3c/svg%3e"
       />
-      Import from File
+      <span>
+        Import from File
+      </span>
     </button>
   </div>
   <div
     class="flex shrink-0 items-center justify-between gap-2"
   >
     <span
-      class="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3]"
+      class="shrink-0 font-['Geist'] text-[12px] font-semibold leading-[15px] tracking-normal text-[#D3D3D3]"
     >
       Saved Geometries
     </span>

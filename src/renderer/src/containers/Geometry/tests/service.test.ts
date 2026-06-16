@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseListResponse, wireObjectToNode } from '../service'
+import { wireObjectToNode } from '../service'
 
 // A backend object mirroring POST/GET /objects (the shape verified on Swagger).
 const wire = (id: number, name: string, overrides: Record<string, unknown> = {}) => ({
@@ -22,16 +22,18 @@ describe('wireObjectToNode', () => {
       childIds: [],
       expanded: false,
       visibleInViewport: true,
-      modelVisibility: { mode: 'all' }
+      renderEnabled: true,
+      modelVisibility: { 1: true, 2: true }
     })
   })
 
-  it('collapses render:false to model visibility "none" and keeps the viewport flag', () => {
+  it('maps the viewport and render flags onto the node, models default to empty', () => {
     const node = wireObjectToNode(
       wire(5, 'Ground.002', { visibility: { viewport: false, render: false } })
     )
     expect(node.visibleInViewport).toBe(false)
-    expect(node.modelVisibility).toEqual({ mode: 'none' })
+    expect(node.renderEnabled).toBe(false)
+    expect(node.modelVisibility).toEqual({})
   })
 
   it('maps a non-null group_id onto parentId (stringified)', () => {
@@ -42,25 +44,5 @@ describe('wireObjectToNode', () => {
     expect(wireObjectToNode(wire(1, 'Ground.004', { visibility: undefined })).visibleInViewport).toBe(
       true
     )
-  })
-})
-
-describe('parseListResponse', () => {
-  it('extracts the array from { objects: [...] } and maps each item', () => {
-    const nodes = parseListResponse({ objects: [wire(1, 'Ground.001'), wire(2, 'Ground.002')] })
-    expect(nodes.map((n) => n.id)).toEqual(['1', '2'])
-    expect(nodes.map((n) => n.name)).toEqual(['Ground.001', 'Ground.002'])
-  })
-
-  it('also accepts { nodes }, { data }, and a bare array', () => {
-    expect(parseListResponse({ nodes: [wire(1, 'A')] }).map((n) => n.id)).toEqual(['1'])
-    expect(parseListResponse({ data: [wire(2, 'B')] }).map((n) => n.id)).toEqual(['2'])
-    expect(parseListResponse([wire(3, 'C')]).map((n) => n.id)).toEqual(['3'])
-  })
-
-  it('returns an empty list for an unrecognized / empty shape', () => {
-    expect(parseListResponse({})).toEqual([])
-    expect(parseListResponse('string')).toEqual([])
-    expect(parseListResponse(null)).toEqual([])
   })
 })

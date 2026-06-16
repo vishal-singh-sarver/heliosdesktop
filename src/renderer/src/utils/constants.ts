@@ -67,6 +67,12 @@ export const API_ROUTES = {
   geometry: {
     list: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
+    listGroups: (projectId: string, scenarioId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups`,
+    createGroup: (projectId: string, scenarioId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups`,
+    deleteGroup: (projectId: string, scenarioId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/objects `,
     create: (projectId: string, scenarioId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects`,
     rename: (projectId: string, scenarioId: string, objectId: string) =>
@@ -83,6 +89,12 @@ export const API_ROUTES = {
     // different verb). Used by the right-panel Save.
     update: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
+    // Group-level visibility (viewport / render / per-model) — the backend
+    // cascades to the group's members. Body is nested under `visibility`.
+    groupVisibility: (projectId: string, scenarioId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/visibility`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
   }
