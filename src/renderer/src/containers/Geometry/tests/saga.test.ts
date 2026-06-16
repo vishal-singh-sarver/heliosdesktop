@@ -2,10 +2,8 @@ import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import geometrySaga, {
-  addGeometryWorker,
   createObjectWorker,
   deleteNodeWorker,
-  generateId,
   listNodesWorker,
   loadObjectWorker,
   moveNodesWorker,
@@ -17,7 +15,6 @@ import geometrySaga, {
 } from '../saga'
 import * as actions from '../actions'
 import {
-  ADD_GEOMETRY_REQUESTED,
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   LIST_NODES_REQUESTED,
@@ -25,9 +22,9 @@ import {
   RENAME_REQUESTED,
   UPDATE_OBJECT_REQUESTED
 } from '../constants'
-import { selectCounters, selectCreateDraft, selectDetailsById, selectNodesById } from '../selectors'
+import { selectCreateDraft, selectDetailsById, selectNodesById } from '../selectors'
 import * as service from '../service'
-import type { CreateDraft, GeoNode, GeometryCounters } from '../types'
+import type { CreateDraft, GeoNode } from '../types'
 
 const groundNode = (id: string, parentId: string | null = null): GeoNode => ({
   id,
@@ -59,33 +56,6 @@ describe('listNodesWorker', () => {
     gen.next() // advance to the call
     expect(gen.throw(new Error('boom')).value).toEqual(
       put(actions.listNodesFailed(P, S, 'boom'))
-    )
-  })
-})
-
-describe('addGeometryWorker', () => {
-  const counters: GeometryCounters = { ground: 5, group: 1 }
-
-  it('builds the name from the (already-bumped) counter, sends { id, name }, succeeds', () => {
-    const gen = addGeometryWorker(actions.addGeometryRequested(P, S, 'ground'))
-
-    expect(gen.next().value).toEqual(select(selectCounters))
-    expect(gen.next(counters).value).toEqual(call(generateId))
-
-    const id = 'geo-abc'
-    const node = { id, name: 'Ground.005', kind: 'ground' as const }
-    expect(gen.next(id).value).toEqual(call(service.createGeometry, P, S, node))
-    expect(gen.next().value).toEqual(put(actions.addGeometrySucceeded(P, S, node)))
-    expect(gen.next().done).toBe(true)
-  })
-
-  it('puts addGeometryFailed when create throws', () => {
-    const gen = addGeometryWorker(actions.addGeometryRequested(P, S, 'ground'))
-    gen.next() // select
-    gen.next(counters) // -> call(generateId)
-    gen.next('geo-abc') // -> call(createGeometry)
-    expect(gen.throw(new Error('nope')).value).toEqual(
-      put(actions.addGeometryFailed(P, S, 'nope'))
     )
   })
 })
@@ -587,7 +557,6 @@ describe('geometrySaga', () => {
   it('watches list, add, rename, delete, create-object, then update-object', () => {
     const gen = geometrySaga()
     expect(gen.next().value).toEqual(takeLatest(LIST_NODES_REQUESTED, listNodesWorker))
-    expect(gen.next().value).toEqual(takeEvery(ADD_GEOMETRY_REQUESTED, addGeometryWorker))
     expect(gen.next().value).toEqual(takeEvery(RENAME_REQUESTED, renameWorker))
     expect(gen.next().value).toEqual(takeEvery(DELETE_NODE_REQUESTED, deleteNodeWorker))
     expect(gen.next().value).toEqual(takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker))

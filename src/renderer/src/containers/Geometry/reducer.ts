@@ -1,8 +1,6 @@
 import { produce } from 'immer'
 import type { GeometryAction } from './actions'
 import {
-  ADD_GEOMETRY_REQUESTED,
-  ADD_GEOMETRY_SUCCEEDED,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
   CREATE_OBJECT_REQUESTED,
@@ -32,7 +30,6 @@ import {
   VISIBILITY_SYNC_FAILED
 } from './constants'
 import { anyModelOn, unionVisibility } from './models'
-import { deriveCounters } from './naming'
 import type { GeoNode, GeometryState, ScenarioGeometry } from './types'
 
 export type { GeometryState }
@@ -47,7 +44,6 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   rootOrder: [],
   selectedIds: [],
   searchQuery: '',
-  counters: { ground: 0, group: 0 },
   nameErrors: {},
   detailsById: {},
   loadStatus: 'idle',
@@ -202,9 +198,6 @@ const geometryReducer = (
           s.nodesById[node.id] = node
           if (node.parentId === null) s.rootOrder.push(node.id)
         }
-        // Seed the name counters from existing names so the next create
-        // continues the sequence (Ground.005, not Ground.001).
-        s.counters = deriveCounters(action.payload)
         s.loadStatus = 'loaded'
         s.loadError = null
         break
@@ -393,35 +386,6 @@ const geometryReducer = (
         break
       }
 
-      case ADD_GEOMETRY_REQUESTED: {
-        // Bump the counter synchronously so concurrent adds get distinct names;
-        // the saga reads the bumped value to build the name. A failed create
-        // simply leaves a gap in the sequence (counters stay monotonic).
-        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        s.counters[action.payload] += 1
-        break
-      }
-
-      case ADD_GEOMETRY_SUCCEEDED: {
-        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        const { id, name, kind } = action.payload
-        const node: GeoNode = {
-          id,
-          name,
-          kind,
-          parentId: null,
-          childIds: [],
-          expanded: false,
-          visibleInViewport: true,
-          renderEnabled: true,
-          modelVisibility: {}
-        }
-        s.nodesById[id] = node
-        s.rootOrder.push(id)
-        s.selectedIds = [id]
-        break
-      }
-
       // ── Edit-object draft (right-panel Properties form) ──────────────────────
 
       case SET_DRAFT_VALUE: {
@@ -459,14 +423,13 @@ const geometryReducer = (
 
       case CREATE_OBJECT_SUCCEEDED: {
         // The backend created the object; insert it into the active scope's tree,
-        // select it, advance the Ground counter, and open the edit form populated
-        // from the persisted object's values.
+        // select it, and open the edit form populated from the persisted object's
+        // values.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const { node, values, objectTypeId, objectName } = action.payload
         s.nodesById[node.id] = node
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
-        if (node.kind === 'ground') s.counters.ground += 1
         s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
         draft.createDraft = {
           objectId: node.id,

@@ -26,12 +26,6 @@ export interface GeoNode {
 // Tree load lifecycle for the active scenario.
 export type LoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
-// Monotonic counters drive the default names (Ground.001, Group.001).
-export interface GeometryCounters {
-  ground: number
-  group: number
-}
-
 // Cached per-object detail for the right-panel form, keyed by node id. Filled
 // the first time a ground is fetched (or created/saved) so re-clicking it serves
 // from memory instead of a fresh GET.
@@ -69,7 +63,6 @@ export interface ScenarioGeometry {
   rootOrder: string[] // top-level order (leaves + groups)
   selectedIds: string[]
   searchQuery: string
-  counters: GeometryCounters
   nameErrors: Record<string, string> // inline rename validation, keyed by node id
   detailsById: Record<string, ObjectDetail> // cached property values per object
   loadStatus: LoadStatus
@@ -95,18 +88,6 @@ export interface GeometryState {
 export interface ScopeRef {
   projectId: string
   scenarioId: string
-}
-
-// ADD_GEOMETRY_REQUESTED — the saga computes the name (Ground.00N) and id, then
-// sends only { id, name } to the backend/mock.
-export interface AddGeometryRequestedPayload extends ScopeRef {
-  kind: Extract<GeoNodeKind, 'ground' | 'imported'>
-}
-
-export interface AddGeometrySucceededPayload extends ScopeRef {
-  id: string
-  name: string
-  kind: GeoNodeKind
 }
 
 export interface SelectPayload extends ScopeRef {

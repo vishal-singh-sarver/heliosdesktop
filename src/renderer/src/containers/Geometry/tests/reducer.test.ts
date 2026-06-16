@@ -92,21 +92,6 @@ describe('geometryReducer', () => {
     expect(initialState.byScope).toEqual({})
   })
 
-  it('LIST_NODES_SUCCEEDED seeds counters from existing names', () => {
-    const nodes = [ground('a', 'Ground.004'), group('g', 'Group.002', [])]
-    const r = geometryReducer(initialState, actions.listNodesSucceeded(P, S, nodes))
-    expect(r.byScope[KEY].counters).toEqual({ ground: 4, group: 2 })
-  })
-
-  it('ADD_GEOMETRY_REQUESTED bumps the counter for that kind', () => {
-    const seeded = geometryReducer(
-      initialState,
-      actions.listNodesSucceeded(P, S, [ground('a', 'Ground.004')])
-    )
-    const r = geometryReducer(seeded, actions.addGeometryRequested(P, S, 'ground'))
-    expect(r.byScope[KEY].counters.ground).toBe(5)
-  })
-
   it('TOGGLE_VIEWPORT flips a leaf visibility', () => {
     const seeded = geometryReducer(
       initialState,
@@ -381,17 +366,6 @@ describe('geometryReducer', () => {
     expect(r.byScope[KEY].nodesById['g']).toBeUndefined() // pruned
   })
 
-  it('ADD_GEOMETRY_SUCCEEDED inserts the leaf at root and selects it', () => {
-    const r = geometryReducer(
-      initialState,
-      actions.addGeometrySucceeded(P, S, { id: 'x', name: 'Ground.001', kind: 'ground' })
-    )
-    const s = r.byScope[KEY]
-    expect(s.nodesById['x']).toMatchObject({ id: 'x', name: 'Ground.001', kind: 'ground', parentId: null })
-    expect(s.rootOrder).toEqual(['x'])
-    expect(s.selectedIds).toEqual(['x'])
-  })
-
   describe('edit-object draft', () => {
     // +Ground POSTs first; CREATE_OBJECT_SUCCEEDED inserts the node AND opens the
     // edit form populated from the persisted object's values.
@@ -406,13 +380,12 @@ describe('geometryReducer', () => {
         })
       )
 
-    it('CREATE_OBJECT_SUCCEEDED inserts+selects the node, bumps counter, and opens the draft', () => {
+    it('CREATE_OBJECT_SUCCEEDED inserts+selects the node and opens the draft', () => {
       const r = created()
       const s = r.byScope[KEY]
       expect(s.nodesById['27']).toMatchObject({ id: '27', kind: 'ground' })
       expect(s.rootOrder).toEqual(['27'])
       expect(s.selectedIds).toEqual(['27'])
-      expect(s.counters.ground).toBe(1)
       expect(r.createDraft).toEqual({
         objectId: '27',
         objectTypeId: 1,
@@ -447,9 +420,8 @@ describe('geometryReducer', () => {
         isNew: false,
         values: { length: '10', breadth: '10' }
       })
-      // No duplicate insert / counter bump from a load.
+      // No duplicate insert from a load.
       expect(r.byScope[KEY].rootOrder).toEqual(['27'])
-      expect(r.byScope[KEY].counters.ground).toBe(1)
       expect(r.createDraftNonce).toBe(1)
       // The fetched values are cached so a re-click won't refetch.
       expect(r.byScope[KEY].detailsById['27']).toEqual({
