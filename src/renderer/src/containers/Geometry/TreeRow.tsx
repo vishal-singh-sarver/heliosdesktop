@@ -103,16 +103,26 @@ function TreeRow({
     setDragOver(false)
     const ids = readDraggedIds(e)
     if (!ids.length || !projectId || !scenarioId) return
+    // Only leaves can be moved into a group (groups don't nest), and a move into
+    // the leaf's current parent is a no-op — filter both out so we never fire a
+    // pointless PATCH (+ its dissolved-group cleanup) for a drop that changes
+    // nothing.
+    const movableInto = (groupId: string): string[] =>
+      ids.filter((id) => {
+        const dragged = nodesById[id]
+        return dragged && dragged.kind !== 'group' && dragged.parentId !== groupId
+      })
     if (isGroup) {
       // Drop into this group.
-      dispatch(
-        moveNodesRequested(projectId, scenarioId, ids.filter((id) => id !== node.id), node.id)
-      )
+      const movable = movableInto(node.id)
+      if (movable.length) dispatch(moveNodesRequested(projectId, scenarioId, movable, node.id))
     } else if (!ids.includes(node.id)) {
       if (node.parentId) {
         // Target leaf already lives in a group → drop becomes a sibling child of
         // that group, rather than nesting a new group inside it.
-        dispatch(moveNodesRequested(projectId, scenarioId, ids, node.parentId))
+        const movable = movableInto(node.parentId)
+        if (movable.length)
+          dispatch(moveNodesRequested(projectId, scenarioId, movable, node.parentId))
       } else {
         // Two root-level leaves → POST a new group containing both (target +
         // dragged). The saga creates it server-side; the reducer inserts the
@@ -171,9 +181,7 @@ function TreeRow({
             : selected
               ? 'border-app-border bg-[#2a2a2a]'
               : 'border-transparent hover:bg-neutral-700/40'
-        } ${node.visibleInViewport ? '' : 'opacity-50'} ${
-          dragOver ? 'ring-1 ring-blue-500' : ''
-        }`}
+        } ${dragOver ? 'ring-1 ring-inset ring-blue-500' : ''}`}
         style={{ paddingLeft: 10 + depth * 16 }}
       >
         {isGroup && (
