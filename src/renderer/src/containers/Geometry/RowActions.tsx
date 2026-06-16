@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { setModelOn, toggleRender, toggleViewport } from './actions'
 import { isModelOn } from './models'
+import { selectModelIds } from './selectors'
 import type { GeoNode } from './types'
 
 // Row action affordances for a tree row. Icons are inline SVG (vector, never
@@ -24,6 +25,8 @@ interface IconButtonProps {
   className?: string
   active?: boolean
   onClick?: () => void
+  // Optional handle on the underlying <button> (e.g. to restore focus on Esc).
+  buttonRef?: React.Ref<HTMLButtonElement>
 }
 
 function IconButton({
@@ -31,10 +34,12 @@ function IconButton({
   children,
   className = '',
   active = false,
-  onClick
+  onClick,
+  buttonRef
 }: IconButtonProps): React.JSX.Element {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       aria-pressed={active}
@@ -98,28 +103,40 @@ export function KebabMenu({
 }: KebabMenuProps): React.JSX.Element {
   const dispatch = useDispatch()
   const modelTypes = useSelector(selectModelTypes)
+  const modelIds = useSelector(selectModelIds)
   const anchorRef = React.useRef<HTMLSpanElement>(null)
+  const triggerRef = React.useRef<HTMLButtonElement>(null)
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null)
   const open = coords !== null
 
+  const close = (): void => setCoords(null)
+
   // Anchor the menu to the trigger and render it in a portal so the panel's
-  // overflow-scroll containers can't clip it. Left edge starts at the icon.
+  // overflow-scroll containers can't clip it. Left edge starts at the icon. Skip
+  // opening if the trigger isn't measurable (no sensible position to anchor to).
   const toggleOpen = (): void => {
     if (open) {
-      setCoords(null)
+      close()
       return
     }
     const rect = anchorRef.current?.getBoundingClientRect()
-    if (rect) {
-      setCoords({ top: rect.bottom + 4, left: rect.left })
-    } else {
-      setCoords({ top: 0, left: 0 })
-    }
+    if (rect) setCoords({ top: rect.bottom + 4, left: rect.left })
   }
 
-  const close = (): void => setCoords(null)
-
-  const modelIds = modelTypes.map((m) => m.id)
+  // Close on Escape and restore focus to the trigger, matching native menu
+  // behaviour for keyboard users (outside-click close is handled by the overlay).
+  React.useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        close()
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open])
   const onToggleModel = (modelId: number, on: boolean): void => {
     if (projectId && scenarioId)
       dispatch(setModelOn(projectId, scenarioId, node.id, modelId, on, modelIds))
@@ -127,7 +144,7 @@ export function KebabMenu({
 
   return (
     <span className="relative shrink-0" ref={anchorRef}>
-      <IconButton label="More options" active={open} onClick={toggleOpen}>
+      <IconButton label="More options" active={open} onClick={toggleOpen} buttonRef={triggerRef}>
         <KebabIcon />
       </IconButton>
 
@@ -208,7 +225,7 @@ export default function RowActions({
   const dispatch = useDispatch()
   // The render icon is a master switch over every catalog model, so it needs the
   // full model id list to set them all (render off ⇒ all models false).
-  const modelIds = useSelector(selectModelTypes).map((m) => m.id)
+  const modelIds = useSelector(selectModelIds)
 
   // Reveal on hover/focus (Tailwind group-* off the row) or while selected.
   const visibility = selected

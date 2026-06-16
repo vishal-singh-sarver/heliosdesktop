@@ -124,13 +124,8 @@ export interface SetNameErrorPayload extends ScopeRef {
   error: string | null
 }
 
-// GROUP_NODES — drop leaf(s) onto a target leaf to create a new group holding
-// both. MOVE_NODES — drop into an existing group, or to root (toGroupId: null).
-export interface GroupNodesPayload extends ScopeRef {
-  nodeIds: string[]
-  targetId: string
-}
-
+// MOVE_NODES — drop into an existing group, or to root (toGroupId: null).
+// (GROUP_NODES carries `memberIds` directly on its action; see actions.ts.)
 export interface MoveNodesPayload extends ScopeRef {
   nodeIds: string[]
   toGroupId: string | null

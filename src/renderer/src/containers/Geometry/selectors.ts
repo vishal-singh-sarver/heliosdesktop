@@ -1,7 +1,8 @@
 import { createSelector } from 'reselect'
 import {
   selectActiveProjectId,
-  selectActiveScenarioId
+  selectActiveScenarioId,
+  selectModelTypes
 } from 'containers/ProjectScreen/selectors'
 import type { RootState } from 'store/reducers'
 import { formatName, nextAvailableNumber } from './naming'
@@ -31,6 +32,15 @@ export const selectActiveGeometry = createSelector(
   selectActiveScopeKey,
   (domain, key): ScenarioGeometry =>
     key ? (domain.byScope[key] ?? EMPTY_SCENARIO) : EMPTY_SCENARIO
+)
+
+// ── Catalog (model ids) ──────────────────────────────────────────────────────
+
+// The catalog model ids, memoized so the render-icon master switch and the kebab
+// menu share one stable array instead of each re-deriving modelTypes.map(m => m.id)
+// on every render.
+export const selectModelIds = createSelector(selectModelTypes, (modelTypes) =>
+  modelTypes.map((m) => m.id)
 )
 
 // ── Field selectors ────────────────────────────────────────────────────────────
