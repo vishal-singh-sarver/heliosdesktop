@@ -126,8 +126,13 @@ function TreeRow({
       } else {
         // Two root-level leaves → POST a new group containing both (target +
         // dragged). The saga creates it server-side; the reducer inserts the
-        // returned group with its real id + name.
-        dispatch(groupNodesRequested(projectId, scenarioId, [node.id, ...ids]))
+        // returned group with its real id + name. Only leaves can be grouped
+        // (groups don't nest), so drop any dragged group — if nothing groupable
+        // remains (e.g. a group was dragged onto a ground), it's a no-op, so we
+        // never fire a pointless POST /groups.
+        const groupable = ids.filter((id) => nodesById[id] && nodesById[id].kind !== 'group')
+        if (groupable.length)
+          dispatch(groupNodesRequested(projectId, scenarioId, [node.id, ...groupable]))
       }
     }
   }

@@ -367,6 +367,25 @@ describe('<GeometryTree />', () => {
     )
   })
 
+  it('dropping a group onto a root ground does nothing (groups do not nest)', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['c']),
+        c: ground('c', 'Ground.003', 'g'),
+        a: ground('a', 'Ground.001')
+      },
+      rootOrder: ['g', 'a']
+    })
+    dispatch.mockClear()
+    const target = screen.getByText('Ground.001').closest('[role="button"]')!
+    fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify(['g']) } })
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/GROUP_NODES_REQUESTED' })
+    )
+  })
+
   it('dropping a leaf onto a group requests a move into that group', () => {
     renderTree({
       ...emptyScenarioGeometry(),
