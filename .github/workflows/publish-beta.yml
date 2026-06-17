@@ -17,10 +17,34 @@ jobs:
         with:
           ref: release
 
-      - name: Download Packaged Installer Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
+      # ──────────────────────────────────────────────────────────────────
+      # PLACEHOLDER - jab tak S3 + Slack ready nahi, sirf ye step run hota
+      # hai. Pura workflow tab tak green raheta hai bina kuch publish kiye.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Placeholder - publishing infra pending
+        run: |
+          echo "=================================================="
+          echo "  Publish / beta is in PLACEHOLDER mode"
+          echo "=================================================="
+          echo "  Selected platforms: ${{ inputs.platforms }}"
+          echo ""
+          echo "  Kuch upload nahi hua. Pending:"
+          echo "    - UPDATE_FEED_S3_ACCESS_KEY (secret)"
+          echo "    - UPDATE_FEED_S3_SECRET_KEY (secret)"
+          echo "    - UPDATE_FEED_BUCKET_BETA   (secret)"
+          echo "    - SLACK_WEBHOOK_RELEASES    (secret)"
+          echo "  Jab ye secrets aur S3 bucket ready ho, neeche commented"
+          echo "  blocks ko uncomment karna aur is placeholder ko hatana."
+          echo "=================================================="
+
+      # ── Download Packaged Installer Artifacts (Temporarily Disabled) ──
+      # download-artifact@v4 sirf SAME workflow ke artifacts le sakta hai.
+      # Doosri workflow (ci-release) se chahiye to dawidd6 wala use karo.
+      #
+      # - name: Download Packaged Installer Artifacts
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     path: ./artifacts
 
       # ── AWS / Cloud Storage Credentials ──────────────────────────
       # - name: Configure AWS/Cloud Storage Credentials
@@ -51,15 +75,16 @@ jobs:
       #       --metadata-directive REPLACE \
       #       --cache-control "max-age=300"
 
-      - name: Notify Slack Channel
-        if: always()
-        uses: slackapi/slack-github-action@v1.26.0
-
-        with:
-          payload: |
-            {
-              "text": "📢 Beta Release Channel Updated! Deployment Matrix Sync Status: ${{ job.status }}"
-            }
-
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_RELEASES }}
+      # ── Slack notification (Temporarily Disabled) ────────────────────
+      # SLACK_WEBHOOK_RELEASES secret set hone par uncomment karo.
+      #
+      # - name: Notify Slack Channel
+      #   if: always()
+      #   uses: slackapi/slack-github-action@v1.26.0
+      #   with:
+      #     payload: |
+      #       {
+      #         "text": "📢 Beta Release Channel Updated! Deployment Matrix Sync Status: ${{ job.status }}"
+      #       }
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_RELEASES }}

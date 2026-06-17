@@ -1,3 +1,18 @@
+# ============================================================================
+# Publish / stable
+#
+# Tag-triggered: push v1.2.3 style tag on main -> ye workflow chalega.
+# Tag = immutable record of "kya ship hua". Manual button nahi rakha jaata
+# because button koi audit trail nahi chhodta. (Doc section 5.5)
+#
+# 3 jobs:
+#   1. verify      - tag main par hai? artifacts mile?
+#   2. promote     - per-platform (matrix) - staging se stable bucket mein copy
+#   3. github-release - GitHub Release banao + Slack notify
+#                     (if: always() - ek platform fail ho fir bhi chale)
+#
+# Doc reference: section 5.5
+# ============================================================================
 name: Publish / stable
 
 on:
@@ -6,72 +21,207 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: write
+  contents: write     # GitHub Release banane ke liye
+  actions: read       # ci-main artifacts download karne ke liye
 
 jobs:
+  # --------------------------------------------------------------------------
+  # 1. VERIFY - tag valid hai? main par hai? artifacts mile?
+  # --------------------------------------------------------------------------
   verify:
+    name: Verify Tag & Artifacts
     runs-on: ubuntu-latest
+    outputs:
+      ci_run_id: ${{ steps.find-run.outputs.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # poora history chahiye tag verification ke liye
 
-      # Audit gate to guarantee immutable builds trigger tracking
-      - name: Verify tag is on main
+      - name: Verify tag is on main branch
         run: |
-          git branch -r --contains ${{ github.ref }} | grep 'origin/main' || (echo "Tag not on main, aborting!" && exit 1)
+          set -e
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Checking tag: $TAG"
 
+          # Tag ka commit lo
+          TAG_SHA=$(git rev-list -n 1 "$TAG")
+          echo "Tag commit SHA: $TAG_SHA"
+
+          # Verify ye commit main branch par hai
+          git fetch origin main
+          if ! git branch -r --contains "$TAG_SHA" | grep -q 'origin/main'; then
+            echo "ERROR: Tag $TAG ka commit main branch par nahi hai. Abort."
+            exit 1
+          fi
+          echo "OK: Tag main par hai."
+
+      - name: Find ci-main run for this commit
+        id: find-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG_SHA=$(git rev-list -n 1 "${GITHUB_REF#refs/tags/}")
+          echo "Looking for ci-main.yml run on commit $TAG_SHA..."
+
+          # gh CLI se latest ci-main run dhoondo is commit ke liye
+          RUN_ID=$(gh run list \
+            --workflow=ci-main.yml \
+            --commit="$TAG_SHA" \
+            --status=completed \
+            --json databaseId,conclusion \
+            --jq '[.[] | select(.conclusion == "success")] | .[0].databaseId' \
+            || true)
+
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "ERROR: Is commit ke liye koi successful ci-main run nahi mila."
+            echo "Pehle main par push karo, ci-main pass hone do, fir tag karo."
+            exit 1
+          fi
+          echo "Found ci-main run: $RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+  # --------------------------------------------------------------------------
+  # 2. PROMOTE - har platform ke artifacts ko staging se stable mein copy karo
+  # fail-fast: false - ek platform fail ho to baaki chalein
+  # --------------------------------------------------------------------------
   promote:
-    needs: [verify]
+    name: Promote ${{ matrix.platform }}
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
-        platform: [win, mac, linux]
+        platform:
+          - windows
+          - macos-intel
+          - macos-apple-silicon
+          - ubuntu20.04
+          - ubuntu22.04
+          - ubuntu24.04
     runs-on: ubuntu-latest
     steps:
-      - name: Configure AWS/S3 Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Download ci-main artifacts (this platform only)
+        uses: actions/download-artifact@v4
         with:
-          aws-access-key-id: ${{ secrets.UPDATE_FEED_S3_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.UPDATE_FEED_S3_SECRET_KEY }}
-          aws-region: us-east-1
+          name: stable-installer-${{ matrix.platform }}
+          path: ./dist
+          run-id: ${{ needs.verify.outputs.ci_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Logic safely copies from staging storage to prod bucket 
-      - name: Copy from staging to stable bucket
-        run: |
-          aws s3 sync s3://staging-bucket/${{ matrix.platform }}/ s3://${{ secrets.UPDATE_FEED_BUCKET_STABLE }}/ --include "*${{ matrix.platform }}*"
+      - name: List downloaded files
+        run: ls -la ./dist
 
+      # ── Stable Bucket Sync (Priority 1 - S3 setup ke baad uncomment) ─────
+      # Doc section 5.5 + section 8 dekho.
+      #
+      # - name: Configure AWS credentials
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.UPDATE_FEED_S3_ACCESS_KEY }}
+      #     aws-secret-access-key: ${{ secrets.UPDATE_FEED_S3_SECRET_KEY }}
+      #     aws-region: us-east-1
+      #
+      # - name: Promote to stable bucket
+      #   run: |
+      #     aws s3 sync ./dist \
+      #       s3://${{ secrets.UPDATE_FEED_BUCKET_STABLE }}/ \
+      #       --metadata-directive REPLACE \
+      #       --cache-control "max-age=300"
+
+      - name: Re-upload artifacts (combined for github-release job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-release-${{ matrix.platform }}
+          path: ./dist
+          retention-days: 90
+
+  # --------------------------------------------------------------------------
+  # 3. GITHUB-RELEASE - GitHub Release banao + Slack notify
+  # if: always() - ek platform fail ho fir bhi release banao
+  # --------------------------------------------------------------------------
   github-release:
-    needs: [promote]
-    if: always() # Run even if one platform failed to promote independently
+    name: Create GitHub Release & Notify
+    needs: [verify, promote]
+    if: always() && needs.verify.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Using GitHub API / actions to bundle artifacts for release overview table
-      - name: Generate Release Notes Table
+      - name: Download all stable artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: stable-release-*
+
+      - name: Generate Release Notes
+        shell: bash
         run: |
-          echo "## Release ${{ github.ref_name }} Assets" > notes.md
-          echo "| OS | File | Status |" >> notes.md
-          echo "|----|------|--------|" >> notes.md
-          echo "| Windows | Production Installer | Deployed to Feed |" >> notes.md
-          echo "| macOS | Production DMG & PKG | Deployed to Feed |" >> notes.md
-          echo "| Linux | AppImage & DEB Packages | Deployed to Feed |" >> notes.md
+          set -e
+          TAG="${GITHUB_REF#refs/tags/}"
+          REPO="${{ github.repository }}"
+          DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+
+          echo "## Helios ${TAG} - Stable Release" > notes.md
+          echo "" >> notes.md
+          echo "- **Released:** ${DATE}" >> notes.md
+          echo "- **Commit:** \`${GITHUB_SHA:0:7}\`" >> notes.md
+          echo "" >> notes.md
+
+          # Per-platform promotion status table
+          echo "### Platform Status" >> notes.md
+          echo "" >> notes.md
+          echo "| Platform | Status |" >> notes.md
+          echo "|----------|--------|" >> notes.md
+          # NOTE: matrix job ka result yahan dynamically read karna complex hai,
+          # filhaal placeholder rakha hai. Future mein workflow_run API use karke
+          # detailed status laa sakte hain.
+          echo "| Windows  | See workflow run for details |" >> notes.md
+          echo "| macOS    | See workflow run for details |" >> notes.md
+          echo "| Linux    | See workflow run for details |" >> notes.md
+          echo "" >> notes.md
+
+          echo "### Assets" >> notes.md
+          echo "" >> notes.md
+          echo "| OS | File | Size | SHA256 |" >> notes.md
+          echo "|----|------|------|--------|" >> notes.md
+
+          find artifacts -type f | while read file; do
+            name=$(basename "$file")
+            size=$(du -h "$file" | cut -f1)
+            checksum=$(sha256sum "$file" | awk '{print $1}')
+            url="https://github.com/$REPO/releases/download/$TAG/$name"
+
+            os="Unknown"
+            [[ "$name" == *.exe ]] && os="Windows"
+            [[ "$name" == *.dmg ]] && os="macOS"
+            [[ "$name" == *.pkg ]] && os="macOS"
+            [[ "$name" == *.AppImage ]] && os="Linux"
+            [[ "$name" == *.deb ]] && os="Linux"
+
+            echo "| $os | [$name]($url) | $size | \`$checksum\` |" >> notes.md
+          done
+
+          cat notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          name: "Helios ${{ github.ref_name }}"
           body_path: notes.md
+          files: artifacts/**/*
           draft: false
           prerelease: false
+          make_latest: true
 
-      - name: Notify Slack Status
+      - name: Notify Slack
+        if: always() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
             {
-              "text": "Production Stable Release Deployed: ${{ github.ref_name }} | Status: ${{ job.status }}"
+              "text": "🚀 Helios ${{ github.ref_name }} STABLE released!\nVerify: ${{ needs.verify.result }}\nPromote: ${{ needs.promote.result }}\n<https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}|View Release>"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_RELEASES }}
