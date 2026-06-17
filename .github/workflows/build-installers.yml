@@ -4,16 +4,16 @@ on:
   push:
     branches:
       - develop
-      - devops_test_pipline
+      - M2
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # ============================================================================
+  # =============================================================================
   # WINDOWS - ek hi .exe banta hai jo Windows 10 AUR 11 dono par chalta hai.
-  # ============================================================================
+  # =============================================================================
   build-windows:
     runs-on: windows-2022
     name: Build Windows Installer (10 + 11)
@@ -56,18 +56,29 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # macOS - HAR CHIP ki ALAG file (Intel x64 + Apple Silicon arm64).
-  # Har arch apne ALAG run mein banti hai - isse pkg ka multi-arch ENOENT
-  # bug (com.navyug.helios.pkg temp file collision) nahi aata.
-  # Dono build macOS 12 (Monterey) se 26 (Tahoe) tak chalti hain.
+  # macOS - 2 ALAG FILES: Intel (x86_64) + Apple Silicon (arm64).
+  #
+  # Per-OS-version (12 vs 13 vs 14...) alag build banti hi nahi - Apple ka
+  # design hai. minimumSystemVersion "12.0" set hai (package.json mein), to
+  # YE DONO files macOS 12 (Monterey) se 26 (Tahoe) tak SAB par chalti hain:
+  #
+  #   intel file        -> sab Intel Macs (macOS 12-15)
+  #   apple-silicon     -> sab M1/M2/M3/M4 Macs (macOS 12-26)
+  #
+  # NOTE: package.json ke "mac" block mein zaroori hai:
+  #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
   # ============================================================================
   build-macos:
-    runs-on: macos-latest
-    name: Build macOS (${{ matrix.arch }})
+    name: Build macOS (${{ matrix.label }})
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        include:
+          - label: 'intel'
+            runner: 'macos-15-intel'
+          - label: 'apple-silicon'
+            runner: 'macos-15'
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -90,20 +101,26 @@ jobs:
       - name: Build application
         run: npm run build
 
-      # Sirf is run wali arch build karo (--x64 ya --arm64). Isse ek run mein
-      # ek hi pkg banta hai, collision nahi hoti.
       - name: Package macOS Installer
-        run: npm run package:mac -- --${{ matrix.arch }}
+        run: npm run package:mac
+
+      - name: Tag outputs with arch
+        run: |
+          cd dist
+          for f in *.pkg; do
+            [ -e "$f" ] || continue
+            base="${f%.*}"
+            ext="${f##*.}"
+            mv "$f" "${base}-${{ matrix.label }}.${ext}"
+          done
+          ls -la
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
         with:
-          name: macos-installers-${{ matrix.arch }}
+          name: macos-installers-${{ matrix.label }}
           path: |
-            dist/*.dmg
             dist/*.pkg
-            release/*.dmg
-            release/*.pkg
           compression-level: 0
           retention-days: 5
           if-no-files-found: warn
@@ -111,12 +128,11 @@ jobs:
   # ============================================================================
   # LINUX - HAR VERSION KI ALAG BUILD (3 alag files).
   #
-  # Har version apne container ke andar banti hai:
-  #   20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04 jaisa, +Python 3.10
-  #            pehle se. KOI deadsnakes/PPA nahi - isliye reliable. Ye file
-  #            20.04, 22.04, 24.04 SAB par chalti hai.)
-  #   22.04 -> ubuntu:22.04          (Python 3.10 by default) -> 22.04 + 24.04
-  #   24.04 -> ubuntu:24.04          (Python 3.12 by default) -> 24.04
+  #   20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04 jaisa, +Python
+  #            3.10 pehle se. KOI deadsnakes/PPA nahi. Ye file 20.04, 22.04,
+  #            24.04 SAB par chalti hai.)
+  #   22.04 -> ubuntu:22.04          (Python 3.10 default) -> 22.04 + 24.04
+  #   24.04 -> ubuntu:24.04          (Python 3.12 default) -> 24.04
   # ============================================================================
   build-linux:
     runs-on: ubuntu-22.04
@@ -137,9 +153,6 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
-      # Container bare ho sakta hai - git/curl/python/build tools install karo.
-      # git checkout se PEHLE chahiye warna submodules recursive fail hoga.
-      # (bullseye image mein inme se kai pehle se hote hain - to install no-op rahega.)
       - name: Install base tools
         run: |
           apt-get update
@@ -153,8 +166,6 @@ jobs:
             python3-pip \
             build-essential
 
-      # Saare 3 images mein Python 3.10+ pehle se hota hai. Yahan sirf verify
-      # karte hain - agar kisi wajah se purana mila to saaf error de.
       - name: Verify Python 3.10+
         run: |
           set -e
@@ -178,9 +189,6 @@ jobs:
         with:
           submodules: recursive
 
-      # Electron + Linux packaging + native C++ backend ke liye system libraries.
-      # 24.04 mein kuch packages ke naam badle hain (t64 suffix), isliye un par
-      # fallback install lagaya hai taaki sab images mein chale.
       - name: Install Linux build dependencies
         run: |
           install_one() {
@@ -217,7 +225,6 @@ jobs:
             dpkg \
             rpm
 
-          # ye packages 24.04 mein t64 ban gaye - dono naam try karo
           install_one libasound2 libasound2t64
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
@@ -236,8 +243,6 @@ jobs:
       - name: Package Linux Installer
         run: npm run package:linux
 
-      # Har version ki file ka naam alag karo, warna release mein ek doosre ko
-      # overwrite kar denge (sabka naam helios-x.y.z-setup.deb hota hai).
       - name: Tag outputs with ubuntu version
         run: |
           cd dist
@@ -282,7 +287,7 @@ jobs:
 
           echo "## Helios QA Release" > notes.md
           echo "" >> notes.md
-          echo "Latest build from \`develop\` branch." >> notes.md
+          echo "Latest build from \`develop/M2\` branch." >> notes.md
           echo "" >> notes.md
           echo "- **Commit:** \`${SHORT_SHA}\`" >> notes.md
           echo "- **Built:** ${DATE}" >> notes.md
@@ -308,9 +313,6 @@ jobs:
 
           cat notes.md
 
-      # Pichli QA-Release ko mita do (release + tag dono) taaki nayi build
-      # usi naam ke saath fresh upload ho sake. Pehli baar koi release nahi
-      # hogi - is liye "|| true" se error ignore karte hain.
       - name: Delete previous QA-Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -324,7 +326,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: QA-Release
-          name: "Helios QA Release (latest develop)"
+          name: "Helios QA Release (latest develop/M2)"
           body_path: notes.md
           files: artifacts/**/*
           draft: false

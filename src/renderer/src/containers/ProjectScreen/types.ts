@@ -336,6 +336,15 @@ export interface DeleteColumnSnapshot {
   cellSync: Record<string, CellSyncStatus>
 }
 
+// Everything needed to restore a single deleted row if the backend rejects.
+export interface DeleteRowSnapshot {
+  cells: Record<ColId, CellValue>
+  index: number
+  validationErrors: Record<ColId, string> | undefined
+  cellSync: Record<string, CellSyncStatus>
+  selected: boolean
+}
+
 export interface UpdateCellLocalPayload {
   projectId: string
   scenarioId: string

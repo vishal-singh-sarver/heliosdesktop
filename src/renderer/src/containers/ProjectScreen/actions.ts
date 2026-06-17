@@ -6,6 +6,9 @@ import {
   DELETE_COLUMN_FAILED,
   DELETE_COLUMN_REQUESTED,
   DELETE_COLUMN_SUCCEEDED,
+  DELETE_ROW_FAILED,
+  DELETE_ROW_REQUESTED,
+  DELETE_ROW_SUCCEEDED,
   ADD_ROW_FAILED,
   ADD_ROW_REQUESTED,
   ADD_ROW_RESET,
@@ -67,6 +70,7 @@ import type {
   ColumnDef,
   DataTypeDef,
   DeleteColumnSnapshot,
+  DeleteRowSnapshot,
   LoadedScenarioPayload,
   MaterialTypeDef,
   ModelTypeDef,
@@ -319,6 +323,33 @@ export interface DeleteColumnFailedAction extends Idx {
   }
 }
 
+// Delete row (POST /deleteRow with [{ date, time }])
+export interface DeleteRowRequestedAction extends Idx {
+  type: typeof DELETE_ROW_REQUESTED
+  payload: {
+    projectId: string
+    scenarioId: string
+    rowId: RowId
+    date: string
+    time: string
+    snapshot: DeleteRowSnapshot
+  }
+}
+export interface DeleteRowSucceededAction extends Idx {
+  type: typeof DELETE_ROW_SUCCEEDED
+  payload: { projectId: string; scenarioId: string; rowId: RowId }
+}
+export interface DeleteRowFailedAction extends Idx {
+  type: typeof DELETE_ROW_FAILED
+  payload: {
+    projectId: string
+    scenarioId: string
+    rowId: RowId
+    snapshot: DeleteRowSnapshot
+    error: string
+  }
+}
+
 // Cell edit
 export interface UpdateCellLocalAction extends Idx {
   type: typeof UPDATE_CELL_LOCAL
@@ -434,6 +465,9 @@ export type ProjectScreenAction =
   | DeleteColumnRequestedAction
   | DeleteColumnSucceededAction
   | DeleteColumnFailedAction
+  | DeleteRowRequestedAction
+  | DeleteRowSucceededAction
+  | DeleteRowFailedAction
   | UpdateCellLocalAction
   | UpdateCellRequestedAction
   | UpdateCellSucceededAction
@@ -756,6 +790,36 @@ export const deleteColumnFailed = (
 ): DeleteColumnFailedAction => ({
   type: DELETE_COLUMN_FAILED,
   payload: { projectId, scenarioId, colId, snapshot, error }
+})
+
+export const deleteRowRequested = (
+  projectId: string,
+  scenarioId: string,
+  rowId: RowId,
+  date: string,
+  time: string,
+  snapshot: DeleteRowSnapshot
+): DeleteRowRequestedAction => ({
+  type: DELETE_ROW_REQUESTED,
+  payload: { projectId, scenarioId, rowId, date, time, snapshot }
+})
+export const deleteRowSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  rowId: RowId
+): DeleteRowSucceededAction => ({
+  type: DELETE_ROW_SUCCEEDED,
+  payload: { projectId, scenarioId, rowId }
+})
+export const deleteRowFailed = (
+  projectId: string,
+  scenarioId: string,
+  rowId: RowId,
+  snapshot: DeleteRowSnapshot,
+  error: string
+): DeleteRowFailedAction => ({
+  type: DELETE_ROW_FAILED,
+  payload: { projectId, scenarioId, rowId, snapshot, error }
 })
 
 export const updateCellLocal = (payload: UpdateCellLocalPayload): UpdateCellLocalAction => ({

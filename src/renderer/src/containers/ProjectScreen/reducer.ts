@@ -8,6 +8,9 @@ import {
   DELETE_COLUMN_FAILED,
   DELETE_COLUMN_REQUESTED,
   DELETE_COLUMN_SUCCEEDED,
+  DELETE_ROW_FAILED,
+  DELETE_ROW_REQUESTED,
+  DELETE_ROW_SUCCEEDED,
   ADD_ROW_FAILED,
   ADD_ROW_REQUESTED,
   ADD_ROW_RESET,
@@ -658,6 +661,49 @@ const projectScreenReducer = (
             table.validationErrors[rowId][colId] = error
           }
         }
+        Object.assign(table.cellSync, snapshot.cellSync)
+        break
+      }
+
+      // ── Delete row (POST /deleteRow) ──────────────────────────────────────
+      //
+      // Optimistic: drop the row from rows / rowOrder / validationErrors /
+      // rowSelection and its cellSync entries on request. Restore from the
+      // snapshot if the backend rejects.
+
+      case DELETE_ROW_REQUESTED: {
+        const { scenarioId, rowId } = action.payload
+        const table = draft.byScenario[scenarioId]
+        if (!table?.rows[rowId]) break
+
+        table.rowOrder = table.rowOrder.filter((id) => id !== rowId)
+        delete table.rows[rowId]
+        delete table.validationErrors[rowId]
+        delete table.rowSelection[rowId]
+        for (const key of Object.keys(table.cellSync)) {
+          if (key.startsWith(`${rowId}:`)) delete table.cellSync[key]
+        }
+        break
+      }
+
+      case DELETE_ROW_SUCCEEDED:
+        break
+
+      case DELETE_ROW_FAILED: {
+        const { scenarioId, rowId, snapshot } = action.payload
+        const table = draft.byScenario[scenarioId]
+        if (!table || table.rows[rowId]) break
+
+        table.rows[rowId] = { ...snapshot.cells }
+        const boundedIndex =
+          snapshot.index < 0
+            ? table.rowOrder.length
+            : Math.min(snapshot.index, table.rowOrder.length)
+        table.rowOrder.splice(boundedIndex, 0, rowId)
+        if (snapshot.validationErrors) {
+          table.validationErrors[rowId] = { ...snapshot.validationErrors }
+        }
+        if (snapshot.selected) table.rowSelection[rowId] = true
         Object.assign(table.cellSync, snapshot.cellSync)
         break
       }
