@@ -76,6 +76,12 @@ export const DELETE_COLUMN_REQUESTED = 'app/ProjectScreen/DELETE_COLUMN_REQUESTE
 export const DELETE_COLUMN_SUCCEEDED = 'app/ProjectScreen/DELETE_COLUMN_SUCCEEDED' as const
 export const DELETE_COLUMN_FAILED = 'app/ProjectScreen/DELETE_COLUMN_FAILED' as const
 
+// Delete one row — each (date, time) removed from every column. Optimistic
+// remove on _REQUESTED, rollback on _FAILED.
+export const DELETE_ROW_REQUESTED = 'app/ProjectScreen/DELETE_ROW_REQUESTED' as const
+export const DELETE_ROW_SUCCEEDED = 'app/ProjectScreen/DELETE_ROW_SUCCEEDED' as const
+export const DELETE_ROW_FAILED = 'app/ProjectScreen/DELETE_ROW_FAILED' as const
+
 // Cell edit. UPDATE_CELL_LOCAL is the synchronous optimistic write fired
 // from the cell on blur. The saga then dispatches UPDATE_CELL_REQUESTED only
 // when local validation passed (validationError === null).

@@ -322,6 +322,24 @@ export function addRowsRequest(
   return api.post<AddRowsResponse>(API_ROUTES.weather.addRow(projectId, scenarioId), body)
 }
 
+// ── Delete rows ──────────────────────────────────────────────────────────────
+//
+// POST /api/weather/.../deleteRow takes an array of { date, time } keys; the
+// backend removes each (date, time) from every column. The UI currently
+// deletes one row at a time, so callers pass a single-element array.
+
+export type DeleteRowsRequestBody = Array<{ date: string; time: string }>
+
+export type DeleteRowsResponse = string
+
+export function deleteRowsRequest(
+  projectId: string,
+  scenarioId: string,
+  body: DeleteRowsRequestBody
+): Promise<DeleteRowsResponse> {
+  return api.post<DeleteRowsResponse>(API_ROUTES.weather.deleteRow(projectId, scenarioId), body)
+}
+
 // ── Update cell ──────────────────────────────────────────────────────────────
 //
 // Backend expects a batched payload: { updates: [{ col, row, value }, ...] }

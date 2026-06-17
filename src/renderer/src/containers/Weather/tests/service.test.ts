@@ -3,6 +3,7 @@ import {
   addColumnsRequest,
   addRowsRequest,
   deleteHeaderRequest,
+  deleteRowsRequest,
   getProjectRequest,
   loadDataRequest,
   loadDataTypesRequest,
@@ -219,6 +220,15 @@ describe('addRowsRequest', () => {
     const body = { rows: [{ date: '2026-01-01', time: '00:00' }] }
     await addRowsRequest('p1', 's1', body)
     expect(mockedApi.post).toHaveBeenCalledWith(API_ROUTES.weather.addRow('p1', 's1'), body)
+  })
+})
+
+describe('deleteRowsRequest', () => {
+  it('POSTs the [{ date, time }] keys to the deleteRow route', async () => {
+    mockedApi.post.mockResolvedValueOnce('ok')
+    const body = [{ date: '2026-01-01', time: '00:00:00' }]
+    await deleteRowsRequest('p1', 's1', body)
+    expect(mockedApi.post).toHaveBeenCalledWith(API_ROUTES.weather.deleteRow('p1', 's1'), body)
   })
 })
 
