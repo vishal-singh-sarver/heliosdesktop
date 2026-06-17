@@ -147,21 +147,23 @@ describe('<AddRowsDialog />', () => {
 
   // ── Data-driven defaults ──────────────────────────────────────────────────
 
-  it('seeds date/time from the last row + inferred delta, and delta from the first three rows', () => {
+  it('seeds date/time from the last row + inferred delta, and delta from the last three rows', () => {
     sel.weatherTable = {
       rowOrder: ['row_0', 'row_1', 'row_2', 'row_3'],
       rows: {
+        // Head cadence is 1h (row_0→row_1); tail cadence is 2h. Delta must be
+        // inferred from the LAST three rows → 2, not 1.
         row_0: { date: '2026-03-01', time: '00:00:00' },
-        row_1: { date: '2026-03-01', time: '03:00:00' },
-        row_2: { date: '2026-03-01', time: '06:00:00' },
-        row_3: { date: '2026-03-02', time: '06:00:00' }
+        row_1: { date: '2026-03-01', time: '01:00:00' },
+        row_2: { date: '2026-03-01', time: '03:00:00' },
+        row_3: { date: '2026-03-01', time: '05:00:00' }
       }
     }
     render(<AddRowsDialog isOpen onClose={vi.fn()} />)
-    // delta inferred = 3h, last row 2026-03-02 06:00 + 3h → 09:00 same day
-    expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-02')
-    expect(screen.getByTestId('input-startTime')).toHaveValue('09:00')
-    expect(screen.getByTestId('input-deltaHours')).toHaveValue('3')
+    // delta inferred = 2h (tail), last row 2026-03-01 05:00 + 2h → 07:00 same day
+    expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-01')
+    expect(screen.getByTestId('input-startTime')).toHaveValue('07:00')
+    expect(screen.getByTestId('input-deltaHours')).toHaveValue('2')
   })
 
   it('shows no validation errors on open even though date/time are pre-filled', () => {
@@ -215,6 +217,54 @@ describe('<AddRowsDialog />', () => {
     render(<AddRowsDialog isOpen onClose={vi.fn()} />)
     expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-01')
     expect(screen.getByTestId('input-deltaHours')).toHaveValue('1')
+  })
+
+  // Last row 05:00, inferred delta 5 → seeded start 10:00. The fixtures below
+  // reuse this so the start clearly tracks (or doesn't track) the delta edit.
+  const fiveHourCadence = (): MockTable => ({
+    rowOrder: ['row_0', 'row_1'],
+    rows: {
+      row_0: { date: '2026-03-01', time: '00:00:00' },
+      row_1: { date: '2026-03-01', time: '05:00:00' }
+    }
+  })
+
+  it('re-seeds Start Date/Time from the new delta when the user changes Delta (start not edited)', () => {
+    sel.weatherTable = fiveHourCadence()
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    // Opened with delta 5 → start 05:00 + 5h = 10:00.
+    expect(screen.getByTestId('input-startTime')).toHaveValue('10:00')
+
+    fireEvent.change(screen.getByTestId('input-deltaHours'), { target: { value: '2' } })
+    // Start now continues from the last row at the *new* delta: 05:00 + 2h.
+    expect(screen.getByTestId('input-deltaHours')).toHaveValue('2')
+    expect(screen.getByTestId('input-startTime')).toHaveValue('07:00')
+    expect(screen.getByTestId('input-startDate')).toHaveValue('2026-03-01')
+  })
+
+  it('does not overwrite Start once the user has edited it, even when Delta changes', () => {
+    sel.weatherTable = fiveHourCadence()
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByTestId('input-startTime'), { target: { value: '12:00' } })
+    fireEvent.change(screen.getByTestId('input-deltaHours'), { target: { value: '2' } })
+
+    expect(screen.getByTestId('input-deltaHours')).toHaveValue('2')
+    expect(screen.getByTestId('input-startTime')).toHaveValue('12:00')
+  })
+
+  it('dispatches the re-seeded start + new delta when only Delta is changed', async () => {
+    sel.weatherTable = fiveHourCadence()
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('input-numberOfRows'), { target: { value: '3' } })
+    fireEvent.change(screen.getByTestId('input-deltaHours'), { target: { value: '2' } })
+    fireEvent.click(within(screen.getByTestId('dialog')).getByText('Add'))
+
+    await waitFor(() =>
+      expect(mockDispatch).toHaveBeenCalledWith(
+        projectActions.addRowRequested('proj-1', 'scen-1', '2026-03-01', '07:00', ['date', 'time', 'check'], 3, 2)
+      )
+    )
   })
 
   // ── Validation ──────────────────────────────────────────────────────────
