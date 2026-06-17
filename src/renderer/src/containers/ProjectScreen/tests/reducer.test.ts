@@ -555,6 +555,81 @@ describe('projectScreenReducer', () => {
     })
   })
 
+  describe('delete row (optimistic + rollback)', () => {
+    const snapshotForRow0 = () => ({
+      cells: { date: '2026-04-27', time: '10:00:00', '7': '293.1' },
+      index: 0,
+      validationErrors: { '7': 'too high' },
+      cellSync: { [cellKey('row_0', '7')]: 'pending' as const },
+      selected: true
+    })
+
+    it('DELETE_ROW_REQUESTED removes the row from rows, rowOrder, validation, selection and sync', () => {
+      let seed = projectScreenReducer(
+        loaded(),
+        actions.setColumnValidationErrors(SCN, '7', { row_0: 'too high' })
+      )
+      seed = projectScreenReducer(seed, actions.setRowSelection(SCN, 'row_0', true))
+      seed = projectScreenReducer(
+        seed,
+        actions.updateCellLocal({
+          projectId: PROJ,
+          scenarioId: SCN,
+          rowId: 'row_0',
+          colId: '7',
+          value: '300',
+          validationError: null
+        })
+      )
+
+      const result = projectScreenReducer(
+        seed,
+        actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshotForRow0())
+      )
+      const table = result.byScenario[SCN]
+      expect(table.rowOrder).toEqual(['row_1'])
+      expect(table.rows.row_0).toBeUndefined()
+      expect(table.validationErrors.row_0).toBeUndefined()
+      expect(table.rowSelection.row_0).toBeUndefined()
+      expect(table.cellSync[cellKey('row_0', '7')]).toBeUndefined()
+    })
+
+    it('DELETE_ROW_FAILED restores the removed row at its original index from the snapshot', () => {
+      const snapshot = snapshotForRow0()
+      const deleted = projectScreenReducer(
+        loaded(),
+        actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshot)
+      )
+      expect(deleted.byScenario[SCN].rowOrder).toEqual(['row_1'])
+
+      const result = projectScreenReducer(
+        deleted,
+        actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, 'rejected')
+      )
+      const table = result.byScenario[SCN]
+      // Restored at index 0 — in front of the surviving row, not appended.
+      expect(table.rowOrder).toEqual(['row_0', 'row_1'])
+      expect(table.rows.row_0).toEqual(snapshot.cells)
+      expect(table.validationErrors.row_0['7']).toBe('too high')
+      expect(table.rowSelection.row_0).toBe(true)
+      expect(table.cellSync[cellKey('row_0', '7')]).toBe('pending')
+    })
+
+    it('DELETE_ROW_REQUESTED is a no-op when the row is unknown', () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.deleteRowRequested(PROJ, SCN, 'row_99', '2026-04-27', '10:00:00', {
+          cells: {},
+          index: -1,
+          validationErrors: undefined,
+          cellSync: {},
+          selected: false
+        })
+      )
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_0', 'row_1'])
+    })
+  })
+
   describe('cell edit', () => {
     it('UPDATE_CELL_LOCAL with no validation error writes value and marks pending', () => {
       const result = projectScreenReducer(

@@ -2,6 +2,7 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import Dialog from '@renderer/components/Dialog'
 import {
   deleteColumnRequested,
+  deleteRowRequested,
   setAllRowsSelection,
   setRowSelection,
   updateAllCheckboxesRequested,
@@ -19,6 +20,7 @@ import {
   type ColumnDef,
   type DataTypeDef,
   type DeleteColumnSnapshot,
+  type DeleteRowSnapshot,
   type RowId,
   type UpdateColumnPatch
 } from 'containers/ProjectScreen/types'
@@ -141,6 +143,7 @@ interface WeatherRowProps {
   onToggleRow: (rowId: string) => void
   onToggleCheck: (rowId: string, currentValue: CellValue) => void
   onCellBlur: (rowId: string, colId: string, newValue: string, originalValue: string) => void
+  onRequestDelete: (rowId: string) => void
 }
 
 const WeatherRow = React.memo(function WeatherRow({
@@ -158,7 +161,8 @@ const WeatherRow = React.memo(function WeatherRow({
   utcOffset,
   onToggleRow,
   onToggleCheck,
-  onCellBlur
+  onCellBlur,
+  onRequestDelete
 }: WeatherRowProps): React.JSX.Element {
   const checkValue: CellValue = checkColId != null ? (row[checkColId] ?? null) : null
   return (
@@ -213,6 +217,7 @@ const WeatherRow = React.memo(function WeatherRow({
         <button
           type="button"
           aria-label={`Delete row ${rowId}`}
+          onClick={() => onRequestDelete(rowId)}
           className="rounded p-1 hover:bg-neutral-800"
         >
           <img src={deleteIcon} alt="" className="h-4 w-4" />
@@ -239,6 +244,7 @@ function WeatherTable(): React.JSX.Element {
   const dateTimeDataType = useSelector(selectDateTimeDataType)
   const activeProject = useSelector(selectActiveProject)
   const [pendingDeleteColumn, setPendingDeleteColumn] = React.useState<ColumnDef | null>(null)
+  const [pendingDeleteRow, setPendingDeleteRow] = React.useState<RowId | null>(null)
   const [bodyViewportHeight, setBodyViewportHeight] = React.useState(0)
   // Visible row band is the only scroll-derived state that drives JSX. Storing
   // it as { startIndex, endIndex } (instead of raw scrollTop) lets the scroll
@@ -351,6 +357,50 @@ function WeatherTable(): React.JSX.Element {
     }
     dispatch(deleteColumnRequested(projectId, scenarioId, col.id, snapshot))
     setPendingDeleteColumn(null)
+  }
+
+  // Row delete is requested from the per-row trash icon. Stable so React.memo
+  // can keep skipping untouched rows during scroll.
+  const handleRequestRowDelete = React.useCallback((rowId: RowId): void => {
+    setPendingDeleteRow(rowId)
+  }, [])
+
+  const handleCancelRowDelete = (): void => {
+    setPendingDeleteRow(null)
+  }
+
+  const handleConfirmRowDelete = (): void => {
+    if (pendingDeleteRow == null) return
+    if (!projectId || !scenarioId || !table) {
+      setPendingDeleteRow(null)
+      return
+    }
+    const rowId = pendingDeleteRow
+    const row = table.rows[rowId]
+    const date = row?.[DATE_COL_ID]
+    const time = row?.[TIME_COL_ID]
+    // Without a (date, time) key the backend can't identify the row, so bail
+    // rather than fire a request that can only fail.
+    if (!row || date == null || time == null) {
+      setPendingDeleteRow(null)
+      return
+    }
+
+    const snapshot: DeleteRowSnapshot = {
+      cells: { ...row },
+      index: table.rowOrder.indexOf(rowId),
+      validationErrors: table.validationErrors[rowId]
+        ? { ...table.validationErrors[rowId] }
+        : undefined,
+      cellSync: {},
+      selected: table.rowSelection[rowId] === true
+    }
+    for (const [key, status] of Object.entries(table.cellSync)) {
+      if (key.startsWith(`${rowId}:`)) snapshot.cellSync[key] = status
+    }
+
+    dispatch(deleteRowRequested(projectId, scenarioId, rowId, date, time, snapshot))
+    setPendingDeleteRow(null)
   }
 
   const dateTimeColId = React.useMemo(() => {
@@ -612,6 +662,7 @@ function WeatherTable(): React.JSX.Element {
                 onToggleRow={toggleRow}
                 onToggleCheck={toggleCheck}
                 onCellBlur={handleCellBlur}
+                onRequestDelete={handleRequestRowDelete}
               />
             ))}
             {bottomSpacerHeight > 0 && (
@@ -647,6 +698,32 @@ function WeatherTable(): React.JSX.Element {
             className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.deleteColumn.confirmButton}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        isOpen={pendingDeleteRow !== null}
+        title={messages.deleteRow.dialogTitle}
+        onClose={handleCancelRowDelete}
+      >
+        <h3 className="text-base font-medium text-white">{messages.deleteRow.heading}</h3>
+        <p className="text-sm text-neutral-400">{messages.deleteRow.body}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={handleCancelRowDelete}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.deleteRow.cancelButton}
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirmRowDelete}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+          >
+            {messages.deleteRow.confirmButton}
           </button>
         </div>
       </Dialog>
