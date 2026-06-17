@@ -69,13 +69,15 @@ function parseRowDateTimeMs(row: Record<ColId, CellValue> | undefined): number |
   return Number.isFinite(ms) ? ms : null
 }
 
-// Default Delta = the hour spacing inferred from the first three rows. Uses the
+// Default Delta = the hour spacing inferred from the last three rows. Uses the
 // first valid consecutive gap; falls back to '1' when fewer than two parseable
-// rows exist or the gap isn't a whole number of hours within bounds.
+// rows exist or the gap isn't a whole number of hours within bounds. Reading
+// the tail (not the head) makes the default reflect the most recent cadence,
+// which is what the new rows continue from.
 function inferDeltaHours(table: WeatherTable | null): string {
   const order = table?.rowOrder ?? []
   const stamps: number[] = []
-  for (const rowId of order.slice(0, 3)) {
+  for (const rowId of order.slice(-3)) {
     const ms = parseRowDateTimeMs(table?.rows[rowId])
     if (ms != null) stamps.push(ms)
   }
@@ -168,6 +170,11 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
   const startTimeRef = React.useRef<HTMLInputElement>(null)
   const timePickerContainerRef = React.useRef<HTMLDivElement>(null)
   const [isTimePickerOpen, setIsTimePickerOpen] = React.useState(false)
+  // Flips true once the user edits Start Date/Time by hand. Until then we keep
+  // Start in sync with the Delta field (see handleDeltaChange) so the first new
+  // row continues the series at the *current* delta, not the one inferred when
+  // the dialog opened.
+  const startEditedRef = React.useRef(false)
 
   React.useEffect(() => {
     if (!isTimePickerOpen) return undefined
@@ -279,7 +286,7 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
 
   // On open, seed the defaults from existing data: Start Date + Time = the last
   // row's date-time + the inferred delta (rolling the date forward when it
-  // crosses midnight), Delta = the hour spacing inferred from the first three
+  // crosses midnight), Delta = the hour spacing inferred from the last three
   // rows. When
   // there is no usable data we leave Start Date and Start Time empty (native
   // picker shows today) and Delta at its '1' default — matching the prior
@@ -303,9 +310,32 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
         deltaHours
       }
     })
+    startEditedRef.current = false
     // Only seed on the open edge; weatherTable is settled before the user opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  // Delta change: keep the whole-number gate, then (unless the user has set
+  // Start by hand) re-seed Start Date/Time from the last row + the new delta so
+  // the first new row continues the series at the value just typed.
+  const handleDeltaChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
+    if (!WHOLE_NUMBER_INPUT_PATTERN.test(e.target.value)) return
+    const nextDelta = e.target.value
+    const dh = Number.parseInt(nextDelta, 10)
+    if (!startEditedRef.current && Number.isFinite(dh) && dh > 0) {
+      const { date, time } = seededStart(weatherTable, dh)
+      // Single setValues (not handleChange + setFieldValue) so all three land
+      // in one validation pass against a consistent snapshot.
+      formik.setValues({ ...formik.values, deltaHours: nextDelta, startDate: date, startTime: time })
+      return
+    }
+    formik.handleChange(e)
+  }
+
+  // Mark Start as user-owned so handleDeltaChange stops overwriting it.
+  const markStartEdited = (): void => {
+    startEditedRef.current = true
+  }
 
   const handleClose = (): void => {
     if (loading) return
@@ -342,6 +372,10 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
             max: MAX_DATE,
             iconLeft: CalendarIcon,
             inputRef: startDateRef,
+            onChange: (e) => {
+              markStartEdited()
+              formik.handleChange(e)
+            },
             onIconLeftClick: () => openPicker(startDateRef.current),
             error:
               formik.touched.startDate || formik.values.startDate !== ''
@@ -368,6 +402,10 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
             placeholder: 'hh:mm',
             iconLeft: ClockIcon,
             inputRef: startTimeRef,
+            onChange: (e) => {
+              markStartEdited()
+              formik.handleChange(e)
+            },
             onIconLeftClick: () => setIsTimePickerOpen((v) => !v),
             error:
               formik.touched.startTime || formik.values.startTime !== ''
@@ -380,6 +418,7 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
             value={formik.values.startTime}
             listClassName="h-24"
             onChange={(v) => {
+              markStartEdited()
               formik.setFieldValue('startTime', v)
               setIsTimePickerOpen(false)
             }}
@@ -391,7 +430,7 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
         inputProps={{
           ...formik.getFieldProps('deltaHours'),
           type: 'text',
-          onChange: keepWholeNumberInput(formik),
+          onChange: handleDeltaChange,
           error:
             formik.touched.deltaHours || formik.values.deltaHours !== ''
               ? (formik.errors.deltaHours as string | undefined)
