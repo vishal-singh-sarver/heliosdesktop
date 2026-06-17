@@ -105,12 +105,3 @@ export async function fetchObjectGeometryBinary(
   const path = GEOMETRY_ROUTES.objectGeometryBinary(projectId, scenarioId, objectId)
   return fetchBinaryGeometry(path)
 }
-
-/** Fetch and parse the entire scene's geometry (all objects combined). */
-export async function fetchSceneGeometryBinary(
-  projectId: string,
-  scenarioId: string
-): Promise<PrimitiveInfo[]> {
-  const path = GEOMETRY_ROUTES.sceneGeometryBinary(projectId, scenarioId)
-  return fetchBinaryGeometry(path)
-}

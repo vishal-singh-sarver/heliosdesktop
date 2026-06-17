@@ -20,7 +20,7 @@ describe('3DWindow selectors', () => {
 
   it('selects the slice values when present', () => {
     const slice: ThreeDWindowState = {
-      scene: { objectIds: [28, 30], geometryVersion: 5 },
+      scene: { objectIds: [28, 30], geometryVersion: 5, fitVersion: 2 },
       sceneLoad: { ...initialSceneLoadState, objectLoading: true }
     }
     const state = makeState(slice)

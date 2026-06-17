@@ -2,9 +2,6 @@ import type { PrimitiveInfo } from '../models/types'
 
 const cache = new Map<number, PrimitiveInfo[]>()
 
-// Special key for the scene-level "All" geometry blob.
-const SCENE_ALL_KEY = -1
-
 export function setObjectPrimitives(objectId: number, primitives: PrimitiveInfo[]): void {
   cache.set(objectId, primitives)
 }
@@ -17,14 +14,13 @@ export function removeObjectPrimitives(objectId: number): void {
   cache.delete(objectId)
 }
 
-/** Store the full scene geometry (all objects combined). */
-export function setSceneAllPrimitives(primitives: PrimitiveInfo[]): void {
-  cache.set(SCENE_ALL_KEY, primitives)
-}
-
-/** Retrieve the full scene geometry. */
-export function getSceneAllPrimitives(): PrimitiveInfo[] | undefined {
-  return cache.get(SCENE_ALL_KEY)
+/** Retrieve primitives for all cached objects combined. */
+export function getAllCachedPrimitives(): PrimitiveInfo[] {
+  const all: PrimitiveInfo[] = []
+  for (const primitives of cache.values()) {
+    all.push(...primitives)
+  }
+  return all
 }
 
 export function clearSceneCache(): void {

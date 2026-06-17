@@ -4,7 +4,10 @@ import {
   LOAD_SCENE_FAILED,
   LOAD_SCENE_REQUESTED,
   LOAD_SCENE_SUCCEEDED,
+  MESH_READY,
+  OBJECT_GEOMETRY_CACHED,
   OBJECT_GEOMETRY_LOADED,
+  OBJECT_GEOMETRY_REMOVED,
   SELECT_SCENE_OBJECT
 } from './constants'
 
@@ -19,6 +22,12 @@ export const loadObjectGeometry = (object: SceneObject) => ({
 
 export const objectGeometryLoaded = (objectId: number) => ({
   type: OBJECT_GEOMETRY_LOADED,
+  payload: { objectId }
+})
+
+/** Registers cached geometry without auto-selecting the object. */
+export const objectGeometryCached = (objectId: number) => ({
+  type: OBJECT_GEOMETRY_CACHED,
   payload: { objectId }
 })
 
@@ -44,10 +53,28 @@ export const selectSceneObject = (objectId: number | null) => ({
   payload: { objectId }
 })
 
+// ── Object geometry removed ──────────────────────────────────────────────────
+
+export const objectGeometryRemoved = (objectId: number) => ({
+  type: OBJECT_GEOMETRY_REMOVED,
+  payload: { objectId }
+})
+
+// ── Mesh ready ──────────────────────────────────────────────────────────────
+// Dispatched by SceneContent after meshes have been built and are ready to
+// display. The loader overlay stays visible until this fires.
+
+export const meshReady = () => ({
+  type: MESH_READY
+})
+
 export type ThreeDWindowAction =
   | ReturnType<typeof loadObjectGeometry>
   | ReturnType<typeof objectGeometryLoaded>
+  | ReturnType<typeof objectGeometryCached>
   | ReturnType<typeof loadScene>
   | ReturnType<typeof loadSceneSucceeded>
   | ReturnType<typeof loadSceneFailed>
   | ReturnType<typeof selectSceneObject>
+  | ReturnType<typeof objectGeometryRemoved>
+  | ReturnType<typeof meshReady>

@@ -26,16 +26,18 @@ export function SceneSelector(): React.JSX.Element {
     return () => document.removeEventListener('mousedown', handleOutside)
   }, [open])
 
-  // Auto-open when a new object is added so the user sees it highlighted.
+  // Keep the previous count in sync so the dropdown doesn't open unexpectedly
+  // after the component remounts with a different object count.
   const prevCountRef = useRef(objects.length)
   useEffect(() => {
-    if (objects.length > prevCountRef.current) {
-      setOpen(true)
-    }
     prevCountRef.current = objects.length
   }, [objects.length])
 
   function handleSelect(id: number | null): void {
+    if (id === selectedObjectId) {
+      setOpen(false)
+      return
+    }
     dispatch(selectSceneObject(id))
     setOpen(false)
   }

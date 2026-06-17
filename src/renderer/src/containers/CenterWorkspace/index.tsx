@@ -69,7 +69,9 @@ export function CenterWorkspace(): React.JSX.Element {
         />
       </div>
 
-      {activeTab === '3dWindow' && <ThreeDWindow />}
+      <div className={activeTab === '3dWindow' ? 'flex min-h-0 flex-1' : 'hidden'}>
+        <ThreeDWindow />
+      </div>
       {activeTab === 'weather' && <Weather />}
     </section>
   )
