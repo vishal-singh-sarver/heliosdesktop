@@ -28,7 +28,7 @@ import {
   SELECT_SCENE_OBJECT
 } from './constants'
 import { getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
-import { selectSceneObjects, selectSelectedObjectId } from './selectors'
+import { selectSceneObjectIds, selectSceneObjects, selectSelectedObjectId } from './selectors'
 
 function toErrorPayload(err: unknown): ApiErrorPayload {
   if (err instanceof ApiError) {
@@ -58,7 +58,9 @@ function* fetchAndCacheObjectGeometry(objectId: number, autoSelect = true): Gene
   )) as PrimitiveInfo[]
 
   yield call(setObjectPrimitives, objectId, primitives)
-  yield put(autoSelect ? actions.objectGeometryLoaded(objectId) : actions.objectGeometryCached(objectId))
+  yield put(
+    autoSelect ? actions.objectGeometryLoaded(objectId) : actions.objectGeometryCached(objectId)
+  )
 }
 
 export function* loadObjectGeometryWorker(
@@ -98,10 +100,20 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
   }
 }
 
-export function* onGeometryDeleted(action: DeleteNodeSucceededAction): Generator {
-  const objectId = Number(action.id)
-  yield call(removeObjectPrimitives, objectId)
-  yield put(actions.objectGeometryRemoved(objectId))
+export function* onGeometryDeleted(_action: DeleteNodeSucceededAction): Generator {
+  // The Geometry reducer has already removed the node (and children if group)
+  // from nodesById. Compare our cached objectIds against the current visible
+  // objects to find which ones were removed.
+  const cachedIds = (yield select(selectSceneObjectIds)) as number[]
+  const visibleObjects = (yield select(selectSceneObjects)) as SceneObject[]
+  const visibleIdSet = new Set(visibleObjects.map((o) => o.id))
+
+  for (const objectId of cachedIds) {
+    if (!visibleIdSet.has(objectId)) {
+      yield call(removeObjectPrimitives, objectId)
+      yield put(actions.objectGeometryRemoved(objectId))
+    }
+  }
 }
 
 // ── Load scene worker ─────────────────────────────────────────────────────────
@@ -125,9 +137,7 @@ export function* loadSceneWorker(): Generator {
 
     // Fetch all objects in parallel via the single-object binary API.
     const results = (yield all(
-      objects.map((obj) =>
-        call(fetchObjectGeometryBinary, projectId, scenarioId, obj.id)
-      )
+      objects.map((obj) => call(fetchObjectGeometryBinary, projectId, scenarioId, obj.id))
     )) as PrimitiveInfo[][]
 
     // Cache each object's primitives individually (no auto-select).
