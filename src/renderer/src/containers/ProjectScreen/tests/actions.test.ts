@@ -6,6 +6,9 @@ import {
   ADD_ROW_FAILED,
   ADD_ROW_REQUESTED,
   ADD_ROW_SUCCEEDED,
+  DELETE_ROW_FAILED,
+  DELETE_ROW_REQUESTED,
+  DELETE_ROW_SUCCEEDED,
   LIST_SCENARIOS_FAILED,
   LIST_SCENARIOS_REQUESTED,
   LIST_SCENARIOS_SUCCEEDED,
@@ -369,6 +372,46 @@ describe('ProjectScreen action creators', () => {
       expect(actions.updateColumnFailed(PROJ, SCN, '7', previous, 'rejected')).toEqual({
         type: UPDATE_COLUMN_FAILED,
         payload: { projectId: PROJ, scenarioId: SCN, colId: '7', previous, error: 'rejected' }
+      })
+    })
+  })
+
+  describe('delete row', () => {
+    const snapshot = {
+      cells: { date: '2026-04-27', time: '10:00:00', '7': '293.1' },
+      index: 0,
+      validationErrors: undefined,
+      cellSync: {},
+      selected: false
+    }
+
+    it('deleteRowRequested carries the (date, time) key + rollback snapshot', () => {
+      expect(
+        actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshot)
+      ).toEqual({
+        type: DELETE_ROW_REQUESTED,
+        payload: {
+          projectId: PROJ,
+          scenarioId: SCN,
+          rowId: 'row_0',
+          date: '2026-04-27',
+          time: '10:00:00',
+          snapshot
+        }
+      })
+    })
+
+    it('deleteRowSucceeded carries projectId, scenarioId, rowId', () => {
+      expect(actions.deleteRowSucceeded(PROJ, SCN, 'row_0')).toEqual({
+        type: DELETE_ROW_SUCCEEDED,
+        payload: { projectId: PROJ, scenarioId: SCN, rowId: 'row_0' }
+      })
+    })
+
+    it('deleteRowFailed carries the snapshot (for rollback) + error', () => {
+      expect(actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, 'rejected')).toEqual({
+        type: DELETE_ROW_FAILED,
+        payload: { projectId: PROJ, scenarioId: SCN, rowId: 'row_0', snapshot, error: 'rejected' }
       })
     })
   })

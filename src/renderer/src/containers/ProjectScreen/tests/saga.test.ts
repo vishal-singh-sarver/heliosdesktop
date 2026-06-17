@@ -5,6 +5,7 @@ import {
   addColumnsRequest,
   addRowsRequest,
   deleteHeaderRequest,
+  deleteRowsRequest,
   getProjectRequest,
   loadDataRequest,
   loadDataTypesRequest,
@@ -19,6 +20,7 @@ import {
   ADD_COLUMN_REQUESTED,
   ADD_ROW_REQUESTED,
   DELETE_COLUMN_REQUESTED,
+  DELETE_ROW_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_SCENARIO_REQUESTED,
@@ -62,6 +64,7 @@ describe('projectScreenSaga (root watcher)', () => {
       ADD_COLUMN_REQUESTED,
       UPDATE_COLUMN_REQUESTED,
       DELETE_COLUMN_REQUESTED,
+      DELETE_ROW_REQUESTED,
       UPDATE_ALL_CHECKBOXES_REQUESTED,
       UPDATE_CELL_LOCAL
     ]
@@ -693,6 +696,48 @@ describe('deleteColumnWorker', () => {
     gen.next()
     expect(gen.throw(new Error('rejected')).value).toEqual(
       put(actions.deleteColumnFailed(PROJ, SCN, '7', snapshot, 'rejected'))
+    )
+  })
+})
+
+// ── deleteRowWorker ──────────────────────────────────────────────────────────
+
+describe('deleteRowWorker', () => {
+  const snapshot = {
+    cells: { date: '2026-04-27', time: '10:00:00', '7': '293.1' },
+    index: 0,
+    validationErrors: undefined,
+    cellSync: {},
+    selected: false
+  }
+  const DATE = '2026-04-27'
+  const TIME = '10:00:00'
+
+  it('POSTs the [{ date, time }] key and dispatches succeeded', () => {
+    const action = actions.deleteRowRequested(PROJ, SCN, 'row_0', DATE, TIME, snapshot)
+    function* worker(): Generator {
+      const { projectId, scenarioId, rowId, date, time } = action.payload
+      yield call(deleteRowsRequest, projectId, scenarioId, [{ date, time }])
+      yield put(actions.deleteRowSucceeded(projectId, scenarioId, rowId))
+    }
+    const gen = worker()
+    expect(gen.next().value).toEqual(call(deleteRowsRequest, PROJ, SCN, [{ date: DATE, time: TIME }]))
+    expect(gen.next().value).toEqual(put(actions.deleteRowSucceeded(PROJ, SCN, 'row_0')))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('on POST failure: dispatches deleteRowFailed with the snapshot for rollback', () => {
+    function* worker(): Generator {
+      try {
+        yield call(deleteRowsRequest, PROJ, SCN, [{ date: DATE, time: TIME }])
+      } catch (err) {
+        yield put(actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, (err as Error).message))
+      }
+    }
+    const gen = worker()
+    gen.next()
+    expect(gen.throw(new Error('rejected')).value).toEqual(
+      put(actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, 'rejected'))
     )
   })
 })

@@ -3,6 +3,7 @@ import {
   addColumnsRequest,
   addRowsRequest,
   deleteHeaderRequest,
+  deleteRowsRequest,
   getProjectRequest,
   loadDataRequest,
   loadDataTypesRequest,
@@ -31,6 +32,7 @@ import type {
   AddColumnRequestedAction,
   AddRowRequestedAction,
   DeleteColumnRequestedAction,
+  DeleteRowRequestedAction,
   ListScenariosRequestedAction,
   LoadScenarioRequestedAction,
   SeedDefaultColumnsRequestedAction,
@@ -43,6 +45,7 @@ import {
   ADD_COLUMN_REQUESTED,
   ADD_ROW_REQUESTED,
   DELETE_COLUMN_REQUESTED,
+  DELETE_ROW_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
@@ -684,6 +687,22 @@ function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
   }
 }
 
+// Delete one row by its (date, time) key. The reducer already removed the row
+// optimistically on _REQUESTED; we POST the single key and roll back via the
+// snapshot if the backend rejects.
+function* deleteRowWorker(action: DeleteRowRequestedAction): Generator {
+  const { projectId, scenarioId, rowId, date, time, snapshot } = action.payload
+
+  try {
+    yield call(deleteRowsRequest, projectId, scenarioId, [{ date, time }])
+    yield put(actions.deleteRowSucceeded(projectId, scenarioId, rowId))
+  } catch (err) {
+    yield put(
+      actions.deleteRowFailed(projectId, scenarioId, rowId, snapshot, (err as Error).message)
+    )
+  }
+}
+
 // Walk every row of one column, validating against the catalog's per-unit
 // range. Bails when the catalog hasn't loaded or the column has been
 // removed. Same shape used by loadScenarioWorker (via revalidateScenarioColumns)
@@ -789,6 +808,7 @@ export default function* projectScreenSaga(): Generator {
   yield takeLatest(ADD_COLUMN_REQUESTED, addColumnWorker)
   yield takeEvery(UPDATE_COLUMN_REQUESTED, updateColumnWorker)
   yield takeEvery(DELETE_COLUMN_REQUESTED, deleteColumnWorker)
+  yield takeEvery(DELETE_ROW_REQUESTED, deleteRowWorker)
   yield takeEvery(UPDATE_CELL_LOCAL, updateCellWorker)
   yield takeLatest(UPDATE_ALL_CHECKBOXES_REQUESTED, updateAllCheckboxesWorker)
 }
