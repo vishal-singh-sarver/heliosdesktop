@@ -37,10 +37,8 @@ function Accordion({
         aria-expanded={open}
         className="flex shrink-0 items-center justify-between px-3 py-2 text-left"
       >
-        <span className="flex items-center gap-2 font-['Geist'] text-[14px] font-normal leading-[14px] tracking-normal text-neutral-200">
-          {icon && (
-            <img src={icon} alt="" aria-hidden="true" className="h-3.5 w-auto shrink-0" />
-          )}
+        <span className="flex items-center gap-2 text-[13px] font-normal leading-[15px] tracking-normal text-neutral-200">
+          {icon && <img src={icon} alt="" aria-hidden="true" className="h-3.5 w-auto shrink-0" />}
           {title}
         </span>
         <img
