@@ -18,11 +18,11 @@ export const selectFitVersion = createSelector(selectScene, (s) => s.fitVersion)
 export const selectSceneLoad = createSelector(selectDomain, (s) => s.sceneLoad)
 
 // Derive the dropdown items from the Geometry container's node tree.
-// Filters out groups — only leaf geometries appear in the scene selector.
+// Filters out groups and hidden objects — only visible leaf geometries appear.
 export const selectSceneObjects = createSelector(selectNodesById, (nodesById): SceneObject[] => {
   const objects: SceneObject[] = []
   for (const node of Object.values(nodesById)) {
-    if (node.kind !== 'group') {
+    if (node.kind !== 'group' && node.visibleInViewport) {
       objects.push({
         id: Number(node.id),
         name: node.name,

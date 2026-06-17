@@ -1,13 +1,20 @@
 import {
   CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
-  UPDATE_OBJECT_SUCCEEDED
+  LIST_NODES_SUCCEEDED,
+  TOGGLE_VIEWPORT,
+  UPDATE_OBJECT_SUCCEEDED,
+  VISIBILITY_SYNC_FAILED
 } from 'containers/Geometry/constants'
 import type {
   CreateObjectSucceededAction,
   DeleteNodeSucceededAction,
-  UpdateObjectSucceededAction
+  ToggleViewportAction,
+  UpdateObjectSucceededAction,
+  VisibilitySyncFailedAction
 } from 'containers/Geometry/actions'
+import { selectNodesById } from 'containers/Geometry/selectors'
+import type { GeoNode } from 'containers/Geometry/types'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -176,6 +183,79 @@ export function* selectSceneObjectWorker(): Generator {
   }
 }
 
+// ── Viewport visibility toggle ────────────────────────────────────────────────
+//
+// When the eye icon is toggled in the left panel, the Geometry reducer has
+// already flipped `visibleInViewport` optimistically. We read the post-flip
+// value and either remove from cache (hidden) or fetch + cache (unhidden).
+// Groups cascade to all children, so we collect all affected leaf node IDs.
+
+function collectLeafIds(nodesById: Record<string, GeoNode>, id: string): number[] {
+  const node = nodesById[id]
+  if (!node) return []
+  if (node.kind !== 'group') return [Number(id)]
+  const ids: number[] = []
+  for (const childId of node.childIds) {
+    ids.push(...collectLeafIds(nodesById, childId))
+  }
+  return ids
+}
+
+export function* onViewportToggled(action: ToggleViewportAction): Generator {
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  const node = nodesById[action.id]
+  if (!node) return
+
+  const leafIds = collectLeafIds(nodesById, action.id)
+
+  for (const objectId of leafIds) {
+    const leaf = nodesById[String(objectId)]
+    if (!leaf) continue
+
+    if (!leaf.visibleInViewport) {
+      // Hidden — remove from cache and scene.
+      yield call(removeObjectPrimitives, objectId)
+      yield put(actions.objectGeometryRemoved(objectId))
+    } else {
+      // Unhidden — fetch geometry and add back to cache.
+      try {
+        yield* fetchAndCacheObjectGeometry(objectId, false)
+      } catch {
+        // Non-fatal.
+      }
+    }
+  }
+}
+
+// When a viewport visibility API call fails, the Geometry reducer reverts the
+// flip. We must undo our cache change as well (re-fetch if we removed, or
+// remove if we added back).
+export function* onVisibilitySyncFailed(action: VisibilitySyncFailedAction): Generator {
+  if (action.field !== 'viewport') return
+
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  const leafIds = collectLeafIds(nodesById, action.id)
+
+  for (const objectId of leafIds) {
+    const leaf = nodesById[String(objectId)]
+    if (!leaf) continue
+
+    // After revert: the node's visibility is the opposite of what we acted on.
+    if (leaf.visibleInViewport) {
+      // Was hidden (we removed from cache) → now visible again → re-fetch.
+      try {
+        yield* fetchAndCacheObjectGeometry(objectId, false)
+      } catch {
+        // Non-fatal.
+      }
+    } else {
+      // Was unhidden (we added to cache) → now hidden again → remove.
+      yield call(removeObjectPrimitives, objectId)
+      yield put(actions.objectGeometryRemoved(objectId))
+    }
+  }
+}
+
 // ── Root watcher ──────────────────────────────────────────────────────────────
 
 export default function* threeDWindowSaga(): Generator {
@@ -186,8 +266,15 @@ export default function* threeDWindowSaga(): Generator {
 
   yield takeLatest(SELECT_SCENE_OBJECT, selectSceneObjectWorker)
 
+  // When the Geometry node list arrives (initial load or refresh), fetch
+  // binary data for all objects. This covers the race where loadScene()
+  // fires before the node tree is populated.
+  yield takeLatest(LIST_NODES_SUCCEEDED, scenarioChangeWorker)
+
   // Listen to Geometry container events to keep the 3D viewport in sync.
   yield takeEvery(CREATE_OBJECT_SUCCEEDED, onGeometryCreated)
   yield takeEvery(UPDATE_OBJECT_SUCCEEDED, onGeometryUpdated)
   yield takeEvery(DELETE_NODE_SUCCEEDED, onGeometryDeleted)
+  yield takeEvery(TOGGLE_VIEWPORT, onViewportToggled)
+  yield takeEvery(VISIBILITY_SYNC_FAILED, onVisibilitySyncFailed)
 }
