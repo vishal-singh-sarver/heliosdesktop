@@ -1,3 +1,4 @@
+import type { ThreeDWindowState } from 'containers/3DWindow/store/types'
 import type { HomePageState } from 'containers/HomePage/reducer'
 import type { ProjectScreenState } from 'containers/ProjectScreen/reducer'
 import { combineReducers, Reducer, UnknownAction } from 'redux'
@@ -8,6 +9,7 @@ export interface RootState {
   navigation: NavigationState
   homePage?: HomePageState
   projectScreen?: ProjectScreenState
+  threeDWindow?: ThreeDWindowState
 }
 
 function createReducer(

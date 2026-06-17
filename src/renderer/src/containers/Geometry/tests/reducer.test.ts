@@ -452,7 +452,7 @@ describe('geometryReducer', () => {
     it('UPDATE_OBJECT_SUCCEEDED keeps the form open, syncs the node name, clears saving/new', () => {
       let r = created()
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A' }))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A', propsChanged: true }))
       // Form stays open (panel must not blank) showing the saved values.
       expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
       // The renamed name is synced into the tree node.

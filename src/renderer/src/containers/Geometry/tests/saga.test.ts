@@ -238,7 +238,7 @@ describe('updateObjectWorker', () => {
     )
     // Name unchanged (draft.name === node.name) → no rename call.
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Ground.001' }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Ground.001', propsChanged: true }))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -253,7 +253,7 @@ describe('updateObjectWorker', () => {
     // node.name 'Ground.001' !== 'Plot A' → rename call before succeeding.
     expect(gen.next().value).toEqual(call(service.renameObject, P, S, '27', 'Plot A'))
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A' }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A', propsChanged: true }))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -271,7 +271,7 @@ describe('updateObjectWorker', () => {
       call(service.renameObject, P, S, '27', 'Plot A')
     )
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A' }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A', propsChanged: false }))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -284,7 +284,7 @@ describe('updateObjectWorker', () => {
     gen.next({ '27': groundNode('27') }) // select detailsById
     // Props match cache + name unchanged → straight to success, no API calls.
     expect(gen.next({ '27': original }).value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Ground.001' }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Ground.001', propsChanged: false }))
     )
     expect(gen.next().done).toBe(true)
   })

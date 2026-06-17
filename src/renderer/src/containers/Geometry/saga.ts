@@ -195,7 +195,8 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     yield put(
       actions.updateObjectSucceeded(projectId, scenarioId, {
         objectId: draft.objectId,
-        name: draft.name
+        name: draft.name,
+        propsChanged
       })
     )
   } catch (err) {

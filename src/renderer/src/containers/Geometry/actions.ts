@@ -260,7 +260,7 @@ export type UpdateObjectSucceededAction = {
   scenarioId: string
   // The saved object id + (possibly renamed) name, so the reducer can sync the
   // tree node and keep the form open showing the saved values.
-  payload: { objectId: string; name: string }
+  payload: { objectId: string; name: string; propsChanged: boolean }
 }
 export type UpdateObjectFailedAction = {
   type: typeof UPDATE_OBJECT_FAILED
@@ -584,7 +584,7 @@ export const updateObjectRequested = (
 export const updateObjectSucceeded = (
   projectId: string,
   scenarioId: string,
-  payload: { objectId: string; name: string }
+  payload: { objectId: string; name: string; propsChanged: boolean }
 ): UpdateObjectSucceededAction => ({ type: UPDATE_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
 
 export const updateObjectFailed = (error: string): UpdateObjectFailedAction => ({

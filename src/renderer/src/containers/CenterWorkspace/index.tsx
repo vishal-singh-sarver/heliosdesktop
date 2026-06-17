@@ -1,6 +1,7 @@
 import threeDWindowIcon from '@renderer/assets/3D_Window.svg'
 import outputIcon from '@renderer/assets/Output.svg'
 import weatherIcon from '@renderer/assets/weather.svg'
+import ThreeDWindow from '@renderer/containers/3DWindow/Loadable'
 import Weather from '@renderer/containers/Weather'
 import React from 'react'
 import type { Reducer } from 'redux'
@@ -68,6 +69,9 @@ export function CenterWorkspace(): React.JSX.Element {
         />
       </div>
 
+      <div className={activeTab === '3dWindow' ? 'flex min-h-0 flex-1' : 'hidden'}>
+        <ThreeDWindow />
+      </div>
       {activeTab === 'weather' && <Weather />}
     </section>
   )
