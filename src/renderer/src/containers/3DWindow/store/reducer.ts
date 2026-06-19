@@ -119,6 +119,8 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
           draft.sceneLoad.selectedObjectId = null
         }
         draft.scene.geometryVersion += 1
+        // Reframe camera to remaining geometry after deletion.
+        draft.scene.fitVersion += 1
         break
       }
 
