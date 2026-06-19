@@ -4,6 +4,7 @@ import type { PrimitiveInfo } from '../models/types'
 import { meshReady } from '../store/actions'
 import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache'
 import { selectScene, selectSelectedObjectId } from '../store/selectors'
+import KeyboardShortcuts from './KeyboardShortcuts'
 import ObjectMesh from './ObjectMesh'
 import SceneHelpers from './SceneHelpers'
 import type { LightingSettings } from './SceneLighting'
@@ -59,6 +60,8 @@ export function SceneContent({ lightingSettings }: SceneContentProps): React.JSX
           lightingMode={lightingSettings.mode}
         />
       ))}
+
+      <KeyboardShortcuts />
     </>
   )
 }
