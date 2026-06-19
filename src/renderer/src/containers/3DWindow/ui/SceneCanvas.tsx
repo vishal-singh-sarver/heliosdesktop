@@ -19,7 +19,7 @@ export function SceneCanvas({ children }: SceneCanvasProps): React.JSX.Element {
         position: [10, 10, 8],
         fov: 50,
         near: 0.1,
-        far: 100000,
+        far: 1000000,
         up: [0, 0, 1]
       }}
       style={{ background: '#0f0f1a' }}

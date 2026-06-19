@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import messages from '../messages'
 import { selectSceneObject } from '../store/actions'
@@ -25,13 +25,6 @@ export function SceneSelector(): React.JSX.Element {
     }
     return () => document.removeEventListener('mousedown', handleOutside)
   }, [open])
-
-  // Keep the previous count in sync so the dropdown doesn't open unexpectedly
-  // after the component remounts with a different object count.
-  const prevCountRef = useRef(objects.length)
-  useEffect(() => {
-    prevCountRef.current = objects.length
-  }, [objects.length])
 
   function handleSelect(id: number | null): void {
     if (id === selectedObjectId) {

@@ -1,9 +1,10 @@
 import { useThree } from '@react-three/fiber'
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { PrimitiveInfo } from '../models/types'
 import type { LightingMode } from './materials'
 import { createMaskMaterial, createMaterial } from './materials'
+import type { GeometryGroup } from './meshGeometry'
 import { buildTexturedGeometries } from './meshGeometry'
 import { loadSceneTexture } from './textureCache'
 
@@ -12,6 +13,22 @@ interface ObjectMeshProps {
   lightingMode?: LightingMode
   /** Cull back faces (FrontSide only) — used for ground tiles. */
   backfaceCulling?: boolean
+}
+
+/** Dispose all GPU resources in a list of geometry groups. */
+function disposeGroups(groups: GeometryGroup[]): void {
+  for (const g of groups) g.geometry.dispose()
+}
+
+/** Dispose all materials in the given maps and standalone material. */
+function disposeMaterials(
+  texMats: Map<string, THREE.Material>,
+  mskMats: Map<string, THREE.Material>,
+  vcMat: THREE.Material | null
+): void {
+  for (const m of texMats.values()) m.dispose()
+  for (const m of mskMats.values()) m.dispose()
+  vcMat?.dispose()
 }
 
 /**
@@ -26,6 +43,16 @@ export function ObjectMesh({
   const invalidate = useThree((s) => s.invalidate)
 
   const groups = useMemo(() => buildTexturedGeometries(primitives), [primitives])
+
+  // Track previous geometries for disposal when replaced.
+  const prevGroupsRef = useRef<GeometryGroup[] | null>(null)
+  useEffect(() => {
+    if (prevGroupsRef.current) disposeGroups(prevGroupsRef.current)
+    prevGroupsRef.current = groups
+    return () => {
+      if (groups) disposeGroups(groups)
+    }
+  }, [groups])
 
   // One material per texture group; textures resolve through the module
   // cache and trigger invalidate() on async load (frameloop="demand").
@@ -66,6 +93,15 @@ export function ObjectMesh({
     () => createMaterial(lightingMode, { vertexColors: true, backfaceCulling }),
     [lightingMode, backfaceCulling]
   )
+
+  // Dispose all materials when they are replaced or on unmount.
+  const prevMatsRef = useRef<{ t: Map<string, THREE.Material>; m: Map<string, THREE.Material>; v: THREE.Material | null }>({ t: new Map(), m: new Map(), v: null })
+  useEffect(() => {
+    const prev = prevMatsRef.current
+    disposeMaterials(prev.t, prev.m, prev.v)
+    prevMatsRef.current = { t: textureMaterials, m: maskMaterials, v: vertexColorMaterial }
+    return () => disposeMaterials(textureMaterials, maskMaterials, vertexColorMaterial)
+  }, [textureMaterials, maskMaterials, vertexColorMaterial])
 
   if (!groups) return null
 

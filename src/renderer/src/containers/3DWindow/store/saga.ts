@@ -27,7 +27,8 @@ import {
   LOAD_SCENE_REQUESTED,
   SELECT_SCENE_OBJECT
 } from './constants'
-import { getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
+import { clearTextureCache } from '../ui/textureCache'
+import { clearSceneCache, getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
 import { selectSceneObjectIds, selectSceneObjects, selectSelectedObjectId } from './selectors'
 
 function toErrorPayload(err: unknown): ApiErrorPayload {
@@ -123,6 +124,12 @@ export function* onGeometryDeleted(_action: DeleteNodeSucceededAction): Generato
 
 export function* loadSceneWorker(): Generator {
   try {
+    // Clear stale caches from any previous project/scenario before loading.
+    // Scene state is already reset by the LOAD_SCENE_REQUESTED reducer so the
+    // loader stays visible throughout the fetch cycle.
+    yield call(clearSceneCache)
+    yield call(clearTextureCache)
+
     const projectId = (yield select(selectActiveProjectId)) as string | null
     const scenarioId = (yield select(selectActiveScenarioId)) as string | null
 

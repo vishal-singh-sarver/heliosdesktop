@@ -20,5 +20,8 @@ export const SELECT_SCENE_OBJECT = 'app/3DWindow/SELECT_SCENE_OBJECT' as const
 // ── Object geometry removed (after delete) ──────────────────────────────────
 export const OBJECT_GEOMETRY_REMOVED = 'app/3DWindow/OBJECT_GEOMETRY_REMOVED' as const
 
+// ── Reset scene (project change) ─────────────────────────────────────────────
+export const RESET_SCENE = 'app/3DWindow/RESET_SCENE' as const
+
 // ── Mesh ready (viewport display signal) ────────────────────────────────────
 export const MESH_READY = 'app/3DWindow/MESH_READY' as const

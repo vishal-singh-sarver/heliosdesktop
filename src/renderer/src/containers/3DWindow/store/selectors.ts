@@ -13,8 +13,6 @@ export const selectSceneObjectIds = createSelector(selectScene, (s) => s.objectI
 
 export const selectGeometryVersion = createSelector(selectScene, (s) => s.geometryVersion)
 
-export const selectFitVersion = createSelector(selectScene, (s) => s.fitVersion)
-
 export const selectSceneLoad = createSelector(selectDomain, (s) => s.sceneLoad)
 
 // Derive the dropdown items from the Geometry container's node tree.
@@ -35,8 +33,4 @@ export const selectSceneObjects = createSelector(selectNodesById, (nodesById): S
 
 export const selectSelectedObjectId = createSelector(selectSceneLoad, (s) => s.selectedObjectId)
 
-export const selectSceneLoading = createSelector(selectSceneLoad, (s) => s.loading)
-
 export const selectMeshReady = createSelector(selectSceneLoad, (s) => s.meshReady)
-
-export { selectDomain as selectThreeDWindowDomain }

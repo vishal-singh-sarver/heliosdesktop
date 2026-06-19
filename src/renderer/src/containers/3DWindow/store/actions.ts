@@ -8,6 +8,7 @@ import {
   OBJECT_GEOMETRY_CACHED,
   OBJECT_GEOMETRY_LOADED,
   OBJECT_GEOMETRY_REMOVED,
+  RESET_SCENE,
   SELECT_SCENE_OBJECT
 } from './constants'
 
@@ -60,6 +61,13 @@ export const objectGeometryRemoved = (objectId: number) => ({
   payload: { objectId }
 })
 
+// ── Reset scene ─────────────────────────────────────────────────────────────
+// Clears the 3D viewport when the active project changes.
+
+export const resetScene = () => ({
+  type: RESET_SCENE
+})
+
 // ── Mesh ready ──────────────────────────────────────────────────────────────
 // Dispatched by SceneContent after meshes have been built and are ready to
 // display. The loader overlay stays visible until this fires.
@@ -77,4 +85,5 @@ export type ThreeDWindowAction =
   | ReturnType<typeof loadSceneFailed>
   | ReturnType<typeof selectSceneObject>
   | ReturnType<typeof objectGeometryRemoved>
+  | ReturnType<typeof resetScene>
   | ReturnType<typeof meshReady>
