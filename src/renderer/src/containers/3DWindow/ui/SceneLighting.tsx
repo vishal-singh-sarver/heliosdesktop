@@ -1,18 +1,27 @@
 import React from 'react'
+import * as THREE from 'three'
+import type { LightingMode } from './materials'
 
-// Defaults mirrored from the source project (types/geometry.ts
-// defaultLightingSettings + Viewport3D LIGHT_SCALE): phong mode, sun at
-// elevation 60° / azimuth 45°, user-facing intensities 1.0 direct / 0.4
-// diffuse. With linear output color space and no tone mapping, lights need
-// higher Three.js values, hence the ×4 scale.
 const LIGHT_SCALE = 4.0
-const DIRECT_INTENSITY = 1.0 * LIGHT_SCALE
-const DIFFUSE_INTENSITY = 0.4 * LIGHT_SCALE
-const SUN_ELEVATION_DEG = 60
-const SUN_AZIMUTH_DEG = 45
-const SUN_DISTANCE = 50
 
-/** Elevation/azimuth (degrees) → light position. Azimuth 0=North(+Y), 90=East(+X). */
+export interface LightingSettings {
+  mode: LightingMode
+  sunElevation: number
+  sunAzimuth: number
+  directIntensity: number
+  diffuseIntensity: number
+  lightColor: { r: number; g: number; b: number }
+}
+
+export const defaultLightingSettings: LightingSettings = {
+  mode: 'phong',
+  sunElevation: 60,
+  sunAzimuth: 45,
+  directIntensity: 1.0,
+  diffuseIntensity: 0.4,
+  lightColor: { r: 1, g: 1, b: 1 }
+}
+
 function sunAnglesToPosition(
   elevation: number,
   azimuth: number,
@@ -24,13 +33,26 @@ function sunAnglesToPosition(
   return [distance * cosEl * Math.sin(az), distance * cosEl * Math.cos(az), distance * Math.sin(el)]
 }
 
-const SUN_POSITION = sunAnglesToPosition(SUN_ELEVATION_DEG, SUN_AZIMUTH_DEG, SUN_DISTANCE)
+interface SceneLightingProps {
+  settings: LightingSettings
+}
 
-export function SceneLighting(): React.JSX.Element {
+export function SceneLighting({ settings }: SceneLightingProps): React.JSX.Element | null {
+  if (settings.mode === 'flat') return null
+
+  const { r, g, b } = settings.lightColor
+  const color = new THREE.Color(r, g, b)
+  const sunPos = sunAnglesToPosition(settings.sunElevation, settings.sunAzimuth, 50)
+
   return (
     <>
-      <ambientLight intensity={DIFFUSE_INTENSITY} />
-      <directionalLight position={SUN_POSITION} intensity={DIRECT_INTENSITY} />
+      <ambientLight intensity={settings.diffuseIntensity * LIGHT_SCALE} color={color} />
+      <directionalLight
+        position={sunPos}
+        intensity={settings.directIntensity * LIGHT_SCALE}
+        color={color}
+        castShadow={settings.mode === 'phong-shadows'}
+      />
     </>
   )
 }

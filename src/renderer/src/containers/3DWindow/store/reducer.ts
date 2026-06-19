@@ -10,6 +10,7 @@ import {
   OBJECT_GEOMETRY_CACHED,
   OBJECT_GEOMETRY_LOADED,
   OBJECT_GEOMETRY_REMOVED,
+  RESET_SCENE,
   SELECT_SCENE_OBJECT
 } from './constants'
 import type { SceneLoadState, SceneState, ThreeDWindowState } from './types'
@@ -69,15 +70,23 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
           draft.scene.objectIds.push(objectId)
         }
         draft.scene.geometryVersion += 1
+        draft.scene.fitVersion += 1
         break
       }
 
       // ── Scene load ──────────────────────────────────────────────────────
 
       case LOAD_SCENE_REQUESTED:
+        // Clear previous scene data so stale geometry doesn't linger, while
+        // keeping loading=true and meshReady=false so the loader stays visible
+        // throughout the entire fetch cycle.
+        draft.scene = { ...initialSceneState }
         draft.sceneLoad.loading = true
+        draft.sceneLoad.objectLoading = false
+        draft.sceneLoad.selectionLoading = false
         draft.sceneLoad.meshReady = false
         draft.sceneLoad.error = null
+        draft.sceneLoad.selectedObjectId = null
         break
 
       case LOAD_SCENE_SUCCEEDED:
@@ -110,8 +119,15 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
           draft.sceneLoad.selectedObjectId = null
         }
         draft.scene.geometryVersion += 1
+        // Reframe camera to remaining geometry after deletion.
+        draft.scene.fitVersion += 1
         break
       }
+
+      case RESET_SCENE:
+        draft.scene = { ...initialSceneState }
+        draft.sceneLoad = { ...initialSceneLoadState }
+        break
 
       case MESH_READY:
         draft.sceneLoad.meshReady = true

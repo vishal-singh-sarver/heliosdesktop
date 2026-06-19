@@ -16,11 +16,11 @@ export function removeObjectPrimitives(objectId: number): void {
 
 /** Retrieve primitives for all cached objects combined. */
 export function getAllCachedPrimitives(): PrimitiveInfo[] {
-  const all: PrimitiveInfo[] = []
+  const result: PrimitiveInfo[][] = []
   for (const primitives of cache.values()) {
-    all.push(...primitives)
+    result.push(primitives)
   }
-  return all
+  return result.flat()
 }
 
 export function clearSceneCache(): void {

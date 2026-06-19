@@ -7,7 +7,7 @@ import { GEOMETRY_ROUTES } from './endpoints'
 /**
  * Parse the backend's binary geometry wire format into PrimitiveInfo[].
  */
-export function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
+function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
   const view = new DataView(buffer)
   let offset = 0
 

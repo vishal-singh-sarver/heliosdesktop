@@ -29,3 +29,9 @@ export function loadSceneTexture(
   })
   return null
 }
+
+/** Dispose all cached textures and clear the cache. */
+export function clearTextureCache(): void {
+  for (const tex of globalTextureCache.values()) tex.dispose()
+  globalTextureCache.clear()
+}
