@@ -244,10 +244,14 @@ function TreeRow({
           </span>
         )}
       </div>
-<Dialog isOpen={confirmOpen} title={messages.deleteTitle} onClose={() => setConfirmOpen(false)}>
-        <h3 className="text-base font-medium text-white">{confirmMessage}</h3>
-        <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
-        <div className="flex justify-end gap-2 pt-2">
+
+      <Dialog
+        isOpen={confirmOpen}
+        title={messages.deleteTitle}
+        onClose={() => setConfirmOpen(false)}
+      >
+        <p className="text-sm text-neutral-200">{confirmMessage}</p>
+        <div className="flex justify-end gap-2 pt-1">
           <button
             type="button"
             onClick={() => setConfirmOpen(false)}
@@ -264,7 +268,6 @@ function TreeRow({
           </button>
         </div>
       </Dialog>
-
 
       {children.map((child) => (
         <TreeRow
