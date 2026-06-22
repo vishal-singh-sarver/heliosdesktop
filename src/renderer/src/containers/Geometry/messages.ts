@@ -14,7 +14,9 @@ const messages = {
   decimalLimit: 'Only 7 Decimal places are supported',
   inputNotSupported: 'This input is not supported',
   // Delete confirmation
-  deleteTitle: 'Delete geometry',
+  deleteTitle: 'Delete',
+  deleteHeading: (name: string) => `Delete ${name}`,
+  deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteConfirm: 'Delete',
   deleteCancel: 'Cancel'
 } as const

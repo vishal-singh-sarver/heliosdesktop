@@ -197,7 +197,7 @@ describe('<GeometryTree />', () => {
       selectedIds: ['a']
     })
     expect(screen.getByLabelText('Hide from viewport')).toBeInTheDocument()
-    expect(screen.getByLabelText('Delete')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
   })
 
   it('the kebab menu toggles a single model', () => {
@@ -273,7 +273,7 @@ describe('<GeometryTree />', () => {
     })
     expect(screen.getByLabelText('Hide from render')).toBeInTheDocument()
     expect(screen.getByLabelText('Hide from viewport')).toBeInTheDocument()
-    expect(screen.getByLabelText('Delete')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
   })
 
   it('the cluster render icon reflects the per-model state (all off → "Show in render")', () => {
@@ -413,7 +413,9 @@ describe('<GeometryTree />', () => {
       selectedIds: ['g']
     })
     // The cluster trash (now shown for groups too) opens the confirm dialog.
-    fireEvent.click(screen.getByLabelText('Delete'))
+    // Query by role so the always-mounted confirm <dialog aria-label="Delete">
+    // doesn't collide with the trash button's "Delete" label.
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('Delete "Group.001" and its 1 geometry?')).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))

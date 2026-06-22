@@ -54,6 +54,11 @@ export interface CreateDraft {
   isNew: boolean
   saving: boolean
   saveError: string | null
+  // Backend rejection of a name change (e.g. a duplicate), shown below the name
+  // field in THIS form only. Scoped to the draft — not the tree's shared
+  // nameErrors map — so a rejected rename never leaks onto the left tree row
+  // (whose committed name is still the valid old one) and can't go stale there.
+  nameError: string | null
 }
 
 // All geometry state for one scenario scope (keyed in the slice by

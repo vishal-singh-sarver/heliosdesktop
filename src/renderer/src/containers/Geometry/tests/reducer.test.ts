@@ -395,7 +395,8 @@ describe('geometryReducer', () => {
         materialId: null,
         isNew: true,
         saving: false,
-        saveError: null
+        saveError: null,
+        nameError: null
       })
       expect(r.createDraftNonce).toBe(1)
     })
@@ -449,14 +450,40 @@ describe('geometryReducer', () => {
       expect(r.createDraft).toMatchObject({ saving: false, saveError: 'nope' })
     })
 
-    it('UPDATE_OBJECT_SUCCEEDED keeps the form open, syncs the node name, clears saving/new', () => {
+    it('UPDATE_OBJECT_SUCCEEDED keeps the form open and clears saving/new, without touching the name', () => {
       let r = created()
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A', propsChanged: true }))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true }))
       // Form stays open (panel must not blank) showing the saved values.
       expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
-      // The renamed name is synced into the tree node.
-      expect(r.byScope[KEY].nodesById['27'].name).toBe('Plot A')
+      // The name is owned by the blur/rename path — Save is field-only and leaves
+      // the tree row's name untouched (so a rejected rename can't leak into it).
+      expect(r.byScope[KEY].nodesById['27'].name).toBe('Ground.001')
+    })
+
+    it('RENAME_FAILED for the open draft object lands on the draft, not the tree row', () => {
+      let r = created()
+      r = geometryReducer(r, actions.renameFailed(P, S, '27', 'Geometry name already exists'))
+      // Scoped to the form — shown below its name field…
+      expect(r.createDraft?.nameError).toBe('Geometry name already exists')
+      // …and NOT mirrored onto the left tree's shared nameErrors (the row's
+      // committed name is still the valid old one).
+      expect(r.byScope[KEY].nameErrors['27']).toBeUndefined()
+    })
+
+    it('editing the name (SET_DRAFT_NAME) clears the draft name error', () => {
+      let r = created()
+      r = geometryReducer(r, actions.renameFailed(P, S, '27', 'Geometry name already exists'))
+      r = geometryReducer(r, actions.setDraftName('Ground.010'))
+      expect(r.createDraft?.nameError).toBeNull()
+    })
+
+    it('a RENAME_FAILED for a DIFFERENT object still records a tree-row error', () => {
+      // Draft open for '27'; a rename of some other node fails → tree row error.
+      let r = created()
+      r = geometryReducer(r, actions.renameFailed(P, S, '99', 'boom'))
+      expect(r.byScope[KEY].nameErrors['99']).toBe('boom')
+      expect(r.createDraft?.nameError).toBeNull()
     })
 
     it('CLOSE_CREATE_FORM discards the draft (but keeps the nonce)', () => {
