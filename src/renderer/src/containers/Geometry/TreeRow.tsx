@@ -244,19 +244,21 @@ function TreeRow({
       </div>
 
       <Dialog isOpen={confirmOpen} title={messages.deleteTitle} onClose={() => setConfirmOpen(false)}>
-        <p className="text-sm text-neutral-200">{confirmMessage}</p>
-        <div className="flex justify-end gap-2 pt-1">
+        <h3 className="text-base font-medium text-white">{confirmMessage}</h3>
+        <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={() => setConfirmOpen(false)}
-            className="rounded border border-app-border px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-700/50"
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
           >
             {messages.deleteCancel}
           </button>
           <button
             type="button"
             onClick={confirmDelete}
-            className="rounded bg-[#D92D20] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#b42318]"
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.deleteConfirm}
           </button>

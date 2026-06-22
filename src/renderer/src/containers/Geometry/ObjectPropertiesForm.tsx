@@ -17,6 +17,7 @@ import { useInjectSaga } from 'utils/injectSaga'
 import {
   closeCreateForm,
   deleteNodeRequested,
+  renameRequested,
   setDraftMaterial,
   setDraftName,
   setDraftValue,
@@ -53,9 +54,10 @@ function sameValues(a: Record<string, string>, b: Record<string, string>): boole
 
 // The right-panel Properties form for editing an object: +Ground creates the
 // object and opens this form populated from the persisted values, and clicking a
-// ground opens it populated from a GET. Save PATCHes properties (and renames if
-// the name changed); the name-row trash discards a brand-new object or deletes an
-// existing one. Renders nothing when there is no active draft. Injects the geometry slice
+// ground opens it populated from a GET. Save PATCHes ONLY the property fields;
+// the name has its own blur-to-rename path (so Save concerns the fields, not the
+// name). The name-row trash discards a brand-new object or deletes an existing
+// one. Renders nothing when there is no active draft. Injects the geometry slice
 // so it works mounted in the RightPanel independently of the LeftPanel's
 // <Geometry />. Keyed by the open-nonce so touched/submitted state resets when a
 // different object opens.
@@ -109,9 +111,15 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const objectType = objectTypes.find((o) => o.id === draft.objectTypeId)
   const { groups } = resolveObjectFormByType(objectType)
   const fieldsValid = isObjectFormValid(groups, draft.values)
-  // Instant name rules (non-empty, ≤20 chars); uniqueness is left to the backend.
-  const nameError = validateGroupName(draft.name, NO_NAME_CONFLICTS)
-  const valid = fieldsValid && nameError == null
+  // The name error shown below the name field: the instant rules (non-empty,
+  // ≤20 chars) win, falling back to the backend rename rejection (e.g. a
+  // duplicate) carried on the draft. Both stay scoped to this form — neither
+  // leaks onto the left tree row. Uniqueness is left to the backend, which is
+  // why a duplicate only surfaces after a rename round-trip.
+  const nameError = validateGroupName(draft.name, NO_NAME_CONFLICTS) ?? draft.nameError
+  // Save gates on the property fields only — the name persists on its own blur
+  // path, so a name error never blocks saving field edits.
+  const valid = fieldsValid
 
   // Save is enabled only once the form differs from its loaded/last-saved
   // baseline. The baseline is the cached object detail (values) + the node's
@@ -120,9 +128,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const original = detailsById[draft.objectId]
   const node = nodesById[draft.objectId]
   const valuesDirty = !original || !sameValues(draft.values, original.values)
-  const nameDirty = node ? draft.name !== node.name : false
   const materialDirty = draft.materialId != null
-  const dirty = valuesDirty || nameDirty || materialDirty
+  // Name changes are excluded — Save is field-only; the name commits on blur.
+  const dirty = valuesDirty || materialDirty
 
   // Block the keystroke when the in-progress value isn't numeric, or would add
   // an 8th decimal place — surfacing the matching message instead of storing it.
@@ -147,6 +155,25 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // Drop the transient guard error; committed-value validation takes over.
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
     setTouched((t) => ({ ...t, [property]: true }))
+  }
+
+  const handleNameChange = (next: string): void => {
+    // setDraftName also clears the draft's stale rename error in the reducer, so
+    // a prior duplicate rejection doesn't linger as the user types a fresh name.
+    dispatch(setDraftName(next))
+  }
+
+  const handleNameBlur = (): void => {
+    setNameEditing(false)
+    if (
+      projectId &&
+      scenarioId &&
+      node &&
+      draft.name !== node.name &&
+      validateGroupName(draft.name, NO_NAME_CONFLICTS) == null
+    ) {
+      dispatch(renameRequested(projectId, scenarioId, draft.objectId, draft.name))
+    }
   }
 
   const onSave = (): void => {
@@ -188,8 +215,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             value={draft.name}
             readOnly={!nameEditing}
             disabled={objectDeleted}
-            onChange={(e) => dispatch(setDraftName(e.target.value))}
-            onBlur={() => setNameEditing(false)}
+            onChange={(e) => handleNameChange(e.target.value)}
+            onDoubleClick={() => {
+              if (!objectDeleted) setNameEditing(true)
+            }}
+            onBlur={handleNameBlur}
             className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
               !nameEditing ? 'cursor-default ' : ''
             }${
@@ -332,19 +362,23 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         title={messages.deleteTitle}
         onClose={() => setConfirmDeleteOpen(false)}
       >
-        <p className="text-sm text-neutral-200">{`Delete "${draft.name}"?`}</p>
-        <div className="flex justify-end gap-2 pt-1">
+        <h3 className="text-base font-medium text-white">
+          {messages.deleteHeading(draft.name)}
+        </h3>
+        <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={() => setConfirmDeleteOpen(false)}
-            className="rounded border border-app-border px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-700/50"
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
           >
             {messages.deleteCancel}
           </button>
           <button
             type="button"
             onClick={performDelete}
-            className="rounded bg-[#D92D20] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#b42318]"
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.deleteConfirm}
           </button>

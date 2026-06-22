@@ -160,11 +160,10 @@ function sameProperties(a: Record<string, number>, b: Record<string, number>): b
   return keys.every((k) => a[k] === b[k])
 }
 
-// Save: persist ONLY what changed. Properties/visibility/group go through the
-// update endpoint (§5.4); the name has its own endpoint (§5.5, no `name` field
-// on update — they can't be one call). A rename-only save therefore fires just
-// the rename; a properties-only save fires just the update. takeLeading guards
-// a double-tap on Save.
+// Save: persist ONLY the property fields (§5.4 — properties/visibility/group).
+// The name is NOT touched here; it has its own endpoint (§5.5) and commits on the
+// name field's blur, independently of Save. So Save fires the update PATCH when
+// the values changed, and is a no-op otherwise. takeLeading guards a double-tap.
 export function* updateObjectWorker(action: UpdateObjectRequestedAction): Generator {
   const { projectId, scenarioId } = action
   const draft = (yield select(selectCreateDraft)) as CreateDraft | null
@@ -177,7 +176,6 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     const original = detailsById[draft.objectId]
     const nextProps = numericProperties(draft.values)
     const propsChanged = !original || !sameProperties(nextProps, numericProperties(original.values))
-    const nameChanged = !!node && draft.name !== node.name
 
     if (propsChanged) {
       yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
@@ -189,13 +187,9 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
         groupId: node?.parentId ?? null
       })
     }
-    if (nameChanged) {
-      yield call(service.renameObject, projectId, scenarioId, draft.objectId, draft.name)
-    }
     yield put(
       actions.updateObjectSucceeded(projectId, scenarioId, {
         objectId: draft.objectId,
-        name: draft.name,
         propsChanged
       })
     )
