@@ -50,12 +50,15 @@ function Accordion({
         />
       </button>
 
-      {open && (
-        <>
-          <div className="shrink-0 border-t border-app-border" />
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-3">{children}</div>
-        </>
-      )}
+      {/* Body stays mounted whether open or closed — we hide it with CSS
+          (display:none) rather than unmounting, so children (e.g. the geometry
+          tree) keep their state and never re-run their data-loading effects on
+          collapse/expand. `contents` keeps the border + body as flex children of
+          the section while open. */}
+      <div className={open ? 'contents' : 'hidden'}>
+        <div className="shrink-0 border-t border-app-border" />
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-3">{children}</div>
+      </div>
     </section>
   )
 }
