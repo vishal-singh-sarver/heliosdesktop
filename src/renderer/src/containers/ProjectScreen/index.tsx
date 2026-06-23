@@ -47,7 +47,9 @@ interface CoordinateForm {
   longitude: string
 }
 
-function validateCoordinates(values: CoordinateForm): Partial<Record<keyof CoordinateForm, string>> {
+function validateCoordinates(
+  values: CoordinateForm
+): Partial<Record<keyof CoordinateForm, string>> {
   const errors: Partial<Record<keyof CoordinateForm, string>> = {}
 
   const lat = values.latitude.trim()

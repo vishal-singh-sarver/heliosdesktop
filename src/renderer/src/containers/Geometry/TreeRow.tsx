@@ -10,8 +10,8 @@ import {
   select,
   toggleExpand
 } from './actions'
-import NameEditor from './NameEditor'
 import messages from './messages'
+import NameEditor from './NameEditor'
 import RowActions, { KebabMenu } from './RowActions'
 import type { GeoNode } from './types'
 
@@ -161,89 +161,95 @@ function TreeRow({
   }, [isGroup, groupNamesLower, leafNamesLower, node.name])
 
   const children =
-    isGroup && node.expanded
-      ? node.childIds.map((id) => nodesById[id]).filter(Boolean)
-      : []
+    isGroup && node.expanded ? node.childIds.map((id) => nodesById[id]).filter(Boolean) : []
 
   const nameError = nameErrors[node.id]
 
   return (
     <>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={handleSelect}
-        draggable={!isGroup && !editing}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        className={`group mb-1 flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
-          editing
-            ? editError
-              ? 'border-[#F04438] bg-[#2a2a2a]'
-              : 'border-[#245AC5] bg-[#2a2a2a]'
-            : selected
-              ? 'border-app-border bg-[#2a2a2a]'
-              : 'border-transparent hover:bg-neutral-700/40'
-        } ${dragOver ? 'ring-1 ring-inset ring-blue-500' : ''}`}
-        style={{ paddingLeft: 10 + depth * 16 }}
-      >
-        {isGroup && (
-          <button
-            type="button"
-            onClick={handleToggle}
-            aria-label={node.expanded ? 'Collapse group' : 'Expand group'}
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-400 hover:text-neutral-200"
-          >
-            {/* Down-pointing chevron asset; rotates to point right when collapsed. */}
-            <img
-              src={chevronIcon}
-              alt=""
-              aria-hidden="true"
-              width="10"
-              height="10"
-              className="transition-transform"
-              style={{ transform: node.expanded ? 'none' : 'rotate(-90deg)' }}
-            />
-          </button>
-        )}
+      <div className="mb-1">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={handleSelect}
+          draggable={!isGroup && !editing}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
+            editing
+              ? 'border-[#245AC5] bg-[#2a2a2a]'
+              : selected
+                ? 'border-app-border bg-[#2a2a2a]'
+                : 'border-transparent hover:bg-neutral-700/40'
+          } ${dragOver ? 'ring-1 ring-inset ring-blue-500' : ''}`}
+          style={{ paddingLeft: 10 + depth * 16 }}
+        >
+          {isGroup && (
+            <button
+              type="button"
+              onClick={handleToggle}
+              aria-label={node.expanded ? 'Collapse group' : 'Expand group'}
+              className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-400 hover:text-neutral-200"
+            >
+              {/* Down-pointing chevron asset; rotates to point right when collapsed. */}
+              <img
+                src={chevronIcon}
+                alt=""
+                aria-hidden="true"
+                width="10"
+                height="10"
+                className="transition-transform"
+                style={{ transform: node.expanded ? 'none' : 'rotate(-90deg)' }}
+              />
+            </button>
+          )}
 
-        {editing ? (
-          <NameEditor
-            id={node.id}
-            initialName={node.name}
-            projectId={projectId}
-            scenarioId={scenarioId}
-            existingNames={otherNames}
-            ariaLabel={isGroup ? 'Group name' : 'Geometry name'}
-            onErrorChange={setEditError}
-            onClose={() => {
-              setEditing(false)
-              setEditError(null)
-            }}
-          />
-        ) : (
-          <>
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate" onDoubleClick={() => setEditing(true)}>
-                {node.name}
-              </span>
-              {nameError && <span className="form-error-text">{nameError}</span>}
-            </span>
-            <KebabMenu node={node} projectId={projectId} scenarioId={scenarioId} />
-            <RowActions
-              node={node}
+          {editing ? (
+            <NameEditor
+              id={node.id}
+              initialName={node.name}
               projectId={projectId}
               scenarioId={scenarioId}
-              selected={selected}
-              onDelete={() => setConfirmOpen(true)}
+              existingNames={otherNames}
+              ariaLabel={isGroup ? 'Group name' : 'Geometry name'}
+              onErrorChange={setEditError}
+              onClose={() => {
+                setEditing(false)
+                setEditError(null)
+              }}
             />
-          </>
+          ) : (
+            <>
+              <span className="min-w-0 truncate" onDoubleClick={() => setEditing(true)}>
+                {node.name}
+              </span>
+              <KebabMenu node={node} projectId={projectId} scenarioId={scenarioId} />
+              <RowActions
+                node={node}
+                projectId={projectId}
+                scenarioId={scenarioId}
+                selected={selected}
+                onDelete={() => setConfirmOpen(true)}
+              />
+            </>
+          )}
+        </div>
+        {/* Error text lives OUTSIDE the row box (below it): the live rename
+            validation error while editing, or the backend rename-failure message. */}
+        {(editing ? editError : nameError) && (
+          <span className="form-error-text mt-0.5 block px-2" style={{ color: '#D92D20' }}>
+            {editing ? editError : nameError}
+          </span>
         )}
       </div>
 
-      <Dialog isOpen={confirmOpen} title={messages.deleteTitle} onClose={() => setConfirmOpen(false)}>
+      <Dialog
+        isOpen={confirmOpen}
+        title={messages.deleteTitle}
+        onClose={() => setConfirmOpen(false)}
+      >
         <p className="text-sm text-neutral-200">{confirmMessage}</p>
         <div className="flex justify-end gap-2 pt-1">
           <button

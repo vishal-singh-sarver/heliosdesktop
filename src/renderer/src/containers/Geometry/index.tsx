@@ -1,8 +1,8 @@
 import addIcon from '@renderer/assets/add.svg'
 import searchIcon from '@renderer/assets/search.svg'
 import uploadIcon from '@renderer/assets/Upload.svg'
-import ToolbarButton from '@renderer/components/ToolbarButton'
 import SearchBar from '@renderer/components/SearchBar'
+import ToolbarButton from '@renderer/components/ToolbarButton'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
@@ -93,7 +93,7 @@ export function Geometry(): React.JSX.Element {
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-2">
-        <span className="shrink-0 font-['Geist'] text-[12px] font-semibold leading-[15px] tracking-normal text-[#D3D3D3]">
+        <span className="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3] font-weight-600">
           Saved Geometries
         </span>
         <SearchBar
