@@ -267,10 +267,11 @@ export const REQUIRED_MESSAGE = 'Required Field'
 // Validate one field's raw input against its catalog metadata. Returns an error
 // message, or null when valid. Empty is an error only for required fields.
 //
-// When the field carries a group `invalidMessage`, every non-empty failure
-// (non-numeric, wrong datatype, out-of-range) collapses to that single message
-// — the spec shows one error string per field. Fields without custom copy fall
-// back to the granular per-reason messages.
+// When the field carries a group `invalidMessage`, non-numeric and out-of-range
+// failures collapse to that single message — the spec shows one error string per
+// field. A wrong-datatype failure (a decimal in an integer field) is the
+// exception: it shows the standard "Invalid Input" copy, because a range-style
+// invalidMessage would misdescribe an in-range non-integer.
 export function validateFieldValue(field: ResolvedFormField, raw: string): string | null {
   const trimmed = raw.trim()
   if (trimmed === '') return field.required ? REQUIRED_MESSAGE : null
@@ -278,11 +279,15 @@ export function validateFieldValue(field: ResolvedFormField, raw: string): strin
   const invalid = field.invalidMessage
   const num = Number(trimmed)
   if (!Number.isFinite(num)) return invalid ?? 'Must be a number'
-  if (field.datatype === 'integer' && !Number.isInteger(num)) {
-    return invalid ?? 'Must be a whole number'
-  }
+  // Range before datatype: an out-of-range value (whole or not) keeps the range
+  // copy. Only an IN-range non-integer falls through to the datatype error.
   if (field.min != null && num < field.min) return invalid ?? `Min ${field.min}`
   if (field.max != null && num > field.max) return invalid ?? `Max ${field.max}`
+  // A non-integer is a DATATYPE error, not a range error — it must never inherit a
+  // range-style invalidMessage (e.g. "5.5" for resolution_x is inside 1-25000, so
+  // "Values should be between 1-25000" would be plainly wrong). Reuse the standard
+  // "Invalid Input" copy the other fields show.
+  if (field.datatype === 'integer' && !Number.isInteger(num)) return 'Invalid Input'
   return null
 }
 
