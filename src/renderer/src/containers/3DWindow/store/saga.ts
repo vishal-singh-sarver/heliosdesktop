@@ -17,7 +17,7 @@ import { selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode } from 'containers/Geometry/types'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
-import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { ApiError } from 'utils/api'
 import { fetchObjectGeometryBinary } from '../api/geometry'
 import type { ApiErrorPayload, PrimitiveInfo, SceneObject } from '../models/types'
@@ -135,7 +135,19 @@ export function* loadSceneWorker(): Generator {
 
     if (!projectId || !scenarioId) return
 
-    const objects = (yield select(selectSceneObjects)) as SceneObject[]
+    let objects = (yield select(selectSceneObjects)) as SceneObject[]
+
+    // If the Geometry node tree isn't populated yet (race: loadScene fires
+    // before LIST_NODES_SUCCEEDED), wait for it instead of returning empty.
+    // This replaces the old LIST_NODES_SUCCEEDED → scenarioChangeWorker
+    // watcher that caused duplicate binary API calls.
+    if (objects.length === 0) {
+      yield race({
+        nodes: take(LIST_NODES_SUCCEEDED),
+        timeout: delay(30000)
+      })
+      objects = (yield select(selectSceneObjects)) as SceneObject[]
+    }
 
     if (objects.length === 0) {
       yield put(actions.loadSceneSucceeded())
@@ -282,11 +294,6 @@ export default function* threeDWindowSaga(): Generator {
   yield takeLatest(SET_ACTIVE_SCENARIO, scenarioChangeWorker)
 
   yield takeLatest(SELECT_SCENE_OBJECT, selectSceneObjectWorker)
-
-  // When the Geometry node list arrives (initial load or refresh), fetch
-  // binary data for all objects. This covers the race where loadScene()
-  // fires before the node tree is populated.
-  yield takeLatest(LIST_NODES_SUCCEEDED, scenarioChangeWorker)
 
   // Listen to Geometry container events to keep the 3D viewport in sync.
   yield takeEvery(CREATE_OBJECT_SUCCEEDED, onGeometryCreated)
