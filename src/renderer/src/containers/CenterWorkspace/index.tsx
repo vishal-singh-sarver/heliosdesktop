@@ -48,10 +48,10 @@ export function CenterWorkspace(): React.JSX.Element {
   useInjectReducer({ key: 'threeDWindow', reducer: threeDWindowReducer as Reducer })
   useInjectSaga({ key: 'threeDWindow', saga: threeDWindowSaga })
 
-  const [activeTab, setActiveTab] = React.useState<Tab>('weather')
+  const [activeTab, setActiveTab] = React.useState<Tab>('3dWindow')
 
   return (
-    <section className="flex w-[1200px] flex-1 flex-col overflow-hidden rounded-lg border border-app-border bg-panel/20 p-3">
+    <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-app-border bg-panel/20 p-3">
       <div className="-mx-3 flex items-center gap-2 border-b border-app-border px-3">
         <TabButton
           label="3D Window"

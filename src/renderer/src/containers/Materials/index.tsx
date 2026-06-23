@@ -1,7 +1,7 @@
 import addIcon from '@renderer/assets/add.svg'
 import searchIcon from '@renderer/assets/search.svg'
-import ToolbarButton from '@renderer/components/ToolbarButton'
 import SearchBar from '@renderer/components/SearchBar'
+import ToolbarButton from '@renderer/components/ToolbarButton'
 import React from 'react'
 import type { Reducer } from 'redux'
 import { useInjectReducer } from 'utils/injectReducer'
@@ -39,7 +39,7 @@ export function Materials(): React.JSX.Element {
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3]">
+        <span className="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3] font-weight-600">
           Saved Materials
         </span>
         <SearchBar

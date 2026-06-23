@@ -87,11 +87,8 @@ export default function NameEditor({
         // the unlayered rule) so there's nothing bordered inside the row box.
         style={{ outline: 'none' }}
       />
-      {error && (
-        <span className="form-error-text mt-0.5" style={{ color: '#F04438' }}>
-          {error}
-        </span>
-      )}
+      {/* The validation error is rendered by TreeRow *below* the row box (not here,
+          inside it) — it's lifted to the parent via onErrorChange. */}
     </span>
   )
 }
