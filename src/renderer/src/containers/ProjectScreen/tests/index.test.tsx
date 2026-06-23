@@ -152,11 +152,17 @@ describe('<ProjectScreen />', () => {
     )
   })
 
-  it('clears the persisted scenario id on unmount', () => {
+  it('does not clear persisted ids on unmount (handled by the navigate-home saga)', () => {
+    // StrictMode double-invokes effects (mount → cleanup → mount), so the
+    // component must NOT clear ids in an unmount cleanup — that would wipe
+    // activeProjectId (only HomePage writes it) during the fake unmount and
+    // leave it gone for the session. Clearing lives in clearPersistedIdsOnHome.
+    localStorage.setItem(STORAGE_KEYS.activeProjectId, 'p-1')
     localStorage.setItem(STORAGE_KEYS.activeScenarioId, 's-1')
     const { unmount } = render(<ProjectScreen />)
     unmount()
-    expect(localStorage.getItem(STORAGE_KEYS.activeScenarioId)).toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.activeProjectId)).toBe('p-1')
+    expect(localStorage.getItem(STORAGE_KEYS.activeScenarioId)).toBe('s-1')
   })
 
   // ── Header navigation ──────────────────────────────────────────────────
