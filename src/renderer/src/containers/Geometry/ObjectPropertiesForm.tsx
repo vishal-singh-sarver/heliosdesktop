@@ -86,10 +86,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // let the user only dismiss it.
   const objectDeleted = !nodesById[draft.objectId]
 
-  // Track which fields have been touched, plus whether Save was attempted, so
-  // "Required" errors only appear after interaction rather than on first open.
+  // Track which fields have been touched so "Required" errors only appear after
+  // interaction rather than on first open.
   const [touched, setTouched] = React.useState<Record<string, boolean>>({})
-  const [submitted, setSubmitted] = React.useState(false)
   // Transient keystroke-guard errors (non-numeric / >7 decimals), keyed by
   // property. The offending keystroke is rejected before it reaches the draft,
   // so this lives in local state — not the Redux value — and clears on blur.
@@ -135,10 +134,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Block the keystroke when the in-progress value isn't numeric, or would add
   // an 8th decimal place — surfacing the matching message instead of storing it.
   const handleFieldChange = (property: string, next: string): void => {
-    // Editing dismisses the post-Save "Fix the highlighted fields…" summary so
-    // it only ever appears in direct response to a Save click, not on every
-    // subsequent keystroke that happens to be invalid.
-    if (submitted) setSubmitted(false)
     if (!isPartialNumericInput(next)) {
       setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
       return
@@ -177,7 +172,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   }
 
   const onSave = (): void => {
-    setSubmitted(true)
+    // Save is disabled while the form is invalid; this guard is defensive.
     if (!valid || objectDeleted || !projectId || !scenarioId) return
     dispatch(updateObjectRequested(projectId, scenarioId))
   }
@@ -271,11 +266,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             >
               {group.fields.map((field) => {
                 const value = draft.values[field.property] ?? ''
-                // Match the app-wide trigger (see AddColumnDialog / HomePage):
-                // an error surfaces as soon as the field has any value (so it
-                // fires on the first keystroke, e.g. typing "-"), once it has
-                // been touched, or after a Save attempt (catches empty required).
-                const showError = submitted || touched[field.property] === true || value !== ''
+                // An error surfaces as soon as the field has any value (so it
+                // fires on the first keystroke, e.g. typing "-") or once it has
+                // been touched. Save stays disabled while any field is invalid.
+                const showError = touched[field.property] === true || value !== ''
                 // A live keystroke-guard error wins over committed-value
                 // validation (the rejected character never reached the value).
                 const error = guardErrors[field.property] ?? (showError ? validateFieldValue(field, value) : null)
@@ -329,9 +323,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           />
         </div>
 
-        {submitted && !valid && !objectDeleted && (
-          <p className="form-error-text">Fix the highlighted fields before saving.</p>
-        )}
         {draft.saveError && !objectDeleted && <p className="form-error-text">{draft.saveError}</p>}
       </div>
 
@@ -350,7 +341,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         <button
           type="button"
           onClick={onSave}
-          disabled={draft.saving || !dirty}
+          disabled={draft.saving || !dirty || !valid}
           className="h-9 w-full rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {draft.saving ? 'Saving…' : 'Save'}
