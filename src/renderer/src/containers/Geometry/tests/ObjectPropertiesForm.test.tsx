@@ -1,0 +1,165 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import projectScreenReducer, {
+  initialState as projectScreenInitialState
+} from 'containers/ProjectScreen/reducer'
+import type { CatalogPropertyDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import { Provider } from 'react-redux'
+import { combineReducers, createStore, type Reducer } from 'redux'
+import type { InjectableStore } from 'store/configureStore'
+import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
+import geometryReducer, {
+  emptyScenarioGeometry,
+  initialState as geometryInitialState,
+  scopeKey
+} from '../reducer'
+import type { GeoNode } from '../types'
+
+const PROJECT = 'p'
+const SCENARIO = 's'
+const OBJECT_ID = '27'
+
+// Minimal catalog property factory — mirrors the helper in propertyBlueprint.test.
+const prop = (
+  property: string,
+  display_order: number,
+  overrides: Partial<CatalogPropertyDef> = {}
+): CatalogPropertyDef => ({
+  property_type_id: display_order,
+  property,
+  description: `${property} desc`,
+  datatype: 'float',
+  min: null,
+  max: null,
+  display_order,
+  ...overrides
+})
+
+// The real Ground object type, so resolveObjectFormByType renders the same fields.
+const groundType: ObjectTypeDef = {
+  id: 1,
+  object: 'Ground',
+  properties: [
+    prop('length', 1, { min: 0, required: true }),
+    prop('breadth', 2, { min: 0, required: true }),
+    prop('resolution_x', 3, { datatype: 'integer', min: 1, max: 25000, required: true }),
+    prop('resolution_y', 4, { datatype: 'integer', min: 1, max: 25000, required: true }),
+    prop('position_x', 5, { required: false }),
+    prop('position_y', 6, { required: false }),
+    prop('position_z', 7, { required: false }),
+    prop('rotation_z', 8, { min: 0, max: 360, required: false }),
+    prop('texture_x', 9, { datatype: 'integer', min: 1, required: true }),
+    prop('texture_y', 10, { datatype: 'integer', min: 1, required: true })
+  ]
+}
+
+const node: GeoNode = {
+  id: OBJECT_ID,
+  name: 'Ground.001',
+  kind: 'ground',
+  parentId: null,
+  childIds: [],
+  expanded: false,
+  visibleInViewport: true,
+  renderEnabled: true,
+  modelVisibility: {}
+}
+
+// A real store wired like the app's: combined geometry + projectScreen reducers,
+// preloaded with the active scope, the Ground catalog, the node, and an OPEN
+// draft whose values are empty (so every required field is invalid). detailsById
+// is left empty so `original` is undefined → the form reads as dirty → Save is
+// enabled without a prior edit.
+function makeStore(): InjectableStore {
+  // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
+  // satisfy the bare Reducer the injectable store expects under Redux 5.
+  const rootReducer = (injected: Record<string, Reducer> = {}): Reducer =>
+    combineReducers({
+      geometry: geometryReducer,
+      projectScreen: projectScreenReducer,
+      ...injected
+    }) as unknown as Reducer
+
+  const preloaded = {
+    geometry: {
+      ...geometryInitialState,
+      byScope: {
+        [scopeKey(PROJECT, SCENARIO)]: {
+          ...emptyScenarioGeometry(),
+          nodesById: { [OBJECT_ID]: node },
+          rootOrder: [OBJECT_ID]
+        }
+      },
+      createDraft: {
+        objectId: OBJECT_ID,
+        objectTypeId: 1,
+        objectName: 'Ground',
+        name: 'Ground.001',
+        values: {},
+        materialId: null,
+        isNew: true,
+        saving: false,
+        saveError: null,
+        nameError: null
+      },
+      createDraftNonce: 1
+    },
+    projectScreen: {
+      ...projectScreenInitialState,
+      activeProjectId: PROJECT,
+      activeScenarioId: SCENARIO,
+      catalog: {
+        ...projectScreenInitialState.catalog,
+        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null }
+      }
+    }
+  }
+
+  const store = createStore(rootReducer(), preloaded) as InjectableStore
+  store.injectedReducers = {}
+  store.injectedSagas = {}
+  store.runSaga = (() => ({
+    cancel: () => {},
+    toPromise: () => Promise.resolve()
+  })) as unknown as InjectableStore['runSaga']
+  store.createReducer = (injected?: Record<string, Reducer>) => rootReducer(injected)
+  return store
+}
+
+const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
+  const el = container.querySelector(`input[name="${name}"]`)
+  if (!el) throw new Error(`input[name="${name}"] not rendered`)
+  return el as HTMLInputElement
+}
+
+describe('<ObjectPropertiesForm /> — Save gating', () => {
+  const saveButton = (): HTMLButtonElement =>
+    screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement
+
+  it('disables Save while any field is invalid and enables it once the form is valid', () => {
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+
+    // Empty required fields → invalid → Save disabled (there is no error summary).
+    expect(saveButton()).toBeDisabled()
+
+    // Filling every required field with a valid value makes the form valid.
+    for (const [name, value] of [
+      ['length', '5'],
+      ['breadth', '5'],
+      ['resolution_x', '10'],
+      ['resolution_y', '10'],
+      ['texture_x', '2'],
+      ['texture_y', '2']
+    ] as const) {
+      fireEvent.change(fieldInput(container, name), { target: { value } })
+    }
+    expect(saveButton()).toBeEnabled()
+
+    // Re-introducing a single invalid value (below the min) disables Save again.
+    fireEvent.change(fieldInput(container, 'length'), { target: { value: '-5' } })
+    expect(saveButton()).toBeDisabled()
+  })
+})
