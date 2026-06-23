@@ -1,4 +1,5 @@
 import { produce } from 'immer'
+import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import type { GeometryAction } from './actions'
 import {
   CLOSE_CREATE_FORM,
@@ -181,6 +182,18 @@ const geometryReducer = (
   action: GeometryAction
 ): GeometryState =>
   produce(state, (draft) => {
+    // Cross-container reset: a project/scenario switch must abandon any open
+    // Properties draft — it belongs to the previous scope. The form's "deleted"
+    // check is scope-relative (an object id absent from the now-active tree reads
+    // as deleted), so a draft left open here would otherwise resurface against the
+    // new project and wrongly show "This geometry was deleted." SET_ACTIVE_SCENARIO
+    // fires on every project open and scenario switch. The cast is needed because
+    // this is ProjectScreen's action, not part of GeometryAction.
+    if ((action.type as string) === SET_ACTIVE_SCENARIO) {
+      draft.createDraft = null
+      return
+    }
+
     switch (action.type) {
       case LIST_NODES_REQUESTED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))

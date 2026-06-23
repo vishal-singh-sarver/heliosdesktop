@@ -1,3 +1,4 @@
+import { setActiveScenario } from 'containers/ProjectScreen/actions'
 import geometryReducer, { initialState, scopeKey } from '../reducer'
 import * as actions from '../actions'
 import type { GeoNode } from '../types'
@@ -490,6 +491,45 @@ describe('geometryReducer', () => {
       const r = geometryReducer(created(), actions.closeCreateForm())
       expect(r.createDraft).toBeNull()
       expect(r.createDraftNonce).toBe(1)
+    })
+
+    it('SET_ACTIVE_SCENARIO discards a draft left open on a deleted object (scope switch)', () => {
+      // Repro: create a ground (draft opens) → delete it from the tree (the form
+      // stays open in its read-only "deleted" state) → switch project/scenario.
+      // The draft must not survive the switch, or the Properties panel keeps
+      // showing the previous scope's deleted ground.
+      let r = created()
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, '27'))
+      expect(r.createDraft).not.toBeNull() // delete alone leaves the form open…
+      // Cast: the store dispatches every action to every reducer, but the typed
+      // signature only knows GeometryAction (matches `as never` on line 35).
+      r = geometryReducer(r, setActiveScenario('s2') as never)
+      expect(r.createDraft).toBeNull() // …the scope switch is what resets it
+    })
+
+    it('SET_ACTIVE_SCENARIO clears a plain open draft too (not just deleted-object drafts)', () => {
+      // The leak isn't specific to deleted objects: any draft belongs to the
+      // scenario it was opened in and must not survive a switch.
+      const r = geometryReducer(created(), setActiveScenario('s2') as never)
+      expect(r.createDraft).toBeNull()
+    })
+
+    it('SET_ACTIVE_SCENARIO resets the draft but PRESERVES the per-scenario byScope caches', () => {
+      // Invariant the fix relies on: clear only the global draft, never wipe the
+      // loaded trees. byScope is the warm cache that makes returning to a scenario
+      // instant — nuking it here would trade one bug for a refetch storm.
+      const r = geometryReducer(created(), setActiveScenario('s2') as never)
+      expect(r.createDraft).toBeNull()
+      expect(r.byScope[KEY].nodesById['27']).toMatchObject({ id: '27' }) // tree kept
+    })
+
+    it('DELETE_NODE_SUCCEEDED on the drafted object keeps the form open (read-only deleted state)', () => {
+      // Deleting from the tree intentionally does NOT close the form — it locks to
+      // a "this geometry was deleted" state; only CLOSE_CREATE_FORM or a scope
+      // switch clears it. Guards that deliberate behavior against a future change.
+      const r = geometryReducer(created(), actions.deleteNodeSucceeded(P, S, '27'))
+      expect(r.byScope[KEY].nodesById['27']).toBeUndefined() // gone from the tree…
+      expect(r.createDraft?.objectId).toBe('27') // …but the form stays open
     })
   })
 })
