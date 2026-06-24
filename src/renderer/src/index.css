@@ -34,6 +34,13 @@ body {
   font-family: var(--font-main);
 }
 
+/* Button labels are not selectable text — dragging across a button should never
+   highlight its caption (standard button behaviour). */
+button {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 :focus:not(:focus-visible) {
   outline: none;
 }

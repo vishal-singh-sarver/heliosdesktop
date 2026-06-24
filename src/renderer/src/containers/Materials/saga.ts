@@ -1,57 +1,40 @@
-import { call, put, race, take, takeLatest } from 'redux-saga/effects'
-import { api } from 'utils/api'
-import { createSseChannel } from 'utils/sse'
-import type { SseMessage } from 'utils/sse'
+import { call, put, takeEvery, takeLatest } from 'redux-saga/effects'
 import * as actions from './actions'
-import { FETCH_STATUS, SSE_CONNECT, SSE_DISCONNECT } from './constants'
-import type { MaterialsStatus } from './types'
+import type { ListMaterialsRequestedAction, RenameMaterialRequestedAction } from './actions'
+import { LIST_MATERIALS_REQUESTED, RENAME_MATERIAL_REQUESTED } from './constants'
+import * as service from './service'
+import type { Material } from './types'
 
-// ── REST worker ────────────────────────────────────────────────────────────────
-
-export function* fetchStatusWorker(): Generator {
+// Loads the project's persisted material library (§7.2). takeLatest cancels a
+// stale load if the active project changes mid-request.
+export function* listMaterialsWorker(action: ListMaterialsRequestedAction): Generator {
   try {
-    const status = (yield call(api.get<MaterialsStatus>, '/api/status')) as MaterialsStatus
-    yield put(actions.fetchStatusSuccess(status))
+    const materials = (yield call(service.listMaterials, action.projectId)) as Material[]
+    yield put(actions.listMaterialsSucceeded(materials))
   } catch (err) {
-    yield put(actions.fetchStatusFailure((err as Error).message))
+    yield put(actions.listMaterialsFailed((err as Error).message))
   }
 }
 
-// ── SSE worker ─────────────────────────────────────────────────────────────────
-
-function* sseWorker(): Generator {
-  const channel = (yield call(createSseChannel, '/api/events')) as ReturnType<
-    typeof createSseChannel
-  >
-
+// Persists a material rename (§7.5). Pessimistic: the name changes only on
+// success, so a backend rejection (duplicate / too long) surfaces as an inline
+// name error. Unsaved (local) rows have no backend id, so they rename in-place
+// without a PATCH.
+export function* renameMaterialWorker(action: RenameMaterialRequestedAction): Generator {
+  const { projectId, id, name } = action
+  if (id.startsWith('local-')) {
+    yield put(actions.renameMaterialSucceeded(id, name))
+    return
+  }
   try {
-    while (true) {
-      const result = (yield race({
-        msg: take(channel),
-        stop: take(SSE_DISCONNECT)
-      })) as { msg?: SseMessage; stop?: unknown }
-
-      if (result.stop) break
-
-      if (result.msg) {
-        yield put(
-          actions.sseEvent({
-            type: result.msg.type,
-            data: result.msg.data,
-            timestamp: Date.now()
-          })
-        )
-      }
-    }
-  } finally {
-    channel.close()
-    yield put(actions.sseDisconnect())
+    yield call(service.renameMaterial, projectId, id, name)
+    yield put(actions.renameMaterialSucceeded(id, name))
+  } catch (err) {
+    yield put(actions.renameMaterialFailed(id, (err as Error).message))
   }
 }
-
-// ── Root watcher ───────────────────────────────────────────────────────────────
 
 export default function* materialsSaga(): Generator {
-  yield takeLatest(FETCH_STATUS, fetchStatusWorker)
-  yield takeLatest(SSE_CONNECT, sseWorker)
+  yield takeLatest(LIST_MATERIALS_REQUESTED, listMaterialsWorker)
+  yield takeEvery(RENAME_MATERIAL_REQUESTED, renameMaterialWorker)
 }

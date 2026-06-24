@@ -13,6 +13,7 @@ import {
   LIST_NODES_FAILED,
   LOAD_OBJECT_SUCCEEDED,
   MOVE_NODES_SUCCEEDED,
+  REORDER_NODES,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
   SELECT,
@@ -81,12 +82,18 @@ function dissolveUndersizedGroups(s: ScenarioGeometry): void {
   for (const id of Object.keys(s.nodesById)) {
     const node = s.nodesById[id]
     if (node.kind !== 'group' || node.childIds.length >= 2) continue
-    // Eject the lone remaining child (if any) back to the root.
+    // Eject the lone remaining child (if any) at the group's own position so it
+    // lands in place, then remove the now-empty group.
+    const groupIdx = s.rootOrder.indexOf(id)
+    let insertAt = groupIdx >= 0 ? groupIdx : s.rootOrder.length
     for (const childId of node.childIds) {
       const child = s.nodesById[childId]
       if (!child) continue
       child.parentId = null
-      if (!s.rootOrder.includes(childId)) s.rootOrder.push(childId)
+      if (!s.rootOrder.includes(childId)) {
+        s.rootOrder.splice(insertAt, 0, childId)
+        insertAt++
+      }
     }
     s.rootOrder = s.rootOrder.filter((r) => r !== id)
     s.selectedIds = s.selectedIds.filter((sid) => sid !== id)
@@ -370,6 +377,13 @@ const geometryReducer = (
         const members = memberIds.filter((memberId) => s.nodesById[memberId])
         if (members.length < 2) break
 
+        // Place the new group where its topmost member currently sits (in place),
+        // not at the end. Capture the surviving row just before that member so
+        // the index stays valid after the members are detached from the root.
+        const memberSet = new Set(members)
+        const firstMemberIdx = s.rootOrder.findIndex((rid) => memberSet.has(rid))
+        const anchorBeforeId = firstMemberIdx > 0 ? s.rootOrder[firstMemberIdx - 1] : null
+
         for (const memberId of members) detach(s, memberId)
         s.nodesById[id] = {
           id,
@@ -383,7 +397,8 @@ const geometryReducer = (
           modelVisibility: {}
         }
         for (const memberId of members) s.nodesById[memberId].parentId = id
-        s.rootOrder.push(id)
+        const groupInsertAt = anchorBeforeId ? s.rootOrder.indexOf(anchorBeforeId) + 1 : 0
+        s.rootOrder.splice(groupInsertAt, 0, id)
         s.selectedIds = [id]
         dissolveUndersizedGroups(s)
         break
@@ -398,17 +413,58 @@ const geometryReducer = (
         for (const id of action.nodeIds) {
           const node = s.nodesById[id]
           if (!node || id === action.toGroupId) continue
+          const formerParentId = node.parentId // group it's leaving (for in-place placement)
           detach(s, id)
           node.parentId = action.toGroupId
           if (action.toGroupId) {
             const group = s.nodesById[action.toGroupId]
             if (!group.childIds.includes(id)) group.childIds.push(id)
           } else if (!s.rootOrder.includes(id)) {
-            s.rootOrder.push(id)
+            // Ungroup to root → drop the node right after its former group so it
+            // lands in place (next to where it lived), not at the end.
+            const formerGroupIdx = formerParentId ? s.rootOrder.indexOf(formerParentId) : -1
+            if (formerGroupIdx >= 0) s.rootOrder.splice(formerGroupIdx + 1, 0, id)
+            else s.rootOrder.push(id)
           }
         }
         // A move out can leave the source group with <2 members; dissolve it
         // (ejecting the lone remaining geometry to the root).
+        dissolveUndersizedGroups(s)
+        break
+      }
+
+      case REORDER_NODES: {
+        // Drop on a row's edge → place the dragged leaves as siblings of the
+        // target, just before/after it. The target's parent decides where they
+        // land: a target inside a group → reorder WITHIN that group (stays
+        // grouped); a target at root → reorder at root (a grouped leaf dropped
+        // here leaves its group). Client-only: order isn't persisted (the
+        // backend lists by creation time), so this resets on reload.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const target = s.nodesById[action.targetId]
+        if (!target) break
+        const parentId = target.parentId // null = root, else the containing group
+        const movables = action.nodeIds.filter((id) => id !== action.targetId && s.nodesById[id])
+        for (const id of movables) {
+          detach(s, id)
+          s.nodesById[id].parentId = parentId
+        }
+        // Compute the target index AFTER detaching (siblings may have shifted).
+        const parentGroup = parentId ? s.nodesById[parentId] : null
+        if (parentGroup && parentGroup.kind === 'group') {
+          let idx = parentGroup.childIds.indexOf(action.targetId)
+          if (idx < 0) idx = parentGroup.childIds.length
+          const insertAt = action.position === 'after' ? idx + 1 : idx
+          const fresh = movables.filter((id) => !parentGroup.childIds.includes(id))
+          parentGroup.childIds.splice(insertAt, 0, ...fresh)
+        } else {
+          let idx = s.rootOrder.indexOf(action.targetId)
+          if (idx < 0) idx = s.rootOrder.length
+          const insertAt = action.position === 'after' ? idx + 1 : idx
+          const fresh = movables.filter((id) => !s.rootOrder.includes(id))
+          s.rootOrder.splice(insertAt, 0, ...fresh)
+        }
+        // Moving a leaf OUT of a group (target at root) can leave it undersized.
         dissolveUndersizedGroups(s)
         break
       }

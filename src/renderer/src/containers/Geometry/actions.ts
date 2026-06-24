@@ -14,6 +14,7 @@ import {
   LOAD_OBJECT_SUCCEEDED,
   LIST_NODES_REQUESTED,
   MOVE_NODES_REQUESTED,
+  REORDER_NODES,
   MOVE_NODES_SUCCEEDED,
   MOVE_NODES_FAILED,
   LIST_NODES_SUCCEEDED,
@@ -184,6 +185,16 @@ export type MoveNodesFailedAction = {
   scenarioId: string
   payload: string
 }
+// Client-only reorder: drop on the edge of a row to place the dragged leaf at
+// root just before/after the target row.
+export type ReorderNodesAction = {
+  type: typeof REORDER_NODES
+  projectId: string
+  scenarioId: string
+  nodeIds: string[]
+  targetId: string
+  position: 'before' | 'after'
+}
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
   projectId: string
@@ -309,6 +320,7 @@ export type GeometryAction =
   | GroupNodesSucceededAction
   | GroupNodesFailedAction
   | MoveNodesRequestedAction
+  | ReorderNodesAction
   | MoveNodesSucceededAction
   | MoveNodesFailedAction
   | DeleteNodeRequestedAction
@@ -465,6 +477,21 @@ export const moveNodesRequested = (
   scenarioId,
   nodeIds,
   toGroupId
+})
+
+export const reorderNodes = (
+  projectId: string,
+  scenarioId: string,
+  nodeIds: string[],
+  targetId: string,
+  position: 'before' | 'after'
+): ReorderNodesAction => ({
+  type: REORDER_NODES,
+  projectId,
+  scenarioId,
+  nodeIds,
+  targetId,
+  position
 })
 
 export const moveNodesSucceeded = (

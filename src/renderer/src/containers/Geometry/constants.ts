@@ -41,6 +41,11 @@ export const MOVE_NODES_REQUESTED = 'app/Geometry/MOVE_NODES_REQUESTED' as const
 export const MOVE_NODES_SUCCEEDED = 'app/Geometry/MOVE_NODES_SUCCEEDED' as const
 export const MOVE_NODES_FAILED = 'app/Geometry/MOVE_NODES_FAILED' as const
 
+// Drop on the edge between two rows → reorder at root before/after the target.
+// Client-only: the backend lists geometries by creation time, so a custom order
+// isn't persisted (it resets on reload).
+export const REORDER_NODES = 'app/Geometry/REORDER_NODES' as const
+
 // ── Delete a node. A leaf deletes itself; a group also removes its children. ─
 export const DELETE_NODE_REQUESTED = 'app/Geometry/DELETE_NODE_REQUESTED' as const
 export const DELETE_NODE_SUCCEEDED = 'app/Geometry/DELETE_NODE_SUCCEEDED' as const

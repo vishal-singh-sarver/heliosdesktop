@@ -99,5 +99,15 @@ export const API_ROUTES = {
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/visibility`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
+  },
+  // Material library (§7) — project-scoped, persisted. Only `list` is wired for
+  // now; create/rename/delete land with the right-panel material form later.
+  materials: {
+    list: (projectId: string) => `/api/materials/project/${projectId}/library`,
+    create: (projectId: string) => `/api/materials/project/${projectId}/library`,
+    rename: (projectId: string, materialId: string) =>
+      `/api/materials/project/${projectId}/library/${materialId}/rename`,
+    remove: (projectId: string, materialId: string) =>
+      `/api/materials/project/${projectId}/library/${materialId}`
   }
 } as const

@@ -269,6 +269,106 @@ describe('geometryReducer', () => {
     expect(s.selectedIds).toEqual(['grp-x'])
   })
 
+  it('GROUP_NODES_SUCCEEDED inserts the group in place (at the topmost member position)', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        ground('b', 'Ground.002'),
+        ground('c', 'Ground.003'),
+        ground('d', 'Ground.004')
+      ])
+    )
+    // Group b + d → the new group takes b's slot (index 1), not the end.
+    const r = geometryReducer(
+      seeded,
+      actions.groupNodesSucceeded(P, S, { id: 'grp-x', name: 'Group.001', memberIds: ['b', 'd'] })
+    )
+    expect(r.byScope[KEY].rootOrder).toEqual(['a', 'grp-x', 'c'])
+  })
+
+  it('MOVE_NODES_SUCCEEDED ungroups in place (right after the former group)', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.011', 'g'),
+        ground('c2', 'Ground.012', 'g'),
+        ground('c3', 'Ground.013', 'g'),
+        ground('d', 'Ground.004')
+      ])
+    )
+    // Pull c1 out — the group keeps ≥2 members, and c1 lands right after it.
+    const r = geometryReducer(seeded, actions.moveNodesSucceeded(P, S, ['c1'], null))
+    expect(r.byScope[KEY].rootOrder).toEqual(['a', 'g', 'c1', 'd'])
+  })
+
+  it('REORDER_NODES places a leaf before the target at root', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        ground('b', 'Ground.002'),
+        ground('c', 'Ground.003')
+      ])
+    )
+    // Drop c on the top edge of a → c lands just before a.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['c'], 'a', 'before'))
+    expect(r.byScope[KEY].rootOrder).toEqual(['c', 'a', 'b'])
+  })
+
+  it('REORDER_NODES places a leaf after the target at root', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        ground('b', 'Ground.002'),
+        ground('c', 'Ground.003')
+      ])
+    )
+    // Drop a on the bottom edge of b → a lands just after b.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['a'], 'b', 'after'))
+    expect(r.byScope[KEY].rootOrder).toEqual(['b', 'a', 'c'])
+  })
+
+  it('REORDER_NODES reorders within a group without ejecting it', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.011', 'g'),
+        ground('c2', 'Ground.012', 'g'),
+        ground('c3', 'Ground.013', 'g')
+      ])
+    )
+    // Drop c1 after c3 — both inside g → c1 stays in g, just reordered.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['c1'], 'c3', 'after'))
+    const s = r.byScope[KEY]
+    expect(s.nodesById['c1'].parentId).toBe('g')
+    expect(s.nodesById['g'].childIds).toEqual(['c2', 'c3', 'c1'])
+    expect(s.rootOrder).toEqual(['g'])
+  })
+
+  it('REORDER_NODES ungroups a leaf to root before the target', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.011', 'g'),
+        ground('c2', 'Ground.012', 'g'),
+        ground('c3', 'Ground.013', 'g')
+      ])
+    )
+    // Drop c1 on the top edge of a → c1 leaves the group and lands before a.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['c1'], 'a', 'before'))
+    const s = r.byScope[KEY]
+    expect(s.rootOrder).toEqual(['c1', 'a', 'g'])
+    expect(s.nodesById['c1'].parentId).toBeNull()
+    expect(s.nodesById['g'].childIds).toEqual(['c2', 'c3'])
+  })
+
   it('MOVE_NODES_SUCCEEDED moves a leaf into a group', () => {
     const seeded = geometryReducer(
       initialState,

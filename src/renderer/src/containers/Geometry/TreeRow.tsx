@@ -7,6 +7,7 @@ import {
   groupNodesRequested,
   loadObjectRequested,
   moveNodesRequested,
+  reorderNodes,
   select,
   toggleExpand
 } from './actions'
@@ -66,7 +67,10 @@ function TreeRow({
   // Current rename validation error, lifted from NameEditor so the row box can
   // turn red (vs blue) while editing an invalid name.
   const [editError, setEditError] = React.useState<string | null>(null)
-  const [dragOver, setDragOver] = React.useState(false)
+  // Where a drag is hovering within this row: 'into' (center → group) or
+  // 'before' / 'after' (edges → reorder, shown as a thin blue line). null = no
+  // drag over this row.
+  const [dropZone, setDropZone] = React.useState<'before' | 'into' | 'after' | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   const childCount = isGroup ? node.childIds.length : 0
@@ -94,15 +98,34 @@ function TreeRow({
   const handleDragOver = (e: React.DragEvent): void => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    setDragOver(true)
+    // Split the row into edge/center bands: hovering the top 30% places the item
+    // before this row, the bottom 30% after it (thin blue line), and the
+    // generous middle 40% drops onto it (group / move-into).
+    const rect = e.currentTarget.getBoundingClientRect()
+    const offset = e.clientY - rect.top
+    const zone =
+      offset < rect.height * 0.3 ? 'before' : offset > rect.height * 0.7 ? 'after' : 'into'
+    setDropZone(zone)
   }
 
   const handleDrop = (e: React.DragEvent): void => {
     e.preventDefault()
     e.stopPropagation() // don't also trigger the root (ungroup) drop zone
-    setDragOver(false)
+    const zone = dropZone
+    setDropZone(null)
     const ids = readDraggedIds(e)
     if (!ids.length || !projectId || !scenarioId) return
+
+    // Edge drop → reorder at root, before/after this row (client-only order).
+    if (zone === 'before' || zone === 'after') {
+      const movable = ids.filter(
+        (id) => id !== node.id && nodesById[id] && nodesById[id].kind !== 'group'
+      )
+      if (movable.length) dispatch(reorderNodes(projectId, scenarioId, movable, node.id, zone))
+      return
+    }
+
+    // Center drop ('into') → group / move into group.
     // Only leaves can be moved into a group (groups don't nest), and a move into
     // the leaf's current parent is a no-op — filter both out so we never fire a
     // pointless PATCH (+ its dissolved-group cleanup) for a drop that changes
@@ -165,6 +188,11 @@ function TreeRow({
 
   const nameError = nameErrors[node.id]
 
+  // Any error on the row (live rename validation while editing, or a backend
+  // rename failure) turns the box border red — the same #D92D20 the right-panel
+  // form uses for invalid fields.
+  const hasError = editing ? Boolean(editError) : Boolean(nameError)
+
   return (
     <>
       <div className="mb-1">
@@ -175,17 +203,33 @@ function TreeRow({
           draggable={!isGroup && !editing}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
-          onDragLeave={() => setDragOver(false)}
+          onDragLeave={() => setDropZone(null)}
           onDrop={handleDrop}
-          className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
-            editing
-              ? 'border-[#245AC5] bg-[#2a2a2a]'
-              : selected
-                ? 'border-app-border bg-[#2a2a2a]'
-                : 'border-transparent hover:bg-neutral-700/40'
-          } ${dragOver ? 'ring-1 ring-inset ring-blue-500' : ''}`}
+          className={`group relative flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
+            hasError
+              ? 'border-[#D92D20] bg-[#2a2a2a]'
+              : editing
+                ? 'border-[#245AC5] bg-[#2a2a2a]'
+                : selected
+                  ? 'border-app-border bg-[#2a2a2a]'
+                  : 'border-transparent hover:bg-neutral-700/40'
+          } ${dropZone === 'into' ? 'ring-1 ring-inset ring-blue-500' : ''}`}
           style={{ paddingLeft: 10 + depth * 16 }}
         >
+          {/* Reorder insertion lines (absolutely positioned so they never shift
+              layout — that lets the center "drop to group" still work). */}
+          {dropZone === 'before' && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 -top-1 h-0.5 rounded-full bg-[#245AC5]"
+            />
+          )}
+          {dropZone === 'after' && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 -bottom-1 h-0.5 rounded-full bg-[#245AC5]"
+            />
+          )}
           {isGroup && (
             <button
               type="button"
@@ -251,6 +295,7 @@ function TreeRow({
         onClose={() => setConfirmOpen(false)}
       >
         <p className="text-sm text-neutral-200">{confirmMessage}</p>
+        <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
         <div className="flex justify-end gap-2 pt-1">
           <button
             type="button"
