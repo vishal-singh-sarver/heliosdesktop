@@ -17,10 +17,12 @@ interface RenderableObject {
 
 interface SceneContentProps {
   lightingSettings: LightingSettings
+  /** Bumped on reset-view so the grid falls back to default params. */
+  gridResetKey?: number
 }
 
 /** Everything inside the Canvas: lights, helpers, loaded objects. */
-export function SceneContent({ lightingSettings }: SceneContentProps): React.JSX.Element {
+export function SceneContent({ lightingSettings, gridResetKey = 0 }: SceneContentProps): React.JSX.Element {
   const dispatch = useDispatch()
   const scene = useSelector(selectScene)
   const selectedObjectId = useSelector(selectSelectedObjectId)
@@ -51,7 +53,7 @@ export function SceneContent({ lightingSettings }: SceneContentProps): React.JSX
   return (
     <>
       <SceneLighting settings={lightingSettings} />
-      <SceneHelpers fitVersion={scene.fitVersion} selectedObjectId={selectedObjectId} geometryVersion={scene.geometryVersion} />
+      <SceneHelpers fitVersion={scene.fitVersion} selectedObjectId={selectedObjectId} geometryVersion={scene.geometryVersion} gridResetKey={gridResetKey} />
 
       {objects.map((obj) => (
         <ObjectMesh

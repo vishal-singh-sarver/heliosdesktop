@@ -92,10 +92,26 @@ interface GridParams {
   fadeDistance: number
 }
 
+const DEFAULT_GRID: GridParams = { size: 100, cellSize: 1, sectionSize: 10, fadeDistance: 150 }
+
 /** Derive grid dimensions from the scene's bounding box so the grid
- *  always matches the model scale. */
-function useAdaptiveGrid(geometryVersion: number, selectedObjectId: number | null): GridParams {
+ *  always matches the model scale.  When gridResetKey changes the grid
+ *  falls back to defaults (camera reset to origin). */
+function useAdaptiveGrid(
+  geometryVersion: number,
+  selectedObjectId: number | null,
+  gridResetKey: number
+): GridParams {
+  const prevResetKey = useRef(gridResetKey)
+
   return useMemo(() => {
+    // After a view-reset, return defaults until the next geometry change
+    // recomputes proper values via a geometryVersion bump.
+    if (gridResetKey !== prevResetKey.current) {
+      prevResetKey.current = gridResetKey
+      return DEFAULT_GRID
+    }
+
     let primitives: PrimitiveInfo[]
     if (selectedObjectId !== null) {
       primitives = getObjectPrimitives(selectedObjectId) ?? []
@@ -104,8 +120,7 @@ function useAdaptiveGrid(geometryVersion: number, selectedObjectId: number | nul
     }
 
     if (primitives.length === 0) {
-      // Sensible defaults before any geometry is loaded
-      return { size: 100, cellSize: 1, sectionSize: 10, fadeDistance: 150 }
+      return DEFAULT_GRID
     }
 
     const box = new THREE.Box3()
@@ -138,18 +153,19 @@ function useAdaptiveGrid(geometryVersion: number, selectedObjectId: number | nul
 
     return { size, cellSize, sectionSize, fadeDistance }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- geometryVersion proxies cache changes
-  }, [geometryVersion, selectedObjectId])
+  }, [geometryVersion, selectedObjectId, gridResetKey])
 }
 
 interface SceneHelpersProps {
   fitVersion: number
   selectedObjectId: number | null
   geometryVersion: number
+  gridResetKey?: number
 }
 
 /** Ground grid (XY plane, Z-up), orientation gizmo and camera navigation. */
-export function SceneHelpers({ fitVersion, selectedObjectId, geometryVersion }: SceneHelpersProps): React.JSX.Element {
-  const grid = useAdaptiveGrid(geometryVersion, selectedObjectId)
+export function SceneHelpers({ fitVersion, selectedObjectId, geometryVersion, gridResetKey = 0 }: SceneHelpersProps): React.JSX.Element {
+  const grid = useAdaptiveGrid(geometryVersion, selectedObjectId, gridResetKey)
 
   return (
     <>
