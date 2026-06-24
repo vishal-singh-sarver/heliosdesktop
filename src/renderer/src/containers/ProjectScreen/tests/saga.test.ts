@@ -1,5 +1,6 @@
 import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
-import projectScreenSaga, * as sagaModule from '../saga'
+import projectScreenSaga, { clearPersistedIdsOnHome } from '../saga'
+import * as sagaModule from '../saga'
 import {
   addColumnRequest,
   addColumnsRequest,
@@ -42,7 +43,7 @@ import {
 } from '../selectors'
 import { ApiError } from 'utils/api'
 import { STORAGE_KEYS } from 'utils/storageKeys'
-import { navigate } from 'store/navigationReducer'
+import { NAVIGATE, navigate } from 'store/navigationReducer'
 import {
   CHECK_COL_NAME,
   DATE_TIME_COL_NAME,
@@ -72,7 +73,8 @@ describe('projectScreenSaga (root watcher)', () => {
       DELETE_COLUMN_REQUESTED,
       DELETE_ROW_REQUESTED,
       UPDATE_ALL_CHECKBOXES_REQUESTED,
-      UPDATE_CELL_LOCAL
+      UPDATE_CELL_LOCAL,
+      NAVIGATE
     ]
     const seen = new Set<string>()
     for (let i = 0; i < expected.length; i++) {
@@ -87,6 +89,29 @@ describe('projectScreenSaga (root watcher)', () => {
     void takeEvery
     void takeLatest
     void sagaModule
+  })
+})
+
+// ── clearPersistedIdsOnHome ──────────────────────────────────────────────────
+
+describe('clearPersistedIdsOnHome', () => {
+  it('removes both persisted ids when navigating to home', () => {
+    const gen = clearPersistedIdsOnHome(navigate('home'))
+    expect(gen.next().value).toEqual(
+      call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
+    )
+    expect(gen.next().value).toEqual(
+      call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('removes nothing when navigating anywhere other than home', () => {
+    // The guard is what stops a navigate('project') — fired on every open —
+    // from wiping the ids the screen depends on. Without it this saga would
+    // clear the project id the moment the project screen is shown.
+    const gen = clearPersistedIdsOnHome(navigate('project'))
+    expect(gen.next().done).toBe(true)
   })
 })
 

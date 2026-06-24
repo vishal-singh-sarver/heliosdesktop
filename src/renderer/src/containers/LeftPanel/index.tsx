@@ -36,7 +36,22 @@ export function LeftPanel(): React.JSX.Element {
   const toggleSection = (section: Section): void =>
     setOpen((prev) => ({ ...prev, [section]: !prev[section] }))
 
-  const widthClass = collapsed ? 'w-8' : 'w-[340px]'
+  // Clicking a rail icon while collapsed expands the panel and focuses that
+  // section: it opens the clicked one and minimizes (closes) the others.
+  const openSection = (section: Section): void => {
+    setCollapsed(false)
+    setOpen({ geometry: false, materials: false, models: false, [section]: true })
+  }
+
+  // The collapsed rail shows each section's icon stacked vertically. w-auto
+  // keeps the non-square Material icon (10×13) from squishing.
+  const railSections: { key: Section; label: string; icon: string }[] = [
+    { key: 'geometry', label: 'Geometry', icon: geometryIcon },
+    { key: 'materials', label: 'Materials', icon: materialIcon },
+    { key: 'models', label: 'Models', icon: modelIcon }
+  ]
+
+  const widthClass = collapsed ? 'w-12' : 'w-[340px]'
 
   return (
     <aside
@@ -52,11 +67,31 @@ export function LeftPanel(): React.JSX.Element {
         )}
         <CollapseButton collapsed={collapsed} side="left" onToggle={toggle} />
       </div>
-      {!collapsed && (
-        <>
-          <div className="shrink-0 border-t border-app-border" />
-          <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
-            <Accordion
+      {collapsed && (
+        <div className="flex flex-col items-center gap-1 pt-1">
+          {railSections.map(({ key, label, icon }) => (
+            <button
+              key={key}
+              type="button"
+              title={label}
+              aria-label={label}
+              onClick={() => openSection(key)}
+              className="flex h-9 w-9 items-center justify-center rounded text-neutral-300 hover:bg-neutral-700/60 hover:text-white"
+            >
+              <img src={icon} alt="" aria-hidden="true" className="h-5 w-auto" />
+            </button>
+          ))}
+        </div>
+      )}
+      {/* The expanded content stays mounted at all times — collapsing only hides
+          it with CSS (display:none) instead of unmounting, so Geometry/Materials
+          load once and never remount (and never refetch) on collapse/expand or
+          accordion toggles. `contents` keeps the border + body as flex children
+          of the aside while expanded. */}
+      <div className={collapsed ? 'hidden' : 'contents'}>
+        <div className="shrink-0 border-t border-app-border" />
+        <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
+          <Accordion
               title="Geometry"
               icon={geometryIcon}
               open={open.geometry}
@@ -86,8 +121,7 @@ export function LeftPanel(): React.JSX.Element {
               {/* Models content — future step */}
             </Accordion>
           </div>
-        </>
-      )}
+        </div>
     </aside>
   )
 }

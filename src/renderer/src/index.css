@@ -44,6 +44,16 @@ body {
   box-shadow: none;
 }
 
+/* A field with a validation error keeps its red focus ring while it's being
+   edited — the error state must outrank the global blue ring above, which (being
+   unlayered) otherwise wins over FormField's outline utility on focus. FormField
+   sets aria-invalid on the control whenever it has an error; the token matches
+   FormField's resting outline and the .form-error-text helper, so every error
+   cue is one red. Higher specificity than the bare :focus-visible, same layer. */
+[aria-invalid='true']:focus-visible {
+  outline-color: var(--color-text-error-primary);
+}
+
 .text-primary {
   color: var(--color-text-primary);
 }

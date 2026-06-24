@@ -1,4 +1,5 @@
 import { produce } from 'immer'
+import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import type { GeometryAction } from './actions'
 import {
   CLOSE_CREATE_FORM,
@@ -181,6 +182,18 @@ const geometryReducer = (
   action: GeometryAction
 ): GeometryState =>
   produce(state, (draft) => {
+    // Cross-container reset: a project/scenario switch must abandon any open
+    // Properties draft — it belongs to the previous scope. The form's "deleted"
+    // check is scope-relative (an object id absent from the now-active tree reads
+    // as deleted), so a draft left open here would otherwise resurface against the
+    // new project and wrongly show "This geometry was deleted." SET_ACTIVE_SCENARIO
+    // fires on every project open and scenario switch. The cast is needed because
+    // this is ProjectScreen's action, not part of GeometryAction.
+    if ((action.type as string) === SET_ACTIVE_SCENARIO) {
+      draft.createDraft = null
+      return
+    }
+
     switch (action.type) {
       case LIST_NODES_REQUESTED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
@@ -273,6 +286,11 @@ const geometryReducer = (
         ) {
           draft.createDraft.name = action.payload
         }
+        // A successful rename clears the right-panel form's name error too, when
+        // it's open for this object.
+        if (draft.createDraft && draft.createDraft.objectId === action.id) {
+          draft.createDraft.nameError = null
+        }
         if (node) node.name = action.payload
         delete s.nameErrors[action.id]
         break
@@ -280,7 +298,16 @@ const geometryReducer = (
 
       case RENAME_FAILED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        s.nameErrors[action.id] = action.payload
+        // A rename rejection for the object open in the right-panel form belongs
+        // to that form — show it below the name field there, NOT on the left tree
+        // row (whose committed name is still the valid old one, so an error under
+        // it would be misleading and would linger stale). Other renames (e.g. a
+        // left-tree inline edit) still surface inline on the tree row.
+        if (draft.createDraft && draft.createDraft.objectId === action.id) {
+          draft.createDraft.nameError = action.payload
+        } else {
+          s.nameErrors[action.id] = action.payload
+        }
         break
       }
 
@@ -402,8 +429,9 @@ const geometryReducer = (
         // Editing the name clears a stale backend save error (e.g. the
         // duplicate-name "Geometry name already exists" from a prior Save) so it
         // doesn't linger while the user types a fresh name — mirrors
-        // SET_DRAFT_VALUE.
+        // SET_DRAFT_VALUE. The name-specific rename error clears the same way.
         draft.createDraft.saveError = null
+        draft.createDraft.nameError = null
         break
       }
 
@@ -440,7 +468,8 @@ const geometryReducer = (
           materialId: null,
           isNew: true,
           saving: false,
-          saveError: null
+          saveError: null,
+          nameError: null
         }
         draft.createDraftNonce += 1
         break
@@ -462,7 +491,8 @@ const geometryReducer = (
           materialId: null,
           isNew: false,
           saving: false,
-          saveError: null
+          saveError: null,
+          nameError: null
         }
         draft.createDraftNonce += 1
         break
@@ -482,11 +512,11 @@ const geometryReducer = (
 
       case UPDATE_OBJECT_SUCCEEDED: {
         // PATCH committed. Keep the form OPEN showing the saved values (so the
-        // panel doesn't blank out), sync the node's name in the tree, and mark
-        // it no longer new (Cancel→Close, won't delete).
+        // panel doesn't blank out) and mark it no longer new (Cancel→Close, won't
+        // delete). The name is NOT synced here — it commits on its own blur/rename
+        // path, so syncing the (possibly rejected) draft name would corrupt the
+        // tree row.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        const node = s.nodesById[action.payload.objectId]
-        if (node) node.name = action.payload.name
         if (draft.createDraft) {
           draft.createDraft.saving = false
           draft.createDraft.isNew = false

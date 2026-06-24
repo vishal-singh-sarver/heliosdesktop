@@ -33,7 +33,7 @@ import {
   type ObjectTypesResponse
 } from './service'
 import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
-import { navigate } from 'store/navigationReducer'
+import { NAVIGATE, navigate, type NavigationAction } from 'store/navigationReducer'
 import { ApiError } from 'utils/api'
 import { STORAGE_KEYS } from 'utils/storageKeys'
 import type {
@@ -211,6 +211,18 @@ function* bounceToHome(): Generator {
   yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
   yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
   yield put(navigate('home'))
+}
+
+// Forget the persisted project + scenario ids whenever the user returns to
+// Home. Driven off the NAVIGATE action — not a React unmount cleanup —
+// because StrictMode double-invokes effects in dev (mount → cleanup → mount),
+// so a mount-time fake unmount would wipe activeProjectId, which only
+// HomePage ever writes, leaving it gone for the rest of the session. A
+// genuine navigate('home') is the reliable signal that the user has left.
+export function* clearPersistedIdsOnHome(action: NavigationAction): Generator {
+  if (action.payload !== 'home') return
+  yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
+  yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
 }
 
 // ── Load scenario ────────────────────────────────────────────────────────────
@@ -865,4 +877,5 @@ export default function* projectScreenSaga(): Generator {
   yield takeEvery(DELETE_ROW_REQUESTED, deleteRowWorker)
   yield takeEvery(UPDATE_CELL_LOCAL, updateCellWorker)
   yield takeLatest(UPDATE_ALL_CHECKBOXES_REQUESTED, updateAllCheckboxesWorker)
+  yield takeEvery(NAVIGATE, clearPersistedIdsOnHome)
 }

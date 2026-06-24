@@ -104,11 +104,12 @@ describe('<FormField />', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('renders a red border when error exists', () => {
+  it('renders the error-colored outline when error exists', () => {
     render(
       <FormField {...defaultProps} inputProps={{ ...defaultProps.inputProps, error: 'Required' }} />
     )
-    expect(screen.getByRole('textbox')).toHaveClass('outline-red-500')
+    // #D92D20 = --color-text-error-primary; index.css keeps this red on focus too.
+    expect(screen.getByRole('textbox')).toHaveClass('outline-[#D92D20]')
   })
 
   // Verifies aria-invalid is false when no error exists

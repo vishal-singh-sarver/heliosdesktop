@@ -161,8 +161,8 @@ describe('validateFieldValue', () => {
     expect(validateFieldValue(field({ max: 360 }), '400')).toBe('Max 360')
   })
 
-  it('enforces integer datatype', () => {
-    expect(validateFieldValue(field({ datatype: 'integer' }), '1.5')).toBe('Must be a whole number')
+  it('enforces integer datatype with the standard Invalid Input copy', () => {
+    expect(validateFieldValue(field({ datatype: 'integer' }), '1.5')).toBe('Invalid Input')
     expect(validateFieldValue(field({ datatype: 'integer', min: 1 }), '100')).toBeNull()
   })
 
@@ -174,6 +174,24 @@ describe('validateFieldValue', () => {
     expect(validateFieldValue(positive, '')).toBe('Required Field')
     // Valid value passes.
     expect(validateFieldValue(positive, '3')).toBeNull()
+  })
+
+  it('shows "Invalid Input" (not the range copy) for an in-range decimal in an integer field', () => {
+    // resolution_x: integer, 1–25000, carrying a range-style invalidMessage.
+    const resolution = field({
+      datatype: 'integer',
+      min: 1,
+      max: 25000,
+      invalidMessage: 'Values should be between 1-25000'
+    })
+    // 5.5 IS within 1–25000, so the range copy would be misleading; a decimal in
+    // an integer field is an invalid input, not an out-of-range value.
+    expect(validateFieldValue(resolution, '5.5')).toBe('Invalid Input')
+    // Genuinely out-of-range values (whole or not) still get the range copy.
+    expect(validateFieldValue(resolution, '30000')).toBe('Values should be between 1-25000')
+    expect(validateFieldValue(resolution, '0.5')).toBe('Values should be between 1-25000')
+    // A valid whole number passes.
+    expect(validateFieldValue(resolution, '100')).toBeNull()
   })
 })
 

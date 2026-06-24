@@ -130,14 +130,6 @@ export function ProjectScreen(): React.JSX.Element {
     }
   }, [activeProjectId, dispatch])
 
-  // Clear the persisted scenario id when leaving the project screen so it
-  // doesn't show up in localStorage on Home.
-  React.useEffect(() => {
-    return () => {
-      localStorage.removeItem(STORAGE_KEYS.activeScenarioId)
-    }
-  }, [])
-
   const formik = useFormik<CoordinateForm>({
     initialValues: { latitude: '', longitude: '' },
     validateOnChange: true,

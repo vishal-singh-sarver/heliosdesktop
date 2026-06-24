@@ -219,7 +219,8 @@ describe('updateObjectWorker', () => {
     materialId: null,
     isNew: false,
     saving: false,
-    saveError: null
+    saveError: null,
+    nameError: null
   }
 
   it('PATCHes the draft object with values + visibility + group, then succeeds', () => {
@@ -236,29 +237,35 @@ describe('updateObjectWorker', () => {
         groupId: null
       })
     )
-    // Name unchanged (draft.name === node.name) → no rename call.
+    // Save is properties-only → straight to success, no rename call.
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Ground.001', propsChanged: true }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true }))
     )
     expect(gen.next().done).toBe(true)
   })
 
-  it('also renames the object when the name changed', () => {
+  it('never renames — a differing name is ignored (the name saves on blur, not via Save)', () => {
     const renamed: CreateDraft = { ...draft, name: 'Plot A' }
     const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     gen.next() // select draft
     gen.next(renamed) // select nodesById
     gen.next({ '27': groundNode('27') }) // select detailsById
-    gen.next({}) // no cache → props changed → call updateObject
-    // node.name 'Ground.001' !== 'Plot A' → rename call before succeeding.
-    expect(gen.next().value).toEqual(call(service.renameObject, P, S, '27', 'Plot A'))
+    // Props changed (no cache) → updateObject. The differing draft name does NOT
+    // trigger a rename here — Save touches only the property fields.
+    expect(gen.next({}).value).toEqual(
+      call(service.updateObject, P, S, '27', {
+        properties: { length: 20, breadth: 10 },
+        visibility: { viewport: true, render: true },
+        groupId: null
+      })
+    )
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A', propsChanged: true }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true }))
     )
     expect(gen.next().done).toBe(true)
   })
 
-  it('rename-only save: skips the properties PATCH when nothing changed', () => {
+  it('name-only change → no properties PATCH, just succeeds (the name saved on blur)', () => {
     const renamed: CreateDraft = { ...draft, name: 'Plot A' }
     // Cached original matches the draft's numeric properties → no props change.
     const original = { values: { length: '20', breadth: '10' }, objectTypeId: 1, objectName: 'Ground' }
@@ -266,12 +273,9 @@ describe('updateObjectWorker', () => {
     gen.next() // select draft
     gen.next(renamed) // select nodesById
     gen.next({ '27': groundNode('27') }) // select detailsById
-    // Properties unchanged → updateObject NOT called; only the rename fires.
+    // Props unchanged + Save ignores the name → no API calls, straight to success.
     expect(gen.next({ '27': original }).value).toEqual(
-      call(service.renameObject, P, S, '27', 'Plot A')
-    )
-    expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Plot A', propsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false }))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -280,11 +284,11 @@ describe('updateObjectWorker', () => {
     const original = { values: { length: '20', breadth: '10' }, objectTypeId: 1, objectName: 'Ground' }
     const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     gen.next() // select draft
-    gen.next(draft) // select nodesById (name unchanged)
+    gen.next(draft) // select nodesById
     gen.next({ '27': groundNode('27') }) // select detailsById
-    // Props match cache + name unchanged → straight to success, no API calls.
+    // Props match cache → straight to success, no API calls.
     expect(gen.next({ '27': original }).value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', name: 'Ground.001', propsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false }))
     )
     expect(gen.next().done).toBe(true)
   })
