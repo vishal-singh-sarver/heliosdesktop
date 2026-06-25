@@ -20,6 +20,7 @@ exports[`<EmptyState /> > should match the snapshot 1`] = `
   </p>
   <button
     class="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+    data-testid="table-create-new"
   >
     + Add New Project
   </button>

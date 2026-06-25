@@ -3,6 +3,7 @@
 exports[`<MenuBar /> > matches snapshot 1`] = `
 <nav
   class="flex items-center gap-2 text-sm font-medium text-neutral-300"
+  data-testid="menubar"
 >
   <div
     class="group relative"
@@ -23,16 +24,19 @@ exports[`<MenuBar /> > matches snapshot 1`] = `
       >
         <button
           class="block w-full px-3 py-1.5 text-left text-sm text-neutral-200 hover:bg-app-border"
+          data-testid="menu-New Project"
         >
           New Project
         </button>
         <button
           class="block w-full px-3 py-1.5 text-left text-sm text-neutral-200 hover:bg-app-border"
+          data-testid="menu-Open Project"
         >
           Open Project
         </button>
         <button
           class="block w-full px-3 py-1.5 text-left text-sm text-neutral-200 hover:bg-app-border"
+          data-testid="menu-Save"
         >
           Save
         </button>
@@ -58,11 +62,13 @@ exports[`<MenuBar /> > matches snapshot 1`] = `
       >
         <button
           class="block w-full px-3 py-1.5 text-left text-sm text-neutral-200 hover:bg-app-border"
+          data-testid="menu-Undo"
         >
           Undo
         </button>
         <button
           class="block w-full px-3 py-1.5 text-left text-sm text-neutral-200 hover:bg-app-border"
+          data-testid="menu-Redo"
         >
           Redo
         </button>

@@ -6,6 +6,25 @@ import { backendManager } from './backend-manager'
 
 const isDev = !app.isPackaged
 
+/**
+ * True when the app was launched by ChromeDriver for WebdriverIO e2e tests.
+ * ChromeDriver injects its own --user-data-dir (a temp profile) and a remote
+ * debugging flag into the Electron process. Under automation we must NOT
+ * override userData or hold a single-instance lock: overriding userData
+ * redirects Chromium's DevToolsActivePort file away from where ChromeDriver
+ * looks (causing "session not created: DevToolsActivePort file doesn't exist"),
+ * and the lock would make the test instance quit if a dev instance is running.
+ */
+function isUnderTestAutomation(): boolean {
+  return process.argv.some(
+    (arg) =>
+      arg.startsWith('--user-data-dir') ||
+      arg.startsWith('--remote-debugging-port') ||
+      arg.startsWith('--remote-debugging-pipe') ||
+      arg === '--enable-automation'
+  )
+}
+
 function getPlatformUserDataPath(homeDir: string): string {
   if (process.platform === 'win32') {
     return join(homeDir, 'AppData/Roaming/Helios')
@@ -303,6 +322,13 @@ function configurePlatformShortcuts(): void {
  * platform-specific default folders.
  */
 function setUserDataPath(): void {
+  if (isUnderTestAutomation()) {
+    // Respect the --user-data-dir ChromeDriver injected; overriding it breaks
+    // the WebDriver session (DevToolsActivePort file written to the wrong dir).
+    writeEarlyLog('Test automation detected — skipping userData override')
+    return
+  }
+
   const homeDir = app.getPath('home')
 
   if (process.platform === 'win32') {
@@ -324,7 +350,9 @@ setUserDataPath()
 // process quits immediately — but before it does, Electron notifies the
 // running instance via the 'second-instance' event (which we handle below
 // to open a new window instead of starting a second backend).
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+// Skip the single-instance lock under test automation so the e2e instance is
+// never killed by (or killing) a separately-running dev instance.
+const gotSingleInstanceLock = isUnderTestAutomation() || app.requestSingleInstanceLock()
 
 if (!gotSingleInstanceLock) {
   writeEarlyLog('Another Helios instance is already running — quitting this process')

@@ -8,6 +8,7 @@ interface DialogProps {
   className?: string
   headerClassName?: string
   bodyClassName?: string
+  'data-testid'?: string
 }
 
 function Dialog({
@@ -17,7 +18,8 @@ function Dialog({
   children,
   className = 'w-[420px] rounded border border-app-border bg-[#1f2126]',
   headerClassName = 'bg-neutral-200 px-4 py-2',
-  bodyClassName = 'space-y-3 p-4'
+  bodyClassName = 'space-y-3 p-4',
+  'data-testid': dataTestId
 }: DialogProps): React.JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
@@ -39,6 +41,7 @@ function Dialog({
   return (
     <dialog
       ref={dialogRef}
+      data-testid={dataTestId}
       aria-label={title}
       onCancel={(e) => {
         e.preventDefault()
@@ -49,6 +52,7 @@ function Dialog({
       <header className={`flex items-center justify-between ${headerClassName}`}>
         <h2 className="text-md font-medium text-black">{title}</h2>
         <button
+          data-testid="dialog-close"
           aria-label="Close dialog"
           onClick={onClose}
           className="px-2 py-1 text-xl font-light text-[#101828] cursor-pointer rounded"

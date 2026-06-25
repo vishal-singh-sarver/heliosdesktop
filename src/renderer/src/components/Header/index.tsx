@@ -64,7 +64,7 @@ function Header({ children, onLogoClick, title }: HeaderProps): React.JSX.Elemen
   const showTitleBar = isMac || !isFullScreen
 
   return (
-    <header className="border-b border-app-border">
+    <header data-testid="header" className="border-b border-app-border">
       {showTitleBar && (
       <div
         className={`app-drag relative flex h-[45px] items-center gap-3 border-b border-app-border px-4 ${
