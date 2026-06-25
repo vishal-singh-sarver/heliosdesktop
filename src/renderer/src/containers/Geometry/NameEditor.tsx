@@ -81,7 +81,7 @@ export default function NameEditor({
         onBlur={() => (error ? onClose() : commit())}
         aria-label={ariaLabel}
         aria-invalid={Boolean(error)}
-        className="h-5 w-full bg-transparent px-1.5 text-[14px] font-normal text-neutral-100"
+        className="h-5 w-full bg-transparent px-1.5 text-[13px] font-normal text-neutral-100"
         // Borderless: the row is the single box (it turns blue while editing, red
         // on error). Suppress the global :focus-visible blue outline (inline beats
         // the unlayered rule) so there's nothing bordered inside the row box.

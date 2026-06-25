@@ -95,7 +95,7 @@ export default function MaterialRow({
         role="button"
         tabIndex={0}
         onClick={onSelect}
-        className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
+        className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[13px] font-normal text-neutral-200 ${
           hasError
             ? 'border-[#D92D20] bg-[#2a2a2a]'
             : editing

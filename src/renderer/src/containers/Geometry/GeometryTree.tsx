@@ -68,7 +68,7 @@ export function GeometryTree(): React.JSX.Element {
   if (rootOrder.length === 0) {
     // Distinguish "nothing saved" from "search matched nothing".
     const hint = query.trim() ? messages.noMatches : messages.emptyTree
-    return <p className="py-2 text-[12px] text-neutral-500">{hint}</p>
+    return <p className="py-2 text-[13px] text-neutral-500">{hint}</p>
   }
 
   // Dropping in the empty area (not on a row, which stops propagation) ungroups

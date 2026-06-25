@@ -76,7 +76,7 @@ describe('resolveObjectForm (Ground)', () => {
         fields: ['position_x:X', 'position_y:Y', 'position_z:Z']
       },
       { heading: 'Rotation', columns: 1, fields: ['rotation_z:degree'] },
-      { heading: 'Texture Repeat (X x Y)', columns: 2, fields: ['texture_x:R', 'texture_y:C'] }
+      { heading: 'Number of Textures', columns: 2, fields: ['texture_x:R', 'texture_y:C'] }
     ])
   })
 

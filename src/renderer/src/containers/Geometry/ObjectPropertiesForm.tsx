@@ -301,7 +301,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         {groups.map((group, gi) => (
           <div key={group.heading ?? `group-${gi}`}>
             {group.heading && (
-              <p className="mb-1.5 text-[14px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">{group.heading}</p>
+              <p className="mb-1.5 text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">{group.heading}</p>
             )}
             <div
               className="grid gap-2"
@@ -356,7 +356,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             materials-instance flow); the create payload sends an empty list.
             Heading + sr-only label match the group pattern above. */}
         <div>
-          <p className="mb-1.5 text-[14px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">Select Material</p>
+          <p className="mb-1.5 text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">Select Material</p>
           <FormField
             labelProps={{ label: 'Select Material', hideLabel: true, optional: true }}
             inputProps={{

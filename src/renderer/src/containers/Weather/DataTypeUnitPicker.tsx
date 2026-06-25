@@ -127,7 +127,7 @@ function DataTypeUnitPicker({
               className="mb-1 flex h-8 w-full items-center gap-1 bg-neutral-200 px-3 text-left text-xs text-[#245AC5] hover:bg-neutral-100"
             >
               <span
-                className="h-5 w-[134px] font-['Geist'] text-[14px] font-medium leading-5 tracking-normal text-[#245AC5]"
+                className="h-5 w-[134px] font-main text-[13px] font-medium leading-5 tracking-normal text-[#245AC5]"
               >
                 ‹ Back to Assign Type
               </span>

@@ -12,7 +12,12 @@
 
   /* TYPOGRAPHY */
   --font-main: Geist, sans-serif;
-  --text-sm: 14px;
+  /* Unified body/label size. text-sm and text-xs both resolve here so every
+     label and body string renders at one consistent 13px app-wide; headings
+     (text-base/lg/xl) keep their larger scale. Change this one value to
+     re-tune all body/label text. */
+  --text-xs: 13px;
+  --text-sm: 13px;
   --text-md: 16px;
   --text-lg: 18px;
 }
@@ -70,11 +75,11 @@ button {
 }
 
 /* Single source of truth for form error text (field validation + saga error
-   banners) so they render identically — Geist 400 / 12px / 15px line-height. */
+   banners) so they render identically — Geist 400 / 13px / 15px line-height. */
 .form-error-text {
   font-family: var(--font-main);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 15px;
   letter-spacing: 0;
   color: var(--color-text-error-primary);

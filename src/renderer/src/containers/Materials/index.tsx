@@ -77,7 +77,7 @@ export function Materials(): React.JSX.Element {
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-2">
-        <span className="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3]">
+        <span className="shrink-0 font-main text-[13px] font-normal leading-[15px] tracking-normal text-[#D3D3D3]">
           {messages.savedMaterials}
         </span>
         <SearchBar
@@ -87,7 +87,7 @@ export function Materials(): React.JSX.Element {
           onChange={onSearchChange}
           placeholder={messages.searchPlaceholder}
           className="w-[125px]"
-          inputClassName="h-5 text-[12px] bg-[#121212] placeholder:text-[#424242]"
+          inputClassName="h-5 text-[13px] bg-[#121212] placeholder:text-[#424242]"
           iconClassName="h-3 w-3 opacity-70"
           iconBgClassName="w-6 bg-[#424242]"
         />
@@ -101,7 +101,7 @@ export function Materials(): React.JSX.Element {
 
       <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1">
         {showEmpty ? (
-          <p className="px-1 py-2 text-[12px] text-neutral-500">
+          <p className="px-1 py-2 text-[13px] text-neutral-500">
             {loadStatus === 'loading'
               ? messages.loading
               : query.trim()

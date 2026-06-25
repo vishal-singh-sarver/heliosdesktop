@@ -154,14 +154,14 @@ export function LightingSettingsDialog({
             <label className="mb-1.5 block text-xs text-neutral-400">Sun Direction</label>
             <div className="space-y-3">
               <div>
-                <label className="mb-0.5 block text-[10px] text-neutral-500">Elevation (0-90°)</label>
+                <label className="mb-0.5 block text-[13px] text-neutral-500">Elevation (0-90°)</label>
                 <div className="flex items-center gap-2">
                   <input type="range" value={settings.sunElevation} onChange={(e) => onChange({ sunElevation: Number(e.target.value) })} min={0} max={90} step={1} className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-neutral-700 accent-sky-400" />
                   <NumInput value={settings.sunElevation} onChange={(v) => onChange({ sunElevation: v })} min={0} max={90} step={1} className="!w-16 shrink-0" />
                 </div>
               </div>
               <div>
-                <label className="mb-0.5 block text-[10px] text-neutral-500">Azimuth (0-360°)</label>
+                <label className="mb-0.5 block text-[13px] text-neutral-500">Azimuth (0-360°)</label>
                 <div className="flex items-center gap-2">
                   <input type="range" value={settings.sunAzimuth} onChange={(e) => onChange({ sunAzimuth: Number(e.target.value) })} min={0} max={360} step={1} className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-neutral-700 accent-sky-400" />
                   <NumInput value={settings.sunAzimuth} onChange={(v) => onChange({ sunAzimuth: ((v % 360) + 360) % 360 })} min={0} max={360} step={1} className="!w-16 shrink-0" />

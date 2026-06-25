@@ -41,7 +41,7 @@ export function RightPanel(): React.JSX.Element {
         className={`flex shrink-0 items-center px-1 py-2 ${collapsed ? 'justify-center' : 'justify-between'}`}
       >
         {!collapsed && (
-          <span className="pl-2 text-[14px] font-normal leading-[15px] tracking-normal text-neutral-200">
+          <span className="pl-2 text-[13px] font-normal leading-[15px] tracking-normal text-neutral-200">
             Properties
           </span>
         )}
