@@ -20,10 +20,16 @@ export function RightPanel(): React.JSX.Element {
 
   return (
     <aside
+      data-testid="right-panel"
       className={`${widthClass} shrink-0 overflow-hidden rounded-lg bg-[#202020] transition-[width] duration-150`}
     >
       <div className="flex items-center justify-start p-1">
-        <CollapseButton collapsed={collapsed} side="right" onToggle={toggle} />
+        <CollapseButton
+          collapsed={collapsed}
+          side="right"
+          onToggle={toggle}
+          dataTestId="right-panel-collapse-btn"
+        />
       </div>
       {!collapsed && <div className="overflow-y-auto p-3">{/* Properties */}</div>}
     </aside>

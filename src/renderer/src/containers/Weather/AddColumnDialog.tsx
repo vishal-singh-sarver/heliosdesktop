@@ -182,7 +182,7 @@ function AddColumnDialog({ isOpen, onClose }: AddColumnDialogProps): React.JSX.E
   const m = messages.addColumn
 
   return (
-    <Dialog isOpen={isOpen} title={m.dialogTitle} onClose={handleClose}>
+    <Dialog isOpen={isOpen} data-testid="add-column-dialog" title={m.dialogTitle} onClose={handleClose}>
       <FormField
         labelProps={{ label: m.fields.name }}
         inputProps={{

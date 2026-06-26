@@ -1,0 +1,320 @@
+/**
+ * ProjectScreen E2E suite — shell (navigation/entry, header coordinates + UTC,
+ * scenario chip), the Left/Right collapsible panels, and the CenterWorkspace
+ * tabs. Built from the adversarially-verified matrix in
+ * docs/superpowers/specs/2026-06-26-projectscreen-e2e-design.md.
+ *
+ * Harness model (see e2e/support/harness.ts): splash->main before(); each test
+ * starts from a clean Home (beforeEach reloadToHome) then SELF-PROVISIONS its own
+ * project. Fresh empty DB per launch -> assert only on our own project, never
+ * absolute counts.
+ *
+ * Key verified facts honored below:
+ *  - data-testid=header/menubar are SHARED with HomePage -> discriminate via
+ *    project-title (ProjectScreen-only) vs projects-table (HomePage-only).
+ *  - aria-invalid is omitted when valid -> assert absence (null), not "false".
+ *  - LabeledField renders NO inline coordinate error -> assert no role=alert / p.
+ *  - Coordinate commit is silent + on blur -> assert OUTCOME (UTC change) via wait.
+ *  - Placeholders (scenario rename/close/add, MenuBar items, empty panel bodies,
+ *    inert 3D/Output tabs) are documented findings, NOT tested as behavior.
+ */
+import HomePage from '../pages/HomePage.page'
+import ProjectScreen from '../pages/ProjectScreen.page'
+import {
+  ACTIVE_PROJECT_KEY,
+  ACTIVE_SCENARIO_KEY,
+  createNamedReturnHome,
+  enterProject,
+  getStorage,
+  reloadToHome,
+  uniqueName,
+  waitForMainWindow
+} from '../support/harness'
+
+before(async () => {
+  await waitForMainWindow()
+})
+
+beforeEach(async () => {
+  await reloadToHome()
+})
+
+describe('ProjectScreen — navigation / entry', () => {
+  it('double-clicking a project row lands on the ProjectScreen', async () => {
+    const { id, name } = await createNamedReturnHome(uniqueName('dbl'))
+    await HomePage.row(id).doubleClick()
+    await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 15000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await expect(ProjectScreen.projectTitle).toHaveText(name)
+    await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
+  })
+
+  it('Enter on a focused row navigates to the ProjectScreen', async () => {
+    const { id } = await createNamedReturnHome(uniqueName('enter'))
+    await HomePage.row(id).click()
+    await browser.execute((rid: string) => {
+      const el = document.querySelector(`[data-testid="row-${rid}"]`) as HTMLElement | null
+      el?.focus()
+    }, id)
+    await browser.keys(['Enter'])
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
+  })
+
+  it('Space on a focused row navigates to the ProjectScreen', async () => {
+    const { id } = await createNamedReturnHome(uniqueName('space'))
+    await HomePage.row(id).click()
+    await browser.execute((rid: string) => {
+      const el = document.querySelector(`[data-testid="row-${rid}"]`) as HTMLElement | null
+      el?.focus()
+    }, id)
+    await browser.keys([' '])
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+  })
+
+  it('a single click does NOT navigate (stays on Home)', async () => {
+    const { id } = await createNamedReturnHome(uniqueName('single'))
+    await HomePage.row(id).click()
+    await expect(HomePage.projectsTable).toBeDisplayed()
+    await expect(ProjectScreen.projectTitle).not.toBeDisplayed()
+  })
+
+  it('entering a project loads the first scenario (writes activeScenarioId)', async () => {
+    await enterProject('scenario')
+    await expect(await getStorage(ACTIVE_SCENARIO_KEY)).not.toBe(null)
+  })
+})
+
+describe('ProjectScreen — header title + logo', () => {
+  it('shows the project name in the header title', async () => {
+    const { name } = await enterProject('title')
+    await expect(ProjectScreen.projectTitle).toHaveText(name)
+  })
+
+  it('the logo returns to Home and clears the active scenario id', async () => {
+    const { id } = await enterProject('logo')
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
+      timeout: 10000,
+      timeoutMsg: 'activeScenarioId not cleared on leaving the project screen'
+    })
+    // activeProjectId is retained (only the scenario id is cleared on unmount).
+    await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
+  })
+})
+
+describe('ProjectScreen — scenario chip (static)', () => {
+  it('renders the static "Scenario 1" chip', async () => {
+    await enterProject('chip')
+    await expect(ProjectScreen.scenarioChip).toBeDisplayed()
+    await expect(ProjectScreen.scenarioChip).toHaveText('Scenario 1', { containing: true })
+  })
+  // FINDING (not tested): the chip's Rename / Close / Add-scenario buttons have
+  // no onClick wired — placeholder no-ops (see design doc Section 6).
+})
+
+describe('ProjectScreen — coordinate validation (aria-invalid, no inline error)', () => {
+  const invalidCases: Array<{ label: string; field: 'latitude' | 'longitude'; value: string }> = [
+    { label: 'latitude out of range (95)', field: 'latitude', value: '95' },
+    { label: 'latitude non-numeric (abc)', field: 'latitude', value: 'abc' },
+    { label: 'latitude > 7 decimals', field: 'latitude', value: '12.123456789' },
+    { label: 'longitude out of range (200)', field: 'longitude', value: '200' },
+    { label: 'longitude non-numeric (xyz)', field: 'longitude', value: 'xyz' }
+  ]
+
+  for (const tc of invalidCases) {
+    it(`marks ${tc.label} aria-invalid and renders no inline error`, async () => {
+      await enterProject('inv')
+      const seededUtc = await ProjectScreen.getUtcValue()
+      await ProjectScreen.setCoordinate(tc.field, tc.value)
+      await browser.waitUntil(async () => (await ProjectScreen.coordInvalid(tc.field)) === 'true', {
+        timeout: 5000,
+        timeoutMsg: 'aria-invalid never became true'
+      })
+      // LabeledField renders NO inline error text — assert no alert/paragraph.
+      await expect($('[role="alert"]')).not.toBeExisting()
+      // commit is suppressed while invalid -> UTC unchanged.
+      await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+    })
+  }
+
+  const validCases: Array<{ label: string; field: 'latitude' | 'longitude'; value: string }> = [
+    { label: 'latitude boundary 90', field: 'latitude', value: '90' },
+    { label: 'latitude boundary -90', field: 'latitude', value: '-90' },
+    { label: 'longitude boundary 180', field: 'longitude', value: '180' },
+    { label: 'longitude boundary -180', field: 'longitude', value: '-180' },
+    { label: 'latitude exactly 7 decimals', field: 'latitude', value: '45.1234567' },
+    { label: 'partial "7." while typing', field: 'latitude', value: '7.' }
+  ]
+
+  for (const tc of validCases) {
+    it(`accepts ${tc.label} (no aria-invalid)`, async () => {
+      await enterProject('val')
+      await ProjectScreen.setCoordinate(tc.field, tc.value)
+      // valid -> aria-invalid attribute is ABSENT (null), never "false".
+      await expect(await ProjectScreen.coordInvalid(tc.field)).toBe(null)
+    })
+  }
+
+  it('empty coordinate is neutral (no aria-invalid, no commit)', async () => {
+    await enterProject('empty')
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('latitude', '')
+    await expect(await ProjectScreen.coordInvalid('latitude')).toBe(null)
+    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+  })
+})
+
+describe('ProjectScreen — coordinate commit + UTC recompute', () => {
+  it('committing a far-band longitude recomputes the UTC offset', async () => {
+    await enterProject('utc') // seeded lon 56.78
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('longitude', '-121.7405') // US Pacific band
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
+      timeout: 15000,
+      timeoutMsg: 'UTC offset never changed after committing a new longitude'
+    })
+    // the typed value persists (input is not re-seeded on a same-id refetch).
+    await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
+  })
+
+  it('blurring an unchanged coordinate is a no-op (UTC unchanged)', async () => {
+    await enterProject('noop')
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.latInput.click()
+    await ProjectScreen.lonInput.click() // blur lat without editing
+    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+  })
+
+  it('the UTC Offset field is read-only and formatted', async () => {
+    await enterProject('utcfmt')
+    await expect(ProjectScreen.utcInput).toHaveAttribute('disabled')
+    await expect(ProjectScreen.utcInput).toHaveValue(/^[+-]\d{2}:\d{2}$/)
+  })
+})
+
+describe('ProjectScreen — header help tooltips', () => {
+  it('latitude help exposes its tooltip content', async () => {
+    await enterProject('tip')
+    await expect(await ProjectScreen.latHelp.getAttribute('data-tooltip-content')).toContain(
+      'decimal degrees'
+    )
+  })
+  it('longitude help exposes its tooltip content', async () => {
+    await enterProject('tip2')
+    await expect(await ProjectScreen.lonHelp.getAttribute('data-tooltip-content')).toContain(
+      'decimal degrees'
+    )
+  })
+})
+
+describe('ProjectScreen — menubar present (items are no-ops)', () => {
+  it('exposes File / Edit / View / Tools / Help', async () => {
+    await enterProject('menu')
+    for (const label of ['File', 'Edit', 'View', 'Tools', 'Help'] as const) {
+      await expect(ProjectScreen.menubarButton(label)).toBeDisplayed()
+    }
+  })
+  // FINDING (not tested): onItemSelect={() => {}} — all 20 dropdown items are dead.
+})
+
+describe('ProjectScreen — boot auto-restore', () => {
+  it('with BOTH active ids, a refresh re-opens the project screen', async () => {
+    await enterProject('restore') // both ids now in localStorage
+    await browser.refresh()
+    await waitForMainWindow()
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 20000 })
+    await expect(HomePage.projectsTable).not.toBeDisplayed()
+  })
+
+  it('with only the project id, a refresh lands on Home', async () => {
+    await enterProject('restore2')
+    await browser.execute((k: string) => localStorage.removeItem(k), ACTIVE_SCENARIO_KEY)
+    await browser.refresh()
+    await waitForMainWindow()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 20000 })
+    await expect(ProjectScreen.projectTitle).not.toBeDisplayed()
+  })
+})
+
+describe('ProjectScreen — Left/Right panels', () => {
+  it('the left panel starts collapsed and toggles expand/collapse', async () => {
+    await enterProject('left')
+    await expect(await ProjectScreen.isPanelExpanded('left')).toBe(false)
+    await ProjectScreen.toggleLeftPanel()
+    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('left'), {
+      timeout: 5000,
+      timeoutMsg: 'left panel never expanded'
+    })
+    await ProjectScreen.toggleLeftPanel()
+    await browser.waitUntil(async () => !(await ProjectScreen.isPanelExpanded('left')), {
+      timeout: 5000,
+      timeoutMsg: 'left panel never collapsed'
+    })
+  })
+
+  it('the right panel starts collapsed and toggles expand/collapse', async () => {
+    await enterProject('right')
+    await expect(await ProjectScreen.isPanelExpanded('right')).toBe(false)
+    await ProjectScreen.toggleRightPanel()
+    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('right'), {
+      timeout: 5000,
+      timeoutMsg: 'right panel never expanded'
+    })
+    await ProjectScreen.toggleRightPanel()
+    await browser.waitUntil(async () => !(await ProjectScreen.isPanelExpanded('right')), {
+      timeout: 5000,
+      timeoutMsg: 'right panel never collapsed'
+    })
+  })
+
+  it('toggling the left panel does not move the right panel', async () => {
+    await enterProject('indep')
+    await ProjectScreen.toggleLeftPanel()
+    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('left'), { timeout: 5000 })
+    await expect(await ProjectScreen.isPanelExpanded('right')).toBe(false)
+  })
+  // FINDING (not tested): expanded panel bodies are empty placeholders.
+})
+
+describe('ProjectScreen — CenterWorkspace tabs', () => {
+  it('defaults to the Weather tab with the table mounted', async () => {
+    await enterProject('tabs')
+    await expect(await ProjectScreen.tabActive('weather')).toBe('true')
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+  })
+
+  it('renders exactly three tabs', async () => {
+    await enterProject('tabcount')
+    const buttons = await ProjectScreen.centerTabs.$$('button')
+    await expect(buttons.length).toBe(3)
+  })
+
+  it('switching to 3D Window unmounts the Weather table', async () => {
+    await enterProject('tab3d')
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.selectTab('3dwindow')
+    await expect(await ProjectScreen.tabActive('3dwindow')).toBe('true')
+    await expect(await ProjectScreen.tabActive('weather')).toBe('false')
+    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: 10000 })
+  })
+
+  it('switching to Output unmounts the Weather table', async () => {
+    await enterProject('tabout')
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.selectTab('output')
+    await expect(await ProjectScreen.tabActive('output')).toBe('true')
+    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: 10000 })
+  })
+
+  it('returning to Weather remounts the table', async () => {
+    await enterProject('tabback')
+    await ProjectScreen.selectTab('output')
+    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: 10000 })
+    await ProjectScreen.selectTab('weather')
+    await expect(await ProjectScreen.tabActive('weather')).toBe('true')
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+  })
+  // FINDING (not tested): 3D Window / Output tabs render no content (inert placeholders).
+})
