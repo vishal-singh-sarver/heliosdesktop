@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import type { CatalogPropertyDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import { describe, expect, it } from 'vitest'
 import {
   defaultValuesForObject,
   GROUND_FORM_BLUEPRINT,
@@ -76,7 +76,7 @@ describe('resolveObjectForm (Ground)', () => {
         fields: ['position_x:X', 'position_y:Y', 'position_z:Z']
       },
       { heading: 'Rotation', columns: 1, fields: ['rotation_z:degree'] },
-      { heading: 'Number of Tiles', columns: 2, fields: ['texture_x:R', 'texture_y:C'] }
+      { heading: 'Texture Repeat (X x Y)', columns: 2, fields: ['texture_x:R', 'texture_y:C'] }
     ])
   })
 
@@ -229,13 +229,9 @@ describe('resolveObjectForm invalidMessage', () => {
     // Ground Size: generic invalid copy (no range tokens).
     expect(resolved.groups[0].fields[0].invalidMessage).toBe('Invalid Input')
     // Ground Resolution: range tokens filled from catalog (min 1, max 25000).
-    expect(resolved.groups[1].fields[0].invalidMessage).toBe(
-      'Values should be between 1-25000'
-    )
+    expect(resolved.groups[1].fields[0].invalidMessage).toBe('Values should be between 1-25000')
     // Rotation: range tokens filled from catalog (min 0, max 360).
-    expect(resolved.groups[3].fields[0].invalidMessage).toBe(
-      'Values should be between 0-360'
-    )
+    expect(resolved.groups[3].fields[0].invalidMessage).toBe('Values should be between 0-360')
   })
 })
 

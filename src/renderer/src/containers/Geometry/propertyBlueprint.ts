@@ -95,7 +95,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
     fields: [{ property: 'rotation_z', label: 'degree', defaultValue: '0' }]
   },
   {
-    heading: 'Number of Tiles',
+    heading: 'Texture Repeat (X x Y)',
     columns: 2,
     invalidMessage: 'Invalid Input',
     fields: [
@@ -237,9 +237,7 @@ export function resolveObjectForm(
 
 // Convenience: resolve straight from a catalog object type using its registered
 // blueprint. Returns an empty form for object types without one (e.g. Crop).
-export function resolveObjectFormByType(
-  objectType: ObjectTypeDef | undefined
-): ResolvedObjectForm {
+export function resolveObjectFormByType(objectType: ObjectTypeDef | undefined): ResolvedObjectForm {
   if (!objectType) return { groups: [], unmappedProperties: [] }
   return resolveObjectForm(objectType, OBJECT_FORM_BLUEPRINTS[objectType.object])
 }
