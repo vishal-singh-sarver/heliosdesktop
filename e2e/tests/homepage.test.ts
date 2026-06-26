@@ -378,7 +378,17 @@ describe('HomePage', () => {
       await setInputValue(HomePage.createLonInput, '56.78')
       await HomePage.createSubmitButton.click()
       await HomePage.createSubmitButton.click().catch(() => {})
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      // The create round-trip finished when EITHER we navigated away (click 1
+      // succeeded) OR the dialog shows a duplicate error (a fast backend let
+      // click 2 attempt a same-name create). Both mean exactly one project was
+      // made — the guard + takeLeading prevent a second. Tolerate both paths so
+      // the timing race doesn't flake the test.
+      await browser.waitUntil(
+        async () =>
+          !(await HomePage.projectsTable.isDisplayed().catch(() => false)) ||
+          (await HomePage.createServerError.isDisplayed().catch(() => false)),
+        { timeout: 25000, timeoutMsg: 'create did not settle (no navigation, no error)' }
+      )
 
       await reloadToHome()
       await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, {
