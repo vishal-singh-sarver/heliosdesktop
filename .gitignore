@@ -86,3 +86,4 @@ test-results/
 package-lock.json
 linux-installer/payload/Helios/helios
 linux-installer/payload/Helios/resources/app.asar
+.wdio-persist-profile/

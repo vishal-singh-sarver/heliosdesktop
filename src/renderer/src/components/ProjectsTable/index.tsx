@@ -161,6 +161,7 @@ function ProjectsTable({
                   >
                     <button
                       type="button"
+                      data-testid={`sort-${key}`}
                       onClick={() => handleSort(key)}
                       className="flex items-center gap-1 hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded"
                     >
