@@ -3,12 +3,11 @@
 **Scope:** Everything currently tested on the Helios **Home screen** (the project-list / launch screen) by the WebdriverIO e2e suite.
 **Date:** 2026-06-29
 **Source files reviewed:**
-- [tests/homepage.test.ts](tests/homepage.test.ts) — main HomePage suite (**79 tests**)
-- [tests/recentprojects.gaps.test.ts](tests/recentprojects.gaps.test.ts) — gap-coverage for the project list / sort headers / delete (**12 tests**)
+- [tests/homepage.test.ts](tests/homepage.test.ts) — HomePage suite incl. the merged Recent-Projects gap coverage for the project list / sort headers / delete (**91 tests**)
 - [tests/app.test.ts](tests/app.test.ts) — app-launch & shell smoke tests that gate the Home screen (**9 tests**)
 - [pages/HomePage.page.ts](pages/HomePage.page.ts) — the Page Object backing all of the above
 
-**Total home-screen coverage: ~100 tests across 3 spec files.**
+**Total home-screen coverage: ~100 tests across 2 spec files.**
 
 ---
 
@@ -113,7 +112,7 @@ These gate that the Home screen can even render:
 ### 6. Delete flow
 Main suite: confirm deletes (row disappears, with `Delete <name>` heading + body copy verified); cancel keeps the row; Escape closes without deleting.
 
-Gap suite ([recentprojects.gaps.test.ts](tests/recentprojects.gaps.test.ts)):
+Recent-Projects coverage (now merged into [homepage.test.ts](tests/homepage.test.ts)):
 - Several projects delete **sequentially**, each removed independently with no resurrection.
 - Confirm **permanently** removes (absent after a renderer reload / backend re-fetch); deleted project does not reappear, sibling survives.
 - **Concurrency guards:** double-clicking the kebab Delete opens exactly one dialog; rapid double-confirm deletes exactly once; refreshing while the dialog is open performs no deletion.
@@ -163,5 +162,5 @@ Gap suite ([recentprojects.gaps.test.ts](tests/recentprojects.gaps.test.ts)):
 
 - **Toolbar items are mostly stubs:** only "New Project" is functionally wired on the Home screen; the other File/Edit/View/Tools/Help items are asserted to *exist* (and Undo is asserted to be a no-op), not to perform actions. This reflects the current app state, not a test gap.
 - **Sizes & "Last Updated" are backend-computed**, so Size-sort row order is intentionally not asserted (only the `aria-sort` toggle is).
-- The `recentprojects.gaps.test.ts` file is **additive coverage of working behavior** (heading, column labels, empty-state copy, literal search, delete permanence/concurrency, virtualization) that the main suite exercised only functionally — these are passing, not pending-feature gaps.
+- The Recent-Projects gap coverage (now merged into `homepage.test.ts`) is **additive coverage of working behavior** (heading, column labels, empty-state copy, literal search, delete permanence/concurrency, virtualization) that the main suite exercised only functionally — these are passing, not pending-feature gaps.
 - This report covers the **Home screen only**. The Project screen, Weather/import-wizard, units, and persistence suites live in the other spec files and are out of scope here.

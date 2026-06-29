@@ -20,10 +20,10 @@ a **throwaway profile per launch**, so every ChromeDriver launch starts with a
 e2e/
   pages/         Page objects (HomePage, ProjectScreen, Weather) — all selectors live here
   support/       harness.ts — shared before()/beforeEach() helpers, file-dialog stubs
-  tests/         specs (app, homepage, projectscreen, weather.*)
+  tests/         specs (app, homepage, projectscreen, weather, uploadwizard)
   persist/       persistence suite (runs under wdio.persist.config.ts)
   fixtures/
-    weather/     REAL provider weather files used by weather.realfiles.test.ts (vendored)
+    weather/     REAL provider weather files used by uploadwizard.test.ts (vendored)
 ```
 
 ## State model (why each test self-provisions)
@@ -45,7 +45,7 @@ This is expected and intentional — we deliberately leave it as-is:
 2. **One Electron instance per spec file.** WebdriverIO starts a **fresh session
    per spec file**, and with the Electron service that means a **new Electron
    process per spec** (`app.test.ts`, `homepage.test.ts`, `projectscreen.test.ts`,
-   `weather.*.test.ts`, …). `maxInstances: 1` only serializes them; it does not
+   `weather.test.ts`, `uploadwizard.test.ts`). `maxInstances: 1` only serializes them; it does not
    merge them into one process. The whole-run effect is several sequential app
    startups.
 
@@ -72,17 +72,16 @@ type `ImportMapping`).
 
 ## Known findings (intentionally RED / documented limitations)
 
-These tests assert the **correct** behavior and fail until the underlying app
-issue is addressed — they are findings, not flakes, and app logic is intentionally
+This test asserts the **correct** behavior and fails until the underlying app
+issue is addressed — it is a finding, not a flake, and app logic is intentionally
 left unchanged:
 
-- **Row delete** (`weather.crud.test.ts`): the frontend POSTs `…/deleteRow` but the
+- **Row delete** (`weather.test.ts`): the frontend POSTs `…/deleteRow` but the
   backend route is `…/delete` → 404 → the optimistic delete rolls back and the row
   reappears. Fix: point `deleteRowsRequest` at `API_ROUTES.weather.delete`.
-- **CIMIS.csv import** (`weather.realfiles.test.ts`): the parser rejects the
-  trailing whitespace-only CRLF line (`Row 194: 1 fields, expected 26`). Fix: skip
-  trailing blank lines in `Weather/parsers.ts`.
-- **USW.csv import** (`weather.realfiles.test.ts`): its `DATE` is a **year-less**
-  `MM-DDTHH:MM:SS` (NOAA hourly normals); no wizard date/datetime format represents
-  a year-less datetime, so no mapping yields a valid row. Fix: add a year-less
-  datetime format (or a default-year option) to the Import Wizard.
+
+**Confirmed-correct rejections** (`uploadwizard.test.ts`, passing — not findings):
+CIMIS.csv (the trailing whitespace-only CRLF line is correctly rejected, so the
+wizard's Next stays gated on the File step) and USW.csv (its year-less
+`MM-DDTHH:MM:SS` DATE matches no wizard datetime format, so no mapping yields a
+valid row) are asserted as **expected** behavior.
