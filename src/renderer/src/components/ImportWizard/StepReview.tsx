@@ -58,6 +58,7 @@ export default function StepReview({
       <label className="flex items-center gap-3 text-sm text-neutral-100">
         <input
           type="checkbox"
+          data-testid="dt-select-all"
           checked={allSelectableChecked}
           onChange={(e) => onToggleAll(e.target.checked)}
           className="h-4 w-4 cursor-pointer accent-[#245AC5]"
@@ -105,6 +106,7 @@ export default function StepReview({
                   <td className="w-12 px-4 py-3">
                     <input
                       type="checkbox"
+                      data-testid={`dt-col-${h}`}
                       checked={checked}
                       disabled={disabled}
                       onChange={() => onToggleColumn(i)}

@@ -150,6 +150,20 @@ export async function stubFileImport(content: string, filename = 'fixture.csv'):
   )
 }
 
+/**
+ * Stub ONLY the native file dialog to return a real on-disk path, leaving
+ * `fs:readFile` untouched so the actual file is read end-to-end. Use to import
+ * real fixture files (verifies parsing of genuine CSV/TSV/XML content).
+ */
+export async function stubRealFile(absPath: string): Promise<void> {
+  await browser.electron.execute((electron, p: string) => {
+    const ipc = electron.ipcMain
+    ipc.removeHandler('dialog:openFile')
+    ipc.handle('dialog:openFile', () => p)
+    // fs:readFile is intentionally left as the real handler.
+  }, absPath)
+}
+
 /** Stub the file dialog to return null (user-cancelled the picker). */
 export async function stubFileCancel(): Promise<void> {
   await browser.electron.execute((electron) => {

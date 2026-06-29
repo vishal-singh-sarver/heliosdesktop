@@ -23,6 +23,34 @@
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
 
+/**
+ * Declarative date/time mapping for {@link WeatherPage.importWithMapping}.
+ * Column fields are SOURCE HEADER NAMES (the wizard's <select> option `value`
+ * is the header verbatim, so we drive them with selectByAttribute('value', …)).
+ * Format fields are the wizard's format KEYS (DATE_FORMATS / DATETIME_FORMATS
+ * `value`, e.g. 'YYYY-MM-DD HH:MM').
+ */
+export interface ImportMapping {
+  /** Header lines to skip — files with metadata rows above the real header (NLR*). */
+  headerSkip?: number
+  /** Delimiter character to force on the Data-Preview step (e.g. '\t'). */
+  delimiter?: string
+  /** Date side: the mode + the source column header(s) + format where needed. */
+  date:
+    | { mode: 'datetime'; datetime: string; format: string }
+    | { mode: 'string'; date: string; format: string }
+    | { mode: 'parts'; year: string; month: string; day: string }
+    | { mode: 'julian'; julianYear: string; julianDay: string }
+  /** Time side; omit / 'none' when the date already carries the time (datetime mode). */
+  time?:
+    | { mode: 'none' }
+    | { mode: 'parts'; hour: string; minute?: string }
+    | { mode: 'string'; time: string }
+    | { mode: 'compact'; time: string }
+  /** Column headers to UNCHECK on the Review step before importing. */
+  excludeColumns?: string[]
+}
+
 class WeatherPage {
   // ----- Toolbar -----
   get filterButton(): El {
@@ -367,6 +395,224 @@ class WeatherPage {
       if (t) ids.push(t.replace(/^weather-row-/, ''))
     }
     return ids
+  }
+
+  // ===========================================================================
+  // Import Wizard — Date/Time mapping step (instrumented test hooks)
+  //   Date modes:  dt-datemode-{parts|string|julian|datetime}
+  //   Time modes:  dt-timemode-{parts|string|compact}
+  //   Selects:     dt-{day|month|year|julianYear|julianDay|date|datetime|
+  //                hour|minute|time-string|time-compact|date-format|datetime-format}
+  //   Data step:   dt-delimiter (select) · dt-header-skip (number input)
+  //   Review step: dt-select-all · dt-col-<header> (checkboxes)
+  // ===========================================================================
+
+  dateModeRadio(mode: 'parts' | 'string' | 'julian' | 'datetime'): El {
+    return $(`[data-testid="dt-datemode-${mode}"]`)
+  }
+  timeModeRadio(mode: 'parts' | 'string' | 'compact'): El {
+    return $(`[data-testid="dt-timemode-${mode}"]`)
+  }
+  dtSelect(field: string): El {
+    return $(`[data-testid="dt-${field}"]`)
+  }
+
+  async selectDateMode(mode: 'parts' | 'string' | 'julian' | 'datetime'): Promise<void> {
+    await this.dateModeRadio(mode).click()
+  }
+  async selectTimeMode(mode: 'parts' | 'string' | 'compact'): Promise<void> {
+    await this.timeModeRadio(mode).click()
+  }
+  /** Map a date/time component select to a source column by its header name. */
+  async mapColumn(field: string, header: string): Promise<void> {
+    await this.dtSelect(field).selectByAttribute('value', header)
+  }
+  async setDateFormat(key: string): Promise<void> {
+    await this.dtSelect('date-format').selectByAttribute('value', key)
+  }
+  async setDateTimeFormat(key: string): Promise<void> {
+    await this.dtSelect('datetime-format').selectByAttribute('value', key)
+  }
+  async setDelimiter(delimiterChar: string): Promise<void> {
+    await this.dtSelect('delimiter').selectByAttribute('value', delimiterChar)
+  }
+  async setHeaderSkip(n: number): Promise<void> {
+    await this.setReactInput('[data-testid="dt-header-skip"]', String(n))
+  }
+  /** Header names available as options in a date/time component select. */
+  async columnOptions(field: string): Promise<string[]> {
+    const opts = await this.dtSelect(field).$$('option')
+    const out: string[] = []
+    for (const o of opts) {
+      const v = await o.getAttribute('value')
+      if (v) out.push(v)
+    }
+    return out
+  }
+
+  // ----- Review-step column include/exclude -----
+  reviewColumnCheckbox(header: string): El {
+    return $(`[data-testid="dt-col-${header}"]`)
+  }
+  async excludeReviewColumn(header: string): Promise<void> {
+    const cb = this.reviewColumnCheckbox(header)
+    if (await cb.isSelected()) await cb.click()
+  }
+  async reviewSelectAll(checked: boolean): Promise<void> {
+    const cb = $('[data-testid="dt-select-all"]')
+    if ((await cb.isSelected()) !== checked) await cb.click()
+  }
+
+  /** Wait until the wizard's primary Next button is enabled (step gate satisfied). */
+  async waitForWizardNext(timeout = 20000): Promise<void> {
+    await browser.waitUntil(async () => this.wizardNext.isEnabled().catch(() => false), {
+      timeout,
+      timeoutMsg: 'wizard Next never became enabled'
+    })
+  }
+  /** True at the Date/Time step once the mapping yields ≥1 valid row (Next gates on it). */
+  async dateTimeReady(): Promise<boolean> {
+    return this.wizardNext.isEnabled().catch(() => false)
+  }
+
+  /** Apply a date/time mapping on the (already-open) Date/Time step. */
+  async applyDateTimeMapping(mapping: ImportMapping): Promise<void> {
+    const d = mapping.date
+    await this.selectDateMode(d.mode)
+    if (d.mode === 'datetime') {
+      await this.mapColumn('datetime', d.datetime)
+      await this.setDateTimeFormat(d.format)
+    } else if (d.mode === 'string') {
+      await this.mapColumn('date', d.date)
+      await this.setDateFormat(d.format)
+    } else if (d.mode === 'parts') {
+      await this.mapColumn('year', d.year)
+      await this.mapColumn('month', d.month)
+      await this.mapColumn('day', d.day)
+    } else {
+      await this.mapColumn('julianYear', d.julianYear)
+      await this.mapColumn('julianDay', d.julianDay)
+    }
+    // datetime mode forces time off (the component sets timeMode='none').
+    const t = mapping.time ?? { mode: 'none' as const }
+    if (d.mode !== 'datetime' && t.mode !== 'none') {
+      await this.selectTimeMode(t.mode)
+      if (t.mode === 'parts') {
+        await this.mapColumn('hour', t.hour)
+        if (t.minute) await this.mapColumn('minute', t.minute)
+      } else if (t.mode === 'string') {
+        await this.mapColumn('time-string', t.time)
+      } else {
+        await this.mapColumn('time-compact', t.time)
+      }
+    }
+  }
+
+  /**
+   * Full import with an EXPLICIT mapping (for files the wizard can't auto-map).
+   * Assumes the file-dialog stub is already installed (stubRealFile/stubFileImport).
+   * Returns true if the import completed; false if the Date/Time step never
+   * reached ≥1 valid row within `dtTimeout` (caller decides finding vs. failure).
+   */
+  async importWithMapping(mapping: ImportMapping, dtTimeout = 15000): Promise<boolean> {
+    await this.openImportWizard()
+    await this.wizardBrowse.click()
+    await this.waitForWizardNext() // step 0 File Preview
+    await this.wizardNext.click()
+    // step 1 Data Preview
+    if (mapping.delimiter) await this.setDelimiter(mapping.delimiter)
+    if (mapping.headerSkip != null) await this.setHeaderSkip(mapping.headerSkip)
+    await this.waitForWizardNext()
+    await this.wizardNext.click()
+    // step 2 Date/Time
+    await this.applyDateTimeMapping(mapping)
+    const ready = await browser
+      .waitUntil(async () => this.dateTimeReady(), { timeout: dtTimeout })
+      .then(() => true)
+      .catch(() => false)
+    if (!ready) return false
+    await this.wizardNext.click()
+    // step 3 Review
+    for (const h of mapping.excludeColumns ?? []) await this.excludeReviewColumn(h)
+    await this.wizardImport.waitForClickable({ timeout: 10000 })
+    await this.wizardImport.click()
+    await this.importWizard.waitForDisplayed({ reverse: true, timeout: 60000 })
+    return true
+  }
+
+  // ===========================================================================
+  // Header data-type / unit picker (drives unit CONVERSION on unit change)
+  //   Trigger:  [aria-label="Column {colId} data type and unit"]
+  //   Popover:  role="listbox"; options are role="option" buttons
+  // ===========================================================================
+
+  headerPickerButton(colId: string): El {
+    return $(`[aria-label="Column ${colId} data type and unit"]`)
+  }
+  get pickerListbox(): El {
+    return $('[role="listbox"]')
+  }
+  async headerPickerLabel(colId: string): Promise<string> {
+    return (await this.headerPickerButton(colId).getText()).trim()
+  }
+  async openHeaderPicker(colId: string): Promise<void> {
+    await this.headerPickerButton(colId).click()
+    await this.pickerListbox.waitForDisplayed({ timeout: 10000 })
+  }
+  /** Option labels (data types in type-view, units in unit-view) currently shown. */
+  async pickerOptions(): Promise<string[]> {
+    const opts = await this.pickerListbox.$$('[role="option"]')
+    const out: string[] = []
+    for (const o of opts) out.push((await o.getText()).trim())
+    return out
+  }
+  /** Click an option whose label exactly equals OR starts with `text` (units render "unit (alias)"). */
+  async pickerPick(text: string): Promise<void> {
+    const opts = await this.pickerListbox.$$('[role="option"]')
+    for (const o of opts) {
+      const label = (await o.getText()).trim()
+      if (label === text || label.startsWith(`${text} (`) || label.startsWith(`${text}(`)) {
+        await o.click()
+        return
+      }
+    }
+    throw new Error(`picker option not found: "${text}"`)
+  }
+  async pickerBack(): Promise<void> {
+    await this.pickerListbox.$('button*=Back to Assign Type').click()
+  }
+
+  /** Assign data type + unit to a fresh managed column (atomic two-step pick). */
+  async assignDataTypeUnit(colId: string, dataType: string, unit: string): Promise<void> {
+    await this.openHeaderPicker(colId)
+    await this.pickerPick(dataType) // → advances to unit view
+    await this.pickerListbox.$('[role="option"]').waitForDisplayed({ timeout: 10000 })
+    await this.pickerPick(unit) // → commits {dataTypeId, unitId}, closes popover
+    await this.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+  }
+  /** Change ONLY the unit (data type already assigned → opens straight into unit view). */
+  async changeUnit(colId: string, unit: string): Promise<void> {
+    await this.openHeaderPicker(colId)
+    await this.pickerPick(unit)
+    await this.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+  }
+
+  // ===========================================================================
+  // Cell validation reads (CellInput exposes aria-invalid + a tooltip aria-label)
+  // ===========================================================================
+
+  /** 'true' when the cell shows a validation error; null when valid. */
+  async cellInvalid(rowId: string, colId: string): Promise<string | null> {
+    return this.cellInput(rowId, colId).getAttribute('aria-invalid')
+  }
+  /** The cell's validation message (from the info-icon tooltip), or null if none. */
+  async cellError(rowId: string, colId: string): Promise<string | null> {
+    const tip = this.cellInput(rowId, colId)
+      .parentElement()
+      .$('[aria-label^="Validation error:"]')
+    if (!(await tip.isExisting())) return null
+    const label = await tip.getAttribute('aria-label')
+    return label ? label.replace(/^Validation error:\s*/, '') : null
   }
 }
 

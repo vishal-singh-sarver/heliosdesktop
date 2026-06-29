@@ -150,6 +150,34 @@ class ProjectScreenPage {
   menubarButton(label: 'File' | 'Edit' | 'View' | 'Tools' | 'Help'): El {
     return this.menubar.$(`button=${label}`)
   }
+
+  // ----- Scenario chip buttons (placeholder no-ops — assert exist + inert) -----
+  get scenarioRenameBtn(): El {
+    return $('[aria-label="Rename scenario"]')
+  }
+  get scenarioCloseBtn(): El {
+    return $('[aria-label="Close scenario"]')
+  }
+  get scenarioAddBtn(): El {
+    return $('[aria-label="Add scenario"]')
+  }
+
+  // ----- Panel body emptiness (an expanded panel is a placeholder: its only
+  //       interactive child is the collapse toggle). Counting buttons lets a
+  //       spec prove the body adds nothing when expanded vs collapsed. -----
+  async panelButtonCount(side: 'left' | 'right'): Promise<number> {
+    const panel = side === 'left' ? this.leftPanel : this.rightPanel
+    return (await panel.$$('button')).length
+  }
+
+  // ----- Coordinate inputs as a pair (for mid-session project-switch re-seed) -----
+  async coordPair(): Promise<{ lat: string; lon: string; utc: string }> {
+    return {
+      lat: await this.getCoordValue('latitude'),
+      lon: await this.getCoordValue('longitude'),
+      utc: await this.getUtcValue()
+    }
+  }
 }
 
 export default new ProjectScreenPage()

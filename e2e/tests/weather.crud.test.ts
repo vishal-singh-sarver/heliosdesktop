@@ -81,6 +81,55 @@ describe('Weather CRUD — add column validation', () => {
     await expect(Weather.acDefaultError).toHaveText('Default value must be a number.')
     await expect(await Weather.acSubmit.isEnabled()).toBe(false)
   })
+
+  it('a duplicate column name shows the server error and keeps the dialog open', async () => {
+    await enterWeather('acdup')
+    await Weather.addColumn('dup')
+    await Weather.waitForColumn('dup')
+    // Second 'dup' must be rejected by the backend (unique name) -> server banner.
+    await Weather.openAddColumns()
+    await Weather.setReactInput('[data-testid="input-parameterName"]', 'dup')
+    await Weather.acSubmit.click()
+    await Weather.acServerError.waitForDisplayed({ timeout: 15000 })
+    await expect(Weather.addColumnDialog).toBeDisplayed()
+  })
+
+  it('a default value beyond the global bound shows the error and disables submit', async () => {
+    await enterWeather('acbound')
+    await Weather.openAddColumns()
+    await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
+    // 9999999 > 1e6 global bound -> default-value error, submit disabled.
+    await Weather.setReactInput('[data-testid="input-defaultValue"]', '9999999')
+    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
+    await expect(await Weather.acSubmit.isEnabled()).toBe(false)
+  })
+
+  it('a whitespace-only name shows the required error on submit', async () => {
+    await enterWeather('acws')
+    await Weather.openAddColumns()
+    await Weather.setReactInput('[data-testid="input-parameterName"]', '   ')
+    await Weather.acSubmit.click() // submitForm touches all fields
+    await Weather.acNameError.waitForDisplayed({ timeout: 10000 })
+    await expect(Weather.acNameError).toHaveText('Column name is required.')
+  })
+})
+
+describe('Weather CRUD — add column data-type/unit wiring', () => {
+  it('enables the unit select only after a data type is chosen', async () => {
+    await enterWeather('acunit')
+    await Weather.openAddColumns()
+    // Before any data type is selected the unit select is disabled.
+    await expect(await Weather.acUnit.isEnabled()).toBe(false)
+    // Catalog is dynamic — index 0 is the placeholder, index 1 is the first real type.
+    await Weather.acDataType.selectByIndex(1)
+    await browser.waitUntil(async () => Weather.acUnit.isEnabled(), {
+      timeout: 10000,
+      timeoutMsg: 'unit select never became enabled after choosing a data type'
+    })
+    await expect(await Weather.acUnit.isEnabled()).toBe(true)
+    await Weather.acCancel.click()
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+  })
 })
 
 describe('Weather CRUD — rename column + header validation', () => {
@@ -165,6 +214,99 @@ describe('Weather CRUD — delete row', () => {
   })
 })
 
+describe('Weather CRUD — bulk add (multiple columns / rows)', () => {
+  it('adds several columns and they all appear', async () => {
+    await enterWeather('multicol')
+    await Weather.addColumn('alpha')
+    await Weather.addColumn('beta')
+    await Weather.addColumn('gamma')
+    // date-time + the 3 added = 4 data columns
+    await browser.waitUntil(async () => (await Weather.dataColumnCount()) === 4, {
+      timeout: 15000,
+      timeoutMsg: 'expected 4 data columns (Date-Time + alpha/beta/gamma)'
+    })
+    await Weather.waitForColumn('alpha')
+    await Weather.waitForColumn('beta')
+    await Weather.waitForColumn('gamma')
+  })
+
+  it('adds several rows and the count matches exactly', async () => {
+    await enterWeather('multirow')
+    await Weather.addRows(5)
+    await browser.waitUntil(async () => (await Weather.rowCount()) === 5, {
+      timeout: 15000,
+      timeoutMsg: 'expected exactly 5 rows'
+    })
+  })
+
+  it('adds rows in two batches and they accumulate', async () => {
+    await enterWeather('batch')
+    await Weather.addRows(5, { startDate: '2026-01-01' })
+    await Weather.addRows(3, { startDate: '2027-06-01' })
+    await browser.waitUntil(async () => (await Weather.rowCount()) === 8, {
+      timeout: 20000,
+      timeoutMsg: 'expected 8 rows after two batches (5 + 3)'
+    })
+  })
+})
+
+describe('Weather CRUD — add rows validation', () => {
+  it('rejects a numberOfRows above the max and at zero', async () => {
+    await enterWeather('arnummax')
+    await Weather.openAddRows()
+    // 10001 > 10000 upper bound -> field error.
+    await Weather.setReactInput('[data-testid="input-numberOfRows"]', '10001')
+    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: 10000 })
+    // 0 < 1 lower bound -> field error.
+    await Weather.setReactInput('[data-testid="input-numberOfRows"]', '0')
+    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: 10000 })
+    await expect(Weather.arError('numberOfRows')).toBeDisplayed()
+  })
+
+  it('rejects a deltaHours above the max and at zero', async () => {
+    await enterWeather('ardelta')
+    await Weather.openAddRows()
+    // 25 > 24 upper bound -> field error.
+    await Weather.setReactInput('[data-testid="input-deltaHours"]', '25')
+    await Weather.arError('deltaHours').waitForDisplayed({ timeout: 10000 })
+    // 0 < 1 lower bound -> field error.
+    await Weather.setReactInput('[data-testid="input-deltaHours"]', '0')
+    await Weather.arError('deltaHours').waitForDisplayed({ timeout: 10000 })
+    await expect(Weather.arError('deltaHours')).toBeDisplayed()
+  })
+
+  it('pre-seeds start date/time and delta from the last row on reopen', async () => {
+    await enterWeather('arseed')
+    await Weather.addRows(2)
+    // Reopening prefills Start Date/Time from the last row + delta, and delta carries over.
+    await Weather.openAddRows()
+    await browser.waitUntil(
+      async () => {
+        const d = await Weather.arStartDate.getValue()
+        const t = await Weather.arStartTime.getValue()
+        const dh = await Weather.arDeltaHours.getValue()
+        return d.length > 0 && t.length > 0 && dh.length > 0
+      },
+      { timeout: 10000, timeoutMsg: 'Add Rows did not pre-seed start date/time/delta on reopen' }
+    )
+    await expect(await Weather.arStartDate.getValue()).not.toBe('')
+    await expect(await Weather.arStartTime.getValue()).not.toBe('')
+    await expect(await Weather.arDeltaHours.getValue()).not.toBe('')
+    await Weather.arCancel.click()
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+  })
+
+  it('accumulates two batches across a year boundary', async () => {
+    await enterWeather('aryear')
+    await Weather.addRows(2, { startDate: '2026-12-31' })
+    await Weather.addRows(2, { startDate: '2027-01-01' })
+    await browser.waitUntil(async () => (await Weather.rowCount()) === 4, {
+      timeout: 20000,
+      timeoutMsg: 'expected 4 rows after two batches across a year boundary (2 + 2)'
+    })
+  })
+})
+
 describe('Weather CRUD — cell editing', () => {
   it('persists an edited cell value across a reopen of the project', async () => {
     const { name } = await enterWeather('celledit')
@@ -201,5 +343,31 @@ describe('Weather CRUD — cell editing', () => {
     await input.addValue('abc')
     // Non-numeric keystrokes never reach the draft -> value stays empty.
     await expect(input).toHaveValue('')
+  })
+
+  it('rejects keystrokes that exceed 7 decimal places or the global bound', async () => {
+    await enterWeather('cellguard')
+    await Weather.addColumn('g')
+    const colId = await Weather.waitForColumn('g')
+    await Weather.addRows(1)
+    const [row] = await Weather.visibleRowIds()
+    const input = Weather.cellInput(row, colId)
+
+    // (a) the 8th decimal keystroke is rejected -> draft never reaches 8 decimals.
+    await input.click()
+    await browser.keys(['Control', 'a'])
+    await browser.keys(['Delete'])
+    await input.addValue('1.12345678')
+    const decimalValue = await input.getValue()
+    expect(decimalValue).not.toBe('1.12345678')
+    const decimals = decimalValue.includes('.') ? decimalValue.split('.')[1].length : 0
+    expect(decimals <= 7).toBe(true)
+
+    // (b) a value above the global ±1e6 bound is blocked keystroke-by-keystroke.
+    await input.click()
+    await browser.keys(['Control', 'a'])
+    await browser.keys(['Delete'])
+    await input.addValue('9999999')
+    await expect(await input.getValue()).not.toBe('9999999')
   })
 })

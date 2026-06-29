@@ -166,4 +166,69 @@ describe('Weather — row selection', () => {
       { timeout: 10000, timeoutMsg: 'row checkbox did not toggle back' }
     )
   })
+
+  it('select-all checks every row and the header box reflects the rows (and back)', async () => {
+    await enterWeather('selallhdr')
+    await Weather.addRows(3)
+    const ids = await Weather.visibleRowIds()
+    // Start from a known unchecked state.
+    await expect(await Weather.selectAllCheckbox.isSelected()).toBe(false)
+    await Weather.selectAllCheckbox.click()
+    for (const rowId of ids) {
+      await browser.waitUntil(async () => Weather.rowCheckbox(rowId).isSelected(), {
+        timeout: 10000,
+        timeoutMsg: `row ${rowId} not selected after select-all`
+      })
+    }
+    // The select-all box's own state reflects that all rows are selected.
+    await browser.waitUntil(async () => Weather.selectAllCheckbox.isSelected(), {
+      timeout: 10000,
+      timeoutMsg: 'select-all checkbox did not become selected when all rows are selected'
+    })
+    await Weather.selectAllCheckbox.click()
+    for (const rowId of ids) {
+      await browser.waitUntil(async () => !(await Weather.rowCheckbox(rowId).isSelected()), {
+        timeout: 10000,
+        timeoutMsg: `row ${rowId} still selected after deselect-all`
+      })
+    }
+    await browser.waitUntil(async () => !(await Weather.selectAllCheckbox.isSelected()), {
+      timeout: 10000,
+      timeoutMsg: 'select-all checkbox did not clear when all rows are deselected'
+    })
+  })
+})
+
+describe('Weather — virtualization', () => {
+  it('renders only a windowed subset of rows for a large dataset', async () => {
+    await enterWeather('virt')
+    // 100 rows is far above any plausible visible window + overscan (a 1080px
+    // window fits ~40 rows max), so the rendered count must stay well under it.
+    await Weather.addRows(100)
+    const rendered = await Weather.rowCount()
+    // Virtualization: some rows render, but never the whole 100-row dataset.
+    expect(rendered).toBeGreaterThan(0)
+    expect(rendered).toBeLessThan(100)
+  })
+
+  it('renders unique rowIds within the virtualized window', async () => {
+    await enterWeather('virtuniq')
+    await Weather.addRows(100)
+    const ids = await Weather.visibleRowIds()
+    expect(ids.length).toBeGreaterThan(0)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+})
+
+describe('Weather — multi-column header structure', () => {
+  it('adds two managed columns and shows three data-column headers', async () => {
+    await enterWeather('multicol')
+    await Weather.addColumn('alpha')
+    await Weather.addColumn('beta')
+    await expect(await Weather.dataColumnCount()).toBe(3)
+    const alphaCol = await Weather.waitForColumn('alpha')
+    const betaCol = await Weather.waitForColumn('beta')
+    await expect(Weather.columnHeader(alphaCol)).toBeDisplayed()
+    await expect(Weather.columnHeader(betaCol)).toBeDisplayed()
+  })
 })

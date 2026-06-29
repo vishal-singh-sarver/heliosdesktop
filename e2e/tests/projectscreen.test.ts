@@ -318,3 +318,151 @@ describe('ProjectScreen — CenterWorkspace tabs', () => {
   })
   // FINDING (not tested): 3D Window / Output tabs render no content (inert placeholders).
 })
+
+describe('ProjectScreen — coordinate edge cases', () => {
+  it('correcting an invalid value clears aria-invalid', async () => {
+    await enterProject('fix')
+    await ProjectScreen.setCoordinate('latitude', '95')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
+      timeout: 5000,
+      timeoutMsg: 'aria-invalid never became true for out-of-range latitude'
+    })
+    await ProjectScreen.setCoordinate('latitude', '45')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === null, {
+      timeout: 5000,
+      timeoutMsg: 'aria-invalid never cleared after correcting the latitude'
+    })
+  })
+
+  it('treats a whitespace-padded value as valid (trimmed for validation)', async () => {
+    await enterProject('trim')
+    await ProjectScreen.setCoordinate('latitude', '  45.5  ')
+    // The validator trims before checking, so the padded value is VALID: aria-invalid
+    // is absent and no inline error is rendered. (The input keeps the user's literal
+    // text — LabeledField is not re-seeded on a same-id refetch — so we assert
+    // validity, not the displayed string.)
+    await expect(await ProjectScreen.coordInvalid('latitude')).toBe(null)
+    await expect($('[role="alert"]')).not.toBeExisting()
+  })
+
+  it('typing -0 with a seeded latitude is a no-op (UTC unchanged)', async () => {
+    await enterProject('negzero') // seeded lat 12.34
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('latitude', '-0')
+    // -0 === 0; latitude does not drive the UTC offset -> it must stay put.
+    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+  })
+})
+
+describe('ProjectScreen — coordinate persistence', () => {
+  it('a committed coordinate survives leaving and reopening the project', async () => {
+    const { name } = await enterProject('persist')
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('longitude', '-121.7405')
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
+      timeout: 15000,
+      timeoutMsg: 'UTC offset never changed after committing a new longitude'
+    })
+    // Reopen the SAME project from Home (backend session persists in-run) and
+    // confirm the committed coordinate survived the round-trip.
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    const homeId = await HomePage.rowIdForName(name)
+    await HomePage.row(homeId as string).doubleClick()
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
+  })
+})
+
+describe('ProjectScreen — scenario chip buttons (no-op)', () => {
+  it('the rename / close / add buttons exist, are clickable, and do nothing', async () => {
+    await enterProject('chipbtn')
+    const buttons = [
+      ProjectScreen.scenarioRenameBtn,
+      ProjectScreen.scenarioCloseBtn,
+      ProjectScreen.scenarioAddBtn
+    ]
+    for (const btn of buttons) {
+      await expect(await btn.isExisting()).toBe(true)
+      await expect(btn).toBeClickable()
+    }
+    // Clicking each placeholder must NOT mutate the chip or leave the screen.
+    for (const btn of buttons) {
+      await btn.click()
+    }
+    await expect(ProjectScreen.scenarioChip).toHaveText('Scenario 1', { containing: true })
+    await expect(ProjectScreen.projectTitle).toBeDisplayed()
+  })
+})
+
+describe('ProjectScreen — panel bodies are empty placeholders', () => {
+  it('expanding the left panel adds no interactive widgets', async () => {
+    await enterProject('lbody')
+    const collapsedCount = await ProjectScreen.panelButtonCount('left')
+    await ProjectScreen.toggleLeftPanel()
+    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('left'), {
+      timeout: 5000,
+      timeoutMsg: 'left panel never expanded'
+    })
+    // The expanded body is a placeholder -> button count is unchanged.
+    await expect(await ProjectScreen.panelButtonCount('left')).toBe(collapsedCount)
+  })
+
+  it('expanding the right panel adds no interactive widgets', async () => {
+    await enterProject('rbody')
+    const collapsedCount = await ProjectScreen.panelButtonCount('right')
+    await ProjectScreen.toggleRightPanel()
+    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('right'), {
+      timeout: 5000,
+      timeoutMsg: 'right panel never expanded'
+    })
+    await expect(await ProjectScreen.panelButtonCount('right')).toBe(collapsedCount)
+  })
+
+  it('both panels can be expanded simultaneously', async () => {
+    await enterProject('bothpanels')
+    await ProjectScreen.toggleLeftPanel()
+    await ProjectScreen.toggleRightPanel()
+    await browser.waitUntil(
+      async () =>
+        (await ProjectScreen.isPanelExpanded('left')) &&
+        (await ProjectScreen.isPanelExpanded('right')),
+      { timeout: 5000, timeoutMsg: 'both panels were not expanded simultaneously' }
+    )
+    await expect(await ProjectScreen.isPanelExpanded('left')).toBe(true)
+    await expect(await ProjectScreen.isPanelExpanded('right')).toBe(true)
+  })
+})
+
+describe('ProjectScreen — rapid tab switching', () => {
+  it('the Weather table remounts cleanly after rapid tab switching', async () => {
+    await enterProject('rapid')
+    await ProjectScreen.selectTab('output')
+    await ProjectScreen.selectTab('3dwindow')
+    await ProjectScreen.selectTab('weather')
+    await expect(await ProjectScreen.tabActive('weather')).toBe('true')
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+  })
+})
+
+describe('ProjectScreen — boot restore (stale ids)', () => {
+  it('a bogus activeProjectId does not crash the app (lands on Home)', async () => {
+    await enterProject('stale')
+    // Point the active project id at a non-existent project but keep the scenario
+    // id so boot tries (and fails) to restore the project screen.
+    await browser.execute((k: string) => localStorage.setItem(k, 'does-not-exist'), ACTIVE_PROJECT_KEY)
+    await browser.refresh()
+    await waitForMainWindow()
+    // The app must recover gracefully: prefer landing on Home, but tolerate staying
+    // on a project screen — the contract here is "no white screen / crash".
+    await browser.waitUntil(
+      async () =>
+        (await HomePage.projectsTable.isDisplayed()) ||
+        (await ProjectScreen.projectTitle.isDisplayed()),
+      { timeout: 20000, timeoutMsg: 'app rendered neither Home nor a project screen (white screen?)' }
+    )
+    const onHome = await HomePage.projectsTable.isDisplayed()
+    const onProject = await ProjectScreen.projectTitle.isDisplayed()
+    expect(onHome || onProject).toBe(true)
+  })
+})
