@@ -1,3 +1,3 @@
 [submodule "backend-api"]
 	path = backend-api
-	url = git@192.168.3.185:helios/backend-api.git
+	url = git@github.com:arjeettekam/backend-api.git
