@@ -331,7 +331,11 @@ export function Viewport3D(): React.JSX.Element {
   }, [])
 
   const isFetching = sceneLoad.loading || sceneLoad.objectLoading || sceneLoad.selectionLoading
-  const showLoader = isFetching || !meshReady
+  // Only surface the loading overlay when the scene actually has geometry to
+  // load/build. A scene-load cycle speculatively sets loading=true/meshReady=false
+  // before the object count is known, so without this guard an empty project
+  // flashes "Loading scene…" — and whether it's seen depends on scheduler timing.
+  const showLoader = objects.length > 0 && (isFetching || !meshReady)
 
   const updateLighting = (patch: Partial<LightingSettings>): void => {
     setLightingSettings((prev) => ({ ...prev, ...patch }))
