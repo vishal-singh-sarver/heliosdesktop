@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   # =============================================================================
-  # WINDOWS - ek hi .exe banta hai jo Windows 10 AUR 11 dono par chalta hai.
+  # WINDOWS - Produces a single .exe that runs on both Windows 10 and 11.
   # =============================================================================
   build-windows:
     runs-on: windows-2022
@@ -57,16 +57,16 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # macOS - 2 ALAG FILES: Intel (x86_64) + Apple Silicon (arm64).
+  # macOS - 2 SEPARATE FILES: Intel (x86_64) + Apple Silicon (arm64).
   #
-  # Per-OS-version (12 vs 13 vs 14...) alag build banti hi nahi - Apple ka
-  # design hai. minimumSystemVersion "12.0" set hai (package.json mein), to
-  # YE DONO files macOS 12 (Monterey) se 26 (Tahoe) tak SAB par chalti hain:
+  # There is no separate build per macOS version (12 vs 13 vs 14...) - that is
+  # by Apple's design. With minimumSystemVersion "12.0" set (in package.json),
+  # both of these files run on every macOS from 12 (Monterey) to 26 (Tahoe):
   #
-  #   intel file        -> sab Intel Macs (macOS 12-15)
-  #   apple-silicon     -> sab M1/M2/M3/M4 Macs (macOS 12-26)
+  #   intel file        -> all Intel Macs (macOS 12-15)
+  #   apple-silicon     -> all M1/M2/M3/M4 Macs (macOS 12-26)
   #
-  # NOTE: package.json ke "mac" block mein zaroori hai:
+  # NOTE: the "mac" block in package.json must contain:
   #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
   # ============================================================================
   build-macos:
@@ -128,13 +128,13 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # LINUX - HAR VERSION KI ALAG BUILD (3 alag files).
+  # LINUX - A SEPARATE BUILD PER VERSION (3 distinct files).
   #
-  #   20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04 jaisa, +Python
-  #            3.10 pehle se. KOI deadsnakes/PPA nahi. Ye file 20.04, 22.04,
-  #            24.04 SAB par chalti hai.)
-  #   22.04 -> ubuntu:22.04          (Python 3.10 default) -> 22.04 + 24.04
-  #   24.04 -> ubuntu:24.04          (Python 3.12 default) -> 24.04
+  #   20.04 -> python:3.10-bullseye  (glibc 2.31, same as Ubuntu 20.04, with
+  #            Python 3.10 already included. No deadsnakes/PPA needed. This file
+  #            runs on 20.04, 22.04, and 24.04.)
+  #   22.04 -> ubuntu:22.04          (Python 3.10 default) -> runs on 22.04 + 24.04
+  #   24.04 -> ubuntu:24.04          (Python 3.12 default) -> runs on 24.04
   # ============================================================================
   build-linux:
     runs-on: ubuntu-22.04
@@ -175,7 +175,7 @@ jobs:
           python3 --version
           OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3,10) else 0)')
           if [ "$OK" != "1" ]; then
-            echo "ERROR: Python 3.10+ chahiye par purana mila. Container image galat hai."
+            echo "ERROR: Python 3.10+ required, but an older version was found. The container image is incorrect."
             exit 1
           fi
 
@@ -273,6 +273,14 @@ jobs:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4          # default shallow checkout; needed to read package.json
+
+      - name: Read version from package.json
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -280,6 +288,8 @@ jobs:
 
       - name: Generate Release Notes
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -e
 
@@ -288,10 +298,11 @@ jobs:
           SHORT_SHA="${SHA:0:7}"
           DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
 
-          echo "## Helios QA Release" > notes.md
+          echo "## Helios QA Release v${VERSION}" > notes.md
           echo "" >> notes.md
           echo "Latest build from \`develop/M2\` branch." >> notes.md
           echo "" >> notes.md
+          echo "- **Version:** v${VERSION}" >> notes.md
           echo "- **Commit:** \`${SHORT_SHA}\`" >> notes.md
           echo "- **Built:** ${DATE}" >> notes.md
           echo "" >> notes.md
@@ -329,7 +340,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: QA-Release
-          name: "Helios QA Release (latest develop/M2)"
+          name: "Helios QA Release v${{ steps.version.outputs.version }}"
           body_path: notes.md
           files: artifacts/**/*
           draft: false

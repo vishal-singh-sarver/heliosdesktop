@@ -6,7 +6,7 @@
 # feed (not directly published).
 #
 # Flow:
-#   develop -> release -> main  ... fir tag v1.2.3 -> publish-stable.yml
+#   develop -> release -> main  ... then tag v1.2.3 -> publish-stable.yml
 #
 # Doc reference: section 5.4
 # ============================================================================
@@ -68,8 +68,8 @@ jobs:
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
-      # TZ=Asia/Kolkata: kuch tests IST-hardcoded hain (saga.test.ts ka
-      # precisionNormalized test). CI ko IST mein chalane se test pass hota hai.
+      # TZ=Asia/Kolkata: some tests are IST-hardcoded (the precisionNormalized
+      # test in saga.test.ts). Running CI in IST makes those tests pass.
       - name: Run unit tests
         env:
           TZ: Asia/Kolkata
@@ -147,7 +147,7 @@ jobs:
             arch_suffix: "-apple-silicon"
 
           # Ubuntu 20.04 - via python:3.10-bullseye container
-          # (glibc 2.31, Python 3.10 prebuilt - deadsnakes flaky tha)
+          # (glibc 2.31, Python 3.10 prebuilt - deadsnakes was flaky)
           - label: ubuntu20.04
             os: ubuntu-latest
             container: python:3.10-bullseye
@@ -159,7 +159,7 @@ jobs:
             container: ubuntu:22.04
             ubuntu_suffix: "-ubuntu22.04"
 
-          # Ubuntu 24.04 - has t64-suffixed packages, fallback below handle karta hai
+          # Ubuntu 24.04 - has t64-suffixed packages, handled by the fallback below
           - label: ubuntu24.04
             os: ubuntu-latest
             container: ubuntu:24.04
@@ -195,7 +195,7 @@ jobs:
             libglew-dev libglfw3-dev \
             zlib1g-dev libpng-dev libjpeg-dev
 
-          # Ubuntu 24.04 ke t64-suffix packages ke liye fallback function
+          # Fallback function for Ubuntu 24.04's t64-suffixed packages
           install_one() {
             apt-get install -y "$1" 2>/dev/null \
               || apt-get install -y "${1}t64" 2>/dev/null \
@@ -214,8 +214,8 @@ jobs:
         with:
           node-version: 22
 
-      # ── Signing & Notarization (Priority 2 - abhi pending) ───────────────
-      # Doc section 7 dekho. Jab certs setup ho jaayein, ye uncomment karna:
+      # ── Signing & Notarization (Priority 2 - currently pending) ──────────
+      # See doc section 7. Once the certs are set up, uncomment this:
       #
       # - name: Import Windows signing cert
       #   if: matrix.label == 'windows'
@@ -265,7 +265,7 @@ jobs:
             echo "Renamed: $file -> $new_name"
           done
 
-      # ── Linux ubuntu version suffix add karo ─────────────────────────────
+      # ── Add the Ubuntu version suffix to the Linux output ────────────────
       - name: Rename Linux output with ubuntu version
         if: matrix.ubuntu_suffix
         shell: bash
@@ -290,10 +290,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: stable-installer-${{ matrix.label }}
-          # SIRF installer files upload karo, poora dist/ NAHI.
-          # Poora dist/ mein timezone data (GMT0, Nicosia, Pacific...),
-          # Windows build logs (.tlog, .vcxproj), aur baaki junk hota hai
-          # jise GitHub Release attach nahi kar paata (HTTP 404 / invalid names).
+          # Upload ONLY the installer files, NOT the entire dist/.
+          # The full dist/ contains timezone data (GMT0, Nicosia, Pacific...),
+          # Windows build logs (.tlog, .vcxproj), and other junk that a
+          # GitHub Release cannot attach (HTTP 404 / invalid names).
           path: |
             dist/*.exe
             dist/*.dmg
@@ -305,19 +305,19 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # ── Staging Bucket Sync (Priority 1 - S3 setup ke baad) ──────────────
-      # Doc section 5.4: artifacts ko STAGING bucket mein daalo (NOT stable).
-      # publish-stable.yml fir staging se stable mein promote karega.
+      # ── Staging Bucket Sync (Priority 1 - after S3 setup) ────────────────
+      # Doc section 5.4: put artifacts into the STAGING bucket (NOT stable).
+      # publish-stable.yml then promotes them from staging to stable.
       #
       # - name: Sync to staging bucket
-      #   if: github.event_name == 'push'   # PR par nahi, sirf merge par
+      #   if: github.event_name == 'push'   # only on merge, not on PRs
       #   run: |
       #     aws s3 sync ./dist \
       #       s3://${{ secrets.UPDATE_FEED_BUCKET_STAGING }}/${{ matrix.os }}/${{ github.sha }}/ \
       #       --metadata-directive REPLACE
       #       s3://${{ secrets.UPDATE_FEED_BUCKET_STAGING }}/${{ matrix.label }}/${{ github.sha }}/
 
-      # ── macOS cleanup (notarization keychain ke liye) ────────────────────
+      # ── macOS cleanup (for the notarization keychain) ────────────────────
       - name: Remove temporary keychain
         if: startsWith(matrix.label, 'macos') && always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
