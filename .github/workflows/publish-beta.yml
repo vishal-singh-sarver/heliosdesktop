@@ -18,8 +18,8 @@ jobs:
           ref: release
 
       # ──────────────────────────────────────────────────────────────────
-      # PLACEHOLDER - jab tak S3 + Slack ready nahi, sirf ye step run hota
-      # hai. Pura workflow tab tak green raheta hai bina kuch publish kiye.
+      # PLACEHOLDER - until S3 + Slack are ready, only this step runs. The
+      # whole workflow stays green until then without publishing anything.
       # ──────────────────────────────────────────────────────────────────
       - name: Placeholder - publishing infra pending
         run: |
@@ -28,18 +28,18 @@ jobs:
           echo "=================================================="
           echo "  Selected platforms: ${{ inputs.platforms }}"
           echo ""
-          echo "  Kuch upload nahi hua. Pending:"
+          echo "  Nothing was uploaded. Pending:"
           echo "    - UPDATE_FEED_S3_ACCESS_KEY (secret)"
           echo "    - UPDATE_FEED_S3_SECRET_KEY (secret)"
           echo "    - UPDATE_FEED_BUCKET_BETA   (secret)"
           echo "    - SLACK_WEBHOOK_RELEASES    (secret)"
-          echo "  Jab ye secrets aur S3 bucket ready ho, neeche commented"
-          echo "  blocks ko uncomment karna aur is placeholder ko hatana."
+          echo "  Once these secrets and the S3 bucket are ready, uncomment the"
+          echo "  commented blocks below and remove this placeholder."
           echo "=================================================="
 
       # ── Download Packaged Installer Artifacts (Temporarily Disabled) ──
-      # download-artifact@v4 sirf SAME workflow ke artifacts le sakta hai.
-      # Doosri workflow (ci-release) se chahiye to dawidd6 wala use karo.
+      # download-artifact@v4 can only fetch artifacts from the SAME workflow.
+      # To fetch from another workflow (ci-release), use the dawidd6 action.
       #
       # - name: Download Packaged Installer Artifacts
       #   uses: actions/download-artifact@v4
@@ -76,7 +76,7 @@ jobs:
       #       --cache-control "max-age=300"
 
       # ── Slack notification (Temporarily Disabled) ────────────────────
-      # SLACK_WEBHOOK_RELEASES secret set hone par uncomment karo.
+      # Uncomment once the SLACK_WEBHOOK_RELEASES secret is set.
       #
       # - name: Notify Slack Channel
       #   if: always()

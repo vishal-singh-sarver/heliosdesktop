@@ -1,15 +1,15 @@
 # ============================================================================
 # Publish / stable
 #
-# Tag-triggered: push v1.2.3 style tag on main -> ye workflow chalega.
-# Tag = immutable record of "kya ship hua". Manual button nahi rakha jaata
-# because button koi audit trail nahi chhodta. (Doc section 5.5)
+# Tag-triggered: pushing a v1.2.3-style tag on main runs this workflow.
+# A tag is an immutable record of "what shipped". We deliberately do not use a
+# manual button because a button leaves no audit trail. (Doc section 5.5)
 #
 # 3 jobs:
-#   1. verify      - tag main par hai? artifacts mile?
-#   2. promote     - per-platform (matrix) - staging se stable bucket mein copy
-#   3. github-release - GitHub Release banao + Slack notify
-#                     (if: always() - ek platform fail ho fir bhi chale)
+#   1. verify      - is the tag on main? are the artifacts available?
+#   2. promote     - per-platform (matrix) - copy from staging to the stable bucket
+#   3. github-release - create the GitHub Release + Slack notify
+#                     (if: always() - runs even if one platform fails)
 #
 # Doc reference: section 5.5
 # ============================================================================
@@ -21,12 +21,12 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: write     # GitHub Release banane ke liye
-  actions: read       # ci-main artifacts download karne ke liye
+  contents: write     # to create the GitHub Release
+  actions: read       # to download ci-main artifacts
 
 jobs:
   # --------------------------------------------------------------------------
-  # 1. VERIFY - tag valid hai? main par hai? artifacts mile?
+  # 1. VERIFY - is the tag valid? is it on main? are the artifacts available?
   # --------------------------------------------------------------------------
   verify:
     name: Verify Tag & Artifacts
@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # poora history chahiye tag verification ke liye
+          fetch-depth: 0   # full history is required for tag verification
 
       - name: Verify tag is on main branch
         run: |
@@ -44,17 +44,17 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           echo "Checking tag: $TAG"
 
-          # Tag ka commit lo
+          # Get the tag's commit
           TAG_SHA=$(git rev-list -n 1 "$TAG")
           echo "Tag commit SHA: $TAG_SHA"
 
-          # Verify ye commit main branch par hai
+          # Verify this commit is on the main branch
           git fetch origin main
           if ! git branch -r --contains "$TAG_SHA" | grep -q 'origin/main'; then
-            echo "ERROR: Tag $TAG ka commit main branch par nahi hai. Abort."
+            echo "ERROR: The commit for tag $TAG is not on the main branch. Aborting."
             exit 1
           fi
-          echo "OK: Tag main par hai."
+          echo "OK: The tag is on main."
 
       - name: Find ci-main run for this commit
         id: find-run
@@ -65,7 +65,7 @@ jobs:
           TAG_SHA=$(git rev-list -n 1 "${GITHUB_REF#refs/tags/}")
           echo "Looking for ci-main.yml run on commit $TAG_SHA..."
 
-          # gh CLI se latest ci-main run dhoondo is commit ke liye
+          # Use the gh CLI to find the latest ci-main run for this commit
           RUN_ID=$(gh run list \
             --workflow=ci-main.yml \
             --commit="$TAG_SHA" \
@@ -75,16 +75,16 @@ jobs:
             || true)
 
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "ERROR: Is commit ke liye koi successful ci-main run nahi mila."
-            echo "Pehle main par push karo, ci-main pass hone do, fir tag karo."
+            echo "ERROR: No successful ci-main run was found for this commit."
+            echo "First push to main, let ci-main pass, then create the tag."
             exit 1
           fi
           echo "Found ci-main run: $RUN_ID"
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
   # --------------------------------------------------------------------------
-  # 2. PROMOTE - har platform ke artifacts ko staging se stable mein copy karo
-  # fail-fast: false - ek platform fail ho to baaki chalein
+  # 2. PROMOTE - copy each platform's artifacts from staging to stable
+  # fail-fast: false - if one platform fails, the others still run
   # --------------------------------------------------------------------------
   promote:
     name: Promote ${{ matrix.platform }}
@@ -112,8 +112,8 @@ jobs:
       - name: List downloaded files
         run: ls -la ./dist
 
-      # ── Stable Bucket Sync (Priority 1 - S3 setup ke baad uncomment) ─────
-      # Doc section 5.5 + section 8 dekho.
+      # ── Stable Bucket Sync (Priority 1 - uncomment after S3 setup) ───────
+      # See doc section 5.5 + section 8.
       #
       # - name: Configure AWS credentials
       #   uses: aws-actions/configure-aws-credentials@v4
@@ -137,8 +137,8 @@ jobs:
           retention-days: 90
 
   # --------------------------------------------------------------------------
-  # 3. GITHUB-RELEASE - GitHub Release banao + Slack notify
-  # if: always() - ek platform fail ho fir bhi release banao
+  # 3. GITHUB-RELEASE - create the GitHub Release + Slack notify
+  # if: always() - create the release even if one platform fails
   # --------------------------------------------------------------------------
   github-release:
     name: Create GitHub Release & Notify
@@ -173,9 +173,9 @@ jobs:
           echo "" >> notes.md
           echo "| Platform | Status |" >> notes.md
           echo "|----------|--------|" >> notes.md
-          # NOTE: matrix job ka result yahan dynamically read karna complex hai,
-          # filhaal placeholder rakha hai. Future mein workflow_run API use karke
-          # detailed status laa sakte hain.
+          # NOTE: reading the matrix job results dynamically here is complex, so
+          # this is a placeholder for now. In the future we can use the
+          # workflow_run API to surface detailed status.
           echo "| Windows  | See workflow run for details |" >> notes.md
           echo "| macOS    | See workflow run for details |" >> notes.md
           echo "| Linux    | See workflow run for details |" >> notes.md
