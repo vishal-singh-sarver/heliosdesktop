@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # poora history chahiye merge ke liye
-          token: ${{ secrets.BACKMERGE_PAT }}
+          token: ${{ secrets.PAT }}
 
       - name: Skip if main = release already
         id: check-diff
