@@ -115,6 +115,50 @@ describe('Helios end-to-end journey', () => {
       timeoutMsg: 'edited cell did not show the committed value'
     })
 
+    // ── 5b. Edit the coordinates in the project-screen header. Longitude drives
+    // the UTC offset, so committing a far-band longitude must RECOMPUTE the UTC
+    // (differential: a broken commit/recompute leaves the seeded offset). Edit
+    // longitude FIRST and wait for the recompute so the subsequent latitude
+    // commit reads the already-updated longitude (no stale-revert race).
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('longitude', '78.486')
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
+      timeout: 15000,
+      timeoutMsg: 'UTC offset never recomputed after committing a new longitude'
+    })
+    await ProjectScreen.setCoordinate('latitude', '17.385')
+    // The backend derives utc_offset from BOTH lat and lon, so editing latitude
+    // also re-derives UTC. Latitude has no header signal though, and going Home
+    // would cancel an in-flight PATCH — so poll the session-scoped project until
+    // the latitude write is durable, and take the backend's final utc_offset as
+    // the source of truth for the persistence assertion below.
+    let committedUtc = ''
+    await browser.waitUntil(
+      async () => {
+        const utc = await browser.execute(async (pid: string) => {
+          try {
+            const bridge = (window as unknown as { api?: { getBackendUrl?: () => Promise<string | null> } }).api
+            const base = (await bridge?.getBackendUrl?.()) ?? ''
+            // The app scopes project reads by a session-id header (utils/api.ts);
+            // a raw fetch without it can't resolve the project, so send it too.
+            const sid = localStorage.getItem('helios_session_id') ?? ''
+            const res = await fetch(`${base}/api/project/${pid}`, { headers: { 'session-id': sid } })
+            if (!res.ok) return null
+            const j = (await res.json()) as { project?: { latitude?: number; utc_offset?: string } }
+            const lat = j.project?.latitude
+            if (lat == null || Math.abs(lat - 17.385) >= 0.01) return null
+            return j.project?.utc_offset ?? null
+          } catch {
+            return null
+          }
+        }, id)
+        if (utc == null) return false
+        committedUtc = utc
+        return true
+      },
+      { timeout: 10000, timeoutMsg: 'latitude PATCH never reached the backend' }
+    )
+
     // ── 6. Click the Helios logo → land on Home. ProjectScreen's unmount cleanup
     // clears the active SCENARIO id, but the project id is intentionally RETAINED
     // (boot auto-restore needs both ids — see the documented contract in
@@ -146,6 +190,19 @@ describe('Helios end-to-end journey', () => {
     await expect(Weather.cellInput(editRow2, noteCol2)).toHaveValue('42')
     // …and the un-edited back-filled cell did too (column + default persisted).
     await expect(Weather.cellInput(keepRow2, noteCol2)).toHaveValue('7')
+
+    // The lat/lon edited in step 5b also persisted. UTC offset is the backend's
+    // derived string (assert exactly); coords store as float32 → assert numeric
+    // with tolerance. Differential: a dropped PATCH shows the create-time coords.
+    const lonReopened = Number(await ProjectScreen.getCoordValue('longitude'))
+    if (Math.abs(lonReopened - 78.486) > 0.01) {
+      throw new Error(`longitude did not persist: got ${lonReopened}, expected ~78.486`)
+    }
+    const latReopened = Number(await ProjectScreen.getCoordValue('latitude'))
+    if (Math.abs(latReopened - 17.385) > 0.01) {
+      throw new Error(`latitude did not persist: got ${latReopened}, expected ~17.385`)
+    }
+    expect(await ProjectScreen.getUtcValue()).toBe(committedUtc)
 
     // ── 8. Rename the project from Home via the kebab → the row reflects it.
     await ProjectScreen.goHome()

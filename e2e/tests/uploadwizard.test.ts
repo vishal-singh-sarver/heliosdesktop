@@ -1352,6 +1352,54 @@ describe('Weather import — NSRDB (date-parts + time-parts, metadata rows)', ()
   })
 })
 
+describe('Weather import — re-import replaces existing data', () => {
+  it('a second import clears the first (old columns gone, new file present)', async () => {
+    await enterWeather('reimport')
+
+    // First import: davis (ISO datetime) → lowercase `temp` + `humidity` columns.
+    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    const first = await Weather.importWithMapping({
+      date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
+    })
+    expect(first).toBe(true)
+    await Weather.waitForColumn('temp')
+    await Weather.waitForColumn('humidity')
+    await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
+      timeout: 30000,
+      timeoutMsg: 'davis import produced no rows'
+    })
+
+    // Second import: NLR1 (date/time parts) over the existing data. The import
+    // saga clears the scenario before writing (saga.ts finalizeImportWorker), so
+    // the davis columns must be GONE and only NLR1's columns remain.
+    await stubRealFile(fixture('NLR1.csv'))
+    const second = await Weather.importWithMapping(
+      {
+        headerSkip: 2,
+        date: { mode: 'parts', year: 'Year', month: 'Month', day: 'Day' },
+        time: { mode: 'parts', hour: 'Hour', minute: 'Minute' }
+      },
+      25000
+    )
+    expect(second).toBe(true)
+    const tempCol = await Weather.waitForColumn('Temperature')
+    await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
+      timeout: 30000,
+      timeoutMsg: 'NLR1 import produced no rows'
+    })
+
+    // The davis-only columns were wiped by the re-import — differential: a merge
+    // (rather than replace) would leave them resolvable by name.
+    expect(await Weather.colIdForName('temp')).toBe(null)
+    expect(await Weather.colIdForName('humidity')).toBe(null)
+
+    // …and the NLR1 content is correct: row 0 Temperature = 8.3 (matches the file).
+    const [firstRow] = await Weather.visibleRowIds()
+    const temp = await numericCell(firstRow, tempCol)
+    if (Math.abs(temp - 8.3) > 0.01) throw new Error(`Temperature[row0] = ${temp}, expected 8.3`)
+  })
+})
+
 describe('Weather import — CIMIS.xml (date string + time string)', () => {
   it('parses the pivoted XML and imports with a discovered date/time mapping', async () => {
     await enterWeather('cimisxml')

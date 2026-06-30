@@ -952,6 +952,110 @@ describe('Weather cell — global-bound validation (aria-invalid + tooltip)', ()
   })
 })
 
+describe('Weather units — unit-range validation (catalog-bounded unit)', () => {
+  // The global ±1e6 bound is covered above; this covers the UNIT-specific range
+  // (DataUnitDef.min/max → validation.ts). With data present, assigning a bounded
+  // unit must flag a value outside that unit's range with its own message.
+  // Catalog-dependent: skips cleanly if no unit exposes a finite, in-global bound
+  // (same defensive pattern as the °C→°F conversion test).
+  it("flags a value outside the assigned unit's min/max range", async function () {
+    type CatalogUnit = { unit: string; alias: string; min: number | null; max: number | null }
+    type CatalogType = { data_type: string; units: CatalogUnit[] }
+
+    await enterWeather('unitrange')
+    const colId = await columnWithRows('ur', 1)
+    const [row] = await Weather.visibleRowIds()
+
+    // Pull the catalog (units carry min/max) from the backend the app is talking
+    // to. Any failure → null → the test skips rather than falsely fails.
+    const catalog = await browser.execute(async () => {
+      try {
+        const api = (window as unknown as { api?: { getBackendUrl?: () => Promise<string | null> } }).api
+        const base = (await api?.getBackendUrl?.()) ?? ''
+        const res = await fetch(`${base}/api/data-types/`)
+        return res.ok ? await res.json() : null
+      } catch {
+        return null
+      }
+    })
+    const types: CatalogType[] = (catalog as { data_types?: CatalogType[] } | null)?.data_types ?? []
+
+    // Find a bounded (type, unit) the picker actually offers, with the bound
+    // comfortably inside the global ±1e6 so the unit message (not the global one)
+    // is the one that trips. Assign it via the header picker.
+    await Weather.openHeaderPicker(colId)
+    const typeOptions = await Weather.pickerOptions()
+    let bound: { min: number | null; max: number | null } | null = null
+    for (const t of types) {
+      if (!typeOptions.includes(t.data_type)) continue
+      const u = t.units.find(
+        (x) =>
+          (Number.isFinite(x.min) || Number.isFinite(x.max)) &&
+          (x.max == null || x.max < 999_999) &&
+          (x.min == null || x.min > -999_999)
+      )
+      if (!u) continue
+      await Weather.pickerPick(t.data_type)
+      const unitOptions = await Weather.pickerOptions()
+      const label = unitOptions.find(
+        (l) =>
+          l === u.alias ||
+          l === u.unit ||
+          l.startsWith(`${u.alias} (`) ||
+          l.startsWith(`${u.unit} (`)
+      )
+      if (!label) {
+        await Weather.pickerBack()
+        continue
+      }
+      await Weather.pickerPick(label)
+      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+      bound = { min: u.min, max: u.max }
+      break
+    }
+    if (!bound) {
+      await browser.keys(['Escape'])
+      this.skip()
+      return
+    }
+
+    // Derive an out-of-range and an in-range value from whichever bound(s) exist.
+    const { min, max } = bound
+    let over: number
+    let inside: number
+    if (min != null && max != null) {
+      over = max + 1
+      inside = (min + max) / 2
+    } else if (max != null) {
+      over = max + 1
+      inside = max - 1
+    } else if (min != null) {
+      over = min - 1
+      inside = min + 1
+    } else {
+      this.skip()
+      return
+    }
+
+    // Out-of-unit-range → aria-invalid with the unit message (NOT the global one).
+    await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, String(over))
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'cell never became aria-invalid for an out-of-unit-range value'
+    })
+    const message = await Weather.cellError(row, colId)
+    expect(message ?? '').toContain('should be')
+    expect(message ?? '').not.toContain('1000000')
+
+    // An in-range value clears the flag (guards against "everything is invalid").
+    await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, String(inside))
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === null, {
+      timeout: 10000,
+      timeoutMsg: 'in-range value did not clear aria-invalid'
+    })
+  })
+})
+
 describe('Weather units — conversion round-trip (catalog-agnostic)', () => {
   it('converting a value to another unit and back restores the original', async () => {
     await enterWeather('roundtrip')
