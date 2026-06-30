@@ -49,6 +49,8 @@ export const config: Options.Testrunner = {
 
   mochaOpts: {
     ui: 'bdd',
-    timeout: 60000,
+    // Heavy real-file imports (e.g. NSRDB NLR*.csv at 8784 rows) revalidate every
+    // row in the renderer on each mapping interaction; 60s is too tight under load.
+    timeout: 120000,
   },
 }

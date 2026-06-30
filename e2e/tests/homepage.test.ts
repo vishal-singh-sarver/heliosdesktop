@@ -299,18 +299,23 @@ describe('HomePage', () => {
       await expect(HomePage.createLatError).toHaveText(MSG.latDecimals)
     })
 
-    it('latitude 90 (boundary) shows NO error', async () => {
+    it('latitude at the upper range boundary (90) is ACCEPTED — create succeeds', async () => {
+      // Acceptance, not "no-error": fill a full valid form with lat exactly 90 and
+      // submit; the create must pass the inclusive -90<=lat<=90 check and navigate
+      // away. An off-by-one (lat<90 reject) would keep the dialog open -> red.
       await HomePage.openCreateDialogViaSidebar()
-      await setInputValue(HomePage.createLatInput, '90')
-      await HomePage.createNameInput.click()
-      await expect(HomePage.createLatError).not.toBeDisplayed()
+      await HomePage.fillAndSubmitCreate(uniqueName('lat90'), '90', '0')
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
     })
 
-    it('latitude 45.1234567 (exactly 7 decimals) shows NO error', async () => {
+    it('latitude at the 7-decimal boundary (90.1234567) is ACCEPTED — create succeeds', async () => {
+      // Acceptance, not "no-error": a full valid submit must pass validation and
+      // navigate away (the dialog closes, projectsTable leaves the DOM). If the
+      // decimal-count rule were wrongly strict at 7 places, the dialog would stay
+      // open with an error and this would go red.
       await HomePage.openCreateDialogViaSidebar()
-      await setInputValue(HomePage.createLatInput, '45.1234567')
-      await HomePage.createNameInput.click()
-      await expect(HomePage.createLatError).not.toBeDisplayed()
+      await HomePage.fillAndSubmitCreate(uniqueName('lat7'), '90.1234567', '0')
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
     })
   })
 
@@ -351,18 +356,22 @@ describe('HomePage', () => {
       await expect(HomePage.createLonError).toHaveText(MSG.lonDecimals)
     })
 
-    it('longitude 180 (boundary) shows NO error', async () => {
+    it('longitude at the upper range boundary (180) is ACCEPTED — create succeeds', async () => {
+      // Acceptance, not "no-error": a full valid submit with lon exactly 180 must
+      // pass the inclusive -180<=lon<=180 check and navigate away. An off-by-one
+      // (lon<180 reject) would keep the dialog open with an error -> red.
       await HomePage.openCreateDialogViaSidebar()
-      await setInputValue(HomePage.createLonInput, '180')
-      await HomePage.createNameInput.click()
-      await expect(HomePage.createLonError).not.toBeDisplayed()
+      await HomePage.fillAndSubmitCreate(uniqueName('lon180'), '0', '180')
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
     })
 
-    it('longitude 12.1234567 (exactly 7 decimals) shows NO error', async () => {
+    it('longitude at the 7-decimal boundary (180.1234567) is ACCEPTED — create succeeds', async () => {
+      // Acceptance, not "no-error": full valid submit with lon at the inclusive
+      // range AND exactly 7 decimals must pass and navigate away. A wrongly-strict
+      // decimal rule (>=7 reject) would keep the dialog open -> red.
       await HomePage.openCreateDialogViaSidebar()
-      await setInputValue(HomePage.createLonInput, '12.1234567')
-      await HomePage.createNameInput.click()
-      await expect(HomePage.createLonError).not.toBeDisplayed()
+      await HomePage.fillAndSubmitCreate(uniqueName('lon7'), '0', '180.1234567')
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
     })
   })
 
@@ -507,14 +516,29 @@ describe('HomePage', () => {
       await expect(HomePage.row(id)).toHaveText(name, { containing: true })
     })
 
-    it('same name with surrounding whitespace is still a no-op (trim)', async () => {
-      const { id, name } = await createProject('noopws')
+    it('renaming to a value with surrounding whitespace saves the TRIMMED name exactly', async () => {
+      // Differential trim test: rename to a NEW unique value padded with leading
+      // AND trailing spaces, then assert the persisted, displayed row name EQUALS
+      // the trimmed value with strict equality (toBe, not {containing}). If trim
+      // were OFF, the saved name would keep the spaces and this would fail.
+      const { id, name } = await createProject('trim')
+      const trimmed = uniqueName('RenamedTrim') // already <= 30 chars and unique
       await HomePage.openRowMenu(name)
       await HomePage.requestRename(id)
-      await setInputValue(HomePage.renameNameInput, `  ${name}  `)
+      await setInputValue(HomePage.renameNameInput, `  ${trimmed}  `)
       await HomePage.renameSaveButton.click()
-      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
-      await expect(HomePage.row(id)).toHaveText(name, { containing: true })
+      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await browser.waitUntil(
+        async () => (await HomePage.rowNameCell(id).getText()) === trimmed,
+        {
+          timeout: 15000,
+          // FINDING: if the app does NOT trim on rename, the row keeps the spaces
+          // and this never settles — surfacing the missing-trim as a real failure
+          // rather than force-greening it.
+          timeoutMsg: `Row name was not the trimmed value "${trimmed}" (trim-on-rename may be missing)`
+        }
+      )
+      await expect(await HomePage.rowNameCell(id).getText()).toBe(trimmed)
     })
 
     it('empty name shows the required error and blocks submit', async () => {

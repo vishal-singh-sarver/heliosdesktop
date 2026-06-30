@@ -442,6 +442,78 @@ describe('Weather CRUD — rename column + header validation', () => {
   })
 })
 
+describe('Weather CRUD — rename column header enforcement (max-30 + duplicate)', () => {
+  // OUTCOME (D3 finding): BOTH rules ARE enforced on the header-rename path, so
+  // both tests pass differentially (they go red if the rule were removed):
+  //  (a) max-30 — enforced CLIENT-side only. HeaderEditor.validateColumnName
+  //      blocks >30 chars: handleNameBlur sets the error and returns WITHOUT
+  //      calling onPatch, so the rename never reaches the saga. (The backend
+  //      rename PATCH itself accepts up to 100 chars — see
+  //      schemas/weather_header.py WeatherDataHeaderUpdateRequest — so the
+  //      30-char cap lives entirely in the renderer.) We prove non-persistence
+  //      by reopening the project and checking the canonical name is unchanged.
+  //  (b) duplicate — enforced SERVER-side. update_header returns HTTP 409
+  //      "name '…' already exists in scenario"; updateColumnFailed writes it to
+  //      columnNameErrors[colId], which HeaderEditor surfaces inline. (The app
+  //      intentionally keeps the typed text on screen rather than reverting it.)
+
+  it('(a) renaming a column to a 31-char name is rejected and never persists', async () => {
+    const { name } = await enterWeather('rnmax')
+    await Weather.addColumn('short')
+    const colId = await Weather.waitForColumn('short')
+    const tooLong = 'a'.repeat(31)
+    await Weather.renameColumn(colId, tooLong)
+    // The client-side >30 error shows. This is the rule under test: the backend
+    // rename PATCH accepts up to 100 chars, so a 31-char name is blocked ONLY by
+    // HeaderEditor.validateColumnName (handleNameBlur returns before onPatch).
+    // Differential: drop the 30-char client rule and this banner disappears.
+    await expect($('p=Column name must have 30 characters or fewer.')).toBeDisplayed()
+
+    // Prove the rename never reached the backend: reopen the project from Home
+    // (canonical names come from the backend) and confirm the column is still
+    // 'short' and the 31-char name was never committed. If the rule were
+    // removed the PATCH would have persisted the 31-char name and this fails.
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    const homeId = await HomePage.rowIdForName(name)
+    if (homeId === null) throw new Error(`could not find Home row for ${name}`)
+    await HomePage.row(homeId).doubleClick()
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+    const reColId = await Weather.waitForColumn('short')
+    await expect(Weather.columnNameInput(reColId)).toHaveValue('short')
+    await expect(await Weather.colIdForName(tooLong)).toBe(null)
+  })
+
+  it('(b) renaming a column to an existing column name is rejected (server 409, inline error)', async () => {
+    await enterWeather('rndup')
+    await Weather.addColumn('keepme')
+    const keepId = await Weather.waitForColumn('keepme')
+    await Weather.addColumn('tochange')
+    const colId = await Weather.waitForColumn('tochange')
+    // Renaming 'tochange' to the already-taken 'keepme' must be rejected by the
+    // backend (409 "name … already exists in scenario"). The app keeps the
+    // typed text on screen (by design — optimistic apply is NOT rolled back on
+    // a name clash) but surfaces the rejection as an inline error under the
+    // offending column's name input. Differential: if the backend uniqueness
+    // check were removed, the rename would SUCCEED and NO error would appear,
+    // so this goes red.
+    await Weather.renameColumn(colId, 'keepme')
+    const errorP = Weather.columnNameError(colId)
+    await browser.waitUntil(async () => errorP.isExisting(), {
+      timeout: 15000,
+      timeoutMsg: 'no inline error appeared after a duplicate-name rename (409 not surfaced)'
+    })
+    await expect(errorP).toBeDisplayed()
+    // The surfaced backend message is "name '…' already exists in scenario".
+    expect((await errorP.getText()).toLowerCase()).toContain('already exists')
+    // The ORIGINAL 'keepme' column is a distinct, untouched column with no error.
+    expect(keepId).not.toBe(colId)
+    await expect(Weather.columnNameInput(keepId)).toHaveValue('keepme')
+    await expect(await Weather.columnNameError(keepId).isExisting()).toBe(false)
+  })
+})
+
 describe('Weather CRUD — delete column', () => {
   it('confirm removes the column', async () => {
     await enterWeather('delcol')
@@ -470,9 +542,18 @@ describe('Weather CRUD — delete row', () => {
   // `.../scenario/{id}/deleteRow` (utils/constants.ts), while the backend only
   // exposes `POST .../scenario/{id}/delete` (weather.py:135) — /deleteRow 404s,
   // so deleteRowWorker rolls back the optimistic removal and the row reappears.
-  // Fix: point deleteRowsRequest at API_ROUTES.weather.delete (the correct path
-  // already exists in constants) + update service.test.ts. This goes green once
-  // the row is actually deleted.
+  //
+  // FIX IS NOT A ONE-LINE ROUTE SWAP (see service.ts deleteRowsRequest):
+  //   1. ROUTE + BODY. /delete expects a DeleteRequest OBJECT `{ row: { date, time } }`
+  //      with `extra="forbid"` (schemas/weather.py). The frontend sends a bare ARRAY
+  //      `[{ date, time }]`, so pointing at API_ROUTES.weather.delete alone turns the
+  //      404 into a 422 — the body must also change to `{ row: { date, time } }`.
+  //   2. SEMANTIC GAP. The backend "row delete" does NOT drop the timestamp; it NaNs
+  //      every column at that (date, time) via updateTimeseriesData(..., NaN)
+  //      (weather_service.py:1411+). Unless the grid drops all-empty rows, the row
+  //      stays visible (blank) and this count==1 assertion still fails. A true
+  //      "remove row" likely needs a backend change (backend-api submodule).
+  // Also update service.test.ts when the request changes.
   it('confirm removes the row', async () => {
     await enterWeather('delrow')
     await Weather.addRows(2)
@@ -632,6 +713,97 @@ describe('Weather CRUD — add rows validation', () => {
   })
 })
 
+describe('Weather Add Rows — field validation gaps', () => {
+  // Seed the THREE non-target fields with valid values, leaving the target
+  // invalid, so the asserted error is unambiguously the target's. submitForm
+  // touches every field + runs validate; the dialog stays open on any error.
+  const VALID = {
+    numberOfRows: '5',
+    startDate: '2026-01-01',
+    startTime: '00:00',
+    deltaHours: '1'
+  } as const
+
+  type ArField = 'numberOfRows' | 'startDate' | 'startTime' | 'deltaHours'
+
+  /** Set every non-target field valid, then drive the target to `value`. */
+  async function seedExcept(target: ArField, value: string): Promise<void> {
+    for (const field of ['numberOfRows', 'startDate', 'startTime', 'deltaHours'] as ArField[]) {
+      const v = field === target ? value : VALID[field]
+      await Weather.setReactInput(`[data-testid="input-${field}"]`, v)
+    }
+  }
+
+  /** Each case: seed, submit, assert exact message + dialog stays open. */
+  async function expectArError(target: ArField, value: string, message: string): Promise<void> {
+    await Weather.openAddRows()
+    await seedExcept(target, value)
+    await Weather.arSubmit.click() // submitForm marks all touched + validates
+    await Weather.arError(target).waitForDisplayed({ timeout: 10000 })
+    await expect(Weather.arError(target)).toHaveText(message)
+    // Validation blocks the submit -> the dialog must remain open.
+    await expect(Weather.addRowsDialog).toBeDisplayed()
+    await Weather.arCancel.click()
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+  }
+
+  it('numberOfRows empty -> "Number of rows is required."', async () => {
+    await enterWeather('argapnr')
+    await expectArError('numberOfRows', '', 'Number of rows is required.')
+  })
+
+  it('startDate empty -> "Start date is required."', async () => {
+    await enterWeather('argapsd')
+    await expectArError('startDate', '', 'Start date is required.')
+  })
+
+  it('startDate 1899-12-31 -> year-range error', async () => {
+    await enterWeather('argapsdyr')
+    await expectArError(
+      'startDate',
+      '1899-12-31',
+      'Start date year must be between 1900 and 3000.'
+    )
+  })
+
+  it('startTime empty -> "Start time is required."', async () => {
+    await enterWeather('argapst')
+    await expectArError('startTime', '', 'Start time is required.')
+  })
+
+  it('startTime 25:99 -> 24-hour-format error (en-dash range)', async () => {
+    await enterWeather('argapstfmt')
+    await expectArError(
+      'startTime',
+      '25:99',
+      'Start time must be in 24-hour format (00:00–23:59).'
+    )
+  })
+
+  it('deltaHours empty -> "Delta is required."', async () => {
+    await enterWeather('argapdh')
+    await expectArError('deltaHours', '', 'Delta is required.')
+  })
+
+  it('numberOfRows input guard rejects non-digit keystrokes (stays empty)', async () => {
+    await enterWeather('argapguard')
+    await Weather.openAddRows()
+    // Real keystrokes (not the setReactInput bypass) go through the controlled
+    // onChange whose /^\d*$/ gate drops any value containing a non-digit, so the
+    // field never accepts "abc". Differential: if the guard were removed the
+    // letters would land and this would fail.
+    await Weather.arNumberOfRows.click()
+    await Weather.arNumberOfRows.addValue('1a2b3')
+    // Digits land; letters are dropped by the /^\d*$/ onChange guard. Asserting the
+    // surviving '123' (not just an empty field) keeps the signal off the default ''.
+    await expect(Weather.arNumberOfRows).toHaveValue('123')
+    // The dialog is still open and usable.
+    await expect(Weather.addRowsDialog).toBeDisplayed()
+    await Weather.arCancel.click()
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+  })
+})
+
 describe('Weather CRUD — columns at scale (30 columns + delete / rename / default)', () => {
   it('adds 30 columns then back-fills a defaulted column, renames one, deletes one', async function () {
     this.timeout(180000)
@@ -734,6 +906,49 @@ describe('Weather CRUD — cell editing', () => {
     await browser.keys(['Delete'])
     await input.addValue('9999999')
     await expect(await input.getValue()).not.toBe('9999999')
+  })
+})
+
+describe('Weather cell — global-bound validation (aria-invalid + tooltip)', () => {
+  it('an injected out-of-global-bound value marks the cell invalid with the bound message', async () => {
+    await enterWeather('cellbound')
+    await Weather.addColumn('gb')
+    const colId = await Weather.waitForColumn('gb')
+    await Weather.addRows(1)
+    const [row] = await Weather.visibleRowIds()
+
+    // The CellInput keystroke gate refuses out-of-bound characters, so typing
+    // can't reach this state — inject the value via input/change events to force
+    // the commit path. validateCellValue (no unit assigned -> global branch)
+    // flags it and CellInput sets aria-invalid + the tooltip. Differential: if
+    // validateCellValue's global bound were removed, neither would appear.
+    await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, '2000000')
+
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'cell never became aria-invalid after an out-of-global-bound value'
+    })
+    await expect(await Weather.cellInvalid(row, colId)).toBe('true')
+    const message = await Weather.cellError(row, colId)
+    expect(message).not.toBe(null)
+    expect(message ?? '').toContain('Value should be between -1000000 and 1000000')
+  })
+
+  it('an in-bound value leaves the cell valid (no false positive)', async () => {
+    await enterWeather('cellboundok')
+    await Weather.addColumn('gbok')
+    const colId = await Weather.waitForColumn('gbok')
+    await Weather.addRows(1)
+    const [row] = await Weather.visibleRowIds()
+    // A value well within ±1e6 must NOT trip the validator — guards the test
+    // above from being vacuous (it isn't asserting "any value is invalid").
+    await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, '500000')
+    await browser.waitUntil(
+      async () => (await Weather.cellInput(row, colId).getValue()) === '500000',
+      { timeout: 10000, timeoutMsg: 'in-bound value did not land in the cell' }
+    )
+    await expect(await Weather.cellInvalid(row, colId)).toBe(null)
+    await expect(await Weather.cellError(row, colId)).toBe(null)
   })
 })
 
@@ -858,6 +1073,52 @@ describe('Weather units — Date-Time format picker', () => {
     await listbox.waitForDisplayed({ timeout: 10000 })
     const options = await listbox.$$('[role="option"]')
     await expect(options.length).toBeGreaterThan(1)
+  })
+
+  it('picking a Date-Time format changes the rendered date-time cells', async () => {
+    await enterWeather('dtapply')
+    // Seed date-time values so the merged date-time cells render real dates.
+    await Weather.addRows(2)
+    const colId = await Weather.dateTimeColId()
+    const [row] = await Weather.visibleRowIds()
+    const before = await Weather.dateTimeCellText(row, colId)
+    expect(before.length).toBeGreaterThan(0)
+
+    // Catalog-agnostic: find a NON-selected format whose pattern differs from
+    // the currently selected one. With a single format the picker can't change
+    // anything, so self-skip (like the unit-conversion tests).
+    await Weather.openDateTimeFormatPicker()
+    const options = await Weather.dateTimeFormatOptions()
+    const selected = options.find((o) => o.selected)?.text ?? ''
+    const target = options.find((o) => !o.selected && o.text !== selected)
+    if (!target) {
+      await Weather.dateTimeHeaderTrigger.click() // close the listbox
+      return // catalog exposes only one usable format — nothing to assert.
+    }
+    await Weather.pickDateTimeFormat(target.text)
+
+    // The SAME cell must re-render to a different string once the new unitId is
+    // patched + formatDateTime runs. Differential: if picking a format didn't
+    // re-format the cells, the text would stay `before` and this would fail.
+    await browser.waitUntil(
+      async () => (await Weather.dateTimeCellText(row, colId)) !== before,
+      {
+        timeout: 15000,
+        timeoutMsg: `date-time cell text did not change after picking "${target.text}"`
+      }
+    )
+    const after = await Weather.dateTimeCellText(row, colId)
+    expect(after).not.toBe(before)
+
+    // Shape sanity for the common ordered patterns: the chosen pattern's lead
+    // token determines the rendered cell's leading run.
+    if (target.text.startsWith('YYYY-MM-DD')) {
+      // ISO date -> leads with a 4-digit year then a dash.
+      expect(/^\d{4}-\d{2}-\d{2}/.test(after)).toBe(true)
+    } else if (target.text.startsWith('MM/DD/YYYY') || target.text.startsWith('DD/MM/YYYY')) {
+      // Slash formats -> dd/dd/yyyy ordering.
+      expect(/^\d{2}\/\d{2}\/\d{4}/.test(after)).toBe(true)
+    }
   })
 })
 
@@ -1234,14 +1495,20 @@ describe('Weather add-column — data-type dropdown options', () => {
   it('exposes a placeholder plus at least one real data type option', async () => {
     await enterWeather('ap21opts')
     await Weather.openAddColumns()
-    const options = await Weather.acDataType.$$('option')
+    const optionEls = await Weather.acDataType.$$('option')
+    const values: string[] = []
+    const texts: string[] = []
+    for (const opt of optionEls) {
+      values.push((await opt.getAttribute('value')) ?? '')
+      texts.push((await opt.getText()).trim())
+    }
     // Index 0 is the placeholder ("Select data type"); ≥1 real catalog type follows.
-    expect(options.length).toBeGreaterThan(1)
-    await expect(options[0]).toHaveText('Select data type')
+    expect(values.length).toBeGreaterThan(1)
+    expect(texts[0]).toBe('Select data type')
     // Every non-placeholder option carries a non-empty value + label.
-    for (let i = 1; i < options.length; i++) {
-      await expect(await options[i].getAttribute('value')).not.toBe('')
-      await expect((await options[i].getText()).trim().length).toBeGreaterThan(0)
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]).not.toBe('')
+      expect(texts[i].length).toBeGreaterThan(0)
     }
     await Weather.acCancel.click()
     await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })

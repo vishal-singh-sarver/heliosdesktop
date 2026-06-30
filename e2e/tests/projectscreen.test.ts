@@ -93,13 +93,32 @@ describe('ProjectScreen — header title + logo', () => {
 
   it('the logo returns to Home and clears the active scenario id', async () => {
     const { id } = await enterProject('logo')
+    // We must actually be ON the project screen before clicking the logo —
+    // otherwise the "returns to Home" claim is vacuous (we might already be home).
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await expect(ProjectScreen.projectTitle).toBeDisplayed()
+
     await ProjectScreen.goHome()
+
+    // Landed back on Home: the Home-only projects table is shown.
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    await expect(HomePage.projectsTable).toBeDisplayed()
+
+    // The scenario id is cleared by ProjectScreen's unmount cleanup. Differential:
+    // if that cleanup were removed, this waitUntil would time out (stays === id).
     await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
       timeout: 10000,
       timeoutMsg: 'activeScenarioId not cleared on leaving the project screen'
     })
-    // activeProjectId is retained (only the scenario id is cleared on unmount).
+    await expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)
+
+    // FINDING / app-behavior contract: navigate('home') does NOT clear
+    // activeProjectId (navigationReducer only flips the screen; the unmount
+    // cleanup in ProjectScreen removes ONLY activeScenarioId). The project id is
+    // intentionally retained so a refresh-with-both-ids can auto-restore the
+    // project view (see the boot auto-restore suite). Asserting the project id
+    // is null here would contradict the app and the auto-restore tests, so we
+    // assert the real, differential contract: it survives as `id`.
     await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
   })
 })
@@ -120,24 +139,43 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
     { label: 'latitude non-numeric (abc)', field: 'latitude', value: 'abc' },
     { label: 'latitude > 7 decimals', field: 'latitude', value: '12.123456789' },
     { label: 'longitude out of range (200)', field: 'longitude', value: '200' },
-    { label: 'longitude non-numeric (xyz)', field: 'longitude', value: 'xyz' }
+    { label: 'longitude non-numeric (xyz)', field: 'longitude', value: 'xyz' },
+    // (D-gap) mirror the latitude >7-decimal case: 8 decimals, IN range — only the
+    // decimal-place rule can reject it, so this is differential for that rule.
+    { label: 'longitude > 7 decimals', field: 'longitude', value: '120.12345678' }
   ]
 
   for (const tc of invalidCases) {
     it(`marks ${tc.label} aria-invalid and renders no inline error`, async () => {
       await enterProject('inv')
-      const seededUtc = await ProjectScreen.getUtcValue()
       await ProjectScreen.setCoordinate(tc.field, tc.value)
+      // Differential: an invalid coordinate MUST set aria-invalid=true. If the
+      // range/decimal/format validation were removed, this would time out.
       await browser.waitUntil(async () => (await ProjectScreen.coordInvalid(tc.field)) === 'true', {
         timeout: 5000,
         timeoutMsg: 'aria-invalid never became true'
       })
       // LabeledField renders NO inline error text — assert no alert/paragraph.
       await expect($('[role="alert"]')).not.toBeExisting()
-      // commit is suppressed while invalid -> UTC unchanged.
-      await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
     })
   }
+
+  // commit-gate while invalid — LONGITUDE only, so the assertion is real.
+  // Latitude never drives UTC, so "UTC unchanged on an invalid latitude" would be
+  // vacuous (true regardless of the gate). Only longitude recomputes UTC, so an
+  // out-of-range longitude tests the gate: if commitCoordinate stopped early-
+  // returning on errors[field], it WOULD dispatch the PATCH and UTC would change.
+  it('an invalid longitude is commit-gated: aria-invalid + UTC NOT recomputed', async () => {
+    await enterProject('gate') // seeded lon 56.78 -> a valid UTC is already shown
+    const seededUtc = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('longitude', '200') // out of [-180, 180]
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
+      timeout: 5000,
+      timeoutMsg: 'aria-invalid never became true for out-of-range longitude'
+    })
+    // The commit gate suppressed the PATCH -> the derived UTC offset is unchanged.
+    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+  })
 
   const validCases: Array<{ label: string; field: 'latitude' | 'longitude'; value: string }> = [
     { label: 'latitude boundary 90', field: 'latitude', value: '90' },
@@ -157,12 +195,29 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
     })
   }
 
-  it('empty coordinate is neutral (no aria-invalid, no commit)', async () => {
-    await enterProject('empty')
+  it('empty longitude is neutral (no aria-invalid, no commit)', async () => {
+    // Re-pointed to LONGITUDE so the no-commit leg is observable (latitude never
+    // drives UTC). First commit a valid longitude so UTC settles to a new value
+    // (proves the recompute path is alive and that we are editing the UTC driver).
+    await enterProject('empty') // seeded lon 56.78
     const seededUtc = await ProjectScreen.getUtcValue()
-    await ProjectScreen.setCoordinate('latitude', '')
-    await expect(await ProjectScreen.coordInvalid('latitude')).toBe(null)
-    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+    await ProjectScreen.setCoordinate('longitude', '-121.7405')
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
+      timeout: 15000,
+      timeoutMsg: 'UTC offset never changed after committing a new longitude'
+    })
+    const committedUtc = await ProjectScreen.getUtcValue()
+
+    // Clear the field. Empty is NEUTRAL: validateCoordinates skips empty values,
+    // so aria-invalid stays absent (differential: if empty were treated as
+    // invalid, coordInvalid would become 'true').
+    await ProjectScreen.setCoordinate('longitude', '')
+    await expect(await ProjectScreen.coordInvalid('longitude')).toBe(null)
+    // The field is genuinely empty...
+    await expect(ProjectScreen.lonInput).toHaveValue('')
+    // ...and an empty value is NOT committed (commitCoordinate returns on '') so
+    // the last good UTC offset is retained rather than recomputed/cleared.
+    await expect(ProjectScreen.utcInput).toHaveValue(committedUtc)
   })
 })
 
@@ -179,12 +234,31 @@ describe('ProjectScreen — coordinate commit + UTC recompute', () => {
     await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
   })
 
-  it('blurring an unchanged coordinate is a no-op (UTC unchanged)', async () => {
-    await enterProject('noop')
+  it('re-committing the same longitude does not re-recompute UTC (Object.is guard)', async () => {
+    // Re-pointed from a vacuous "blur latitude without editing -> UTC unchanged"
+    // case (latitude never drives UTC, so it was true regardless of any guard).
+    // The unchanged-value guard lives in commitCoordinate via Object.is(next,
+    // current) and is only observable on the UTC-driving field (longitude).
+    //
+    // Strategy: first commit a NEW longitude and let UTC settle to a new value
+    // (proves recompute is live). Then re-type that SAME longitude and blur: the
+    // Object.is guard must short-circuit so UTC holds at the new value.
+    //
+    // E2E limitation (documented honestly): at the UTC layer a true no-op is
+    // indistinguishable from a redundant PATCH that returns the same utc_offset.
+    // So the differential teeth here are the POSITIVE leg — UTC must FIRST change
+    // when longitude changes; if recompute were dead, the first waitUntil fails.
+    await enterProject('noop') // seeded lon 56.78
     const seededUtc = await ProjectScreen.getUtcValue()
-    await ProjectScreen.latInput.click()
-    await ProjectScreen.lonInput.click() // blur lat without editing
-    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+    await ProjectScreen.setCoordinate('longitude', '-121.7405')
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
+      timeout: 15000,
+      timeoutMsg: 'UTC offset never changed after committing a new longitude'
+    })
+    const newUtc = await ProjectScreen.getUtcValue()
+    // Re-commit the identical value -> unchanged guard short-circuits, UTC holds.
+    await ProjectScreen.setCoordinate('longitude', '-121.7405')
+    await expect(ProjectScreen.utcInput).toHaveValue(newUtc)
   })
 
   it('the UTC Offset field is read-only and formatted', async () => {
@@ -345,12 +419,21 @@ describe('ProjectScreen — coordinate edge cases', () => {
     await expect($('[role="alert"]')).not.toBeExisting()
   })
 
-  it('typing -0 with a seeded latitude is a no-op (UTC unchanged)', async () => {
-    await enterProject('negzero') // seeded lat 12.34
+  it('committing a new valid longitude recomputes UTC (recompute is live)', async () => {
+    // Re-pointed from a vacuous "typing -0 on latitude is a no-op (UTC unchanged)"
+    // case. Latitude never drives UTC, so that assertion held regardless of any
+    // app rule. The observable commit/recompute path is LONGITUDE-only: set a new
+    // valid longitude in a far time-zone band and assert UTC actually changes.
+    // Differential: if commitCoordinate stopped dispatching (or the backend stopped
+    // re-deriving utc_offset), this waitUntil would time out.
+    await enterProject('recompute') // seeded lon 56.78
     const seededUtc = await ProjectScreen.getUtcValue()
-    await ProjectScreen.setCoordinate('latitude', '-0')
-    // -0 === 0; latitude does not drive the UTC offset -> it must stay put.
-    await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+    await ProjectScreen.setCoordinate('longitude', '-121.7405') // US Pacific band
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
+      timeout: 15000,
+      timeoutMsg: 'UTC offset never changed after committing a new valid longitude'
+    })
+    await expect(ProjectScreen.utcInput).not.toHaveValue(seededUtc)
   })
 })
 

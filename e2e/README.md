@@ -78,7 +78,12 @@ left unchanged:
 
 - **Row delete** (`weather.test.ts`): the frontend POSTs `…/deleteRow` but the
   backend route is `…/delete` → 404 → the optimistic delete rolls back and the row
-  reappears. Fix: point `deleteRowsRequest` at `API_ROUTES.weather.delete`.
+  reappears. The fix is **not** a one-line route swap: `/delete` expects a
+  `DeleteRequest` object `{ row: { date, time } }` (`extra="forbid"`) while the
+  frontend sends a bare array `[{ date, time }]`, so the route swap alone turns the
+  404 into a 422 — the body must change too. And the backend "row delete" only NaNs
+  the cells at that timestamp (`weather_service.py:1411+`), it doesn't drop the row,
+  so a true remove likely needs a backend change. See the comment in `weather.test.ts`.
 
 **Confirmed-correct rejections** (`uploadwizard.test.ts`, passing — not findings):
 CIMIS.csv (the trailing whitespace-only CRLF line is correctly rejected, so the

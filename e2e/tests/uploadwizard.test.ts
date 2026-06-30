@@ -18,11 +18,15 @@ import {
   stubFileImport,
   stubRealFile,
   uniqueName,
+  waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
 
 before(async () => {
   await waitForMainWindow()
+  // Heavy real-file imports are timing-sensitive; make sure the backend is up
+  // before the first import so we don't pay cold-start inside a timed test.
+  await waitForBackendReady()
 })
 
 beforeEach(async () => {
@@ -1219,33 +1223,78 @@ describe('Weather import — davis (auto datetime column)', () => {
 })
 
 describe('Weather import — AMW (datetime-string, manual map)', () => {
-  it('imports AMW.csv mapping the `valid` column as a datetime string', async () => {
+  it('rejects AMW.csv: duplicate date-time entries are not supported', async () => {
+    // AMW.csv contains duplicate timestamps (e.g. "2026-05-01 01:53" appears
+    // twice). The backend intentionally rejects duplicate (date,time) data points
+    // with a 400 (_DUPLICATE_DATETIME_MSG, weather_service.py) — duplicates are
+    // unsupported BY DESIGN. So the import fails with the "Import failed" banner
+    // and the wizard stays open. We assert that rejection, not a successful import.
     await enterWeather('amwcsv')
     await stubRealFile(fixture('AMW.csv'))
-    const ok = await Weather.importWithMapping({
+    await Weather.openImportWizard()
+    await Weather.wizardBrowse.click()
+    await Weather.waitForWizardNext() // step 0 File Preview
+    await Weather.wizardNext.click()
+    await Weather.waitForWizardNext() // step 1 Data Preview
+    await Weather.wizardNext.click()
+    // step 2 Date/Time — map the combined `valid` datetime column
+    await Weather.applyDateTimeMapping({
       date: { mode: 'datetime', datetime: 'valid', format: 'YYYY-MM-DD HH:MM' }
     })
-    expect(ok).toBe(true)
-    const latCol = await Weather.waitForColumn('lat')
-    await Weather.waitForColumn('tmpc')
-    await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
-      timeout: 20000,
-      timeoutMsg: 'no rows after importing AMW.csv'
-    })
-    // lat is constant for the station (41.9904) → deterministic regardless of sort.
-    const [firstRow] = await Weather.visibleRowIds()
-    const lat = await numericCell(firstRow, latCol)
-    if (Math.abs(lat - 41.9904) > 0.001) throw new Error(`lat[row0] = ${lat}, expected ~41.9904`)
+    await Weather.waitForWizardNext() // ≥1 valid row
+    await Weather.wizardNext.click()
+    // step 3 Review — Import is rejected for duplicate timestamps.
+    await Weather.wizardImport.waitForClickable({ timeout: 30000 })
+    await Weather.wizardImport.click()
+    // The import must FAIL (wizard stays open, "Import failed" banner shown) — not
+    // succeed. Poll the wizard text so we don't depend on exact banner markup.
+    let txt = ''
+    const failed = await browser
+      .waitUntil(
+        async () => {
+          txt = await Weather.importWizard.getText().catch(() => '')
+          return /Import failed/i.test(txt)
+        },
+        { timeout: 40000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (!failed) {
+      throw new Error(`AMW.csv import did not show a failure banner. Wizard text: ${txt.slice(0, 400)}`)
+    }
+    // …and the reason is the duplicate-timestamp rejection.
+    await expect(txt).toContain('Duplicate')
   })
 
-  it('imports AMW.tsv (tab-delimited) including the tsv-only `sknt` column', async () => {
+  it('detects the tsv-only `sknt` column but disables it (it contains `M` markers)', async () => {
+    // AMW.tsv has a tab-delimited `sknt` column the .csv lacks. Tab parsing must
+    // pick it up — but `sknt` contains `M` (missing-data) tokens, so the wizard
+    // disables it as a character column BY DESIGN (StepReview shows "Character-based
+    // columns are disabled as this input is unsupported"). So we assert `sknt` is
+    // DETECTED-but-DISABLED on Review (proving the tsv parse) and that a fully
+    // numeric column (`tmpc`) still imports.
     await enterWeather('amwtsv')
     await stubRealFile(fixture('AMW.tsv'))
-    const ok = await Weather.importWithMapping({
+    await Weather.openImportWizard()
+    await Weather.wizardBrowse.click()
+    await Weather.waitForWizardNext() // step 0 File Preview
+    await Weather.wizardNext.click()
+    await Weather.waitForWizardNext() // step 1 Data Preview (tab auto-detected)
+    await Weather.wizardNext.click()
+    // step 2 Date/Time — map the combined `valid` datetime column
+    await Weather.applyDateTimeMapping({
       date: { mode: 'datetime', datetime: 'valid', format: 'YYYY-MM-DD HH:MM' }
     })
-    expect(ok).toBe(true)
-    await Weather.waitForColumn('sknt') // present only in the .tsv
+    await Weather.waitForWizardNext() // ≥1 valid row
+    await Weather.wizardNext.click()
+    // step 3 Review — `sknt` is detected (tsv-only) but disabled; `tmpc` is enabled.
+    await Weather.reviewColumnCheckbox('sknt').waitForExist({ timeout: 10000 })
+    await expect(await Weather.reviewColumnCheckbox('sknt').isEnabled()).toBe(false)
+    await expect(await Weather.reviewColumnCheckbox('tmpc').isEnabled()).toBe(true)
+    await Weather.wizardImport.waitForClickable({ timeout: 30000 })
+    await Weather.wizardImport.click()
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 120000 })
+    // The numeric column imported; the disabled `sknt` did not.
     await Weather.waitForColumn('tmpc')
     await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
       timeout: 20000,
@@ -1303,8 +1352,8 @@ describe('Weather import — NSRDB (date-parts + time-parts, metadata rows)', ()
   })
 })
 
-describe('Weather import — CIMIS.xml (date string + compact hour)', () => {
-  it('parses the pivoted XML and imports with a discovered date/hour mapping', async () => {
+describe('Weather import — CIMIS.xml (date string + time string)', () => {
+  it('parses the pivoted XML and imports with a discovered date/time mapping', async () => {
     await enterWeather('cimisxml')
     await stubRealFile(fixture('CIMIS.xml'))
     await Weather.openImportWizard()
@@ -1313,19 +1362,19 @@ describe('Weather import — CIMIS.xml (date string + compact hour)', () => {
     await Weather.wizardNext.click()
     await Weather.waitForWizardNext() // step 1: data preview
     await Weather.wizardNext.click()
-    // step 2: discover the date + hour columns from the parsed headers (the XML
-    // parser's column names for <date val hour> are resolved at runtime).
+    // step 2: discover the date + time columns from the parsed headers. The XML
+    // parses to columns `date` ("M/D/YYYY") and `time` ("HH:MM"), resolved at runtime.
     const cols = await Weather.columnOptions('date')
-    const dateCol = cols.find((c) => /date|val/i.test(c))
-    const hourCol = cols.find((c) => /hour/i.test(c))
-    if (!dateCol || !hourCol) {
-      throw new Error(`CIMIS.xml: could not find date/hour columns in [${cols.join(', ')}]`)
+    const dateCol = cols.find((c) => /^date$/i.test(c)) ?? cols.find((c) => /date/i.test(c))
+    const timeCol = cols.find((c) => /^time$/i.test(c)) ?? cols.find((c) => /time/i.test(c))
+    if (!dateCol || !timeCol) {
+      throw new Error(`CIMIS.xml: could not find date/time columns in [${cols.join(', ')}]`)
     }
     await Weather.selectDateMode('string')
     await Weather.mapColumn('date', dateCol)
     await Weather.setDateFormat('MM/DD/YYYY')
-    await Weather.selectTimeMode('compact')
-    await Weather.mapColumn('time-compact', hourCol)
+    await Weather.selectTimeMode('string')
+    await Weather.mapColumn('time-string', timeCol)
     await Weather.waitForWizardNext() // ≥1 valid row
     await Weather.wizardNext.click()
     await Weather.wizardImport.waitForClickable({ timeout: 10000 })
@@ -1367,6 +1416,112 @@ describe('Weather import — cell-edit persistence on a real import', () => {
     const col2 = await Weather.waitForColumn('humidity')
     const [row2] = await Weather.visibleRowIds()
     await expect(Weather.cellInput(row2, col2)).toHaveValue('55')
+  })
+})
+
+describe('Weather import — DT-keyword source headers are auto-excluded', () => {
+  /**
+   * (D-fix) handleImport (ImportWizard/index.tsx) drops a source header from the
+   * managed columns when EITHER half of `!dtSet.has(h) && !isDtName(h)` fails:
+   *  - dtSet    = the headers actually mapped as the date/time column;
+   *  - isDtName = any header whose NAME is a DT keyword (date / time / datetime /
+   *    timestamp / year / month / day / hour / minute / date_time).
+   * One import of `datetime,time,temperature` exercises BOTH halves:
+   *  - `datetime` is mapped → excluded by dtSet.
+   *  - `time` is NUMERIC (5,6 — it WOULD import on its own) and is NOT mapped
+   *    (datetime mode forces the time side off), so ONLY isDtName excludes it.
+   *  - `temperature` is an ordinary measurement → it DOES import (proves the run).
+   *
+   * Differential for isDtName specifically: delete the `!isDtName(h)` clause and
+   * the numeric `time` column imports as a managed column → colIdForName('time')
+   * resolves and a "time" header appears → this test goes red. (The earlier
+   * version mapped `datetime`, which dtSet alone already excludes, so it could not
+   * detect a broken isDtName net.)
+   */
+  it('a mapped datetime header AND a numeric DT-keyword-named column are both excluded', async () => {
+    await enterWeather('dtexclude')
+    const csv =
+      'datetime,time,temperature\n' +
+      '2026-01-01T00:00:00Z,5,10\n' +
+      '2026-01-01T01:00:00Z,6,11\n'
+    await stubFileImport(csv)
+    const ok = await Weather.importWithMapping({
+      date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SSZ' }
+    })
+    expect(ok).toBe(true)
+    // The ordinary measurement column DID import (proves the import actually ran).
+    await Weather.waitForColumn('temperature')
+    await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
+      timeout: 20000,
+      timeoutMsg: 'datetime-mapped import did not yield 2 rows'
+    })
+    // `datetime` is excluded by dtSet (it was the mapped DT column).
+    expect(await Weather.colIdForName('datetime')).toBe(null)
+    // `time` is excluded ONLY by isDtName — it is numeric and unmapped, so it
+    // would import if not for the keyword net. This is the isDtName differential leg.
+    expect(await Weather.colIdForName('time')).toBe(null)
+    // Neither raw header appears among the rendered data-column headers (the merged
+    // column renders the literal "Date-Time", never the raw source names).
+    const headerTexts = await Weather.dataColumnHeaders.map((th) => th.getText())
+    const trimmed = headerTexts.map((t) => t.trim())
+    expect(trimmed).not.toContain('datetime')
+    expect(trimmed).not.toContain('time')
+  })
+})
+
+describe('Weather import — malformed / empty XML is rejected', () => {
+  /**
+   * (D-gap) parseFile routes any *.xml file (or content starting with "<") to
+   * parseXml, which throws on a DOMParser `parsererror` ("Invalid XML format.")
+   * or on a document with no records / no root children ("XML is empty or has
+   * no records."). The wizard catches the throw, sets parseError, leaves
+   * `parsed` null → Next stays gated on the File step and StepFilePreview shows
+   * the red "Invalid file." banner carrying the parser message. We mirror the
+   * CIMIS.csv / USW.csv rejection assertions (staysDisabled + Next disabled),
+   * adding the StepFilePreview banner check.
+   *
+   * Differential: a regression that swallowed the XML parse error (or fell
+   * through to the delimited parser) would set `parsed` and enable Next → both
+   * the staysDisabled gate AND the "Invalid file." banner assertion go red.
+   *
+   * NOTE (not automated here, by design): calendar-validity checks (Feb 30,
+   * month 13) and the Julian day-of-year range check are short-circuited by the
+   * Date/Time step's token-count guard before those parser branches are
+   * reachable from the UI, so no UI mapping can drive them — they are covered
+   * by parsers unit tests, not by unreachable e2e cases.
+   */
+  it('a malformed .xml is rejected on the File step (Next never enables, "Invalid file." banner)', async () => {
+    await enterWeather('badxml')
+    // Unclosed/garbage tag → DOMParser parsererror → parseXml throws
+    // "Invalid XML format.".
+    await stubFileImport('<not valid xml', 'bad.xml')
+    await Weather.openImportWizard()
+    await Weather.wizardBrowse.click()
+    // The XML never parses → Next must stay gated on step 0.
+    expect(await staysDisabled()).toBe(true)
+    expect(await Weather.wizardNext.isEnabled()).toBe(false)
+    // The StepFilePreview banner shows with the "Invalid file." prefix (fileError
+    // is null, so it is NOT "Could not open file.").
+    const banner = Weather.importWizard.$('strong*=Invalid file')
+    await banner.waitForDisplayed({ timeout: 10000 })
+    await Weather.wizardCancel.click()
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+  })
+
+  it('an empty .xml is rejected on the File step (Next never enables)', async () => {
+    await enterWeather('emptyxml')
+    // Empty content with an .xml name → parseFile → parseXml → DOMParser yields
+    // an empty/parsererror document → throw → parseError, Next gated.
+    await stubFileImport('', 'empty.xml')
+    await Weather.openImportWizard()
+    await Weather.wizardBrowse.click()
+    expect(await staysDisabled()).toBe(true)
+    expect(await Weather.wizardNext.isEnabled()).toBe(false)
+    // The "Invalid file." banner surfaces the parser rejection.
+    const banner = Weather.importWizard.$('strong*=Invalid file')
+    await banner.waitForDisplayed({ timeout: 10000 })
+    await Weather.wizardCancel.click()
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
   })
 })
 

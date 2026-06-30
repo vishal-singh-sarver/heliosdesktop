@@ -113,6 +113,15 @@ class WeatherPage {
   deleteColumnButton(colId: string): El {
     return $(`[aria-label="Delete column ${colId}"]`)
   }
+  /**
+   * Inline error <p> shown under a managed column's header name input
+   * (HeaderEditor renders it for client-side required/30-char errors AND for a
+   * backend rejection such as a duplicate-name 409). Scoped to THIS column's
+   * editor via the name input's parent so a sibling column's error can't match.
+   */
+  columnNameError(colId: string): El {
+    return this.columnNameInput(colId).parentElement().$('p.text-red-500')
+  }
 
   // ----- Dialogs (disambiguated by the test-ids we added) -----
   get addColumnDialog(): El {
@@ -417,14 +426,38 @@ class WeatherPage {
     return $(`[data-testid="dt-${field}"]`)
   }
 
+  // Which select(s) a date/time mode mounts — used to confirm the mode switch
+  // re-rendered before we try to map a column into it.
+  private static readonly DATE_MODE_SELECTS: Record<string, string> = {
+    parts: 'year',
+    string: 'date',
+    julian: 'julianYear',
+    datetime: 'datetime'
+  }
+  private static readonly TIME_MODE_SELECTS: Record<string, string> = {
+    parts: 'hour',
+    string: 'time-string',
+    compact: 'time-compact'
+  }
+
   async selectDateMode(mode: 'parts' | 'string' | 'julian' | 'datetime'): Promise<void> {
     await this.dateModeRadio(mode).click()
+    await this.dtSelect(WeatherPage.DATE_MODE_SELECTS[mode]).waitForExist({ timeout: 15000 })
   }
   async selectTimeMode(mode: 'parts' | 'string' | 'compact'): Promise<void> {
     await this.timeModeRadio(mode).click()
+    await this.dtSelect(WeatherPage.TIME_MODE_SELECTS[mode]).waitForExist({ timeout: 15000 })
   }
   /** Map a date/time component select to a source column by its header name. */
   async mapColumn(field: string, header: string): Promise<void> {
+    // The date/time selects re-render after a header-skip re-parse and after a
+    // mode switch mounts the part-selects. Heavy files (8784-row NSRDB) parse +
+    // render slowly, so wait for the option to actually exist before selecting —
+    // otherwise selectByAttribute races the render and throws "value=… not found".
+    await browser.waitUntil(async () => (await this.columnOptions(field)).includes(header), {
+      timeout: 30000,
+      timeoutMsg: `option "${header}" never appeared in dt-${field}`
+    })
     await this.dtSelect(field).selectByAttribute('value', header)
   }
   async setDateFormat(key: string): Promise<void> {
@@ -519,10 +552,11 @@ class WeatherPage {
     await this.wizardBrowse.click()
     await this.waitForWizardNext() // step 0 File Preview
     await this.wizardNext.click()
-    // step 1 Data Preview
+    // step 1 Data Preview — header-skip change re-parses the whole file (slow on
+    // big files), so give the Next gate extra room.
     if (mapping.delimiter) await this.setDelimiter(mapping.delimiter)
     if (mapping.headerSkip != null) await this.setHeaderSkip(mapping.headerSkip)
-    await this.waitForWizardNext()
+    await this.waitForWizardNext(40000)
     await this.wizardNext.click()
     // step 2 Date/Time
     await this.applyDateTimeMapping(mapping)
@@ -532,11 +566,12 @@ class WeatherPage {
       .catch(() => false)
     if (!ready) return false
     await this.wizardNext.click()
-    // step 3 Review
+    // step 3 Review — building the import records maps every row; backend upload of
+    // thousands of rows + columns also takes time. Both need generous timeouts.
     for (const h of mapping.excludeColumns ?? []) await this.excludeReviewColumn(h)
-    await this.wizardImport.waitForClickable({ timeout: 10000 })
+    await this.wizardImport.waitForClickable({ timeout: 30000 })
     await this.wizardImport.click()
-    await this.importWizard.waitForDisplayed({ reverse: true, timeout: 60000 })
+    await this.importWizard.waitForDisplayed({ reverse: true, timeout: 120000 })
     return true
   }
 
@@ -613,6 +648,64 @@ class WeatherPage {
     if (!(await tip.isExisting())) return null
     const label = await tip.getAttribute('aria-label')
     return label ? label.replace(/^Validation error:\s*/, '') : null
+  }
+
+  // ===========================================================================
+  // Date-Time format picker (DateTimeHeader): the trigger opens a role=listbox
+  // whose role=option text === the catalog format pattern (u.unit). Picking one
+  // PATCHes the date-time column's unitId and re-renders every date-time cell
+  // via formatDateTime (WeatherTable.tsx). These helpers are NEW — they don't
+  // touch the existing header data-type/unit picker (headerPicker* above).
+  // ===========================================================================
+
+  /** Open the Date-Time format dropdown and wait for its listbox. */
+  async openDateTimeFormatPicker(): Promise<void> {
+    await this.dateTimeHeaderTrigger.click()
+    await this.pickerListbox.waitForDisplayed({ timeout: 10000 })
+  }
+
+  /** The format options currently shown: their text (pattern) + selected flag. */
+  async dateTimeFormatOptions(): Promise<{ text: string; selected: boolean }[]> {
+    const opts = await this.pickerListbox.$$('[role="option"]')
+    const out: { text: string; selected: boolean }[] = []
+    for (const o of opts) {
+      const text = (await o.getText()).trim()
+      const selected = (await o.getAttribute('aria-selected')) === 'true'
+      out.push({ text, selected })
+    }
+    return out
+  }
+
+  /** Click the format option whose text exactly equals `text` (closes the listbox). */
+  async pickDateTimeFormat(text: string): Promise<void> {
+    const opts = await this.pickerListbox.$$('[role="option"]')
+    for (const o of opts) {
+      if ((await o.getText()).trim() === text) {
+        await o.click()
+        await this.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+        return
+      }
+    }
+    throw new Error(`date-time format option not found: "${text}"`)
+  }
+
+  /**
+   * Resolve the merged Date-Time column's colId. On a fresh scenario the only
+   * data column is the merged date-time column, so its header testid
+   * ("weather-header-<colId>") yields the colId. Reads the FIRST data-column
+   * header — call after addRows on an otherwise-empty scenario.
+   */
+  async dateTimeColId(): Promise<string> {
+    const first = this.dataColumnHeaders[0]
+    if (!(await first.isExisting())) throw new Error('no data-column headers found')
+    const testId = await first.getAttribute('data-testid') // "weather-header-<colId>"
+    if (!testId) throw new Error('first data-column header has no data-testid')
+    return testId.replace(/^weather-header-/, '')
+  }
+
+  /** Rendered text of a date-time cell (read-only <span> inside the cell <td>). */
+  async dateTimeCellText(rowId: string, colId: string): Promise<string> {
+    return (await this.cell(rowId, colId).getText()).trim()
   }
 }
 

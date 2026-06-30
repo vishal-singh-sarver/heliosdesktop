@@ -8,6 +8,7 @@
  * `browser`, `$`, `$$`, `expect` are wdio globals (typed via e2e/tsconfig.json) —
  * no imports needed.
  */
+import { readFileSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 
@@ -31,6 +32,27 @@ export async function waitForMainWindow(): Promise<void> {
       }
     },
     { timeout: 30000, timeoutMsg: 'Main window with #root never became available' }
+  )
+}
+
+/**
+ * Wait until the Python backend process reports running, so the first import in a
+ * spec doesn't race a cold backend (the heavy real-file imports are timing-
+ * sensitive). Best-effort: resolves quietly if the api bridge isn't present yet.
+ */
+export async function waitForBackendReady(timeout = 30000): Promise<void> {
+  await browser.waitUntil(
+    async () =>
+      browser.execute(async () => {
+        const api = (window as unknown as { api?: { getBackendStatus?: () => Promise<{ running: boolean }> } }).api
+        if (!api?.getBackendStatus) return false
+        try {
+          return (await api.getBackendStatus()).running === true
+        } catch {
+          return false
+        }
+      }),
+    { timeout, timeoutMsg: 'backend never reported running' }
   )
 }
 
@@ -156,12 +178,23 @@ export async function stubFileImport(content: string, filename = 'fixture.csv'):
  * real fixture files (verifies parsing of genuine CSV/TSV/XML content).
  */
 export async function stubRealFile(absPath: string): Promise<void> {
-  await browser.electron.execute((electron, p: string) => {
-    const ipc = electron.ipcMain
-    ipc.removeHandler('dialog:openFile')
-    ipc.handle('dialog:openFile', () => p)
-    // fs:readFile is intentionally left as the real handler.
-  }, absPath)
+  // Read the genuine fixture HERE in the test (node) process, then feed it to the
+  // fs:readFile handler. A prior stubFileImport() replaces the global fs:readFile
+  // with one returning stale inline content, and IPC handlers persist for the
+  // whole spec-file app session — so we must re-stub fs:readFile with the REAL
+  // file's content, not leave the previous import test's handler in place.
+  const content = readFileSync(absPath, 'utf-8')
+  await browser.electron.execute(
+    (electron, p: string, c: string) => {
+      const ipc = electron.ipcMain
+      ipc.removeHandler('dialog:openFile')
+      ipc.handle('dialog:openFile', () => p)
+      ipc.removeHandler('fs:readFile')
+      ipc.handle('fs:readFile', () => c)
+    },
+    absPath,
+    content
+  )
 }
 
 /** Stub the file dialog to return null (user-cancelled the picker). */
