@@ -14,6 +14,7 @@
     "build": "node scripts/sync-backend.js && electron-vite build",
     "preview": "electron-vite preview",
     "sync-backend": "node scripts/sync-backend.js",
+    "setup:submodules": "bash scripts/setup-submodules.sh",
     "package": "npm run build && electron-builder",
     "package:all": "npm run build && electron-builder -mwl --publish never",
     "package:mac": "npm run build && electron-builder --mac --publish never",
