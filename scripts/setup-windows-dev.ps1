@@ -91,8 +91,25 @@ function Test-ToolchainPresent {
   return [bool]$vsPath
 }
 
-# Make submodules are checked out (cheap if already are)
+# Make submodules are checked out (cheap if already are).
+# .gitmodules uses a relative url (../backend-api.git) so a GitHub clone follows
+# the fork's account automatically; for other origins (e.g. the internal server)
+# resolve the owner and force the GitHub url before updating.
 Write-Phase 'Phase 0: ensure submodules are present'
+
+$backendOwner = $env:BACKEND_OWNER
+if (-not $backendOwner) {
+  $ghRemote = (& git remote -v | Select-String 'github\.com' | Select-Object -First 1)
+  if ($ghRemote) {
+    $m = [regex]::Match($ghRemote.ToString(), 'github\.com[:/]+([^/]+)/')
+    if ($m.Success) { $backendOwner = $m.Groups[1].Value }
+  }
+}
+if (-not $backendOwner) { $backendOwner = 'PlantSimulationLab' }
+
+Write-Host "  backend-api owner: $backendOwner"
+& git submodule sync -- backend-api | Out-Null
+& git config submodule.backend-api.url "git@github.com:$backendOwner/backend-api.git"
 & git submodule update --init --recursive
 if ($LASTEXITCODE -ne 0) {
   Write-Host "  [!] git submodule update returned $LASTEXITCODE - continuing anyway" -ForegroundColor Yellow
