@@ -6,6 +6,12 @@ import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache
 import type { PrimitiveInfo } from '../models/types'
 
 /**
+ * How many multiples of an object's median extent to frame when the camera
+ * distance is capped for elongated geometry. Larger = zoomed further out.
+ */
+const SURFACE_FRAME_MARGIN = 2.5
+
+/**
  * Frames the camera to fit the currently visible geometry.
  *
  * Re-frames when:
@@ -55,16 +61,37 @@ function FitToScene({
       const center = new THREE.Vector3()
       box.getCenter(center)
 
+      const size = new THREE.Vector3()
+      box.getSize(size)
+
       const sphere = new THREE.Sphere()
       box.getBoundingSphere(sphere)
       const radius = sphere.radius
 
       const perspCam = camera as THREE.PerspectiveCamera
       const vFovHalf = (perspCam.fov * Math.PI) / 180 / 2
-      const distance = radius / Math.sin(vFovHalf)
+      const sinHalf = Math.sin(vFovHalf)
 
+      // Distance that frames the entire bounding sphere in view.
+      const fitAll = radius / sinHalf
+
+      // Extreme-aspect geometry (e.g. a very long, shallow ground) has a
+      // bounding sphere dominated by its longest axis. Framing the whole sphere
+      // parks the camera so far away that the smaller dimensions collapse to a
+      // sub-pixel sliver and the viewport looks empty. Cap the camera distance
+      // to a few multiples of the object's median extent so the surface stays
+      // readable; the user pans to explore the long axis. For roughly cubic
+      // geometry the median ≈ the radius, so the cap never binds and normal
+      // framing is preserved.
+      const medianExtent = [size.x, size.y, size.z].sort((a, b) => a - b)[1]
+      const fitSurface = (medianExtent * SURFACE_FRAME_MARGIN) / sinHalf
+      const distance = Math.min(fitAll, fitSurface)
+
+      // Near/far must still span the full geometry even when the camera is
+      // capped close — the long axis can extend far beyond `distance`.
+      const reach = Math.max(fitAll, distance)
       perspCam.near = Math.max(0.01, distance * 0.001)
-      perspCam.far = distance * 10
+      perspCam.far = reach * 10
       perspCam.updateProjectionMatrix()
 
       const elevation = (50 * Math.PI) / 180
@@ -73,7 +100,7 @@ function FitToScene({
       const camZ = center.z + distance * Math.sin(elevation)
 
       controls.minDistance = perspCam.near * 10
-      controls.maxDistance = distance * 20
+      controls.maxDistance = reach * 20
       controls.setLookAt(camX, camY, camZ, center.x, center.y, center.z, false)
       controls.update(1 / 60)
       invalidate()
