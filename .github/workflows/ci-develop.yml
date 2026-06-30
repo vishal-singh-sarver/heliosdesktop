@@ -47,34 +47,36 @@ jobs:
       - name: Run Unit Tests
         run: npm run test
 
-  build:
-    name: Build Check (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-2022, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.PAT }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # Explicitly using modern libasound2t64 for Ubuntu 24.04 (Noble) compatibility
-      - name: Install System Graphics Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libgtk-3-dev libnss3 libxss1 libasound2t64 libxtst6 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libgbm1 libxkbcommon0 fonts-liberation xdg-utils libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
-
-      - run: npm install
-      - name: Create .env file
-        shell: bash
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-        
-      # Mapped directly to your package.json "build" script 
-      - name: Build Check
-        run: npm run build
+  # DISABLED: no builds on develop / PRs (builds run only on release/main/M2).
+  # Kept commented for reference; lint + test-unit above still gate develop and PRs.
+  # build:
+  #   name: Build Check (${{ matrix.os }})
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       os: [windows-2022, macos-latest, ubuntu-latest]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
+  #         token: ${{ secrets.PAT }}
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 22
+  #
+  #     # Explicitly using modern libasound2t64 for Ubuntu 24.04 (Noble) compatibility
+  #     - name: Install System Graphics Dependencies (Linux)
+  #       if: matrix.os == 'ubuntu-latest'
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y build-essential libgtk-3-dev libnss3 libxss1 libasound2t64 libxtst6 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libgbm1 libxkbcommon0 fonts-liberation xdg-utils libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
+  #
+  #     - run: npm install
+  #     - name: Create .env file
+  #       shell: bash
+  #       run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+  #
+  #     # Mapped directly to your package.json "build" script
+  #     - name: Build Check
+  #       run: npm run build
