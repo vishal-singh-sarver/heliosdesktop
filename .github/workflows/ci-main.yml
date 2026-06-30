@@ -76,10 +76,13 @@ jobs:
         run: npm test || echo "Unit tests completed, continuing pipeline."
 
   test-integration:
-    if: |
-      (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch'
+    # Old gate (kept for reference):
+    # if: |
+    #   (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
+    #   github.event_name == 'push' ||
+    #   github.event_name == 'workflow_dispatch'
+    # Builds the app + runs e2e, so it is a build: only on push/dispatch, never on PRs.
+    if: github.event_name != 'pull_request'
     name: Integration Tests (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -124,6 +127,8 @@ jobs:
 
   package:
     name: Package & Sign ${{ matrix.label }}
+    # Installer/package build: only on push/dispatch, never on PRs.
+    if: github.event_name != 'pull_request'
     needs:
       - lint
       - test-unit

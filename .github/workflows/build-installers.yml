@@ -3,7 +3,7 @@ name: Build Installers
 on:
   push:
     branches:
-      - develop
+      # - develop   # disabled: builds restricted to release/main/M2 (no develop builds)
       - M2
   workflow_dispatch:
 
@@ -300,7 +300,7 @@ jobs:
 
           echo "## Helios QA Release v${VERSION}" > notes.md
           echo "" >> notes.md
-          echo "Latest build from \`develop/M2\` branch." >> notes.md
+          echo "Build from the \`M2\` branch." >> notes.md
           echo "" >> notes.md
           echo "- **Version:** v${VERSION}" >> notes.md
           echo "- **Commit:** \`${SHORT_SHA}\`" >> notes.md

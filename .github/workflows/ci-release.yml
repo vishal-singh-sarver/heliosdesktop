@@ -48,6 +48,8 @@ jobs:
       - run: npm test || echo "Unit tests completed, continuing pipeline."
 
   test-integration:
+    # Builds the app + runs e2e, so it is a build: only on push, never on PRs.
+    if: github.event_name != 'pull_request'
     name: Integration Tests (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -92,6 +94,8 @@ jobs:
 
   package:
     name: Package & Sign (${{ matrix.os }})
+    # Installer/package build: only on push, never on PRs.
+    if: github.event_name != 'pull_request'
     needs:
       - lint
       - test-unit
