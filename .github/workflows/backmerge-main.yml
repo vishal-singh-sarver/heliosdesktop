@@ -8,7 +8,7 @@ on:
     types: [closed]
     branches: [main]
 
-  ## Manual trigger - emergency cases me agar koi merge accidental hua tha
+  ## Manual trigger - for emergency cases where a merge happened accidentally
   #workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ permissions:
 jobs:
   # --------------------------------------------------------------------------
   # 1. BACKMERGE-RELEASE - main -> release
-  # Pehle release ko catch up karte hain
+  # Catch up the release branch first.
   # --------------------------------------------------------------------------
   backmerge-release:
     name: Back-merge main -> release
@@ -31,8 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # poora history chahiye merge ke liye
-          token: ${{ secrets.BACKMERGE_PAT }}
+          fetch-depth: 0  # full history is required for the merge
+          token: ${{ secrets.PAT }}
 
       - name: Skip if main = release already
         id: check-diff
@@ -40,10 +40,10 @@ jobs:
           set -e
           git fetch origin release main
           if git merge-base --is-ancestor origin/main origin/release; then
-            echo "main already merged in release. Skip kar rahe hain."
+            echo "main is already merged into release. Skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "main par naye commits hain jo release mein nahi. PR banayenge."
+            echo "main has new commits that are not in release. Creating a PR."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -78,17 +78,16 @@ jobs:
           - **Trigger commit:** \`${GITHUB_SHA:0:7}\`
           - **Pushed by:** @${{ github.actor }}
 
-          Review aur merge ASAP karo taaki release branch main ke saath
-          sync mein rahe. Agar conflicts hain, manually resolve karke
-          merge karo.
+          Review and merge this ASAP so the release branch stays in sync with
+          main. If there are conflicts, resolve them manually and then merge.
           EOF
           )"
 
   # --------------------------------------------------------------------------
   # 2. BACKMERGE-DEVELOP - main -> develop
-  # backmerge-release ke baad chalega (needs:)
-  # NOTE: backmerge-release ko complete hone do (PR open ho gayi) - merge
-  # hone ka wait nahi karte. Develop wala PR independently parallel chalega.
+  # Runs after backmerge-release (needs:).
+  # NOTE: let backmerge-release complete (its PR is opened) - we do NOT wait
+  # for it to merge. The develop PR runs independently, in parallel.
   # --------------------------------------------------------------------------
   backmerge-develop:
     name: Back-merge main -> develop
@@ -103,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.BACKMERGE_PAT }}
+          token: ${{ secrets.PAT }}
 
       - name: Skip if main = develop already
         id: check-diff
@@ -111,10 +110,10 @@ jobs:
           set -e
           git fetch origin develop main
           if git merge-base --is-ancestor origin/main origin/develop; then
-            echo "main already in develop. Skip."
+            echo "main is already in develop. Skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "main par naye commits hain. PR banayenge."
+            echo "main has new commits. Creating a PR."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -149,7 +148,7 @@ jobs:
           - **Trigger commit:** \`${GITHUB_SHA:0:7}\`
           - **Pushed by:** @${{ github.actor }}
 
-          Ye PR release wali backmerge ke baad merge karo (varna conflict
-          aa sakte hain). Develop ko bhi main ke latest changes mil jaayenge.
+          Merge this PR after the release back-merge (otherwise conflicts may
+          arise). This brings main's latest changes into develop as well.
           EOF
           )"
