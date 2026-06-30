@@ -128,13 +128,24 @@ class ProjectScreenPage {
     const cls = await (side === 'left' ? this.leftPanel : this.rightPanel).getAttribute('class')
     return (cls ?? '').includes('w-[340px]')
   }
+  // The panels animate their width (transition-[width] 150ms). A coordinate click
+  // fired right after a prior toggle can land on the still-moving button and miss
+  // (the right panel is most exposed — its justify-start button sweeps ~300px as
+  // the panel grows leftward). A DOM .click() bypasses hit-testing and is
+  // deterministic regardless of the in-flight transition.
   async toggleLeftPanel(): Promise<void> {
     await this.leftCollapseBtn.waitForClickable({ timeout: 10000 })
-    await this.leftCollapseBtn.click()
+    await browser.execute((sel: string) => {
+      const el = document.querySelector(sel) as HTMLElement | null
+      el?.click()
+    }, '[data-testid="left-panel-collapse-btn"]')
   }
   async toggleRightPanel(): Promise<void> {
     await this.rightCollapseBtn.waitForClickable({ timeout: 10000 })
-    await this.rightCollapseBtn.click()
+    await browser.execute((sel: string) => {
+      const el = document.querySelector(sel) as HTMLElement | null
+      el?.click()
+    }, '[data-testid="right-panel-collapse-btn"]')
   }
 
   // ----- Tabs -----

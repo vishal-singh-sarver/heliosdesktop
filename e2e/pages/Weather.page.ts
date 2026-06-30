@@ -330,7 +330,15 @@ class WeatherPage {
 
   /** Confirm-delete a column via its trash icon + the delete-column dialog. */
   async deleteColumn(colId: string): Promise<void> {
-    await this.deleteColumnButton(colId).click()
+    // At scale the table scrolls horizontally and a mid-table column's trash icon
+    // can sit past the window edge. The header strip is `overflow-x: clip`, so
+    // scrollIntoView can't bring it into a clickable position and a coordinate
+    // click gets intercepted. Fire the React handler directly via the DOM.
+    await this.deleteColumnButton(colId).waitForExist({ timeout: 10000 })
+    await browser.execute((label: string) => {
+      const el = document.querySelector(`[aria-label="${label}"]`) as HTMLElement | null
+      el?.click()
+    }, `Delete column ${colId}`)
     await this.deleteColumnDialog.waitForDisplayed({ timeout: 10000 })
     await this.deleteColumnDialog.$('button=Delete').click()
     await this.deleteColumnDialog.waitForDisplayed({ reverse: true, timeout: 15000 })

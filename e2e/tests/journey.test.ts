@@ -2,7 +2,7 @@
  * Helios end-to-end JOURNEY — one project carried through the full lifecycle on
  * a single fresh project: create (real dialog) → land on the seeded Weather
  * table → import a REAL provider CSV → add a defaulted managed column (back-fill)
- * → edit a cell → return Home (active-project cleared) → reopen the SAME project
+ * → edit a cell → return Home (active scenario cleared, project id retained) → reopen the SAME project
  * (column + edited cell PERSISTED) → rename from Home → delete from Home.
  *
  * Every step asserts a post-condition that is DIFFERENTIAL: it goes red if the
@@ -115,16 +115,20 @@ describe('Helios end-to-end journey', () => {
       timeoutMsg: 'edited cell did not show the committed value'
     })
 
-    // ── 6. Click the Helios logo → land on Home AND the active project/scenario
-    // are cleared (differential: a no-op nav would leave these set).
+    // ── 6. Click the Helios logo → land on Home. ProjectScreen's unmount cleanup
+    // clears the active SCENARIO id, but the project id is intentionally RETAINED
+    // (boot auto-restore needs both ids — see the documented contract in
+    // projectscreen.test.ts). Assert that real contract; differential: a no-op
+    // nav would leave the scenario id set.
+    const projectIdBeforeHome = await getStorage(ACTIVE_PROJECT_KEY)
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    await browser.waitUntil(async () => (await getStorage(ACTIVE_PROJECT_KEY)) === null, {
+    await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
       timeout: 10000,
-      timeoutMsg: 'activeProjectId was not cleared after going Home'
+      timeoutMsg: 'activeScenarioId was not cleared after going Home'
     })
-    expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(null)
     expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)
+    expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(projectIdBeforeHome)
 
     // ── 7. Reopen the SAME project from Home → the added column AND the edited
     // cell PERSISTED (re-resolve colId/rowId; backend session survives in-run).
