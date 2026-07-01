@@ -52,7 +52,7 @@ function LabeledField({
   return (
     <div className={`flex items-center rounded border ${borderClass} bg-dark text-sm`}>
       <span
-        className={`flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-neutral-800/60 border-r rounded-l ${borderClass}`}
+        className={`flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-[#424242] border-r rounded-l ${borderClass}`}
       >
         {label}
         {labelAdornment}

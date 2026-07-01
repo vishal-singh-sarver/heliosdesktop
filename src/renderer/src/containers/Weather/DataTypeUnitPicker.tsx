@@ -108,7 +108,7 @@ function DataTypeUnitPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-1 rounded border border-app-border bg-dark px-2 py-1 text-xs text-neutral-200 outline-none hover:border-neutral-500 focus:border-neutral-500"
+        className="flex w-full items-center justify-between gap-1 rounded border border-app-border bg-[#424242] px-2 py-1 text-xs text-neutral-200 outline-none hover:border-neutral-500 focus:border-neutral-500"
       >
         <span className="truncate">{buttonLabel}</span>
         <span aria-hidden className="text-neutral-400">

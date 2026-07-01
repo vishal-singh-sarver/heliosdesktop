@@ -5,7 +5,7 @@ exports[`<LabeledField /> > matches the snapshot (disabled) 1`] = `
   class="flex items-center rounded border border-app-border bg-dark text-sm"
 >
   <span
-    class="flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-neutral-800/60 border-r rounded-l border-app-border"
+    class="flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-[#424242] border-r rounded-l border-app-border"
   >
     UTC Offset
   </span>
@@ -24,7 +24,7 @@ exports[`<LabeledField /> > matches the snapshot (editable) 1`] = `
   class="flex items-center rounded border border-app-border bg-dark text-sm"
 >
   <span
-    class="flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-neutral-800/60 border-r rounded-l border-app-border"
+    class="flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-[#424242] border-r rounded-l border-app-border"
   >
     Latitude
   </span>
@@ -41,7 +41,7 @@ exports[`<LabeledField /> > matches the snapshot (read-only) 1`] = `
   class="flex items-center rounded border border-app-border bg-dark text-sm"
 >
   <span
-    class="flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-neutral-800/60 border-r rounded-l border-app-border"
+    class="flex items-center gap-1.5 px-3 py-1 text-neutral-200 bg-[#424242] border-r rounded-l border-app-border"
   >
     Latitude
   </span>
