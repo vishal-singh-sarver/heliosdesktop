@@ -455,6 +455,82 @@ describe('ProjectScreen — coordinate persistence', () => {
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
     await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
   })
+
+  it('an edited latitude persists across leaving and reopening the project', async () => {
+    // The longitude case above barriers on a visible UTC change. Latitude does NOT
+    // drive UTC and there is no loading/disabled DOM signal on the inputs, so a
+    // committed-then-navigate race could reopen BEFORE the PATCH lands and mask a
+    // broken latitude write path. We must NOT also commit longitude to force a UTC
+    // change — the second commit merges with activeProject's stale latitude and
+    // clobbers the just-written value (a lost update). So we commit ONLY latitude,
+    // then confirm the PATCH actually PERSISTED server-side before navigating.
+    //
+    // Barrier (network confirmation): poll GET /api/project/{id} — with the
+    // session-id header the app itself uses — until the backend reports the NEW
+    // latitude. Only then goHome → reopen → assert the reopened latInput.
+    //
+    // Differential: create at 45.5, edit to -33.8688. If the latitude commit
+    // branch (index.tsx commitCoordinate) or the backend latitude persistence were
+    // dropped, the barrier would time out (server never reports -33.8688) OR the
+    // reopened input would show the create-time 45.5 → red.
+    const CREATE_LAT = '45.5'
+    const NEW_LAT = '-33.8688'
+    const { id, name } = await enterProject('latpersist', CREATE_LAT, '56.78')
+
+    // Sanity: the header shows the create-time latitude before we edit it, so the
+    // assertion below is genuinely about the EDIT surviving, not the seed.
+    await expect(ProjectScreen.latInput).toHaveValue(CREATE_LAT)
+
+    // Commit ONLY latitude (setCoordinate blurs latitude by clicking longitude,
+    // which commits latitude but does NOT commit longitude — no lost update).
+    await ProjectScreen.setCoordinate('latitude', NEW_LAT)
+
+    // Network barrier: poll the backend (same base URL + session-id the renderer
+    // uses) until the project's persisted latitude equals the new value. This
+    // proves the PATCH round-tripped before we navigate away.
+    await browser.waitUntil(
+      async () => {
+        const persisted = await browser.execute(async (projectId: string) => {
+          try {
+            const w = window as unknown as {
+              api?: { getBackendUrl?: () => Promise<string | null> }
+              __APP_BASE_URL__?: string
+            }
+            const base = (await w.api?.getBackendUrl?.()) ?? w.__APP_BASE_URL__ ?? ''
+            const sessionId = localStorage.getItem('helios_session_id') ?? ''
+            const res = await fetch(`${base}/api/project/${projectId}`, {
+              headers: { accept: 'application/json', 'session-id': sessionId }
+            })
+            if (!res.ok) return null
+            const body = (await res.json()) as { project?: { latitude?: number } }
+            return body.project?.latitude ?? null
+          } catch {
+            return null
+          }
+        }, id)
+        return typeof persisted === 'number' && Math.abs(persisted - Number(NEW_LAT)) < 1e-9
+      },
+      {
+        timeout: 20000,
+        timeoutMsg: `backend never reported the edited latitude ${NEW_LAT} for project ${id}`
+      }
+    )
+
+    // Now that persistence is confirmed, leave and reopen the SAME project.
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    const homeId = await HomePage.rowIdForName(name)
+    await HomePage.row(homeId as string).doubleClick()
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+
+    // The reopened header must show the EDITED latitude (seeded from the freshly
+    // fetched project metadata), never the create-time 45.5.
+    await browser.waitUntil(async () => (await ProjectScreen.getCoordValue('latitude')) === NEW_LAT, {
+      timeout: 15000,
+      timeoutMsg: 'reopened latitude input never showed the edited value'
+    })
+    await expect(ProjectScreen.latInput).toHaveValue(NEW_LAT)
+  })
 })
 
 describe('ProjectScreen — scenario chip buttons (no-op)', () => {

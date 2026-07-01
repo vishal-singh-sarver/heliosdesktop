@@ -160,13 +160,36 @@ describe('Weather import — happy path', () => {
     })
   })
 
-  it('surfaces the truncation toast when a value exceeds 7 decimals', async () => {
+  it('surfaces the truncation toast AND stores the value truncated to 7 decimals', async () => {
     await enterWeather('toast')
+    // 1.123456789 has 9 decimals -> truncateToMaxDecimals writes 1.1234567 (7).
+    // The toast (wouldTruncateAny) and the value-writer (truncateToMaxDecimals)
+    // are SEPARATE functions, so assert BOTH: the warning fires AND the stored
+    // cell actually carries the truncated value. A writer regression that skipped
+    // truncation (or truncated to the wrong length) would still fire the toast —
+    // this assertion is what makes the test differential on the write path.
     await stubFileImport(
       ['datetime,temperature', '2026-01-01T00:00:00Z,1.123456789'].join('\n')
     )
     await Weather.runImport()
     await Weather.importToastDismiss.waitForDisplayed({ timeout: 15000 })
+    // Exactly one row imported.
+    const colId = await Weather.waitForColumn('temperature')
+    await browser.waitUntil(async () => (await Weather.rowCount()) === 1, {
+      timeout: 20000,
+      timeoutMsg: 'truncation import did not yield exactly 1 row'
+    })
+    const [rowId] = await Weather.visibleRowIds()
+    // The imported cell holds the value truncated to 7 decimals — not the raw
+    // 9-decimal source, and not a rounded value.
+    await browser.waitUntil(
+      async () => (await Weather.cellInput(rowId, colId).getValue()) === '1.1234567',
+      {
+        timeout: 15000,
+        timeoutMsg: 'imported temperature cell did not read the 7-decimal truncated value'
+      }
+    )
+    expect(await Weather.cellInput(rowId, colId).getValue()).toBe('1.1234567')
   })
 })
 
@@ -726,6 +749,64 @@ describe('Weather import — invalid date / time labels', () => {
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
     await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+describe('Weather import — mixed validity (unparseable-date rows are excluded)', () => {
+  /**
+   * canProceedDateTime gates on validCount > 0 (index.tsx:329), NOT on
+   * "all rows valid" — so a file with SOME valid + SOME unparseable-date rows
+   * clears the Date/Time gate and IMPORTS (unlike an all-invalid file, which
+   * gates Next forever). The upload saga (finalizeImportWorker, containers/
+   * Weather/saga.ts ~243-248) builds the backend upload from rowKeys filtered by
+   * `dtIso !== null`, so a row whose date could not be parsed is EXCLUDED from the
+   * import. This is the intended contract: the valid rows import (sorted ascending
+   * by Date-Time) and the unparseable-date row is ruled out.
+   */
+  it('imports only the valid-date rows; the unparseable-date row is excluded', async () => {
+    await enterWeather('mixedvalid')
+    // Two valid ISO datetimes (deliberately out of order to prove the sort) plus
+    // one unparseable-date row carrying temp 9 — which must NOT survive.
+    await stubFileImport(
+      [
+        'datetime,temp',
+        '2026-01-01T02:00:00Z,7', // valid, later
+        'NOT-A-DATE,9', // unparseable date -> excluded (temp 9 must not appear)
+        '2026-01-01T00:00:00Z,5' // valid, earlier
+      ].join('\n')
+    )
+    // Mixed validity clears the Date/Time gate (validCount = 2 > 0), so the
+    // import runs to completion rather than gating Next.
+    const ok = await Weather.importWithMapping({
+      date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SSZ' }
+    })
+    expect(ok).toBe(true)
+    const tempCol = await Weather.waitForColumn('temp')
+
+    // Exactly the TWO valid rows land — the unparseable-date row is excluded.
+    await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
+      timeout: 20000,
+      timeoutMsg: 'mixed-validity import did not settle to exactly 2 valid rows'
+    })
+    const rowIds = await Weather.visibleRowIds()
+    expect(rowIds.length).toBe(2)
+
+    // Both surviving rows have a real Date-Time (none reads "Invalid"), in
+    // ascending order — the earlier 00:00 row precedes the 02:00 row even though
+    // the source listed 02:00 first (both render "MM/DD/YYYY HH:MM").
+    const dtColId = await Weather.dateTimeColId()
+    const dtTexts: string[] = []
+    for (const rid of rowIds) dtTexts.push(await Weather.dateTimeCellText(rid, dtColId))
+    expect(dtTexts.some((t) => t === 'Invalid')).toBe(false)
+    expect(dtTexts[0] < dtTexts[1]).toBe(true)
+
+    // Differential: the surviving temps are the VALID rows' (5 then 7, matching
+    // ascending Date-Time order); the excluded row's temp 9 is absent. Keeping the
+    // invalid row (a 3rd row / a 9) OR dropping a valid row would fail this.
+    const temps: number[] = []
+    for (const rid of rowIds) temps.push(Number(await Weather.cellInput(rid, tempCol).getValue()))
+    expect(temps).toEqual([5, 7])
   })
 })
 

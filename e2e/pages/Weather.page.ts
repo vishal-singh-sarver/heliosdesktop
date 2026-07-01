@@ -51,6 +51,25 @@ export interface ImportMapping {
   excludeColumns?: string[]
 }
 
+/**
+ * Minimal catalog shapes returned by GET /api/data-types/ (see
+ * ProjectScreen/types.ts DataUnitDef/DataTypeDef). Only the fields the
+ * Add-Column tests read are typed here.
+ */
+export interface WeatherCatalogUnit {
+  id: number
+  unit: string
+  alias: string
+  min: number | null
+  max: number | null
+  is_base: boolean
+}
+export interface WeatherCatalogType {
+  id: number
+  data_type: string
+  units: WeatherCatalogUnit[]
+}
+
 class WeatherPage {
   // ----- Toolbar -----
   get filterButton(): El {
@@ -604,6 +623,38 @@ class WeatherPage {
     await this.wizardImport.click()
     await this.importWizard.waitForDisplayed({ reverse: true, timeout: 120000 })
     return true
+  }
+
+  // ===========================================================================
+  // Catalog access (GET /api/data-types/) — units carry min/max ranges and the
+  // is_base flag the Add-Column dialog auto-selects on data-type change. Fetched
+  // in-page via the SAME backend the app talks to (window.api.getBackendUrl()).
+  // Any failure resolves to null so callers can self-skip rather than falsely
+  // fail. Shape mirrors DataTypeDef/DataUnitDef in ProjectScreen/types.ts.
+  // ===========================================================================
+
+  async fetchCatalog(): Promise<WeatherCatalogType[] | null> {
+    const catalog = await browser.execute(async () => {
+      try {
+        const api = (window as unknown as { api?: { getBackendUrl?: () => Promise<string | null> } })
+          .api
+        const base = (await api?.getBackendUrl?.()) ?? ''
+        const res = await fetch(`${base}/api/data-types/`)
+        return res.ok ? await res.json() : null
+      } catch {
+        return null
+      }
+    })
+    return (catalog as { data_types?: WeatherCatalogType[] } | null)?.data_types ?? null
+  }
+
+  /**
+   * The label the Add-Column dialog's unit <select> renders for a unit:
+   * "unit (alias)" when an alias exists, else the bare unit. Mirrors
+   * AddColumnDialog.tsx unitOptions (~143-150).
+   */
+  unitSelectLabel(u: WeatherCatalogUnit): string {
+    return u.alias ? `${u.unit} (${u.alias})` : u.unit
   }
 
   // ===========================================================================

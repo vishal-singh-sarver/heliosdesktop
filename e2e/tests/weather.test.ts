@@ -9,6 +9,7 @@
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
+import type { WeatherCatalogType, WeatherCatalogUnit } from '../pages/Weather.page'
 import { enterProject, reloadToHome, stubFileImport, waitForMainWindow } from '../support/harness'
 
 before(async () => {
@@ -1649,5 +1650,196 @@ describe('Weather add-column — large dataset stays responsive', () => {
       timeout: 20000,
       timeoutMsg: 'add-column control did not work after the large dataset'
     })
+  })
+})
+
+describe('Weather add-column — submit with data type + auto-selected unit', () => {
+  // GAP 1: the existing "data-type/unit wiring" test (line ~404) selects a type,
+  // checks the unit select enables, then CANCELS — it never submits, so neither
+  // the base-unit auto-select (AddColumnDialog.tsx handleDataTypeChange ~162-175,
+  // which sets unitId to `units.find(is_base) ?? units[0]`) nor the CREATED
+  // column carrying that type/unit is exercised. Here we SUBMIT with only a data
+  // type chosen (no unit override) and assert the new column's header picker
+  // label reflects the auto-selected base unit — i.e. the type+unit landed on
+  // the column. Catalog-agnostic: pick the FIRST real type the dialog offers and
+  // read the expected base-unit label from the backend catalog; self-skip only
+  // if the catalog exposes no selectable data type.
+  it("the created column's header shows the auto-selected base unit", async function () {
+    await enterWeather('gap1auto')
+
+    // The unassigned header-picker label (DataTypeUnitPicker buttonLabel: no
+    // unit + no type -> 'Data Type'). This is the "empty" state the differential
+    // guards against.
+    const UNASSIGNED_LABEL = 'Data Type'
+
+    await Weather.openAddColumns()
+    // Read the first REAL data-type option (index 0 is the "Select data type"
+    // placeholder). This is catalog-agnostic: whatever type the app offers first.
+    const typeOptions = await Weather.acDataType.$$('option')
+    let firstType = ''
+    for (const opt of typeOptions) {
+      const value = (await opt.getAttribute('value')) ?? ''
+      if (value !== '') {
+        firstType = (await opt.getText()).trim()
+        break
+      }
+    }
+    if (firstType === '') {
+      await Weather.acCancel.click()
+      this.skip() // catalog exposes no selectable data type — nothing to assert.
+      return
+    }
+
+    // Resolve which unit the dialog will AUTO-SELECT for this type from the same
+    // catalog the app uses: base unit (is_base) else the first unit. The header
+    // picker button then renders `unit.unit` (DataTypeUnitPicker buttonLabel).
+    const catalog = await Weather.fetchCatalog()
+    const catType = catalog?.find((t) => t.data_type === firstType)
+    const baseUnit: WeatherCatalogUnit | undefined =
+      catType?.units.find((u) => u.is_base) ?? catType?.units[0]
+    if (!baseUnit) {
+      await Weather.acCancel.click()
+      this.skip() // the first type has no units — can't assert an auto-selected unit.
+      return
+    }
+
+    // Select ONLY the data type — do NOT touch the unit select, so the base-unit
+    // auto-select (handleDataTypeChange) is what carries a unit into submit.
+    await Weather.setReactInput('[data-testid="input-parameterName"]', 'autoUnit')
+    await Weather.acDataType.selectByVisibleText(firstType)
+    // The auto-select must land: the unit <select> now has a non-empty value.
+    await browser.waitUntil(async () => (await Weather.acUnit.getValue()) !== '', {
+      timeout: 10000,
+      timeoutMsg: 'data-type change did not auto-select a unit (unitId stayed empty)'
+    })
+    await Weather.acSubmit.click()
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+
+    // The created column's header picker label must reflect the assigned unit.
+    // The picker button also renders a decorative ▾ caret alongside the label
+    // text, so normalize it out before comparing (getText concatenates both).
+    const norm = (s: string): string => s.replace(/▾/g, '').trim()
+    const colId = await Weather.waitForColumn('autoUnit')
+    await browser.waitUntil(
+      async () => norm(await Weather.headerPickerLabel(colId)) === baseUnit.unit,
+      {
+        timeout: 15000,
+        timeoutMsg:
+          `header picker label never became the base unit "${baseUnit.unit}" ` +
+          '(type/unit was dropped on submit?)'
+      }
+    )
+    const label = norm(await Weather.headerPickerLabel(colId))
+    // Differential: if the dialog dropped the type/unit on submit, the column
+    // would carry no unit and the label would be the unassigned 'Data Type'
+    // (or the bare type name) — never the base unit's `unit` string.
+    expect(label).toBe(baseUnit.unit)
+    expect(label).not.toBe(UNASSIGNED_LABEL)
+    expect(label).not.toBe(firstType)
+  })
+})
+
+describe('Weather add-column — default value unit-range validation', () => {
+  // GAP 2: AddColumnDialog.tsx validate (~83-94) runs validateCellValue on the
+  // default value once a type + unit WITH a min/max range is assigned. An
+  // out-of-range default sets formik.errors.defaultValue, which (a) surfaces the
+  // range message (validation.ts formatRangeMessage ~44-49) and (b) gates the
+  // submit button (disabled={loading || Boolean(errors.defaultValue)}) so the
+  // dialog stays open. We probe the catalog for a bounded unit comfortably inside
+  // the global ±1e6 (so the UNIT message trips, not the global one), assign it in
+  // the dialog, and assert both the OUT-of-range rejection AND an IN-range accept
+  // (differential control). Self-skips if no bounded unit exists.
+  it('rejects an out-of-unit-range default and accepts an in-range one', async function () {
+    await enterWeather('gap2range')
+
+    const catalog = await Weather.fetchCatalog()
+    if (!catalog) {
+      // Catalog fetch failed (backend unreachable) — cannot probe ranges.
+      this.skip()
+      return
+    }
+
+    // Find a (type, unit) whose unit carries a finite bound well inside the
+    // global ±1e6, so validateCellValue emits the UNIT message rather than the
+    // global one. Same defensive bound as the existing cell unit-range test.
+    let picked:
+      | { type: WeatherCatalogType; unit: WeatherCatalogUnit; min: number | null; max: number | null }
+      | null = null
+    for (const type of catalog) {
+      const unit = type.units.find(
+        (u) =>
+          (Number.isFinite(u.min) || Number.isFinite(u.max)) &&
+          (u.max == null || u.max < 999_999) &&
+          (u.min == null || u.min > -999_999)
+      )
+      if (unit) {
+        picked = { type, unit, min: unit.min, max: unit.max }
+        break
+      }
+    }
+    if (!picked) {
+      // No catalog unit exposes a finite in-global-bound min/max range.
+      this.skip()
+      return
+    }
+
+    const { min, max } = picked
+    // Derive an OUT-of-range and an IN-range value from whichever bound(s) exist.
+    let over: number
+    let inside: number
+    if (min != null && max != null) {
+      over = max + 1
+      inside = (min + max) / 2
+    } else if (max != null) {
+      over = max + 1
+      inside = max - 1
+    } else {
+      // min-only bound.
+      over = (min as number) - 1
+      inside = (min as number) + 1
+    }
+    // The exact message formatRangeMessage produces for this unit's bounds.
+    const expectedMessage =
+      min != null && max != null
+        ? `Value should be between ${min} and ${max}`
+        : max != null
+          ? `Values should be ≤ ${max}`
+          : `Values should be ≥ ${min}`
+
+    // Open the dialog, assign the bounded type + unit, and set an OUT-of-range
+    // default. Selecting the type auto-selects a base unit, so we OVERRIDE with
+    // the exact bounded unit label the <select> renders.
+    await Weather.openAddColumns()
+    await Weather.setReactInput('[data-testid="input-parameterName"]', 'ranged')
+    await Weather.acDataType.selectByVisibleText(picked.type.data_type)
+    await browser.waitUntil(async () => Weather.acUnit.isEnabled(), {
+      timeout: 10000,
+      timeoutMsg: 'unit select never enabled after choosing the bounded data type'
+    })
+    await Weather.acUnit.selectByVisibleText(Weather.unitSelectLabel(picked.unit))
+    await Weather.setReactInput('[data-testid="input-defaultValue"]', String(over))
+
+    // (a) OUT-of-range -> the unit range message shows AND submit is gated.
+    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
+    await expect(Weather.acDefaultError).toHaveText(expectedMessage)
+    // Not the GLOBAL bound message — this is the UNIT-specific range.
+    expect(await Weather.acDefaultError.getText()).not.toContain('1000000')
+    await expect(await Weather.acSubmit.isEnabled()).toBe(false)
+    // Submit is gated -> the dialog stays open (clicking does nothing).
+    await Weather.acSubmit.click()
+    await expect(Weather.addColumnDialog).toBeDisplayed()
+
+    // (b) IN-range control -> the range error clears and submit re-enables. This
+    // guards the test from being vacuous ("any default is rejected").
+    await Weather.setReactInput('[data-testid="input-defaultValue"]', String(inside))
+    await Weather.acDefaultError.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await browser.waitUntil(async () => Weather.acSubmit.isEnabled(), {
+      timeout: 10000,
+      timeoutMsg: 'submit stayed gated for an in-range default (false positive)'
+    })
+    await expect(await Weather.acSubmit.isEnabled()).toBe(true)
+
+    await Weather.acCancel.click()
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
   })
 })
