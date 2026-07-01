@@ -13,8 +13,8 @@ import type {
   UpdateObjectSucceededAction,
   VisibilitySyncFailedAction
 } from 'containers/Geometry/actions'
-import { selectNodesById } from 'containers/Geometry/selectors'
-import type { GeoNode } from 'containers/Geometry/types'
+import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
+import type { GeoNode, LoadStatus } from 'containers/Geometry/types'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -133,20 +133,32 @@ export function* loadSceneWorker(): Generator {
     const projectId = (yield select(selectActiveProjectId)) as string | null
     const scenarioId = (yield select(selectActiveScenarioId)) as string | null
 
-    if (!projectId || !scenarioId) return
+    // No active project/scenario — nothing to load. Settle the scene as an
+    // empty success so the loading overlay clears instead of staying stuck.
+    if (!projectId || !scenarioId) {
+      yield put(actions.loadSceneSucceeded())
+      return
+    }
 
     let objects = (yield select(selectSceneObjects)) as SceneObject[]
 
-    // If the Geometry node tree isn't populated yet (race: loadScene fires
+    // If the Geometry node tree is still being fetched (race: loadScene fires
     // before LIST_NODES_SUCCEEDED), wait for it instead of returning empty.
+    // Only wait while a list is genuinely in flight — once the tree is already
+    // loaded (or idle/errored), the scene is legitimately empty and waiting
+    // would block on a LIST_NODES_SUCCEEDED that already fired (up to the 30s
+    // timeout, leaving the loader stuck for empty projects).
     // This replaces the old LIST_NODES_SUCCEEDED → scenarioChangeWorker
     // watcher that caused duplicate binary API calls.
     if (objects.length === 0) {
-      yield race({
-        nodes: take(LIST_NODES_SUCCEEDED),
-        timeout: delay(30000)
-      })
-      objects = (yield select(selectSceneObjects)) as SceneObject[]
+      const loadStatus = (yield select(selectLoadStatus)) as LoadStatus
+      if (loadStatus === 'loading') {
+        yield race({
+          nodes: take(LIST_NODES_SUCCEEDED),
+          timeout: delay(30000)
+        })
+        objects = (yield select(selectSceneObjects)) as SceneObject[]
+      }
     }
 
     if (objects.length === 0) {
