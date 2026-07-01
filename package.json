@@ -3,7 +3,7 @@
   "version": "1.0.2",
   "description": "Professional Electron desktop application with integrated FastAPI backend",
   "author": "Navyug Designs",
-  "homepage": "https://example.com",
+  "homepage": "https://plantsimulationlab.github.io/Helios/",
   "main": "./out/main/index.js",
   "engines": {
     "node": ">=22.0.0"
