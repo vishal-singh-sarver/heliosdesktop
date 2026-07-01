@@ -127,7 +127,7 @@ describe('Helios end-to-end journey', () => {
       timeoutMsg: 'edited cell did not show the committed value'
     })
 
-    // ── 5b'. Imported columns arrive WITHOUT a data type (the import saga uploads
+    // ── 5b. Imported columns arrive WITHOUT a data type (the import saga uploads
     // datatype:null), so range validation only ARMS after a manual assignment.
     // Assign air_temperature + Fahrenheit to the imported temp column, then prove
     // an out-of-range value is flagged with the unit's backend range and an
@@ -147,8 +147,11 @@ describe('Helios end-to-end journey', () => {
       timeout: 10000,
       timeoutMsg: 'restored in-range temp did not clear aria-invalid'
     })
+    // Assert valid explicitly (mirrors the sweep's assertInRange) — a stale
+    // tooltip surviving after aria-invalid clears would otherwise pass silently.
+    expect(await Weather.cellError(editRow, tempCol)).toBe(null)
 
-    // ── 5b. Edit the LONGITUDE and capture the recomputed UTC so step 7 can prove
+    // ── 5c. Edit the LONGITUDE and capture the recomputed UTC so step 7 can prove
     // the coordinate + its backend-derived UTC persist across the reopen. We edit
     // ONLY longitude on purpose: it is the one field whose PATCH we can barrier on
     // (UTC recomputes only after the backend round-trips), so we can guarantee it

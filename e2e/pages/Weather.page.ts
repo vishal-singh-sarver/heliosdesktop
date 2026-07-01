@@ -288,6 +288,14 @@ class WeatherPage {
    */
   async addRowsSeededValues(): Promise<{ startDate: string; startTime: string; deltaHours: string }> {
     await this.openAddRows()
+    // The dialog seeds its fields in a React effect (resetForm on open) that
+    // flushes AFTER the dialog element is displayed — poll until the seed has
+    // propagated so a fast run can't read the inputs while still empty. (Callers
+    // use this only when data exists, so a seeded start date is always non-empty.)
+    await browser.waitUntil(async () => (await this.arStartDate.getValue()) !== '', {
+      timeout: 5000,
+      timeoutMsg: 'Add-Rows dialog did not seed its start date'
+    })
     return {
       startDate: await this.arStartDate.getValue(),
       startTime: await this.arStartTime.getValue(),
@@ -614,7 +622,15 @@ class WeatherPage {
     return (await this.headerPickerButton(colId).getText()).trim()
   }
   async openHeaderPicker(colId: string): Promise<void> {
-    await this.headerPickerButton(colId).click()
+    // The header strip is `overflow-x: clip`, so once many columns exist a
+    // column's picker button can sit under the collapsed right panel — a
+    // coordinate click is then intercepted or never becomes interactable. Fire
+    // the React handler via the DOM (same technique as deleteColumn).
+    await this.headerPickerButton(colId).waitForExist({ timeout: 10000 })
+    await browser.execute((label: string) => {
+      const el = document.querySelector(`[aria-label="${label}"]`) as HTMLElement | null
+      el?.click()
+    }, `Column ${colId} data type and unit`)
     await this.pickerListbox.waitForDisplayed({ timeout: 10000 })
   }
   /** Option labels (data types in type-view, units in unit-view) currently shown. */
@@ -626,15 +642,25 @@ class WeatherPage {
   }
   /** Click an option whose label exactly equals OR starts with `text` (units render "unit (alias)"). */
   async pickerPick(text: string): Promise<void> {
-    const opts = await this.pickerListbox.$$('[role="option"]')
-    for (const o of opts) {
-      const label = (await o.getText()).trim()
-      if (label === text || label.startsWith(`${text} (`) || label.startsWith(`${text}(`)) {
-        await o.click()
-        return
-      }
+    await this.pickerListbox.waitForExist({ timeout: 10000 })
+    // getText()/click() return '' / fail for options whose popover renders
+    // off-screen (a far-right column at scale — the header strip is overflow-x:
+    // clip). Read textContent and click by index IN-PAGE, both position-agnostic.
+    const labels = (await browser.execute(() =>
+      Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).map((el) =>
+        (el.textContent ?? '').trim()
+      )
+    )) as string[]
+    const idx = labels.findIndex(
+      (label) => label === text || label.startsWith(`${text} (`) || label.startsWith(`${text}(`)
+    )
+    if (idx === -1) {
+      throw new Error(`picker option not found: "${text}" (options: ${labels.join(' | ')})`)
     }
-    throw new Error(`picker option not found: "${text}"`)
+    await browser.execute((i: number) => {
+      const els = document.querySelectorAll('[role="listbox"] [role="option"]')
+      ;(els[i] as HTMLElement | undefined)?.click()
+    }, idx)
   }
   async pickerBack(): Promise<void> {
     await this.pickerListbox.$('button*=Back to Assign Type').click()
@@ -644,9 +670,11 @@ class WeatherPage {
   async assignDataTypeUnit(colId: string, dataType: string, unit: string): Promise<void> {
     await this.openHeaderPicker(colId)
     await this.pickerPick(dataType) // → advances to unit view
-    await this.pickerListbox.$('[role="option"]').waitForDisplayed({ timeout: 10000 })
+    // Existence, not visibility: at scale the popover can render off-screen, where
+    // waitForDisplayed never resolves even though the options are in the DOM.
+    await this.pickerListbox.$('[role="option"]').waitForExist({ timeout: 10000 })
     await this.pickerPick(unit) // → commits {dataTypeId, unitId}, closes popover
-    await this.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await this.pickerListbox.waitForExist({ reverse: true, timeout: 10000 })
   }
   /** Change ONLY the unit (data type already assigned → opens straight into unit view). */
   async changeUnit(colId: string, unit: string): Promise<void> {

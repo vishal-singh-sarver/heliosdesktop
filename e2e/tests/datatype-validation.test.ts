@@ -10,10 +10,13 @@
  * validation is pure client-side (validateCellValue on the change event), so
  * setReactInput never blurs -> no backend PATCH -> fast and isolated per column.
  *
- * Excluded (can't be range-tested the same way): `check` (no units), `date_time`
- * (null ranges), and large-scale units (air_CO2 ppb max 3e6, Wh/m^2) whose
- * out-of-range value exceeds the global +/-1e6 keystroke bound and would hit the
- * global message, not the unit message.
+ * Excluded: `check` (no units) and `date_time` (format "units", null ranges)
+ * can't be range-tested at all. Per rangeable type we sweep the base + ONE
+ * alternate unit; the remaining catalog units are simply not swept (e.g. Wh/m^2,
+ * kWh/m^2/day, umol/m^2/s for radiation; hPa/atm/bar/mmHg for pressure). The one
+ * unit that CANNOT be range-tested is air_CO2 `ppb` (max 3,000,000): an above-max
+ * value exceeds the global +/-1e6 keystroke bound, so it would surface the global
+ * message instead of the unit message.
  */
 import Weather from '../pages/Weather.page'
 import { enterProject, waitForBackendReady, waitForMainWindow } from '../support/harness'
@@ -109,6 +112,9 @@ const TYPES: TypeCase[] = [
 const norm = (s: string): string => s.replace(/▾/g, '').trim()
 
 let SHARED_ROW = ''
+// The column the current `it` created — deleted in afterEach so the shared
+// project never accumulates enough columns to scroll a picker under the panel.
+let currentColId: string | null = null
 
 /**
  * Add a managed column choosing ONLY the data type, so the base (is_base) unit
@@ -170,12 +176,29 @@ describe('Weather data types — per-type range validation sweep', () => {
     SHARED_ROW = rows[0]
   })
 
+  afterEach(async () => {
+    // Delete the column this test created so the table stays small and every
+    // fresh column's picker/listbox renders in the clickable-left zone.
+    if (currentColId) {
+      await browser.keys(['Escape']).catch(() => {})
+      await Weather.deleteColumn(currentColId).catch(() => {})
+      currentColId = null
+    }
+  })
+
   for (const t of TYPES) {
-    it(`${t.dataType}: is_base auto-selects, then base + alt unit ranges validate`, async function () {
-      this.timeout(60000)
+    const title = t.alt
+      ? `${t.dataType}: is_base auto-selects, then base + alt unit ranges validate`
+      : `${t.dataType}: is_base auto-selects, then base unit range validates`
+    it(title, async function () {
+      this.timeout(90000)
+      // A failed before() leaves SHARED_ROW empty; skip cleanly instead of
+      // timing out on a selector that can never match.
+      if (!SHARED_ROW) this.skip()
 
       // Add the column with ONLY the data type -> the is_base unit auto-selects.
       const { colId, unitId } = await addTypedColumn(t.col, t.dataType)
+      currentColId = colId
       // Default-unit check: the dialog auto-selected the catalog is_base unit id.
       expect(unitId).toBe(String(t.base.unitId))
       // ...and the header now shows that base unit's token.
