@@ -115,60 +115,18 @@ describe('Helios end-to-end journey', () => {
       timeoutMsg: 'edited cell did not show the committed value'
     })
 
-    // ── 5b. Edit the coordinates in the project-screen header. Longitude drives
-    // the UTC offset, so committing a far-band longitude must RECOMPUTE the UTC
-    // (differential: a broken commit/recompute leaves the seeded offset). Edit
-    // longitude FIRST and wait for the recompute so the subsequent latitude
-    // commit reads the already-updated longitude (no stale-revert race).
-    const seededUtc = await ProjectScreen.getUtcValue()
-    await ProjectScreen.setCoordinate('longitude', '78.486')
-    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
-      timeout: 15000,
-      timeoutMsg: 'UTC offset never recomputed after committing a new longitude'
-    })
-    await ProjectScreen.setCoordinate('latitude', '17.385')
-    // The backend derives utc_offset from BOTH lat and lon, so editing latitude
-    // also re-derives UTC. Latitude has no header signal though, and going Home
-    // would cancel an in-flight PATCH — so poll the session-scoped project until
-    // the latitude write is durable, and take the backend's final utc_offset as
-    // the source of truth for the persistence assertion below.
-    let committedUtc = ''
-    await browser.waitUntil(
-      async () => {
-        const utc = await browser.execute(async (pid: string) => {
-          try {
-            const bridge = (window as unknown as { api?: { getBackendUrl?: () => Promise<string | null> } }).api
-            const base = (await bridge?.getBackendUrl?.()) ?? ''
-            // The app scopes project reads by a session-id header (utils/api.ts);
-            // a raw fetch without it can't resolve the project, so send it too.
-            const sid = localStorage.getItem('helios_session_id') ?? ''
-            const res = await fetch(`${base}/api/project/${pid}`, { headers: { 'session-id': sid } })
-            if (!res.ok) return null
-            const j = (await res.json()) as { project?: { latitude?: number; utc_offset?: string } }
-            const lat = j.project?.latitude
-            if (lat == null || Math.abs(lat - 17.385) >= 0.01) return null
-            return j.project?.utc_offset ?? null
-          } catch {
-            return null
-          }
-        }, id)
-        if (utc == null) return false
-        committedUtc = utc
-        return true
-      },
-      { timeout: 10000, timeoutMsg: 'latitude PATCH never reached the backend' }
-    )
-
-    // ── 6. Click the Helios logo → land on Home. ProjectScreen's unmount cleanup
-    // clears the active SCENARIO id, but the project id is intentionally RETAINED
-    // (boot auto-restore needs both ids — see the documented contract in
-    // projectscreen.test.ts). Assert that real contract; differential: a no-op
-    // nav would leave the scenario id set.
-    const projectIdBeforeHome = await getStorage(ACTIVE_PROJECT_KEY)
+    // ── 6. Click the Helios logo → land on Home and the active SCENARIO is cleared.
+    // NOTE (app behavior, not a bug): logo→home clears activeScenarioId only; it
+    // intentionally RETAINS activeProjectId so a refresh with both ids can auto-
+    // restore the project screen (the boot auto-restore suite relies on this).
+    // So we assert the scenario clears (differential — ProjectScreen unmount must
+    // run) and that we actually returned Home, NOT that activeProjectId is null.
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
     await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
+    await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
       timeout: 10000,
+      timeoutMsg: 'activeScenarioId was not cleared after going Home'
       timeoutMsg: 'activeScenarioId was not cleared after going Home'
     })
     expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)

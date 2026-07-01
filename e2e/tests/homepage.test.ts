@@ -308,13 +308,12 @@ describe('HomePage', () => {
       await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
     })
 
-    it('an in-range latitude with exactly 7 decimals (89.1234567) is ACCEPTED — create succeeds', async () => {
+    it('latitude with exactly 7 decimals (89.1234567, in range) is ACCEPTED — create succeeds', async () => {
       // Acceptance, not "no-error": a full valid submit must pass validation and
       // navigate away (the dialog closes, projectsTable leaves the DOM). The value
-      // is kept in range (<= 90) on purpose so this exercises ONLY the decimal-count
-      // rule — if it were wrongly strict at 7 places the dialog would stay open and
-      // this would go red. (90.1234567 would fail on RANGE, not decimals, so it
-      // cannot test the decimal boundary.)
+      // is < 90 so it is in range — this isolates the 7-decimal-precision rule. If
+      // the decimal-count rule were wrongly strict at 7 places, the dialog would
+      // stay open with an error and this would go red.
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('lat7'), '89.1234567', '0')
       await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
@@ -367,11 +366,11 @@ describe('HomePage', () => {
       await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
     })
 
-    it('an in-range longitude with exactly 7 decimals (179.1234567) is ACCEPTED — create succeeds', async () => {
-      // Acceptance, not "no-error": a full valid submit with an in-range lon (<= 180)
-      // carrying exactly 7 decimals must pass and navigate away. A wrongly-strict
-      // decimal rule (>=7 reject) would keep the dialog open -> red. (180.1234567
-      // would fail on RANGE, not decimals, so keep the value in range here.)
+    it('longitude with exactly 7 decimals (179.1234567, in range) is ACCEPTED — create succeeds', async () => {
+      // Acceptance, not "no-error": full valid submit with lon < 180 AND exactly 7
+      // decimals must pass and navigate away (isolates the 7-decimal-precision
+      // rule). A wrongly-strict decimal rule (>=7 reject) would keep the dialog
+      // open -> red.
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('lon7'), '0', '179.1234567')
       await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
