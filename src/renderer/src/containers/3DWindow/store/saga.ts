@@ -93,8 +93,17 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
   // Skip rename-only updates — geometry data hasn't changed.
   if (!action.payload.propsChanged) return
 
+  const objectId = Number(action.payload.objectId)
+
+  // Don't re-add a hidden object to the scene. Editing a hidden geometry's
+  // properties must not un-hide it — re-caching here would push it back into the
+  // scene even though its eye icon (visibleInViewport) is closed. The updated
+  // geometry is fetched fresh when the user un-hides it (see onViewportToggled).
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  const node = nodesById[String(objectId)]
+  if (node && !node.visibleInViewport) return
+
   try {
-    const objectId = Number(action.payload.objectId)
     yield* fetchAndCacheObjectGeometry(objectId, false)
   } catch {
     // Non-fatal.
