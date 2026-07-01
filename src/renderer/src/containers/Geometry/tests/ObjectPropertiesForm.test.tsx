@@ -162,4 +162,67 @@ describe('<ObjectPropertiesForm /> — Save gating', () => {
     fireEvent.change(fieldInput(container, 'length'), { target: { value: '-5' } })
     expect(saveButton()).toBeDisabled()
   })
+
+  it('flags a texture repeat that exceeds its ground resolution and blocks Save', () => {
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+
+    // Fill every required field with valid, in-range values → Save enabled.
+    for (const [name, value] of [
+      ['length', '5'],
+      ['breadth', '5'],
+      ['resolution_x', '10'],
+      ['resolution_y', '10'],
+      ['texture_x', '2'],
+      ['texture_y', '2']
+    ] as const) {
+      fireEvent.change(fieldInput(container, name), { target: { value } })
+    }
+    expect(saveButton()).toBeEnabled()
+
+    // texture_x (20) now exceeds resolution_x (10): a cross-field violation.
+    // The value itself is valid (integer ≥ 1), so this is purely the dependency
+    // rule — Save is blocked and the offending field is marked invalid.
+    fireEvent.change(fieldInput(container, 'texture_x'), { target: { value: '20' } })
+    expect(saveButton()).toBeDisabled()
+    expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'true')
+    // The message describes the rule + the ceiling (not a bare "Invalid Input").
+    expect(
+      screen.getByText("Texture repeat can't exceed the ground resolution (10)")
+    ).toBeInTheDocument()
+
+    // Bringing it back within the resolution clears the violation → Save enabled.
+    fireEvent.change(fieldInput(container, 'texture_x'), { target: { value: '10' } })
+    expect(saveButton()).toBeEnabled()
+    expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'false')
+  })
+
+  it('caps texture_y independently against resolution_y', () => {
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+
+    for (const [name, value] of [
+      ['length', '5'],
+      ['breadth', '5'],
+      ['resolution_x', '10'],
+      ['resolution_y', '10'],
+      ['texture_x', '2'],
+      ['texture_y', '2']
+    ] as const) {
+      fireEvent.change(fieldInput(container, name), { target: { value } })
+    }
+    expect(saveButton()).toBeEnabled()
+
+    // texture_y (15) > resolution_y (10) → blocked, and only texture_y is flagged.
+    fireEvent.change(fieldInput(container, 'texture_y'), { target: { value: '15' } })
+    expect(saveButton()).toBeDisabled()
+    expect(fieldInput(container, 'texture_y')).toHaveAttribute('aria-invalid', 'true')
+    expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'false')
+  })
 })
