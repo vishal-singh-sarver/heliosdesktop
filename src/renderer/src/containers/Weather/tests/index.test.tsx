@@ -12,6 +12,8 @@ const sel = {
   fileError: null as string | null,
   pickedFile: null as PickedFile | null,
   dataset: null as ImportedDataset | null,
+  columnOrder: [] as string[],
+  rowOrder: [] as string[],
   importing: false,
   clearingImport: false,
   importError: null as string | null,
@@ -34,6 +36,8 @@ vi.mock('../selectors', () => ({
   selectFileError: () => sel.fileError,
   selectPickedFile: () => sel.pickedFile,
   selectDataset: () => sel.dataset,
+  selectColumnOrder: () => sel.columnOrder,
+  selectRowOrder: () => sel.rowOrder,
   selectImporting: () => sel.importing,
   selectClearingImport: () => sel.clearingImport,
   selectImportError: () => sel.importError,
@@ -143,6 +147,8 @@ function resetSel(): void {
   sel.fileError = null
   sel.pickedFile = null
   sel.dataset = null
+  sel.columnOrder = []
+  sel.rowOrder = []
   sel.importing = false
   sel.clearingImport = false
   sel.importError = null
@@ -207,6 +213,8 @@ describe('<Weather />', () => {
 
   it('confirms before importing, then dispatches importFinalizeRequested on Yes', () => {
     sel.wizardOpen = true
+    // Existing data present → submitting must prompt to replace it.
+    sel.dataset = { filename: 'existing.csv', columns: [], records: [] }
     render(<Weather />)
     // Submitting the wizard only opens the confirmation — no API call yet.
     fireEvent.click(screen.getByTestId('wizard-submit'))
@@ -236,8 +244,53 @@ describe('<Weather />', () => {
     )
   })
 
+  it('confirms when rows were added manually (no imported dataset)', () => {
+    sel.wizardOpen = true
+    // No imported dataset, but the table has manually added rows (plus the
+    // default date/time column).
+    sel.dataset = null
+    sel.columnOrder = ['datetime']
+    sel.rowOrder = ['r1']
+    render(<Weather />)
+    fireEvent.click(screen.getByTestId('wizard-submit'))
+    // The replace confirmation must appear — nothing imported yet.
+    expect(screen.getByTestId('dialog')).toBeInTheDocument()
+    expect(mockDispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: weatherActions.importFinalizeRequested('p', 's', {
+          filename: '',
+          columns: [],
+          records: []
+        }).type
+      })
+    )
+  })
+
+  it('imports directly without a confirmation when there is no existing data', () => {
+    sel.wizardOpen = true
+    // No dataset and no rows. The default date/time column alone must NOT
+    // trigger the prompt (guards the regression where every scenario prompted).
+    sel.dataset = null
+    sel.columnOrder = ['datetime']
+    sel.rowOrder = []
+    render(<Weather />)
+    fireEvent.click(screen.getByTestId('wizard-submit'))
+    // No confirmation dialog, and the finalize fires straight away.
+    expect(screen.queryByTestId('dialog')).not.toBeInTheDocument()
+    expect(mockDispatch).toHaveBeenCalledWith(
+      weatherActions.importFinalizeRequested(
+        'proj-1',
+        'sce-1',
+        { filename: 'foo.csv', columns: [], records: [] },
+        false
+      )
+    )
+  })
+
   it('does not dispatch importFinalizeRequested when the import confirmation is declined', () => {
     sel.wizardOpen = true
+    // Existing data present → submitting must prompt to replace it.
+    sel.dataset = { filename: 'existing.csv', columns: [], records: [] }
     render(<Weather />)
     fireEvent.click(screen.getByTestId('wizard-submit'))
     fireEvent.click(screen.getByText('No'))
@@ -285,6 +338,8 @@ describe('<Weather />', () => {
     // flags it through importFinalizeRequested, and the toast surfaces after
     // the import saga succeeds (see the precision-warning test below).
     sel.wizardOpen = true
+    // Existing data present → the replace confirmation is shown.
+    sel.dataset = { filename: 'existing.csv', columns: [], records: [] }
     render(<Weather />)
     fireEvent.click(screen.getByTestId('wizard-submit-truncated'))
     fireEvent.click(screen.getByText('Yes'))

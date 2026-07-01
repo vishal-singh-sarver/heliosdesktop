@@ -30,6 +30,7 @@ import {
   selectImportPrecisionWarningPending,
   selectImporting,
   selectPickedFile,
+  selectRowOrder,
   selectWizardOpen
 } from './selectors'
 import type { ImportedDataset } from './types'
@@ -49,6 +50,7 @@ export function Weather(): React.JSX.Element {
   const fileError = useSelector(selectFileError)
   const pickedFile = useSelector(selectPickedFile)
   const dataset = useSelector(selectDataset)
+  const rowOrder = useSelector(selectRowOrder)
   const activeProjectId = useSelector(selectActiveProjectId)
   const activeScenarioId = useSelector(selectActiveScenarioId)
   const importing = useSelector(selectImporting)
@@ -109,10 +111,18 @@ export function Weather(): React.JSX.Element {
 
   // The wizard's "Import" button funnels through a Yes/No confirmation here
   // because finalizing erases the scenario's existing weather data (the saga
-  // clears it before writing). Stash the dataset; the actual API calls only
-  // fire once the user confirms.
+  // clears it before writing). Only prompt when there IS existing data to
+  // replace — with an empty scenario there's nothing to overwrite, so import
+  // straight away. Data can come from a prior file import (dataset) OR from
+  // manually added rows. We key off ROWS, not columns: a fresh scenario always
+  // carries a default date/time column, so a column check would false-positive.
+  const hasExistingData = dataset != null || rowOrder.length > 0
   const handleSubmit = (ds: ImportedDataset, truncatedDecimals: boolean): void => {
     if (!activeProjectId || !activeScenarioId) return
+    if (!hasExistingData) {
+      dispatch(importFinalizeRequested(activeProjectId, activeScenarioId, ds, truncatedDecimals))
+      return
+    }
     setPendingImport({ dataset: ds, truncatedDecimals })
   }
 
