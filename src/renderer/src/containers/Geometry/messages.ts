@@ -13,6 +13,12 @@ const messages = {
   // change the shared decimalValidation copy used elsewhere (e.g. Weather).
   decimalLimit: 'Only 7 Decimal places are supported',
   inputNotSupported: 'This input is not supported',
+  // Cross-field rule: a Texture Repeat count tiles across the ground surface, so
+  // it can't exceed the matching Ground Resolution. Spelling out the rule and
+  // the exact ceiling tells the user what's wrong and how to fix it (instead of
+  // a bare "Invalid Input").
+  textureExceedsResolution: (max: number) =>
+    `Texture repeat can't exceed the ground resolution (${max})`,
   // Delete confirmation
   deleteTitle: 'Delete',
   deleteHeading: (name: string) => `Delete ${name}`,

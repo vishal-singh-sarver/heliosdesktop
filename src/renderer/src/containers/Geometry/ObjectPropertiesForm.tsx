@@ -52,6 +52,33 @@ function sameValues(a: Record<string, string>, b: Record<string, string>): boole
   return true
 }
 
+// Texture Repeat tiles across the ground surface, so each repeat count can't
+// exceed the matching Ground Resolution the user entered: R (texture_x) ≤ Width
+// (resolution_x) and C (texture_y) ≤ Height (resolution_y). Purely frontend — it
+// reads the resolution from the form's current values (no backend call). Returns
+// property → "Invalid Input" for any texture field that exceeds its cap. The
+// check is skipped when either value is blank or non-numeric (per-field
+// validation surfaces those).
+const TEXTURE_RESOLUTION_CAP: Record<string, string> = {
+  texture_x: 'resolution_x',
+  texture_y: 'resolution_y'
+}
+
+function textureDepErrors(values: Record<string, string>): Record<string, string> {
+  const errors: Record<string, string> = {}
+  for (const [texProp, resProp] of Object.entries(TEXTURE_RESOLUTION_CAP)) {
+    const texRaw = (values[texProp] ?? '').trim()
+    const resRaw = (values[resProp] ?? '').trim()
+    if (texRaw === '' || resRaw === '') continue
+    const tex = Number(texRaw)
+    const res = Number(resRaw)
+    if (Number.isFinite(tex) && Number.isFinite(res) && tex > res) {
+      errors[texProp] = messages.textureExceedsResolution(res)
+    }
+  }
+  return errors
+}
+
 // The right-panel Properties form for editing an object: +Ground creates the
 // object and opens this form populated from the persisted values, and clicking a
 // ground opens it populated from a GET. Save PATCHes ONLY the property fields;
@@ -110,6 +137,12 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const objectType = objectTypes.find((o) => o.id === draft.objectTypeId)
   const { groups } = resolveObjectFormByType(objectType)
   const fieldsValid = isObjectFormValid(groups, draft.values)
+
+  // Cross-field rule: texture repeat counts must not exceed the ground
+  // resolution they tile across (see textureDepErrors). Keyed by property so the
+  // matching field can render its inline error.
+  const depErrors = textureDepErrors(draft.values)
+
   // The name error shown below the name field: the instant rules (non-empty,
   // ≤20 chars) win, falling back to the backend rename rejection (e.g. a
   // duplicate) carried on the draft. Both stay scoped to this form — neither
@@ -117,8 +150,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // why a duplicate only surfaces after a rename round-trip.
   const nameError = validateGroupName(draft.name, NO_NAME_CONFLICTS) ?? draft.nameError
   // Save gates on the property fields only — the name persists on its own blur
-  // path, so a name error never blocks saving field edits.
-  const valid = fieldsValid
+  // path, so a name error never blocks saving field edits. Cross-field
+  // dependency violations (texture > resolution) block Save too.
+  const valid = fieldsValid && Object.keys(depErrors).length === 0
 
   // Save is enabled only once the form differs from its loaded/last-saved
   // baseline. The baseline is the cached object detail (values) + the node's
@@ -133,11 +167,20 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
 
   // Block the keystroke when the in-progress value isn't numeric, or would add
   // an 8th decimal place — surfacing the matching message instead of storing it.
-  const handleFieldChange = (property: string, next: string): void => {
+  const handleFieldChange = (property: string, next: string,  isInteger: boolean): void => {
     if (!isPartialNumericInput(next)) {
       setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
       return
     }
+
+    // Integer fields (e.g. Ground Resolution) take no decimal point — reject the
+    // '.' keystroke itself rather than letting "1." commit and silently normalize
+    // to a whole number that passes validation.
+    if (isInteger && next.includes('.')) {
+      setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
+      return
+    }
+
     if (exceedsMaxDecimals(next)) {
       setGuardErrors((g) => ({ ...g, [property]: messages.decimalLimit }))
       return
@@ -271,8 +314,14 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 // been touched. Save stays disabled while any field is invalid.
                 const showError = touched[field.property] === true || value !== ''
                 // A live keystroke-guard error wins over committed-value
-                // validation (the rejected character never reached the value).
-                const error = guardErrors[field.property] ?? (showError ? validateFieldValue(field, value) : null)
+                // validation (the rejected character never reached the value),
+                // which in turn falls back to a cross-field dependency error
+                // (texture > resolution) when the value itself is otherwise valid.
+                const error =
+                  guardErrors[field.property] ??
+                  (showError
+                    ? (validateFieldValue(field, value) ?? depErrors[field.property] ?? null)
+                    : null)
                 return (
                   <FormField
                     key={field.property}
@@ -291,7 +340,8 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                       error: error ?? undefined,
                       disabled: objectDeleted,
                       inputClassName: 'bg-[#121212]',
-                      onChange: (e) => handleFieldChange(field.property, e.target.value),
+                      onChange: (e) =>
+                        handleFieldChange(field.property, e.target.value, field.datatype === 'integer'),
                       onBlur: () => handleFieldBlur(field.property)
                     }}
                   />
