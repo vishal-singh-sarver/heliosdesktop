@@ -45,6 +45,7 @@ import {
   DATE_TIME_COL_NAME,
   type ColumnDef,
   type DataTypeDef,
+  type DataUnitDef,
   type WeatherTable
 } from '../types'
 
@@ -643,6 +644,143 @@ describe('updateColumnWorker', () => {
     expect(gen.throw(new Error('rejected')).value).toEqual(
       put(actions.updateColumnFailed(PROJ, SCN, '7', previous, 'rejected'))
     )
+  })
+})
+
+// ── updateColumnWorker — unit-only conversion branch (drives the REAL worker) ─
+//
+// The tests above hand-mirror the worker's effect sequence. That style cannot
+// cover the conversion branch, because the whole point is the *real* wiring of
+// buildConvertedColumnValues into the saga (optimistic converted write, backend
+// PATCH of converted values, rollback to the PRE-conversion values on failure).
+// So these drive the exported updateColumnWorker directly.
+
+describe('updateColumnWorker — unit-only conversion (real worker)', () => {
+  // Kelvin (base) → Celsius: base = v*1 + 0; C = (base − 273.15)/1. 300 K → 26.85 °C.
+  const kelvin: DataUnitDef = {
+    id: 5,
+    unit: 'K',
+    alias: '',
+    data_type_id: 1,
+    min: null,
+    max: null,
+    to_base_factor: 1,
+    to_base_offset: 0,
+    is_base: true,
+    created_at: '',
+    updated_at: ''
+  }
+  const celsius: DataUnitDef = {
+    id: 6,
+    unit: 'C',
+    alias: '°C',
+    data_type_id: 1,
+    min: null,
+    max: null,
+    to_base_factor: 1,
+    to_base_offset: 273.15,
+    is_base: false,
+    created_at: '',
+    updated_at: ''
+  }
+  const temperature: DataTypeDef = {
+    id: 1,
+    data_type: 'air_temperature',
+    description: '',
+    created_at: '',
+    updated_at: '',
+    units: [kelvin, celsius]
+  }
+  const dataTypes: DataTypeDef[] = [temperature]
+
+  const col: ColumnDef = { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 }
+  const table: WeatherTable = {
+    columns: {
+      date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+      time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+      '7': col
+    },
+    columnOrder: ['date', 'time', '7'],
+    rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': '300' } },
+    rowOrder: ['row_0'],
+    validationErrors: {},
+    columnNameErrors: {},
+    cellSync: {},
+    rowSelection: {}
+  }
+
+  // Unit-only change K(5) → C(6); patch has NO dataTypeId, so the worker takes
+  // the convertible branch. `previous.unitId` is the from-unit.
+  const makeAction = (): ReturnType<typeof actions.updateColumnRequested> =>
+    actions.updateColumnRequested(PROJ, SCN, '7', { unitId: 6 }, { unitId: 5 })
+
+  it('converts each row, optimistically updates, then PATCHes the CONVERTED values on success', () => {
+    const gen = sagaModule.updateColumnWorker(makeAction())
+
+    expect(gen.next().value).toEqual(select(selectActiveWeatherTable))
+    expect(gen.next(table).value).toEqual(select(selectAllDataTypes))
+
+    // Optimistic local update carries the CONVERTED value (300 K → 26.85 °C),
+    // not the raw one — a no-op / identity conversion would fail this.
+    expect(gen.next(dataTypes).value).toEqual(
+      put(
+        actions.updateColumnValuesLocal({
+          scenarioId: SCN,
+          colId: '7',
+          valuesByRowId: { row_0: '26.85' }
+        })
+      )
+    )
+
+    // Backend write sends the converted values + defaultValue 'NAN', keyed to
+    // the numeric header id and the NEW unit id.
+    expect(gen.next().value).toEqual(
+      call(updateColumnRequest, PROJ, SCN, 7, {
+        name: 'temp',
+        dataTypeId: 1,
+        dataUnitId: 6,
+        values: [{ date: '2026-01-01', time: '10:00:00', value: '26.85' }],
+        defaultValue: 'NAN'
+      })
+    )
+
+    expect(gen.next().value).toEqual(put(actions.updateColumnSucceeded(PROJ, SCN, '7')))
+
+    // A unit change always re-validates the column afterwards (revalidateColumn
+    // is module-private, so assert the CALL effect's args, not its identity).
+    const revalidate = gen.next().value as { type?: string; payload?: { args?: unknown[] } }
+    expect(revalidate.type).toBe('CALL')
+    expect(revalidate.payload?.args).toEqual([SCN, '7'])
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('on updateColumnRequest failure: rolls back to the PRE-conversion values, then dispatches failed', () => {
+    const gen = sagaModule.updateColumnWorker(makeAction())
+
+    gen.next() // select active table
+    gen.next(table) // select data types
+    gen.next(dataTypes) // put optimistic (converted) local update
+    gen.next() // call updateColumnRequest ← rejects next
+
+    // Rollback restores the ORIGINAL pre-conversion values (300, not 26.85).
+    expect(gen.throw(new Error('boom')).value).toEqual(
+      put(
+        actions.updateColumnValuesLocal({
+          scenarioId: SCN,
+          colId: '7',
+          valuesByRowId: { row_0: '300' }
+        })
+      )
+    )
+    expect(gen.next().value).toEqual(
+      put(actions.updateColumnFailed(PROJ, SCN, '7', { unitId: 5 }, 'boom'))
+    )
+
+    // Re-validation still runs after the rollback (it's outside the try/catch).
+    const revalidate = gen.next().value as { type?: string; payload?: { args?: unknown[] } }
+    expect(revalidate.type).toBe('CALL')
+    expect(revalidate.payload?.args).toEqual([SCN, '7'])
+    expect(gen.next().done).toBe(true)
   })
 })
 

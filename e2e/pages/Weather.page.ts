@@ -63,6 +63,10 @@ export interface WeatherCatalogUnit {
   min: number | null
   max: number | null
   is_base: boolean
+  // Affine map back to the type's base unit: base = value*factor + offset.
+  // Used by tests that predict a concrete converted value (unit round-trip).
+  to_base_factor: number
+  to_base_offset: number
 }
 export interface WeatherCatalogType {
   id: number

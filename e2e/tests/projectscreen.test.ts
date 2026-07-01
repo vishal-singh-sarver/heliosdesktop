@@ -268,6 +268,38 @@ describe('ProjectScreen — coordinate commit + UTC recompute', () => {
   })
 })
 
+describe('ProjectScreen — UTC offset is the CORRECT value for fixed coordinates', () => {
+  // The tests above only prove UTC *recompute fires* / is *shaped* like an offset
+  // — a sign-flip or timezone-DB regression would pass green. These assert the
+  // EXACT offset for known coordinates.
+  //
+  // The backend derives utc_offset via timezonefinder → zoneinfo, reflecting DST
+  // "at the time of the call" (backend-api/app/core/timezone.py). So we only pin
+  // zones that DON'T observe DST: their offset is stable year-round, making the
+  // assertion deterministic regardless of when or where the suite runs. Each
+  // expected value also can't come from a naive longitude/15 estimate, so a real
+  // IANA-timezone resolution is required to satisfy it (e.g. +05:30, -07:00).
+  //
+  // enterProject(label, lat, lon) creates the project with BOTH coordinates set
+  // atomically, so the backend computes the offset ONCE (no commit-order race).
+  const CASES: Array<{ label: string; lat: string; lon: string; utc: string }> = [
+    { label: 'central India (Asia/Kolkata, no DST)', lat: '22.5', lon: '78.9', utc: '+05:30' },
+    { label: 'Tokyo (Asia/Tokyo, no DST)', lat: '35.68', lon: '139.69', utc: '+09:00' },
+    { label: 'Phoenix (America/Phoenix, no DST)', lat: '33.45', lon: '-112.07', utc: '-07:00' }
+  ]
+
+  for (const c of CASES) {
+    it(`resolves ${c.utc} for ${c.label}`, async () => {
+      await enterProject('utcexact', c.lat, c.lon)
+      await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) === c.utc, {
+        timeout: 20000,
+        timeoutMsg: `UTC offset for ${c.label} (${c.lat}, ${c.lon}) never became ${c.utc}`
+      })
+      await expect(ProjectScreen.utcInput).toHaveValue(c.utc)
+    })
+  }
+})
+
 describe('ProjectScreen — header help tooltips', () => {
   it('latitude help exposes its tooltip content', async () => {
     await enterProject('tip')

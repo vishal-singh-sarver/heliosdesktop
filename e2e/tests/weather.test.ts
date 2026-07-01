@@ -59,6 +59,38 @@ async function discoverConvertibleType(
   return null
 }
 
+/** Affine catalog conversion (mirrors unitConversion.ts): base = v*factor + offset. */
+function convert(
+  value: number,
+  from: { to_base_factor: number; to_base_offset: number },
+  to: { to_base_factor: number; to_base_offset: number }
+): number {
+  const base = value * from.to_base_factor + from.to_base_offset
+  return (base - to.to_base_offset) / to.to_base_factor
+}
+
+/**
+ * Map the two discovered picker unit labels back to their catalog records (which
+ * carry to_base_factor/offset) so a concrete converted value can be predicted.
+ * Units render as "unit" or "unit (alias)" in the picker; both from+to must live
+ * in the SAME data type (disambiguates tokens like '0-1' shared across types).
+ * Returns null if the pair can't be resolved — the caller then falls back.
+ */
+function findConvertPair(
+  catalog: WeatherCatalogType[],
+  unitLabels: string[]
+): { from: WeatherCatalogUnit; to: WeatherCatalogUnit } | null {
+  const [labelA, labelB] = unitLabels
+  const matches = (label: string, u: WeatherCatalogUnit): boolean =>
+    label === u.unit || label === (u.alias ? `${u.unit} (${u.alias})` : u.unit)
+  for (const type of catalog) {
+    const from = type.units.find((u) => matches(labelA, u))
+    const to = type.units.find((u) => matches(labelB, u))
+    if (from && to && from.id !== to.id) return { from, to }
+  }
+  return null
+}
+
 const deleteImport = {
   dialogTitle: 'Delete',
   heading: 'Delete Data',
@@ -1058,7 +1090,7 @@ describe('Weather units — unit-range validation (catalog-bounded unit)', () =>
 })
 
 describe('Weather units — conversion round-trip (catalog-agnostic)', () => {
-  it('converting a value to another unit and back restores the original', async () => {
+  it('A→B converts to the exact catalog-derived value, and B→A restores the original', async () => {
     await enterWeather('roundtrip')
     const colId = await columnWithRows('conv')
     const [row] = await Weather.visibleRowIds()
@@ -1071,26 +1103,47 @@ describe('Weather units — conversion round-trip (catalog-agnostic)', () => {
     await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
 
     // Seed a value in unit A.
-    await Weather.editCell(row, colId, '10')
-    await browser.waitUntil(async () => (await Weather.cellInput(row, colId).getValue()) === '10', {
-      timeout: 10000,
-      timeoutMsg: 'seed value did not commit'
-    })
+    const SEED = 10
+    await Weather.editCell(row, colId, String(SEED))
+    await browser.waitUntil(
+      async () => (await Weather.cellInput(row, colId).getValue()) === String(SEED),
+      { timeout: 10000, timeoutMsg: 'seed value did not commit' }
+    )
 
-    // A → B: the unit change must recompute the cell (label flips to unit B).
+    // Predict the EXACT converted value from the two units' catalog factors, so a
+    // no-op / disabled conversion FAILS (the old test asserted only Number.isFinite,
+    // which any unconverted value passes). If the catalog is unreachable, fall back
+    // to "the value must change from the seed" — which still rejects a no-op.
+    const catalog = await Weather.fetchCatalog()
+    const pair = catalog ? findConvertPair(catalog, found.units) : null
+    const expectedB = pair ? convert(SEED, pair.from, pair.to) : null
+    // Discovery picks arbitrary units; a pair that maps SEED → ~SEED couldn't tell
+    // a real conversion from a no-op. Assert we resolved a discriminating pair.
+    if (expectedB != null) expect(Math.abs(expectedB - SEED)).toBeGreaterThan(1e-6)
+
+    // A → B: the unit change must recompute the cell to the concrete converted value.
     await Weather.changeUnit(colId, unitB)
     await browser.waitUntil(
       async () => {
         const v = Number(await Weather.cellInput(row, colId).getValue())
-        return Number.isFinite(v)
+        if (!Number.isFinite(v)) return false
+        return expectedB == null
+          ? Math.abs(v - SEED) > 1e-6 // fallback: value must change from the seed
+          : Math.abs(v - expectedB) <= Math.abs(expectedB) * 1e-3 + 1e-4 // exact
       },
-      { timeout: 15000, timeoutMsg: 'cell value not finite after A→B conversion' }
+      {
+        timeout: 15000,
+        timeoutMsg:
+          expectedB == null
+            ? `A→B (${unitA}→${unitB}) did not change ${SEED} — conversion looks like a no-op`
+            : `A→B (${unitA}→${unitB}) expected ~${expectedB}, but the cell showed a different value`
+      }
     )
 
     // B → A: round-trip must restore ~10 (float32 storage → small tolerance).
     await Weather.changeUnit(colId, unitA)
     await browser.waitUntil(
-      async () => Math.abs(Number(await Weather.cellInput(row, colId).getValue()) - 10) < 0.1,
+      async () => Math.abs(Number(await Weather.cellInput(row, colId).getValue()) - SEED) < 0.1,
       {
         timeout: 15000,
         timeoutMsg: 'round-trip A→B→A did not restore the original value (~10)'
@@ -1100,7 +1153,8 @@ describe('Weather units — conversion round-trip (catalog-agnostic)', () => {
 })
 
 describe('Weather units — concrete physical conversion (when available)', () => {
-  it('°C → °F converts 0 to 32 (skipped if the catalog lacks the pair)', async () => {
+  it('°C ⇄ °F: 0°C converts to 32°F and back to 0°C (skipped if the catalog lacks the pair)', async function () {
+    this.timeout(60000)
     await enterWeather('ctof')
     const colId = await columnWithRows('temp')
     const [row] = await Weather.visibleRowIds()
@@ -1110,7 +1164,7 @@ describe('Weather units — concrete physical conversion (when available)', () =
     const tempType = types.find((t) => /temp/i.test(t))
     if (!tempType) {
       await Weather.pickerBack().catch(() => {})
-      return // no Temperature data type in this catalog — nothing to assert.
+      this.skip() // no Temperature data type — mark SKIPPED (not a silent green pass).
     }
     await Weather.pickerPick(tempType)
     await Weather.pickerListbox
@@ -1120,7 +1174,7 @@ describe('Weather units — concrete physical conversion (when available)', () =
     const units = await Weather.pickerOptions()
     const celsius = units.find((u) => /celsius|°c\b|^c\b/i.test(u))
     const fahrenheit = units.find((u) => /fahrenheit|°f\b|^f\b/i.test(u))
-    if (!celsius || !fahrenheit) return // pair not present — nothing to assert.
+    if (!celsius || !fahrenheit) this.skip() // pair absent — mark SKIPPED, not passed.
 
     await Weather.pickerPick(celsius)
     await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
@@ -1129,10 +1183,19 @@ describe('Weather units — concrete physical conversion (when available)', () =
       timeout: 10000,
       timeoutMsg: '0°C did not commit'
     })
+
+    // Forward: 0°C → 32°F.
     await Weather.changeUnit(colId, fahrenheit)
     await browser.waitUntil(
       async () => Math.abs(Number(await Weather.cellInput(row, colId).getValue()) - 32) < 0.1,
       { timeout: 15000, timeoutMsg: '0°C did not convert to ~32°F' }
+    )
+
+    // Reverse: 32°F → 0°C (the direction the old test never checked).
+    await Weather.changeUnit(colId, celsius)
+    await browser.waitUntil(
+      async () => Math.abs(Number(await Weather.cellInput(row, colId).getValue())) < 0.1,
+      { timeout: 15000, timeoutMsg: '32°F did not convert back to ~0°C' }
     )
   })
 })
