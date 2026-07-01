@@ -380,7 +380,10 @@ describe('<HomePage />', () => {
   it('shows a required error for empty latitude after blur', async () => {
     render(<HomePage />)
     fireEvent.click(screen.getByTestId('menu-New Project'))
-    fireEvent.blur(screen.getByTestId('input-latitude'))
+    // The field pre-fills with the UC Davis default, so clear it first.
+    const input = screen.getByTestId('input-latitude')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
     await waitFor(() =>
       expect(screen.getByTestId('error-latitude')).toHaveTextContent('Latitude is required.')
     )
@@ -389,7 +392,10 @@ describe('<HomePage />', () => {
   it('shows a required error for empty longitude after blur', async () => {
     render(<HomePage />)
     fireEvent.click(screen.getByTestId('menu-New Project'))
-    fireEvent.blur(screen.getByTestId('input-longitude'))
+    // The field pre-fills with the UC Davis default, so clear it first.
+    const input = screen.getByTestId('input-longitude')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
     await waitFor(() =>
       expect(screen.getByTestId('error-longitude')).toHaveTextContent('Longitude is required.')
     )
