@@ -42,7 +42,7 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       style={{ backgroundColor: bgColor, color: textColor }}
-      className={`flex items-center gap-1.5 rounded-md border border-app-border ${paddingX} py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400`}
+      className={`flex h-[30px] items-center gap-1.5 rounded-md border border-app-border ${paddingX} text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400`}
     >
       {iconPosition === 'left' && iconEl}
       <span>{label}</span>
