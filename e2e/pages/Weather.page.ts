@@ -280,6 +280,21 @@ class WeatherPage {
     })
   }
 
+  /**
+   * Open the Add-Rows dialog and return its auto-seeded field values. The dialog
+   * derives Start Date/Time + Delta from the last existing row on open
+   * (AddRowsDialog.tsx inferDeltaHours/seededStart). Leaves the dialog OPEN — the
+   * caller asserts the values then closes it (arCancel).
+   */
+  async addRowsSeededValues(): Promise<{ startDate: string; startTime: string; deltaHours: string }> {
+    await this.openAddRows()
+    return {
+      startDate: await this.arStartDate.getValue(),
+      startTime: await this.arStartTime.getValue(),
+      deltaHours: await this.arDeltaHours.getValue()
+    }
+  }
+
   /** Number of body rows currently rendered (virtualized window). */
   async rowCount(): Promise<number> {
     return (await this.visibleRowIds()).length

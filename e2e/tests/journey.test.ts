@@ -78,7 +78,7 @@ describe('Helios end-to-end journey', () => {
     })
     expect(imported).toBe(true)
     const humidityCol = await Weather.waitForColumn('humidity')
-    await Weather.waitForColumn('temp')
+    const tempCol = await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) > 1, {
       timeout: 30000,
       timeoutMsg: 'davis import did not produce rows'
@@ -91,6 +91,18 @@ describe('Helios end-to-end journey', () => {
     if (Math.abs(humidity - 70.98) > 0.01) {
       throw new Error(`humidity[row0] = ${humidity}, expected ~70.98 from the file`)
     }
+
+    // ── 3b. Add Rows AUTO-PICKS start date/time + delta from the imported rows.
+    // davis is hourly; last imported row is 2026-05-12T23:00, so the dialog seeds
+    // delta '1' and the next hour (2026-05-13 00:00). Differential: broken
+    // inference would seed blanks or a different stamp. Cancel without adding so
+    // the journey's row set is unchanged.
+    const seeded = await Weather.addRowsSeededValues()
+    expect(seeded.deltaHours).toBe('1')
+    expect(seeded.startDate).toBe('2026-05-13')
+    expect(seeded.startTime).toBe('00:00')
+    await Weather.arCancel.click()
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
 
     // ── 4. Add a managed column WITH a default → it back-fills the imported rows.
     await Weather.addColumn('note', { defaultValue: '7' })
@@ -113,6 +125,27 @@ describe('Helios end-to-end journey', () => {
     await browser.waitUntil(async () => (await Weather.cellInput(editRow, noteCol).getValue()) === '42', {
       timeout: 15000,
       timeoutMsg: 'edited cell did not show the committed value'
+    })
+
+    // ── 5b'. Imported columns arrive WITHOUT a data type (the import saga uploads
+    // datatype:null), so range validation only ARMS after a manual assignment.
+    // Assign air_temperature + Fahrenheit to the imported temp column, then prove
+    // an out-of-range value is flagged with the unit's backend range and an
+    // in-range value clears it. setReactInput fires the change event only (no
+    // blur) → purely client-side validation, the committed backend value is
+    // untouched, so later steps are unaffected.
+    const originalTemp = await numericCell(editRow, tempCol)
+    await Weather.assignDataTypeUnit(tempCol, 'air_temperature', 'F')
+    await Weather.setReactInput(`[aria-label="${editRow} ${tempCol}"]`, '500')
+    await browser.waitUntil(async () => (await Weather.cellInvalid(editRow, tempCol)) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'out-of-range temp (500 °F) did not flag aria-invalid'
+    })
+    expect(await Weather.cellError(editRow, tempCol)).toBe('Value should be between -58.27 and 170.33')
+    await Weather.setReactInput(`[aria-label="${editRow} ${tempCol}"]`, String(originalTemp))
+    await browser.waitUntil(async () => (await Weather.cellInvalid(editRow, tempCol)) === null, {
+      timeout: 10000,
+      timeoutMsg: 'restored in-range temp did not clear aria-invalid'
     })
 
     // ── 5b. Edit the LONGITUDE and capture the recomputed UTC so step 7 can prove
