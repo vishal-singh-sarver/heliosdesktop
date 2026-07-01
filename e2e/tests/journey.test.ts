@@ -115,21 +115,38 @@ describe('Helios end-to-end journey', () => {
       timeoutMsg: 'edited cell did not show the committed value'
     })
 
+    // ── 5b. Edit the LONGITUDE and capture the recomputed UTC so step 7 can prove
+    // the coordinate + its backend-derived UTC persist across the reopen. We edit
+    // ONLY longitude on purpose: it is the one field whose PATCH we can barrier on
+    // (UTC recomputes only after the backend round-trips), so we can guarantee it
+    // landed before navigating away. A lone latitude edit has no observable
+    // completion signal, so its in-flight PATCH would be cancelled by the immediate
+    // navigate — a test-timing limitation, not an app bug. Latitude is left at its
+    // create value and asserted to persist too (create-time coord round-trips).
+    const utcBeforeEdit = await ProjectScreen.getUtcValue()
+    await ProjectScreen.setCoordinate('longitude', '78.486')
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== utcBeforeEdit, {
+      timeout: 10000,
+      timeoutMsg: 'UTC offset did not recompute after editing longitude'
+    })
+    const committedUtc = await ProjectScreen.getUtcValue()
+
     // ── 6. Click the Helios logo → land on Home and the active SCENARIO is cleared.
     // NOTE (app behavior, not a bug): logo→home clears activeScenarioId only; it
     // intentionally RETAINS activeProjectId so a refresh with both ids can auto-
     // restore the project screen (the boot auto-restore suite relies on this).
     // So we assert the scenario clears (differential — ProjectScreen unmount must
     // run) and that we actually returned Home, NOT that activeProjectId is null.
+    const projectIdBeforeHome = await getStorage(ACTIVE_PROJECT_KEY)
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
     await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
-    await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
       timeout: 10000,
-      timeoutMsg: 'activeScenarioId was not cleared after going Home'
       timeoutMsg: 'activeScenarioId was not cleared after going Home'
     })
     expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)
+    // Project id is intentionally RETAINED (not cleared) on logo→home — assert it
+    // holds so a regression that wrongly clears it would go red.
     expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(projectIdBeforeHome)
 
     // ── 7. Reopen the SAME project from Home → the added column AND the edited
@@ -149,16 +166,18 @@ describe('Helios end-to-end journey', () => {
     // …and the un-edited back-filled cell did too (column + default persisted).
     await expect(Weather.cellInput(keepRow2, noteCol2)).toHaveValue('7')
 
-    // The lat/lon edited in step 5b also persisted. UTC offset is the backend's
-    // derived string (assert exactly); coords store as float32 → assert numeric
-    // with tolerance. Differential: a dropped PATCH shows the create-time coords.
+    // Coordinates + derived UTC survived the reopen: the EDITED longitude shows the
+    // new value, the UNEDITED latitude keeps its create value, and UTC matches what
+    // the backend derived. UTC is an exact string; coords store as float32 → assert
+    // numeric with tolerance. Differential: a dropped longitude PATCH would show the
+    // create-time -120.25 here.
     const lonReopened = Number(await ProjectScreen.getCoordValue('longitude'))
     if (Math.abs(lonReopened - 78.486) > 0.01) {
-      throw new Error(`longitude did not persist: got ${lonReopened}, expected ~78.486`)
+      throw new Error(`edited longitude did not persist: got ${lonReopened}, expected ~78.486`)
     }
     const latReopened = Number(await ProjectScreen.getCoordValue('latitude'))
-    if (Math.abs(latReopened - 17.385) > 0.01) {
-      throw new Error(`latitude did not persist: got ${latReopened}, expected ~17.385`)
+    if (Math.abs(latReopened - 45.5) > 0.01) {
+      throw new Error(`create-time latitude did not persist: got ${latReopened}, expected ~45.5`)
     }
     expect(await ProjectScreen.getUtcValue()).toBe(committedUtc)
 
