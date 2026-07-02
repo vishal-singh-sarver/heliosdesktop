@@ -29,7 +29,7 @@ import {
 } from './constants'
 import { clearTextureCache } from '../ui/textureCache'
 import { clearSceneCache, getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
-import { selectSceneObjectIds, selectSceneObjects, selectSelectedObjectId } from './selectors'
+import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects, selectSelectedObjectId } from './selectors'
 
 function toErrorPayload(err: unknown): ApiErrorPayload {
   if (err instanceof ApiError) {
@@ -196,6 +196,35 @@ export function* scenarioChangeWorker(): Generator {
   yield put(actions.loadScene())
 }
 
+// Re-run the scene load once the Geometry tree finishes listing, but only if an
+// earlier loadScene bailed before the tree was ready. On refresh, loadScene
+// (fired by SET_ACTIVE_SCENARIO) can run before the Geometry panel has mounted
+// and dispatched the tree fetch — so loadSceneWorker sees loadStatus 'idle',
+// doesn't wait, and returns empty without fetching any binary geometry. When the
+// tree then arrives we re-trigger the load here.
+//
+// Guards keep this from reintroducing the duplicate binary fetches that the old
+// LIST_NODES_SUCCEEDED → scenarioChangeWorker watcher caused: skip when the
+// scenario is empty, when the scene cache is already populated (load already
+// completed), or when a load is currently in flight (let it finish). takeLatest
+// coalesces bursts of LIST_NODES_SUCCEEDED.
+export function* onNodesListed(): Generator {
+  const projectId = (yield select(selectActiveProjectId)) as string | null
+  const scenarioId = (yield select(selectActiveScenarioId)) as string | null
+  if (!projectId || !scenarioId) return
+
+  const objects = (yield select(selectSceneObjects)) as SceneObject[]
+  if (objects.length === 0) return // empty scenario — nothing to render
+
+  const cachedIds = (yield select(selectSceneObjectIds)) as number[]
+  if (cachedIds.length > 0) return // scene already loaded — don't refetch
+
+  const sceneLoad = (yield select(selectSceneLoad)) as { loading: boolean }
+  if (sceneLoad.loading) return // a load is in flight — let it finish
+
+  yield put(actions.loadScene())
+}
+
 // ── Select scene object worker ───────────────────────────────────────────────
 
 export function* selectSceneObjectWorker(): Generator {
@@ -313,6 +342,9 @@ export default function* threeDWindowSaga(): Generator {
 
   yield takeLatest(LOAD_SCENE_REQUESTED, loadSceneWorker)
   yield takeLatest(SET_ACTIVE_SCENARIO, scenarioChangeWorker)
+  // Safety net for the boot/refresh race: if loadScene ran before the geometry
+  // tree was ready and bailed, re-run it once the tree lists (see onNodesListed).
+  yield takeLatest(LIST_NODES_SUCCEEDED, onNodesListed)
 
   yield takeLatest(SELECT_SCENE_OBJECT, selectSceneObjectWorker)
 
