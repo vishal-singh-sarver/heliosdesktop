@@ -607,6 +607,7 @@ function WeatherTable(): React.JSX.Element {
                 return (
                   <th
                     key={colId}
+                    data-testid={`weather-header-${colId}`}
                     className={`${widthCls} ${alignCls} ${headerDivider} px-3 py-2 text-left font-normal text-neutral-300`}
                   >
                     {managed ? (

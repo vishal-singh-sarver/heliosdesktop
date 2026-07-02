@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import type { Options } from '@wdio/types'
 
@@ -8,6 +9,51 @@ delete process.env['ELECTRON_RUN_AS_NODE']
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const electronPath: string = require('electron')
+
+/**
+ * Reap orphaned test child-processes. When wdio-electron-service hard-kills
+ * Electron (session teardown / reloadSession) or the run is force-killed,
+ * Electron's before-quit/will-quit backend cleanup never runs, so the spawned
+ * heliosgui_backend — and sometimes the out/main Electron itself — is reparented
+ * to init and keeps holding its port. These pile up across specs and break later
+ * runs, so we sweep them here.
+ *
+ * We match ONLY this checkout's paths and kill BY PID (never `pkill -f`, which
+ * could hit unrelated processes). Electron matches also require the WebDriver
+ * automation flag so a separately-running `npm run dev` app is never touched.
+ * Linux-only: the backend is a native Linux binary and this leak is Linux-specific.
+ */
+function reapOrphans(label: string, includeElectron: boolean): void {
+  if (process.platform !== 'linux') return
+  const backendScope = join(process.cwd(), 'resources', 'backend')
+  const electronScope = join(process.cwd(), 'out', 'main')
+  try {
+    const ps = execSync('ps -eo pid=,args=', { encoding: 'utf8' })
+    const killed: number[] = []
+    for (const line of ps.split('\n')) {
+      const m = line.match(/^\s*(\d+)\s+(.*)$/)
+      if (!m) continue
+      const pid = Number(m[1])
+      const args = m[2]
+      if (pid === process.pid) continue
+      const isBackend = args.includes(backendScope)
+      const isElectron =
+        includeElectron && args.includes(electronScope) && args.includes('--test-type=webdriver')
+      if (!isBackend && !isElectron) continue
+      try {
+        process.kill(pid, 'SIGKILL')
+        killed.push(pid)
+      } catch {
+        /* already exited */
+      }
+    }
+    if (killed.length) {
+      console.log(`[reap:${label}] killed ${killed.length} orphaned process(es): ${killed.join(', ')}`)
+    }
+  } catch (err) {
+    console.warn(`[reap:${label}] sweep failed:`, (err as Error).message)
+  }
+}
 
 export const config: Options.Testrunner = {
   runner: 'local',
@@ -52,5 +98,18 @@ export const config: Options.Testrunner = {
     // Heavy real-file imports (e.g. NSRDB NLR*.csv at 8784 rows) revalidate every
     // row in the renderer on each mapping interaction; 60s is too tight under load.
     timeout: 120000,
+  },
+
+  // After each spec's session ends, kill any orphaned backend the app left behind.
+  // maxInstances is 1, so no other session is active — a lingering backend is dead
+  // weight. Prevents backends piling up across a full-suite run.
+  afterSession: function () {
+    reapOrphans('afterSession', false)
+  },
+
+  // Final safety net once the whole run finishes (or is interrupted): sweep both
+  // orphaned backends AND any lingering wdio-launched Electron from out/main.
+  onComplete: function () {
+    reapOrphans('onComplete', true)
   },
 }

@@ -258,7 +258,8 @@ describe('HomePage', () => {
   describe('create — latitude validation', () => {
     it('empty latitude shows the required error after blur', async () => {
       await HomePage.openCreateDialogViaSidebar()
-      await HomePage.createLatInput.click()
+      // The field pre-fills with the UC Davis default; clear it, then blur.
+      await setInputValue(HomePage.createLatInput, '')
       await HomePage.createNameInput.click()
       await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
       await expect(HomePage.createLatError).toHaveText(MSG.latRequired)
@@ -323,7 +324,8 @@ describe('HomePage', () => {
   describe('create — longitude validation', () => {
     it('empty longitude shows the required error after blur', async () => {
       await HomePage.openCreateDialogViaSidebar()
-      await HomePage.createLonInput.click()
+      // The field pre-fills with the UC Davis default; clear it, then blur.
+      await setInputValue(HomePage.createLonInput, '')
       await HomePage.createNameInput.click()
       await HomePage.createLonError.waitForDisplayed({ timeout: 10000 })
       await expect(HomePage.createLonError).toHaveText(MSG.lonRequired)

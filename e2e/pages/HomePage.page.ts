@@ -132,12 +132,30 @@ class HomePagePage {
   /**
    * Fill the three create fields and submit. Does NOT wait for the result —
    * success navigates away from HomePage, failure keeps the dialog open.
+   *
+   * Uses clear-then-type (not plain setValue): the lat/long fields pre-fill with
+   * the UC Davis default (INITIAL_VALUES), and setValue does NOT reliably empty a
+   * controlled (Formik/React) input first — React re-renders the old value back,
+   * so the typed value would append to the default ("38.5412.34") and fail
+   * validation, leaving the dialog open (create never navigates).
    */
   async fillAndSubmitCreate(name: string, lat: string, lon: string): Promise<void> {
-    await this.createNameInput.setValue(name)
-    await this.createLatInput.setValue(lat)
-    await this.createLonInput.setValue(lon)
+    await this.replaceInput(this.createNameInput, name)
+    await this.replaceInput(this.createLatInput, lat)
+    await this.replaceInput(this.createLonInput, lon)
     await this.createSubmitButton.click()
+  }
+
+  /**
+   * Robustly set a controlled (Formik/React) input: focus, select-all, delete,
+   * then type. Plain setValue can leave the previous value because React
+   * re-renders the input from state. Pass '' to just clear the field.
+   */
+  private async replaceInput(el: El, value: string): Promise<void> {
+    await el.click()
+    await browser.keys(['Control', 'a'])
+    await browser.keys(['Delete'])
+    if (value.length) await el.addValue(value)
   }
 
   /** Client-side instant search (no HTTP). Sets the searchbar value directly. */
