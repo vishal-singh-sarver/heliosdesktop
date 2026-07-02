@@ -437,7 +437,14 @@ class WeatherPage {
    * We race confirm-appears vs wizard-closes so the no-prompt case pays no fixed
    * wait, click Yes if prompted, then wait for the wizard to close.
    */
-  private async clickImportAndFinish(closeTimeout = 120000): Promise<void> {
+  /**
+   * Click the wizard's Import and wait until EITHER the "Replace existing weather
+   * data?" confirm appears OR the wizard closes (no confirm → import ran). Returns
+   * whether the confirm appeared, WITHOUT accepting/dismissing it — the caller
+   * decides (importConfirmYes / importConfirmNo). Racing avoids a fixed wait on
+   * the common no-confirm path.
+   */
+  async clickImportAndDetectConfirm(closeTimeout = 120000): Promise<boolean> {
     await this.wizardImport.click()
     await browser.waitUntil(
       async () => {
@@ -450,7 +457,15 @@ class WeatherPage {
       },
       { timeout: closeTimeout, timeoutMsg: 'import: no replace-confirm and wizard never closed' }
     )
-    if (await this.importConfirmYes.isDisplayed().catch(() => false)) {
+    return this.importConfirmYes.isDisplayed().catch(() => false)
+  }
+
+  /**
+   * Click Import and finish the happy path: accept the replace-confirm if it
+   * appears (importing over existing data), then wait for the wizard to close.
+   */
+  private async clickImportAndFinish(closeTimeout = 120000): Promise<void> {
+    if (await this.clickImportAndDetectConfirm(closeTimeout)) {
       await this.importConfirmYes.click()
     }
     await this.importWizard.waitForDisplayed({ reverse: true, timeout: closeTimeout })
@@ -642,6 +657,29 @@ class WeatherPage {
    * reached ≥1 valid row within `dtTimeout` (caller decides finding vs. failure).
    */
   async importWithMapping(mapping: ImportMapping, dtTimeout = 15000): Promise<boolean> {
+    if (!(await this.stepToReview(mapping, dtTimeout))) return false
+    await this.clickImportAndFinish(120000)
+    return true
+  }
+
+  /**
+   * Like importWithMapping, but clicks Import and RETURNS whether the "Replace
+   * existing weather data?" confirm appeared — leaving it OPEN for the caller to
+   * accept (importConfirmYes) or dismiss (importConfirmNo). For tests of the
+   * confirm's presence/absence and the No path. Returns null if the Date/Time
+   * gate never opened (mapping produced no valid rows).
+   */
+  async importDetectConfirm(mapping: ImportMapping, dtTimeout = 15000): Promise<boolean | null> {
+    if (!(await this.stepToReview(mapping, dtTimeout))) return null
+    return this.clickImportAndDetectConfirm(120000)
+  }
+
+  /**
+   * Step the wizard from open through Review, leaving the Import button clickable
+   * (does NOT click it). Returns false if the Date/Time step never reached ≥1
+   * valid row within dtTimeout. Shared by importWithMapping and importDetectConfirm.
+   */
+  private async stepToReview(mapping: ImportMapping, dtTimeout = 15000): Promise<boolean> {
     await this.openImportWizard()
     await this.wizardBrowse.click()
     await this.waitForWizardNext() // step 0 File Preview
@@ -664,7 +702,6 @@ class WeatherPage {
     // thousands of rows + columns also takes time. Both need generous timeouts.
     for (const h of mapping.excludeColumns ?? []) await this.excludeReviewColumn(h)
     await this.wizardImport.waitForClickable({ timeout: 30000 })
-    await this.clickImportAndFinish(120000)
     return true
   }
 

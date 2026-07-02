@@ -1481,6 +1481,60 @@ describe('Weather import — re-import replaces existing data', () => {
   })
 })
 
+describe('Weather import — replace-confirm gating', () => {
+  // The "Replace existing weather data?" confirm keys off ROWS/dataset, not
+  // columns (Weather/index.tsx: a fresh scenario always carries a default
+  // date/time column, so a column check would false-positive). Adding a column
+  // leaves the scenario at 0 rows, so importing must NOT prompt.
+  it('no confirm when the scenario has a column but no rows', async () => {
+    await enterWeather('confcol')
+    await Weather.addColumn('Extra') // header only — scenario stays at 0 rows
+    expect(await Weather.rowCount()).toBe(0)
+
+    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    const confirmShown = await Weather.importDetectConfirm({
+      date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
+    })
+    expect(confirmShown).toBe(false) // columns alone don't trigger the confirm
+    await Weather.waitForColumn('temp') // import proceeded straight through
+  })
+
+  it('clicking No cancels the replace and keeps the existing data', async () => {
+    await enterWeather('confno')
+    // First import establishes existing data (davis → temp/humidity columns).
+    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    expect(
+      await Weather.importWithMapping({
+        date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
+      })
+    ).toBe(true)
+    await Weather.waitForColumn('temp')
+    const rowsBefore = await Weather.rowCount()
+
+    // Second import over existing data → confirm appears → click No.
+    await stubRealFile(fixture('NLR1.csv'))
+    const shown = await Weather.importDetectConfirm(
+      {
+        headerSkip: 2,
+        date: { mode: 'parts', year: 'Year', month: 'Month', day: 'Day' },
+        time: { mode: 'parts', hour: 'Hour', minute: 'Minute' }
+      },
+      25000
+    )
+    expect(shown).toBe(true) // importing over existing data DOES prompt
+    await Weather.importConfirmNo.click()
+    await Weather.importConfirmDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    // No closes only the confirm; the wizard stays open — cancel it to clean up.
+    await Weather.wizardCancel.click()
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+
+    // Nothing was replaced: davis data intact, NLR1 not imported.
+    expect(await Weather.colIdForName('temp')).not.toBe(null)
+    expect(await Weather.rowCount()).toBe(rowsBefore)
+    expect(await Weather.colIdForName('Temperature')).toBe(null)
+  })
+})
+
 describe('Weather import — CIMIS.xml (date string + time string)', () => {
   it('parses the pivoted XML and imports with a discovered date/time mapping', async () => {
     await enterWeather('cimisxml')
