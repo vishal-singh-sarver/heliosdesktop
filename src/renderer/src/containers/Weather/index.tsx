@@ -1,7 +1,10 @@
+import Dialog from '@renderer/components/Dialog'
 import { CheckCircleIcon, CloseIcon } from '@renderer/components/ImportWizard/Icons'
+import { PrimaryBtn } from '@renderer/components/ImportWizard/primitives'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
+import messages from './messages'
 import { VALIDATION_MESSAGES } from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
@@ -27,6 +30,7 @@ import {
   selectImportPrecisionWarningPending,
   selectImporting,
   selectPickedFile,
+  selectRowOrder,
   selectWizardOpen
 } from './selectors'
 import type { ImportedDataset } from './types'
@@ -46,6 +50,7 @@ export function Weather(): React.JSX.Element {
   const fileError = useSelector(selectFileError)
   const pickedFile = useSelector(selectPickedFile)
   const dataset = useSelector(selectDataset)
+  const rowOrder = useSelector(selectRowOrder)
   const activeProjectId = useSelector(selectActiveProjectId)
   const activeScenarioId = useSelector(selectActiveScenarioId)
   const importing = useSelector(selectImporting)
@@ -54,6 +59,10 @@ export function Weather(): React.JSX.Element {
   const importPrecisionWarningPending = useSelector(selectImportPrecisionWarningPending)
   const wizardOpen = useSelector(selectWizardOpen)
   const [importToastMessage, setImportToastMessage] = React.useState<string | null>(null)
+  const [pendingImport, setPendingImport] = React.useState<{
+    dataset: ImportedDataset
+    truncatedDecimals: boolean
+  } | null>(null)
   const toastTimeoutRef = React.useRef<number | null>(null)
 
   // Clear timeout on unmount
@@ -100,12 +109,42 @@ export function Weather(): React.JSX.Element {
     dispatch(importWizardClosed())
   }
 
+  // The wizard's "Import" button funnels through a Yes/No confirmation here
+  // because finalizing erases the scenario's existing weather data (the saga
+  // clears it before writing). Only prompt when there IS existing data to
+  // replace — with an empty scenario there's nothing to overwrite, so import
+  // straight away. Data can come from a prior file import (dataset) OR from
+  // manually added rows. We key off ROWS, not columns: a fresh scenario always
+  // carries a default date/time column, so a column check would false-positive.
+  const hasExistingData = dataset != null || rowOrder.length > 0
   const handleSubmit = (ds: ImportedDataset, truncatedDecimals: boolean): void => {
     if (!activeProjectId || !activeScenarioId) return
+    if (!hasExistingData) {
+      dispatch(importFinalizeRequested(activeProjectId, activeScenarioId, ds, truncatedDecimals))
+      return
+    }
+    setPendingImport({ dataset: ds, truncatedDecimals })
+  }
+
+  const handleConfirmImport = (): void => {
+    if (importing || !pendingImport || !activeProjectId || !activeScenarioId) return
     // The truncation toast surfaces only after the import saga succeeds (see
     // the importPrecisionWarningPending effect), so the user sees it once in
     // the Weather view — not while the wizard is still open.
-    dispatch(importFinalizeRequested(activeProjectId, activeScenarioId, ds, truncatedDecimals))
+    dispatch(
+      importFinalizeRequested(
+        activeProjectId,
+        activeScenarioId,
+        pendingImport.dataset,
+        pendingImport.truncatedDecimals
+      )
+    )
+    setPendingImport(null)
+  }
+
+  const handleCancelImport = (): void => {
+    if (importing) return
+    setPendingImport(null)
   }
 
   const handleRequestPickFile = (): void => {
@@ -142,6 +181,28 @@ export function Weather(): React.JSX.Element {
           importError={importError}
         />
       )}
+
+      <Dialog
+        isOpen={pendingImport !== null}
+        title={messages.importConfirm.dialogTitle}
+        onClose={handleCancelImport}
+      >
+        <h3 className="text-base font-medium text-white">{messages.importConfirm.heading}</h3>
+        <p className="text-sm text-neutral-400">{messages.importConfirm.body}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            onClick={handleCancelImport}
+            disabled={importing}
+            className="inline-flex h-[34px] min-w-[74px] items-center justify-center rounded-[4px] border border-neutral-300 bg-white px-[10px] py-[5px] text-sm font-medium text-neutral-900 outline-none transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {messages.importConfirm.cancelButton}
+          </button>
+          <PrimaryBtn onClick={handleConfirmImport} disabled={importing}>
+            {messages.importConfirm.confirmButton}
+          </PrimaryBtn>
+        </div>
+      </Dialog>
 
       {importToastMessage && (
         <div className="absolute left-1/2 top-2 z-[60] w-full max-w-[520px] -translate-x-1/2 px-4">

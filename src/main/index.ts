@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell, systemPreferences } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  screen,
+  shell,
+  systemPreferences
+} from 'electron'
 import { promises as fs, mkdirSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
@@ -149,7 +158,7 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
 function createSplashWindow(): BrowserWindow {
   const splash = new BrowserWindow({
     width: 1000,
-    height: 600,
+    height: 500,
     show: true,
     frame: false,
     alwaysOnTop: true,
@@ -166,6 +175,9 @@ function createSplashWindow(): BrowserWindow {
     ? join(process.resourcesPath, 'Helios_splash.png')
     : resolve(__dirname, '../../resources/Helios_splash.png')
   const logoUrl = `file://${logoPath.replace(/\\/g, '/')}`
+
+  const version = app.getVersion()
+  const year = 2026
 
   const splashHtml = `
     <!DOCTYPE html>
@@ -184,19 +196,34 @@ function createSplashWindow(): BrowserWindow {
           background: #121212;
         }
         body {
-          position: relative;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          display: flex;
+          flex-direction: column;
+          background: #3d3d3d;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-ser
         }
         .logo {
           width: 100%;
-          height: 100%;
+          min-height: 0;
           object-fit: cover;
+          object-position: center top;
           display: block;
+        }
+          .footer {
+          flex: 0 0 auto;
+          /* Pull up 1px so no hairline of the window background shows between
+             the image and the footer. */
+          margin-top: -1px;
+          padding: 22px 20px;
+          background: #3d3d3d;
+          color: #c8c8c8;
+          font-size: 15px;
+          line-height: 1;
         }
       </style>
     </head>
     <body>
       <img class="logo" src="${logoUrl}" />
+      <div class="footer">Version ${version} &copy; ${year} Helios. All rights reserved</div>
     </body>
     </html>
   `
@@ -344,9 +371,7 @@ app.on('second-instance', () => {
 // after the user closes the window. Remove once the reopen-on-close cause is
 // confirmed.
 app.on('activate', () => {
-  writeEarlyLog(
-    `activate event fired (windows=${BrowserWindow.getAllWindows().length})`
-  )
+  writeEarlyLog(`activate event fired (windows=${BrowserWindow.getAllWindows().length})`)
 })
 
 // --- Window control IPC handlers ---

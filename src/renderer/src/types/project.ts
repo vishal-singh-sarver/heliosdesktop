@@ -4,10 +4,12 @@ export interface FormValues {
   longitude: string
 }
 
+// New projects default to the UC Davis main campus (38.5400° N, 121.7500° W).
+// Longitude is negative for West, per the form's decimal-degrees convention.
 export const INITIAL_VALUES: FormValues = {
   projectName: '',
-  latitude: '',
-  longitude: ''
+  latitude: '38.54',
+  longitude: '-121.75'
 }
 
 export interface SidebarItem {
