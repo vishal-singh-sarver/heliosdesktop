@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Electron Desktop Boilerplate — Development Strategy</title>
+<title>Helios GUI — Development Strategy</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -277,7 +277,7 @@
 ════════════════════════════════════════════════════════════════ -->
 <div class="cover">
   <div class="cover-label">Technical Reference &amp; Developer Guide</div>
-  <h1>Electron Desktop<br><span>Boilerplate</span></h1>
+  <h1>Helios<br><span>GUI</span></h1>
   <p class="cover-sub">Development strategy, module architecture, and implementation guidance for building production-grade Electron desktop applications with React, Redux-Saga, TypeScript, and Tailwind CSS.</p>
   <dl class="cover-meta">
     <div><dt>Version</dt><dd>1.0.0</dd></div>
@@ -324,7 +324,7 @@
   <span class="section-num">Section 01</span>
   <h1 class="section-title">Project Architecture Overview</h1>
 
-  <p>The boilerplate follows Electron's three-process model and maps each process to a separate TypeScript compilation unit. Each process has strict boundaries — they communicate only through defined IPC channels.</p>
+  <p>Helios GUI follows Electron's three-process model and maps each process to a separate TypeScript compilation unit. Each process has strict boundaries — they communicate only through defined IPC channels.</p>
 
   <div class="flow">
     <div class="flow-box">Main Process<br><small style="font-weight:400;color:#3b82f6">src/main/index.ts</small></div>
@@ -391,7 +391,7 @@ node -v           # should print v22.x.x</code></pre>
 
   <h2>Initial Setup</h2>
   <pre><code>git clone &lt;repo-url&gt;
-cd electron-desktop-boilerplate
+cd helios_gui
 nvm use          # switch to Node 22 via .nvmrc
 npm install</code></pre>
 
@@ -701,7 +701,7 @@ useInjectSaga({ key: 'myFeature', saga })</code></pre>
   </div>
 
   <h2>RTK Query (Optional)</h2>
-  <p><code>@reduxjs/toolkit@2.x</code> ships RTK Query — a data-fetching and caching layer built on top of Redux. It is available in this boilerplate without any additional dependencies.</p>
+  <p><code>@reduxjs/toolkit@2.x</code> ships RTK Query — a data-fetching and caching layer built on top of Redux. It is available in this project without any additional dependencies.</p>
   <p>Use RTK Query when you need automatic caching, request deduplication, and invalidation for REST endpoints. Use Redux-Saga when you need complex orchestration, SSE streams, or sequential multi-step async flows.</p>
   <pre><code>// store/apiSlice.ts
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'

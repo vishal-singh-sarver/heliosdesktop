@@ -1,4 +1,4 @@
-# Helios GUI — Claude Context
+# Contributing to Helios GUI
 
 Electron desktop app shell for Helios, a FastAPI-backed workspace. Two halves live in this repo: an Electron + React renderer (this repo's `src/`) and a Python FastAPI backend (git submodule at [backend-api/](backend-api/), tracked separately).
 
@@ -62,7 +62,7 @@ Dev server launches with `--no-sandbox` on Linux. If testing sandbox behavior, s
 
 ## Conventions
 
-The authoritative style guide is [docs/coding-guidelines.md](docs/coding-guidelines.md) — read it before non-trivial changes. Key rules reproduced here for quick reference:
+The key style rules are reproduced here — read them before non-trivial changes:
 
 - **Process boundaries are hard.** Renderer never imports `electron` or Node APIs. Everything crosses through preload's `contextBridge`. `contextIsolation: true`, `nodeIntegration: false` — non-negotiable.
 - **IPC:** channel names are constants shared by main + preload (`feature:verb`). Request/response uses `ipcMain.handle` + `ipcRenderer.invoke`. Renderer calls `window.api.*`, never `ipcRenderer` directly.
@@ -75,7 +75,7 @@ The authoritative style guide is [docs/coding-guidelines.md](docs/coding-guideli
 
 ## NEVER
 
-- `backend-api/` is a git submodule with its own repo and its own [backend-api/CLAUDE.md](backend-api/CLAUDE.md). Edits land in that repo's history, not this one — prefer opening Claude with `cwd=backend-api/` for backend-only work so the right context loads.
+- `backend-api/` is a git submodule with its own repo and its own [backend-api/CONTRIBUTING.md](backend-api/CONTRIBUTING.md). Edits land in that repo's history, not this one — work in `backend-api/` directly for backend-only changes.
 - Never commit `package-lock.json` (it is gitignored intentionally — see [.gitignore](.gitignore)).
 - Never `require('electron')` or touch Node APIs from the renderer.
 - Never put non-serializable values in Redux (Dates, Maps, class instances, Errors, File objects).
@@ -87,4 +87,4 @@ The authoritative style guide is [docs/coding-guidelines.md](docs/coding-guideli
 
 ## Task Intake
 
-For non-trivial changes, write the task in [TASK.md](TASK.md) before asking for implementation. The template at the top of that file shows the expected shape: one-sentence goal, **testable** acceptance criteria, affected files, constraints.
+For non-trivial changes, write up the task before starting work — a one-sentence goal, **testable** acceptance criteria, affected files, and constraints.
