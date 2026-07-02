@@ -221,7 +221,7 @@ class WeatherPage {
 
   // ----- Import wizard (custom role=dialog overlay, NOT a native <dialog>) -----
   get importWizard(): El {
-    return $('[aria-label="Import Weather Data"]')
+    return $('[role="dialog"][aria-label="Import Weather Data"]')
   }
   get wizardClose(): El {
     return this.importWizard.$('[aria-label="Close"]')
@@ -237,6 +237,21 @@ class WeatherPage {
   }
   get wizardCancel(): El {
     return this.importWizard.$('button=Cancel')
+  }
+
+  // ----- "Replace existing weather data?" confirm. Importing over a scenario that
+  // already has data (a prior file OR manually added rows) pops this NATIVE
+  // <dialog> (Weather/index.tsx). It shares the wizard's aria-label, so we select
+  // it by element type (`dialog`, not the wizard's `div[role=dialog]`). A first
+  // import into an empty scenario does NOT prompt. -----
+  get importConfirmDialog(): El {
+    return $('dialog[aria-label="Import Weather Data"]')
+  }
+  get importConfirmYes(): El {
+    return this.importConfirmDialog.$('button=Yes')
+  }
+  get importConfirmNo(): El {
+    return this.importConfirmDialog.$('button=No')
   }
   /** Success/precision toast sentinel (its dismiss button — toast has no testid). */
   get importToastDismiss(): El {
@@ -416,6 +431,32 @@ class WeatherPage {
   }
 
   /**
+   * Click the wizard's Import and finish. Importing over a scenario that already
+   * has data pops a "Replace existing weather data?" confirm that must be accepted
+   * before the import runs; a first import into an empty scenario has no prompt.
+   * We race confirm-appears vs wizard-closes so the no-prompt case pays no fixed
+   * wait, click Yes if prompted, then wait for the wizard to close.
+   */
+  private async clickImportAndFinish(closeTimeout = 120000): Promise<void> {
+    await this.wizardImport.click()
+    await browser.waitUntil(
+      async () => {
+        const confirmShown = await this.importConfirmYes.isDisplayed().catch(() => false)
+        const wizardGone = await this.importWizard
+          .isDisplayed()
+          .then((d) => !d)
+          .catch(() => true)
+        return confirmShown || wizardGone
+      },
+      { timeout: closeTimeout, timeoutMsg: 'import: no replace-confirm and wizard never closed' }
+    )
+    if (await this.importConfirmYes.isDisplayed().catch(() => false)) {
+      await this.importConfirmYes.click()
+    }
+    await this.importWizard.waitForDisplayed({ reverse: true, timeout: closeTimeout })
+  }
+
+  /**
    * Full happy-path import: open the wizard, Browse (the file-dialog stub must be
    * installed first), step through (File -> Data -> Date/Time -> Review) and
    * Import. Waits for the wizard to close. Assumes a fixture the wizard can
@@ -432,8 +473,7 @@ class WeatherPage {
       await this.wizardNext.click()
     }
     await this.wizardImport.waitForClickable({ timeout: 10000 })
-    await this.wizardImport.click()
-    await this.importWizard.waitForDisplayed({ reverse: true, timeout: 30000 })
+    await this.clickImportAndFinish(30000)
   }
 
   /** Wait for a managed column with `name` to exist and return its backend colId. */
@@ -624,8 +664,7 @@ class WeatherPage {
     // thousands of rows + columns also takes time. Both need generous timeouts.
     for (const h of mapping.excludeColumns ?? []) await this.excludeReviewColumn(h)
     await this.wizardImport.waitForClickable({ timeout: 30000 })
-    await this.wizardImport.click()
-    await this.importWizard.waitForDisplayed({ reverse: true, timeout: 120000 })
+    await this.clickImportAndFinish(120000)
     return true
   }
 

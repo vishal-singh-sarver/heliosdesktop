@@ -876,6 +876,16 @@ describe('HomePage', () => {
     })
   })
 
+  describe('create dialog — default coordinates', () => {
+    it('pre-fills latitude/longitude with the UC Davis defaults; name stays empty', async () => {
+      await HomePage.openCreateDialogViaSidebar()
+      await expect(HomePage.createNameInput).toHaveValue('')
+      await expect(HomePage.createLatInput).toHaveValue('38.54')
+      await expect(HomePage.createLonInput).toHaveValue('-121.75')
+      await HomePage.closeCreateDialogViaX()
+    })
+  })
+
   describe('create dialog — field-help tooltips', () => {
     it('project-name help shows its tooltip on hover and dismisses on move-away', async () => {
       await HomePage.openCreateDialogViaSidebar()

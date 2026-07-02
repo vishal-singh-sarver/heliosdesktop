@@ -29,8 +29,19 @@ function reapOrphans(label: string, includeElectron: boolean): void {
   const electronScope = join(process.cwd(), 'out', 'main')
   try {
     const ps = execSync('ps -eo pid=,args=', { encoding: 'utf8' })
+    const lines = ps.split('\n')
+    // Concurrency guard: if a SECOND wdio run is active, do NOT reap. Our
+    // path-based match can't tell that run's LIVE Electron/backend from orphans,
+    // and killing them fails its tests ("disconnected: not connected to
+    // DevTools"). Each `wdio run` has exactly one node_modules/.bin/wdio process;
+    // >1 means another run overlaps. Whichever run is last standing cleans up.
+    const activeRuns = lines.filter((l) => /node_modules\/\.bin\/wdio\b/.test(l)).length
+    if (activeRuns > 1) {
+      console.log(`[reap:${label}] another wdio run is active — skipping to avoid cross-kill`)
+      return
+    }
     const killed: number[] = []
-    for (const line of ps.split('\n')) {
+    for (const line of lines) {
       const m = line.match(/^\s*(\d+)\s+(.*)$/)
       if (!m) continue
       const pid = Number(m[1])
