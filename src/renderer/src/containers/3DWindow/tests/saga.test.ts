@@ -1,13 +1,17 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
 import { selectLoadStatus } from 'containers/Geometry/selectors'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
-import { call, delay, put, race, select, take, takeLeading } from 'redux-saga/effects'
+import { call, delay, put, race, select, take, takeLatest, takeLeading } from 'redux-saga/effects'
 import { fetchObjectGeometryBinary } from '../api/geometry'
 import type { PrimitiveInfo, SceneObject } from '../models/types'
 import * as actions from '../store/actions'
 import { LOAD_OBJECT_GEOMETRY_REQUESTED } from '../store/constants'
-import threeDWindowSaga, { loadObjectGeometryWorker, loadSceneWorker } from '../store/saga'
-import { selectSceneObjects } from '../store/selectors'
+import threeDWindowSaga, {
+  loadObjectGeometryWorker,
+  loadSceneWorker,
+  onNodesListed
+} from '../store/saga'
+import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
 import { clearSceneCache, setObjectPrimitives } from '../store/sceneCache'
 import { clearTextureCache } from '../ui/textureCache'
 
@@ -104,11 +108,72 @@ describe('loadSceneWorker', () => {
   })
 })
 
+describe('onNodesListed', () => {
+  it('re-triggers loadScene when a prior load bailed (objects exist, cache empty, not loading)', () => {
+    const gen = onNodesListed()
+
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(select(selectSceneObjects))
+    // Tree now lists an object…
+    expect(gen.next([testObject]).value).toEqual(select(selectSceneObjectIds))
+    // …but the scene cache is still empty (earlier loadScene bailed)…
+    expect(gen.next([]).value).toEqual(select(selectSceneLoad))
+    // …and no load is in flight → re-run the scene load.
+    expect(gen.next({ loading: false }).value).toEqual(put(actions.loadScene()))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('does nothing when there is no active project/scenario', () => {
+    const gen = onNodesListed()
+    gen.next() // select project id
+    gen.next(null) // project id was null
+    expect(gen.next(null).done).toBe(true)
+  })
+
+  it('does nothing for an empty scenario (no objects to render)', () => {
+    const gen = onNodesListed()
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select scene objects
+    expect(gen.next([]).done).toBe(true)
+  })
+
+  it('skips re-loading when the scene cache is already populated', () => {
+    const gen = onNodesListed()
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select scene objects
+    gen.next([testObject]) // select scene object ids
+    // Cache already holds the object → the scene is loaded; don't refetch.
+    expect(gen.next([28]).done).toBe(true)
+  })
+
+  it('skips re-loading while a scene load is already in flight', () => {
+    const gen = onNodesListed()
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select scene objects
+    gen.next([testObject]) // select scene object ids
+    gen.next([]) // select scene load
+    // A load is already running → let it finish, don't start another.
+    expect(gen.next({ loading: true }).done).toBe(true)
+  })
+})
+
 describe('threeDWindowSaga', () => {
   it('watches LOAD_OBJECT_GEOMETRY_REQUESTED with takeLeading', () => {
     const gen = threeDWindowSaga()
     expect(gen.next().value).toEqual(
       takeLeading(LOAD_OBJECT_GEOMETRY_REQUESTED, loadObjectGeometryWorker)
     )
+  })
+
+  it('watches LIST_NODES_SUCCEEDED with onNodesListed (boot/refresh race safety net)', () => {
+    const gen = threeDWindowSaga()
+    gen.next() // takeLeading LOAD_OBJECT_GEOMETRY_REQUESTED
+    gen.next() // takeLatest LOAD_SCENE_REQUESTED
+    gen.next() // takeLatest SET_ACTIVE_SCENARIO
+    expect(gen.next().value).toEqual(takeLatest(LIST_NODES_SUCCEEDED, onNodesListed))
   })
 })
