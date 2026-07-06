@@ -1,13 +1,21 @@
 import {
   ADD_LOCAL_MATERIAL,
+  ADD_MATERIAL_TYPE,
+  CLEAR_MATERIAL_TYPES,
+  CLOSE_MATERIAL_DRAFT,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
+  OPEN_MATERIAL_DRAFT,
   REMOVE_MATERIAL,
+  REMOVE_MATERIAL_TYPE,
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_REQUESTED,
   RENAME_MATERIAL_SUCCEEDED,
   SELECT_MATERIAL,
+  SET_MATERIAL_DRAFT_NAME,
+  SET_MATERIAL_DRAFT_PENDING_TYPE,
+  SET_MATERIAL_DRAFT_VALUE,
   SET_NAME_ERROR,
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
@@ -60,6 +68,23 @@ export type ToggleMaterialVisibilityAction = {
 export type SelectMaterialAction = { type: typeof SELECT_MATERIAL; id: string }
 export type SetSearchQueryAction = { type: typeof SET_SEARCH_QUERY; payload: string }
 
+// ── Right-panel material Properties draft ────────────────────────────────────
+export type OpenMaterialDraftAction = { type: typeof OPEN_MATERIAL_DRAFT; name: string }
+export type AddMaterialTypeAction = { type: typeof ADD_MATERIAL_TYPE; typeId: number }
+export type RemoveMaterialTypeAction = { type: typeof REMOVE_MATERIAL_TYPE; typeId: number }
+export type ClearMaterialTypesAction = { type: typeof CLEAR_MATERIAL_TYPES }
+export type SetMaterialDraftPendingTypeAction = {
+  type: typeof SET_MATERIAL_DRAFT_PENDING_TYPE
+  typeId: number | null
+}
+export type SetMaterialDraftValueAction = {
+  type: typeof SET_MATERIAL_DRAFT_VALUE
+  property: string
+  value: string
+}
+export type SetMaterialDraftNameAction = { type: typeof SET_MATERIAL_DRAFT_NAME; name: string }
+export type CloseMaterialDraftAction = { type: typeof CLOSE_MATERIAL_DRAFT }
+
 export type MaterialsAction =
   | ListMaterialsRequestedAction
   | ListMaterialsSucceededAction
@@ -73,6 +98,14 @@ export type MaterialsAction =
   | ToggleMaterialVisibilityAction
   | SelectMaterialAction
   | SetSearchQueryAction
+  | OpenMaterialDraftAction
+  | AddMaterialTypeAction
+  | RemoveMaterialTypeAction
+  | ClearMaterialTypesAction
+  | SetMaterialDraftPendingTypeAction
+  | SetMaterialDraftValueAction
+  | SetMaterialDraftNameAction
+  | CloseMaterialDraftAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -130,3 +163,41 @@ export const setSearchQuery = (query: string): SetSearchQueryAction => ({
   type: SET_SEARCH_QUERY,
   payload: query
 })
+
+// ── Right-panel material Properties draft ────────────────────────────────────
+
+// Open the given (client-only) material in the right-panel Properties form. The
+// material id is derived as `local-<name>` to match ADD_LOCAL_MATERIAL, so the
+// draft edits the same row +Add Materials just appended.
+export const openMaterialDraft = (name: string): OpenMaterialDraftAction => ({
+  type: OPEN_MATERIAL_DRAFT,
+  name
+})
+
+export const addMaterialType = (typeId: number): AddMaterialTypeAction => ({
+  type: ADD_MATERIAL_TYPE,
+  typeId
+})
+
+export const removeMaterialType = (typeId: number): RemoveMaterialTypeAction => ({
+  type: REMOVE_MATERIAL_TYPE,
+  typeId
+})
+
+export const clearMaterialTypes = (): ClearMaterialTypesAction => ({ type: CLEAR_MATERIAL_TYPES })
+
+export const setMaterialDraftPendingType = (
+  typeId: number | null
+): SetMaterialDraftPendingTypeAction => ({ type: SET_MATERIAL_DRAFT_PENDING_TYPE, typeId })
+
+export const setMaterialDraftValue = (
+  property: string,
+  value: string
+): SetMaterialDraftValueAction => ({ type: SET_MATERIAL_DRAFT_VALUE, property, value })
+
+export const setMaterialDraftName = (name: string): SetMaterialDraftNameAction => ({
+  type: SET_MATERIAL_DRAFT_NAME,
+  name
+})
+
+export const closeMaterialDraft = (): CloseMaterialDraftAction => ({ type: CLOSE_MATERIAL_DRAFT })

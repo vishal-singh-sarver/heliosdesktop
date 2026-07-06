@@ -23,3 +23,26 @@ export const TOGGLE_MATERIAL_VISIBILITY = 'app/Materials/TOGGLE_MATERIAL_VISIBIL
 // Row selection + search.
 export const SELECT_MATERIAL = 'app/Materials/SELECT_MATERIAL' as const
 export const SET_SEARCH_QUERY = 'app/Materials/SET_SEARCH_QUERY' as const
+
+// ── Right-panel material Properties draft (local-only) ───────────────────────
+// +Add Materials opens the material in the right-panel Properties form. These
+// mirror Geometry's draft actions; nothing is persisted yet (Save is disabled),
+// so they only mutate the client draft. OPEN bumps a monotonic nonce the
+// RightPanel watches to auto-expand (same mechanism as Geometry's createDraft).
+export const OPEN_MATERIAL_DRAFT = 'app/Materials/OPEN_MATERIAL_DRAFT' as const
+// "+ Add Material Type" — commit the staged (pending) material type into the
+// draft's added list.
+export const ADD_MATERIAL_TYPE = 'app/Materials/ADD_MATERIAL_TYPE' as const
+// Remove a single added material type (its parameter-group block's trash).
+export const REMOVE_MATERIAL_TYPE = 'app/Materials/REMOVE_MATERIAL_TYPE' as const
+// Parameter Groups trash — drop every added material type from the draft.
+export const CLEAR_MATERIAL_TYPES = 'app/Materials/CLEAR_MATERIAL_TYPES' as const
+// The Parameter Groups "Select" dropdown — stage a material type to add.
+export const SET_MATERIAL_DRAFT_PENDING_TYPE =
+  'app/Materials/SET_MATERIAL_DRAFT_PENDING_TYPE' as const
+// A parameter field edit.
+export const SET_MATERIAL_DRAFT_VALUE = 'app/Materials/SET_MATERIAL_DRAFT_VALUE' as const
+// Header rename input (kept in sync with the row via RENAME_MATERIAL).
+export const SET_MATERIAL_DRAFT_NAME = 'app/Materials/SET_MATERIAL_DRAFT_NAME' as const
+// Close the Properties form (draft discarded).
+export const CLOSE_MATERIAL_DRAFT = 'app/Materials/CLOSE_MATERIAL_DRAFT' as const

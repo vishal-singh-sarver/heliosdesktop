@@ -8,7 +8,12 @@ import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import { addLocalMaterial, listMaterialsRequested, setSearchQuery } from './actions'
+import {
+  addLocalMaterial,
+  listMaterialsRequested,
+  openMaterialDraft,
+  setSearchQuery
+} from './actions'
 import MaterialRow from './MaterialRow'
 import messages from './messages'
 import reducer from './reducer'
@@ -51,9 +56,13 @@ export function Materials(): React.JSX.Element {
   }, [projectId, dispatch])
 
   // +Add Materials appends a client-only Material.NNN placeholder (not persisted
-  // until the create-form flow saves it).
+  // until the create-form flow saves it) AND opens it in the right-panel
+  // Properties form (openMaterialDraft edits the same `local-<name>` row and
+  // bumps the nonce the RightPanel watches to auto-expand). Mirrors Geometry's
+  // +Ground, which likewise creates the object and opens its Properties form.
   const onAddMaterials = (): void => {
     dispatch(addLocalMaterial(nextName))
+    dispatch(openMaterialDraft(nextName))
   }
 
   const onSearchChange = (value: string): void => {

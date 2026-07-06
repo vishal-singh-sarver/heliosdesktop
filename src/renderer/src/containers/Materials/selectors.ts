@@ -49,6 +49,16 @@ export const selectNextMaterialName = createSelector(selectAllMaterials, (materi
   formatMaterialName(nextMaterialNumber(materials.map((m) => m.name)))
 )
 
+// ── Right-panel material Properties draft ────────────────────────────────────
+// The material open in the Properties form (null when none). Consumed by
+// MaterialPropertiesForm. `selectMaterialDraftNonce` is the monotonic open
+// counter the RightPanel watches to auto-expand (mirrors Geometry's nonce).
+export const selectMaterialDraft = createSelector(selectMaterialsDomain, (s) => s.editDraft)
+export const selectMaterialDraftNonce = createSelector(
+  selectMaterialsDomain,
+  (s) => s.editDraftNonce
+)
+
 const makeSelectMaterials = () => createSelector(selectMaterialsDomain, (s) => s)
 
 export default makeSelectMaterials
