@@ -31,7 +31,9 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "e2e": "wdio run wdio.config.ts",
     "e2e:build": "npm run build && npm run e2e",
-    "e2e:persist": "npm run build && wdio run wdio.persist.config.ts"
+    "e2e:persist": "npm run build && wdio run wdio.persist.config.ts",
+    "e2e:smoke": "wdio run wdio.config.ts --spec ./e2e/tests/journey.test.ts",
+    "e2e:smoke:build": "npm run build && npm run e2e:smoke"
   },
   "dependencies": {
     "axios": "^1.15.0",

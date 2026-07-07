@@ -7,7 +7,7 @@ import navigationReducer, {
   type NavigationState,
   type NavigationAction,
   type Screen
-} from './navigationReducer'
+} from '../store/navigationReducer'
 
 // ── navigate action creator ──────────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ describe('pickInitialScreen (via initialState on a fresh import)', () => {
   })
 
   async function freshInitialScreen(): Promise<Screen> {
-    const mod = await import('./navigationReducer')
+    const mod = await import('../store/navigationReducer')
     return mod.initialState.screen
   }
 

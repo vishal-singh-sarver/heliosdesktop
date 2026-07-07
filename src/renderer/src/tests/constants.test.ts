@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { API_ROUTES } from './constants'
+import { API_ROUTES } from '../utils/constants'
 
 // Fixed ids used across the URL-builder assertions.
 const PID = 'proj-42'
@@ -106,7 +106,7 @@ describe('BASE_URL', () => {
   it('prefers an injected window.__APP_BASE_URL__ when present', async () => {
     w.__APP_BASE_URL__ = 'http://injected.example:9000'
     vi.resetModules()
-    const mod = await import('./constants')
+    const mod = await import('../utils/constants')
     expect(mod.BASE_URL).toBe('http://injected.example:9000')
   })
 
@@ -114,7 +114,7 @@ describe('BASE_URL', () => {
     delete w.__APP_BASE_URL__
     vi.stubEnv('DEV', true)
     vi.resetModules()
-    const mod = await import('./constants')
+    const mod = await import('../utils/constants')
     expect(mod.BASE_URL).toBe('')
   })
 
@@ -123,7 +123,7 @@ describe('BASE_URL', () => {
     vi.stubEnv('DEV', false)
     vi.stubEnv('VITE_BACKEND_URL', 'http://backend.prod:8000')
     vi.resetModules()
-    const mod = await import('./constants')
+    const mod = await import('../utils/constants')
     expect(mod.BASE_URL).toBe('http://backend.prod:8000')
   })
 })

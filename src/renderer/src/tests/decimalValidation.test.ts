@@ -6,7 +6,7 @@ import {
   isValidNumber,
   truncateToMaxDecimals,
   wouldTruncateAny
-} from './decimalValidation'
+} from '../utils/decimalValidation'
 
 describe('decimalValidation utilities', () => {
   describe('exceedsMaxDecimals', () => {
