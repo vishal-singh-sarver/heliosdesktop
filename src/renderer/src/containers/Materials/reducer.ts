@@ -2,25 +2,25 @@ import { produce } from 'immer'
 import type { MaterialsAction } from './actions'
 import {
   ADD_LOCAL_MATERIAL,
-  ADD_MATERIAL_TYPE,
-  CLEAR_MATERIAL_TYPES,
+  ADD_PARAMETER_GROUP,
   CLOSE_MATERIAL_DRAFT,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
   OPEN_MATERIAL_DRAFT,
   REMOVE_MATERIAL,
-  REMOVE_MATERIAL_TYPE,
+  REMOVE_PARAMETER_GROUP,
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_SUCCEEDED,
   SELECT_MATERIAL,
   SET_MATERIAL_DRAFT_NAME,
-  SET_MATERIAL_DRAFT_PENDING_TYPE,
   SET_MATERIAL_DRAFT_VALUE,
   SET_NAME_ERROR,
+  SET_PARAMETER_GROUP_TYPE,
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
 } from './constants'
+import { lowestFreeNumber } from './naming'
 import type { Material, MaterialDraft } from './types'
 
 export type { Material }
@@ -163,45 +163,41 @@ const materialsReducer = (
       // ── Right-panel material Properties draft ──────────────────────────────
       case OPEN_MATERIAL_DRAFT: {
         // Edit the row +Add Materials just appended (same `local-<name>` id).
+        // Start with one empty "Parameter Group.01" so the form opens ready to
+        // pick a material type.
         draft.editDraft = {
           materialId: `local-${action.name}`,
           name: action.name,
-          pendingTypeId: null,
-          addedTypeIds: [],
+          groups: [{ id: 1, number: 1, typeId: null }],
+          nextGroupId: 2,
           values: {}
         }
         draft.editDraftNonce += 1
         break
       }
 
-      case ADD_MATERIAL_TYPE: {
-        const d = draft.editDraft
-        if (d && !d.addedTypeIds.includes(action.typeId)) {
-          d.addedTypeIds.push(action.typeId)
-          // Clear the staged pick once it's committed.
-          if (d.pendingTypeId === action.typeId) d.pendingTypeId = null
-        }
-        break
-      }
-
-      case REMOVE_MATERIAL_TYPE: {
-        const d = draft.editDraft
-        if (d) d.addedTypeIds = d.addedTypeIds.filter((id) => id !== action.typeId)
-        break
-      }
-
-      case CLEAR_MATERIAL_TYPES: {
+      case ADD_PARAMETER_GROUP: {
+        // "+ Add Material Type" — append a new, empty parameter group. Its display
+        // number fills the lowest free slot (same gap-filling rule as Ground.NNN /
+        // Material.NNN), while its `id` stays monotonic for stable React keys.
         const d = draft.editDraft
         if (d) {
-          d.addedTypeIds = []
-          d.pendingTypeId = null
-          d.values = {}
+          const number = lowestFreeNumber(d.groups.map((g) => g.number))
+          d.groups.push({ id: d.nextGroupId, number, typeId: null })
+          d.nextGroupId += 1
         }
         break
       }
 
-      case SET_MATERIAL_DRAFT_PENDING_TYPE: {
-        if (draft.editDraft) draft.editDraft.pendingTypeId = action.typeId
+      case REMOVE_PARAMETER_GROUP: {
+        const d = draft.editDraft
+        if (d) d.groups = d.groups.filter((g) => g.id !== action.groupId)
+        break
+      }
+
+      case SET_PARAMETER_GROUP_TYPE: {
+        const group = draft.editDraft?.groups.find((g) => g.id === action.groupId)
+        if (group) group.typeId = action.typeId
         break
       }
 

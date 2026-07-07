@@ -13,6 +13,8 @@ const messages = {
   nameExists: 'Material name already exists',
   // Right-panel material Properties form.
   parameterGroups: 'Parameter Groups',
+  // A numbered parameter-group header, e.g. "Parameter Group.01".
+  parameterGroupTitle: (n: number): string => `Parameter Group.${String(n).padStart(2, '0')}`,
   selectPlaceholder: 'Select',
   addMaterialType: 'Add Material Type',
   saveMaterial: 'Save Material',

@@ -30,16 +30,12 @@ export const SET_SEARCH_QUERY = 'app/Materials/SET_SEARCH_QUERY' as const
 // so they only mutate the client draft. OPEN bumps a monotonic nonce the
 // RightPanel watches to auto-expand (same mechanism as Geometry's createDraft).
 export const OPEN_MATERIAL_DRAFT = 'app/Materials/OPEN_MATERIAL_DRAFT' as const
-// "+ Add Material Type" — commit the staged (pending) material type into the
-// draft's added list.
-export const ADD_MATERIAL_TYPE = 'app/Materials/ADD_MATERIAL_TYPE' as const
-// Remove a single added material type (its parameter-group block's trash).
-export const REMOVE_MATERIAL_TYPE = 'app/Materials/REMOVE_MATERIAL_TYPE' as const
-// Parameter Groups trash — drop every added material type from the draft.
-export const CLEAR_MATERIAL_TYPES = 'app/Materials/CLEAR_MATERIAL_TYPES' as const
-// The Parameter Groups "Select" dropdown — stage a material type to add.
-export const SET_MATERIAL_DRAFT_PENDING_TYPE =
-  'app/Materials/SET_MATERIAL_DRAFT_PENDING_TYPE' as const
+// "+ Add Material Type" — append a new, empty "Parameter Group.0N" to the draft.
+export const ADD_PARAMETER_GROUP = 'app/Materials/ADD_PARAMETER_GROUP' as const
+// A parameter group's trash — drop that group from the draft.
+export const REMOVE_PARAMETER_GROUP = 'app/Materials/REMOVE_PARAMETER_GROUP' as const
+// A parameter group's material-type Select — set (or clear) the group's type.
+export const SET_PARAMETER_GROUP_TYPE = 'app/Materials/SET_PARAMETER_GROUP_TYPE' as const
 // A parameter field edit.
 export const SET_MATERIAL_DRAFT_VALUE = 'app/Materials/SET_MATERIAL_DRAFT_VALUE' as const
 // Header rename input (kept in sync with the row via RENAME_MATERIAL).

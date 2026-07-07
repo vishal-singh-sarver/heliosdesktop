@@ -26,22 +26,36 @@ export interface Material {
   local: boolean
 }
 
+// One "Parameter Group.0N" block in the material Properties form: a material
+// type chosen from that group's Select, rendered as its catalog properties. The
+// `id` is a stable, per-draft key (for React keys and targeted updates), not a
+// catalog id.
+export interface MaterialParameterGroup {
+  id: number
+  // The display number in the "Parameter Group.0N" title, assigned at creation
+  // via the lowest-free-N (gap-filling) rule — the same scheme as Geometry's
+  // Ground.NNN / Material.NNN, so removing a group frees its number for reuse.
+  number: number
+  // The catalog material type picked in this group's Select (e.g. Radiation=1);
+  // null until the user chooses one.
+  typeId: number | null
+}
+
 // Right-panel material Properties draft — the ONE material open in the
 // properties form (mirrors Geometry's CreateDraft). +Add Materials opens this;
 // it's local-only for now (Save Material is disabled until the create-form flow
-// §7.1 lands), so the draft just holds the material types the user has added and
-// the per-property values they've entered.
+// §7.1 lands), so the draft just holds the parameter groups the user has added
+// and the per-property values they've entered.
 export interface MaterialDraft {
   // The (client-only) material row this draft edits — `local-<name>`.
   materialId: string
   name: string
-  // The material type staged in the "Parameter Groups" Select but not yet added
-  // (the id of a catalog material type, e.g. Radiation=1); null when nothing is
-  // picked. "+ Add Material Type" commits this into `addedTypeIds`.
-  pendingTypeId: number | null
-  // Material types added via "+ Add Material Type", in add order. Each renders as
-  // a parameter-group block of that catalog type's properties.
-  addedTypeIds: number[]
+  // The "Parameter Group.0N" blocks, in add order. "+ Add Material Type" appends
+  // a new empty one; each renders its chosen type's properties.
+  groups: MaterialParameterGroup[]
+  // Monotonic id source for new groups (so ids stay stable as groups are added
+  // and removed).
+  nextGroupId: number
   // Per-property values the user has entered, keyed by catalog property name.
   values: Record<string, string>
 }

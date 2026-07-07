@@ -1,22 +1,21 @@
 import {
   ADD_LOCAL_MATERIAL,
-  ADD_MATERIAL_TYPE,
-  CLEAR_MATERIAL_TYPES,
+  ADD_PARAMETER_GROUP,
   CLOSE_MATERIAL_DRAFT,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
   OPEN_MATERIAL_DRAFT,
   REMOVE_MATERIAL,
-  REMOVE_MATERIAL_TYPE,
+  REMOVE_PARAMETER_GROUP,
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_REQUESTED,
   RENAME_MATERIAL_SUCCEEDED,
   SELECT_MATERIAL,
   SET_MATERIAL_DRAFT_NAME,
-  SET_MATERIAL_DRAFT_PENDING_TYPE,
   SET_MATERIAL_DRAFT_VALUE,
   SET_NAME_ERROR,
+  SET_PARAMETER_GROUP_TYPE,
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
 } from './constants'
@@ -70,11 +69,14 @@ export type SetSearchQueryAction = { type: typeof SET_SEARCH_QUERY; payload: str
 
 // ── Right-panel material Properties draft ────────────────────────────────────
 export type OpenMaterialDraftAction = { type: typeof OPEN_MATERIAL_DRAFT; name: string }
-export type AddMaterialTypeAction = { type: typeof ADD_MATERIAL_TYPE; typeId: number }
-export type RemoveMaterialTypeAction = { type: typeof REMOVE_MATERIAL_TYPE; typeId: number }
-export type ClearMaterialTypesAction = { type: typeof CLEAR_MATERIAL_TYPES }
-export type SetMaterialDraftPendingTypeAction = {
-  type: typeof SET_MATERIAL_DRAFT_PENDING_TYPE
+export type AddParameterGroupAction = { type: typeof ADD_PARAMETER_GROUP }
+export type RemoveParameterGroupAction = {
+  type: typeof REMOVE_PARAMETER_GROUP
+  groupId: number
+}
+export type SetParameterGroupTypeAction = {
+  type: typeof SET_PARAMETER_GROUP_TYPE
+  groupId: number
   typeId: number | null
 }
 export type SetMaterialDraftValueAction = {
@@ -99,10 +101,9 @@ export type MaterialsAction =
   | SelectMaterialAction
   | SetSearchQueryAction
   | OpenMaterialDraftAction
-  | AddMaterialTypeAction
-  | RemoveMaterialTypeAction
-  | ClearMaterialTypesAction
-  | SetMaterialDraftPendingTypeAction
+  | AddParameterGroupAction
+  | RemoveParameterGroupAction
+  | SetParameterGroupTypeAction
   | SetMaterialDraftValueAction
   | SetMaterialDraftNameAction
   | CloseMaterialDraftAction
@@ -174,21 +175,17 @@ export const openMaterialDraft = (name: string): OpenMaterialDraftAction => ({
   name
 })
 
-export const addMaterialType = (typeId: number): AddMaterialTypeAction => ({
-  type: ADD_MATERIAL_TYPE,
-  typeId
+export const addParameterGroup = (): AddParameterGroupAction => ({ type: ADD_PARAMETER_GROUP })
+
+export const removeParameterGroup = (groupId: number): RemoveParameterGroupAction => ({
+  type: REMOVE_PARAMETER_GROUP,
+  groupId
 })
 
-export const removeMaterialType = (typeId: number): RemoveMaterialTypeAction => ({
-  type: REMOVE_MATERIAL_TYPE,
-  typeId
-})
-
-export const clearMaterialTypes = (): ClearMaterialTypesAction => ({ type: CLEAR_MATERIAL_TYPES })
-
-export const setMaterialDraftPendingType = (
+export const setParameterGroupType = (
+  groupId: number,
   typeId: number | null
-): SetMaterialDraftPendingTypeAction => ({ type: SET_MATERIAL_DRAFT_PENDING_TYPE, typeId })
+): SetParameterGroupTypeAction => ({ type: SET_PARAMETER_GROUP_TYPE, groupId, typeId })
 
 export const setMaterialDraftValue = (
   property: string,
