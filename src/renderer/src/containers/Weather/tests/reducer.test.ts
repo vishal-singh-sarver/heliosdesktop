@@ -159,6 +159,60 @@ describe('weatherReducer', () => {
     })
   })
 
+  describe('Import — clear', () => {
+    const dataset: ImportedDataset = {
+      filename: 'foo.csv',
+      columns: [],
+      records: []
+    }
+
+    it('IMPORT_CLEAR_REQUESTED flips clearingImport and clears any prior error', () => {
+      const state = { ...initialState, importError: 'prev' }
+      const result = weatherReducer(state, actions.importClearRequested('proj-1', 'sce-1'))
+      expect(result.clearingImport).toBe(true)
+      expect(result.importError).toBeNull()
+    })
+
+    it('IMPORT_CLEAR_SUCCEEDED removes the dataset and pending warning for the target scope only', () => {
+      const state = {
+        ...initialState,
+        clearingImport: true,
+        pickedFile: { filename: 'foo.csv', rawText: 'x' },
+        fileError: 'stale',
+        importPrecisionWarningRequested: true,
+        datasetsByScope: {
+          'proj-1::sce-1': dataset,
+          'proj-2::sce-2': { filename: 'other.csv', columns: [], records: [] }
+        },
+        importPrecisionWarningPendingByScope: {
+          'proj-1::sce-1': true,
+          'proj-2::sce-2': true
+        }
+      }
+      const result = weatherReducer(state, actions.importClearSucceeded('proj-1', 'sce-1'))
+      expect(result.clearingImport).toBe(false)
+      expect(result.datasetsByScope['proj-1::sce-1']).toBeUndefined()
+      // Other scope is untouched.
+      expect(result.datasetsByScope['proj-2::sce-2']).toEqual({
+        filename: 'other.csv',
+        columns: [],
+        records: []
+      })
+      expect(result.importPrecisionWarningPendingByScope['proj-1::sce-1']).toBeUndefined()
+      expect(result.importPrecisionWarningPendingByScope['proj-2::sce-2']).toBe(true)
+      expect(result.importPrecisionWarningRequested).toBe(false)
+      expect(result.pickedFile).toBeNull()
+      expect(result.fileError).toBeNull()
+    })
+
+    it('IMPORT_CLEAR_FAILED stores the error and clears clearingImport', () => {
+      const state = { ...initialState, clearingImport: true }
+      const result = weatherReducer(state, actions.importClearFailed('delete failed'))
+      expect(result.clearingImport).toBe(false)
+      expect(result.importError).toBe('delete failed')
+    })
+  })
+
   describe('Wizard open / close', () => {
     const picked: PickedFile = { filename: 'foo.csv', rawText: 'a,b\n1,2' }
 

@@ -254,4 +254,123 @@ describe('<FormField />', () => {
     )
     expect(container.firstChild).toMatchSnapshot()
   })
+
+  // NOTE: the branch-coverage tests below run AFTER the two snapshot tests on
+  // purpose. FormField calls useId() on every render, and React's useId counter
+  // is process-global and monotonic — rendering extra FormFields before the
+  // snapshots would shift the recorded error id and break the snapshot.
+
+  // ── Optional field / help conditionals ──
+
+  it('omits the required asterisk when optional is true', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        labelProps={{ ...defaultProps.labelProps, optional: true }}
+      />
+    )
+    expect(screen.queryByText('*')).not.toBeInTheDocument()
+  })
+
+  it('does not render the tooltip when helpText is absent', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        labelProps={{ label: 'Project Name' }}
+      />
+    )
+    expect(screen.queryByTestId('tooltip')).not.toBeInTheDocument()
+  })
+
+  // ── iconLeft (text-input variant) ──
+
+  it('renders a decorative icon span (aria-hidden, no button) when iconLeft has no click handler', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{ ...defaultProps.inputProps, iconLeft: <svg data-testid="cal-icon" /> }}
+      />
+    )
+    // No picker button when onIconLeftClick is not supplied.
+    expect(screen.queryByRole('button', { name: 'Open projectName picker' })).not.toBeInTheDocument()
+    const icon = screen.getByTestId('cal-icon')
+    // The icon is wrapped in a decorative, non-interactive span.
+    expect(icon.closest('span')).toHaveAttribute('aria-hidden', 'true')
+    // Input gets the icon padding class instead of the default px-3.
+    expect(screen.getByRole('textbox')).toHaveClass('pl-9')
+  })
+
+  it('renders a picker button and fires onIconLeftClick when iconLeft is clickable', () => {
+    const onIconLeftClick = vi.fn()
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          iconLeft: <svg data-testid="cal-icon" />,
+          onIconLeftClick
+        }}
+      />
+    )
+    const button = screen.getByRole('button', { name: 'Open projectName picker' })
+    expect(button).toBeInTheDocument()
+    fireEvent.click(button)
+    expect(onIconLeftClick).toHaveBeenCalledTimes(1)
+    // The icon padding is applied to the input in this variant too.
+    expect(screen.getByRole('textbox')).toHaveClass('pl-9')
+  })
+
+  it('disables the iconLeft picker button when the field is disabled', () => {
+    const onIconLeftClick = vi.fn()
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          disabled: true,
+          iconLeft: <svg data-testid="cal-icon" />,
+          onIconLeftClick
+        }}
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Open projectName picker' })).toBeDisabled()
+  })
+
+  // ── Select variant with an error (error region on the <select> branch) ──
+
+  it('wires aria-invalid, aria-describedby and the alert on a select with an error', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          error: 'Choose a unit',
+          options: [
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' }
+          ]
+        }}
+      />
+    )
+    const select = screen.getByRole('combobox')
+    expect(select).toHaveAttribute('aria-invalid', 'true')
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Choose a unit')
+    expect(select.getAttribute('aria-describedby')).toBe(alert.getAttribute('id'))
+  })
+
+  it('leaves aria-describedby unset on a select without an error', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          options: [{ value: 'a', label: 'Alpha' }]
+        }}
+      />
+    )
+    const select = screen.getByRole('combobox')
+    expect(select).toHaveAttribute('aria-invalid', 'false')
+    expect(select).not.toHaveAttribute('aria-describedby')
+  })
 })

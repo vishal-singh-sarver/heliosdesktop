@@ -5,6 +5,7 @@ import {
   makeSelectCellError,
   makeSelectCellSync,
   makeSelectCellValue,
+  makeSelectColumnNameError,
   makeSelectDataType,
   makeSelectDataUnitsForType,
   makeSelectHeadersForScenario,
@@ -15,6 +16,7 @@ import {
   makeSelectScenariosLoadStatus,
   makeSelectUnitSymbol,
   makeSelectWeatherTable,
+  selectActiveDateTimeFormat,
   selectActiveHeaders,
   selectActiveProject,
   selectActiveProjectId,
@@ -35,13 +37,20 @@ import {
   selectDataTypesById,
   selectDataTypesError,
   selectDataTypesLoadStatus,
+  selectDateTimeBaseUnit,
+  selectDateTimeBaseUnitId,
+  selectDateTimeDataType,
+  selectDateTimeDataTypeId,
   selectHeadersByScenario,
   selectProjectScreenDomain,
   selectRowOrder,
   selectRowSelection,
   selectScenariosByProject,
-  selectSelectableDataTypes
+  selectSelectableDataTypes,
+  selectUpdateProjectError,
+  selectUpdateProjectLoading
 } from '../selectors'
+import { DATE_TIME_COL_NAME, DATE_TIME_DATA_TYPE_NAME } from '../types'
 import type {
   ColumnDef,
   DataTypeDef,
@@ -358,6 +367,16 @@ describe('per-cell factories', () => {
   it('makeSelectCellError returns null when no validation error', () => {
     expect(makeSelectCellError('row_0', '7')(wrap(buildLoadedState()))).toBeNull()
   })
+
+  it('makeSelectColumnNameError surfaces a backend-rejected header name', () => {
+    let state = buildLoadedState()
+    state = projectScreenReducer(state, actions.setColumnNameError(SCN, '7', 'Name already exists'))
+    expect(makeSelectColumnNameError('7')(wrap(state))).toBe('Name already exists')
+  })
+
+  it('makeSelectColumnNameError returns null when the column name is accepted', () => {
+    expect(makeSelectColumnNameError('7')(wrap(buildLoadedState()))).toBeNull()
+  })
 })
 
 describe('selection selectors', () => {
@@ -481,5 +500,129 @@ describe('mutation flow status selectors', () => {
     state = projectScreenReducer(state, actions.addRowFailed(PROJ, SCN, 'bad date'))
     expect(selectAddRowLoading(wrap(state))).toBe(false)
     expect(selectAddRowError(wrap(state))).toBe('bad date')
+  })
+
+  it('selectUpdateProjectLoading / Error reflect the updateProject slice', () => {
+    let state = initialState
+    state = projectScreenReducer(state, actions.updateProjectRequested(PROJ, { latitude: 1 }))
+    expect(selectUpdateProjectLoading(wrap(state))).toBe(true)
+    expect(selectUpdateProjectError(wrap(state))).toBeNull()
+
+    state = projectScreenReducer(state, actions.updateProjectFailed(PROJ, 'denied'))
+    expect(selectUpdateProjectLoading(wrap(state))).toBe(false)
+    expect(selectUpdateProjectError(wrap(state))).toBe('denied')
+  })
+})
+
+describe('date-time format selectors', () => {
+  const DT_TYPE_ID = 50
+  const DT_BASE_UNIT_ID = 501
+  const DT_ALT_UNIT_ID = 502
+
+  const dtUnit = (id: number, unit: string, is_base: boolean): DataTypeDef['units'][number] => ({
+    id,
+    unit,
+    alias: unit,
+    data_type_id: DT_TYPE_ID,
+    min: null,
+    max: null,
+    to_base_factor: 1,
+    to_base_offset: 0,
+    is_base,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z'
+  })
+
+  const dateTimeType: DataTypeDef = {
+    id: DT_TYPE_ID,
+    data_type: DATE_TIME_DATA_TYPE_NAME,
+    description: '',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    units: [
+      dtUnit(DT_BASE_UNIT_ID, 'MM/DD/YYYY HH:MM', true),
+      dtUnit(DT_ALT_UNIT_ID, 'DD-MM-YYYY HH:MM', false)
+    ]
+  }
+
+  // Loads the temperature catalog (+ optionally a date_time catalog entry) and
+  // an active scenario whose merged date-time column carries `columnUnitId`.
+  const buildDateTimeState = (
+    columnUnitId: number | null,
+    opts: { withDateTimeType?: boolean; dtType?: DataTypeDef } = {}
+  ): typeof initialState => {
+    const { withDateTimeType = true, dtType = dateTimeType } = opts
+    const types = withDateTimeType ? [sampleTypes[0], dtType] : [sampleTypes[0]]
+    let state = initialState
+    state = projectScreenReducer(state, actions.loadDataTypesSucceeded(types))
+    state = projectScreenReducer(state, actions.setActiveScenario(SCN))
+    state = projectScreenReducer(
+      state,
+      actions.loadScenarioSucceeded({
+        projectId: PROJ,
+        scenarioId: SCN,
+        columns: [
+          { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+          { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+          { id: 'date-time', name: DATE_TIME_COL_NAME, dataTypeId: DT_TYPE_ID, unitId: columnUnitId }
+        ],
+        rows: []
+      })
+    )
+    return state
+  }
+
+  it('selectDateTimeDataType / Id / BaseUnit / BaseUnitId resolve from the catalog', () => {
+    const root = wrap(buildDateTimeState(DT_ALT_UNIT_ID))
+    expect(selectDateTimeDataType(root)?.data_type).toBe(DATE_TIME_DATA_TYPE_NAME)
+    expect(selectDateTimeDataTypeId(root)).toBe(DT_TYPE_ID)
+    expect(selectDateTimeBaseUnit(root)?.unit).toBe('MM/DD/YYYY HH:MM')
+    expect(selectDateTimeBaseUnitId(root)).toBe(DT_BASE_UNIT_ID)
+  })
+
+  it('selectDateTimeDataTypeId / BaseUnitId return null when the catalog has no date_time type', () => {
+    const root = wrap(buildDateTimeState(null, { withDateTimeType: false }))
+    expect(selectDateTimeDataType(root)).toBeUndefined()
+    expect(selectDateTimeDataTypeId(root)).toBeNull()
+    expect(selectDateTimeBaseUnit(root)).toBeUndefined()
+    expect(selectDateTimeBaseUnitId(root)).toBeNull()
+  })
+
+  it("selectActiveDateTimeFormat resolves the column's configured unit format", () => {
+    expect(selectActiveDateTimeFormat(wrap(buildDateTimeState(DT_ALT_UNIT_ID)))).toBe(
+      'DD-MM-YYYY HH:MM'
+    )
+  })
+
+  it('selectActiveDateTimeFormat falls back to the is_base format when the column has no unit', () => {
+    expect(selectActiveDateTimeFormat(wrap(buildDateTimeState(null)))).toBe('MM/DD/YYYY HH:MM')
+  })
+
+  it('selectActiveDateTimeFormat falls back to is_base when the column unit is unknown', () => {
+    expect(selectActiveDateTimeFormat(wrap(buildDateTimeState(9999)))).toBe('MM/DD/YYYY HH:MM')
+  })
+
+  it('selectActiveDateTimeFormat falls back to is_base before any scenario is active', () => {
+    let state = initialState
+    state = projectScreenReducer(
+      state,
+      actions.loadDataTypesSucceeded([sampleTypes[0], dateTimeType])
+    )
+    // No active scenario → no date-time column to read → base format.
+    expect(selectActiveDateTimeFormat(wrap(state))).toBe('MM/DD/YYYY HH:MM')
+  })
+
+  it('selectActiveDateTimeFormat returns "" when the catalog has no date_time type', () => {
+    expect(
+      selectActiveDateTimeFormat(wrap(buildDateTimeState(DT_ALT_UNIT_ID, { withDateTimeType: false })))
+    ).toBe('')
+  })
+
+  it('selectActiveDateTimeFormat returns "" when date_time has no base unit and the column unit is unknown', () => {
+    const noBase: DataTypeDef = {
+      ...dateTimeType,
+      units: [dtUnit(DT_ALT_UNIT_ID, 'DD-MM-YYYY HH:MM', false)]
+    }
+    expect(selectActiveDateTimeFormat(wrap(buildDateTimeState(9999, { dtType: noBase })))).toBe('')
   })
 })

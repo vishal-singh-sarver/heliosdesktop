@@ -3,6 +3,7 @@ import {
   exceedsMaxDecimals,
   getDecimalCount,
   isPartialNumericInput,
+  isValidNumber,
   truncateToMaxDecimals,
   wouldTruncateAny
 } from './decimalValidation'
@@ -154,6 +155,44 @@ describe('decimalValidation utilities', () => {
         '$5'
       ]) {
         expect(isPartialNumericInput(v)).toBe(false)
+      }
+    })
+  })
+
+  describe('isValidNumber', () => {
+    it('accepts integers, decimals, signs, and complete scientific notation', () => {
+      for (const v of [
+        '0',
+        '1',
+        '12',
+        '-3',
+        '+2',
+        '1.5',
+        '-12.34',
+        '.5',
+        '100000',
+        '1e5',
+        '1.5e-3',
+        '-2E10'
+      ]) {
+        expect(isValidNumber(v)).toBe(true)
+      }
+    })
+
+    it('unwraps surrounding quotes before validating', () => {
+      expect(isValidNumber('"12.5"')).toBe(true)
+      expect(isValidNumber("'42'")).toBe(true)
+    })
+
+    it('treats empty, whitespace, and a lone minus as valid (allowed mid-typing)', () => {
+      expect(isValidNumber('')).toBe(true)
+      expect(isValidNumber('   ')).toBe(true)
+      expect(isValidNumber('-')).toBe(true)
+    })
+
+    it('rejects garbage and incomplete numbers', () => {
+      for (const v of ['abc', '1a', '2.2.2.2.222', '1.2.3', '--1', '1e', '1ee5', '1 2', '$5', '+']) {
+        expect(isValidNumber(v)).toBe(false)
       }
     })
   })

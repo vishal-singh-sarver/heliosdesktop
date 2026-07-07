@@ -8,6 +8,7 @@ import {
   parseDelimited,
   parseFile,
   parseRowDateTime,
+  parseRowDateTimeSelections,
   parseXml,
   toCsv,
   tryParseDate,
@@ -56,6 +57,11 @@ describe('detectDelimiter', () => {
     // commas vary in count and must not break the min===max consistency test.
     const text = 'name,stations\n"davis, ca","a,b,c"\n"davis, ca","a,b"'
     expect(detectDelimiter(text)).toBe(',')
+  })
+
+  it('detects a single-space delimiter used consistently', () => {
+    // Space is the last candidate in DELIMITERS; two spaces per row, consistent.
+    expect(detectDelimiter('a b c\n1 2 3\n4 5 6')).toBe(' ')
   })
 })
 
@@ -388,6 +394,14 @@ describe('tryParseDate', () => {
     expect(tryParseDate('57 2026', 'DOY YYYY')).toEqual({ Y: 2026, M: 2, D: 26 })
   })
 
+  it('parses YYYY/MM/DD', () => {
+    expect(tryParseDate('2026/02/26', 'YYYY/MM/DD')).toEqual({ Y: 2026, M: 2, D: 26 })
+  })
+
+  it('rejects a hyphenated string under the compact YYYYMMDD format', () => {
+    expect(tryParseDate('2026-02-26', 'YYYYMMDD')).toBeNull()
+  })
+
   it('rejects 2-digit years (ambiguous)', () => {
     expect(tryParseDate('26/02/26', 'DD/MM/YYYY')).toBeNull()
   })
@@ -478,6 +492,18 @@ describe('tryParseTime', () => {
   it('accepts 23:59 (last valid time)', () => {
     expect(tryParseTime('23:59')).toEqual({ H: 23, M: 59, S: 0, rollover: false })
   })
+
+  it('rejects a 5-digit numeric run (not a recognized compact length)', () => {
+    expect(tryParseTime('12345')).toBeNull()
+  })
+
+  it('rejects seconds > 59 in the colon form', () => {
+    expect(tryParseTime('10:30:99')).toBeNull()
+  })
+
+  it('rejects seconds > 59 in the HHMMSS compact form', () => {
+    expect(tryParseTime('103099')).toBeNull()
+  })
 })
 
 describe('tryParseDateTime', () => {
@@ -518,6 +544,202 @@ describe('tryParseDateTime', () => {
     expect(d).not.toBeNull()
     expect(d?.getDate()).toBe(3)
     expect(d?.getMinutes()).toBe(15)
+  })
+})
+
+// ── tryParseDateTime — remaining format keys & reject branches ─────────────────
+//
+// Each case pins the EXACT instant (ISO string), independently reasoned, so a
+// regression in the format branch is caught rather than just "is not null".
+describe('tryParseDateTime — remaining formats and rejects', () => {
+  it('parses compact YYYYMMDDHHMM to the exact instant', () => {
+    expect(tryParseDateTime('202602031045', 'YYYYMMDDHHMM')?.toISOString()).toBe(
+      '2026-02-03T10:45:00.000Z'
+    )
+  })
+
+  it('parses YYYY-MM-DD HH:MM', () => {
+    expect(tryParseDateTime('2026-02-03 10:15', 'YYYY-MM-DD HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses MM/DD/YYYY HH:MM (month-first, slash)', () => {
+    expect(tryParseDateTime('02/03/2026 10:15', 'MM/DD/YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses DD-MM-YYYY HH:MM (day-first, dash)', () => {
+    expect(tryParseDateTime('03-02-2026 10:15', 'DD-MM-YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses MM-DD-YYYY HH:MM (month-first, dash)', () => {
+    expect(tryParseDateTime('02-03-2026 10:15', 'MM-DD-YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses YYYY DOY HH:MM (day-of-year with time)', () => {
+    // DOY 34 of non-leap 2026 = 3 Feb.
+    expect(tryParseDateTime('2026 034 10:15', 'YYYY DOY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses DOY YYYY HH:MM (day-of-year first)', () => {
+    expect(tryParseDateTime('034 2026 10:15', 'DOY YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('rejects an empty datetime string', () => {
+    expect(tryParseDateTime('', 'YYYY-MM-DDTHH:MM:SSZ')).toBeNull()
+  })
+
+  it('rejects an out-of-range calendar date under YYYY-MM-DDTHH:MM:SSZ', () => {
+    expect(tryParseDateTime('2026-13-03T10:00:00Z', 'YYYY-MM-DDTHH:MM:SSZ')).toBeNull()
+  })
+
+  it('rejects an out-of-range time under YYYY-MM-DDTHH:MM:SSZ', () => {
+    expect(tryParseDateTime('2026-02-03T25:00:00Z', 'YYYY-MM-DDTHH:MM:SSZ')).toBeNull()
+  })
+
+  it('rejects an impossible date under the offset format', () => {
+    expect(tryParseDateTime('2026-02-30T10:00:00Z', 'YYYY-MM-DDTHH:MM:SS-HH:MM')).toBeNull()
+  })
+
+  it('rejects an out-of-range time under the no-timezone format', () => {
+    expect(tryParseDateTime('2026-02-03T24:15:00', 'YYYY-MM-DDTHH:MM:SS')).toBeNull()
+  })
+
+  it('rejects an impossible calendar date under compact YYYYMMDDHH', () => {
+    // 2026-02-31 does not exist.
+    expect(tryParseDateTime('2026023110', 'YYYYMMDDHH')).toBeNull()
+  })
+
+  it('rejects a wrong-length compact YYYYMMDDHHMM', () => {
+    expect(tryParseDateTime('20260203', 'YYYYMMDDHHMM')).toBeNull()
+  })
+
+  it('rejects a value with no space separator in the generic split path', () => {
+    expect(tryParseDateTime('2026-02-03T10:15', 'YYYY-MM-DD HH:MM')).toBeNull()
+  })
+
+  it('rejects a bad date in the generic split path', () => {
+    expect(tryParseDateTime('13/45/2026 10:00', 'MM/DD/YYYY HH:MM')).toBeNull()
+  })
+
+  it('rejects a bad time in the generic split path', () => {
+    expect(tryParseDateTime('02/03/2026 99:99', 'MM/DD/YYYY HH:MM')).toBeNull()
+  })
+})
+
+// ── parseRowDateTimeSelections — julian & compact modes (not reachable via the
+//    3 group presets that parseRowDateTime exposes) ─────────────────────────────
+describe('parseRowDateTimeSelections — julian date mode', () => {
+  const headers = ['Y', 'D']
+  const mapping: DateTimeMapping = { ...INITIAL_MAPPING, julianYear: 'Y', julianDay: 'D' }
+
+  it('builds the exact calendar instant from year + day-of-year', () => {
+    const r = parseRowDateTimeSelections(['2024', '172'], headers, 'julian', 'none', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('ok')
+    // DOY 172 of leap-year 2024 = 20 June.
+    if (r.kind === 'ok') expect(r.date.toISOString()).toBe('2024-06-20T00:00:00.000Z')
+  })
+
+  it('rejects a non-4-digit julian year', () => {
+    const r = parseRowDateTimeSelections(['24', '172'], headers, 'julian', 'none', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('rejects an out-of-range day-of-year', () => {
+    const r = parseRowDateTimeSelections(['2024', '999'], headers, 'julian', 'none', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('rejects a missing (unmapped) julian day column', () => {
+    const r = parseRowDateTimeSelections(
+      ['2024', '172'],
+      headers,
+      'julian',
+      'none',
+      { ...INITIAL_MAPPING, julianYear: 'Y' },
+      'YYYY-MM-DD'
+    )
+    expect(r.kind).toBe('invalid_date')
+  })
+})
+
+describe('parseRowDateTimeSelections — compact time mode', () => {
+  const headers = ['date', 't']
+  const mapping: DateTimeMapping = { ...INITIAL_MAPPING, date: 'date', time: 't' }
+
+  it('parses a compact HHMM time string into the exact instant', () => {
+    const r = parseRowDateTimeSelections(['2026-02-03', '1045'], headers, 'string', 'compact', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('ok')
+    if (r.kind === 'ok') expect(r.date.toISOString()).toBe('2026-02-03T10:45:00.000Z')
+  })
+
+  it('flags an unparseable compact time while keeping the date (defaults to 00:00)', () => {
+    const r = parseRowDateTimeSelections(['2026-02-03', '12345'], headers, 'string', 'compact', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_time')
+    if (r.kind === 'invalid_time') expect(r.date.toISOString()).toBe('2026-02-03T00:00:00.000Z')
+  })
+
+  it('flags an out-of-range minute as invalid_time in parts mode', () => {
+    const partsHeaders = ['year', 'month', 'day', 'hour', 'minute']
+    const partsMapping: DateTimeMapping = {
+      ...INITIAL_MAPPING,
+      year: 'year',
+      month: 'month',
+      day: 'day',
+      hour: 'hour',
+      minute: 'minute'
+    }
+    const r = parseRowDateTime(['2026', '2', '26', '10', '99'], partsHeaders, 'group1', partsMapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_time')
+  })
+})
+
+describe('parseRowDateTimeSelections — datetime & parts reject branches', () => {
+  it('returns invalid_date when the datetime cell is empty', () => {
+    const r = parseRowDateTimeSelections(
+      ['', '22'],
+      ['datetime', 'temp'],
+      'datetime',
+      'none',
+      { ...INITIAL_MAPPING, datetime: 'datetime' },
+      'YYYY-MM-DD',
+      'YYYY-MM-DDTHH:MM:SSZ'
+    )
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('returns invalid_date when a parts month is non-numeric', () => {
+    const r = parseRowDateTimeSelections(
+      ['2026', 'xx', '26'],
+      ['year', 'month', 'day'],
+      'parts',
+      'none',
+      { ...INITIAL_MAPPING, year: 'year', month: 'month', day: 'day' },
+      'YYYY-MM-DD'
+    )
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('returns invalid_date when a parts day is out of range', () => {
+    const r = parseRowDateTimeSelections(
+      ['2026', '2', '99'],
+      ['year', 'month', 'day'],
+      'parts',
+      'none',
+      { ...INITIAL_MAPPING, year: 'year', month: 'month', day: 'day' },
+      'YYYY-MM-DD'
+    )
+    expect(r.kind).toBe('invalid_date')
   })
 })
 

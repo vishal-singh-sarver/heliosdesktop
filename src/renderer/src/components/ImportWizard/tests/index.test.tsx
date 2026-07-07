@@ -320,3 +320,364 @@ describe('<ImportWizard />', () => {
     expect(onSubmit.mock.calls[0][1]).toBe(true)
   })
 })
+
+// ── Esc-to-close ───────────────────────────────────────────────────────────────
+describe('<ImportWizard /> — Escape key handling', () => {
+  it('pressing Escape closes the wizard', () => {
+    const onClose = vi.fn()
+    render(<ImportWizard {...baseProps} onClose={onClose} />)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape is ignored while importing', () => {
+    const onClose = vi.fn()
+    render(<ImportWizard {...baseProps} onClose={onClose} importing />)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a non-Escape key does not close the wizard', () => {
+    const onClose = vi.fn()
+    render(<ImportWizard {...baseProps} onClose={onClose} />)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+// ── Focus trap ─────────────────────────────────────────────────────────────────
+//
+// jsdom implements no layout, so HTMLElement.offsetParent is always null. The
+// trap's getFocusable() filters on `offsetParent !== null`, so in a bare jsdom
+// it always returns [] and the code takes its empty-list branches (focus the
+// panel, keep Tab on the panel, recapture stray focus to the panel). The
+// first/last WRAPPING logic only runs when getFocusable() is non-empty, which
+// requires layout — exercised in the second describe by faking offsetParent.
+describe('<ImportWizard /> — focus trap (empty-focusables branches in bare jsdom)', () => {
+  it('focuses the panel on open and keeps Tab trapped on it', () => {
+    render(<ImportWizard {...baseProps} />)
+    const panel = screen.getByRole('dialog')
+    expect(document.activeElement).toBe(panel)
+    fireEvent.keyDown(panel, { key: 'Tab' })
+    expect(document.activeElement).toBe(panel)
+  })
+
+  it('ignores non-Tab keys in the trap handler', () => {
+    render(<ImportWizard {...baseProps} />)
+    const panel = screen.getByRole('dialog')
+    fireEvent.keyDown(panel, { key: 'a' })
+    // Still trapped on the panel; the handler returned early for a non-Tab key.
+    expect(document.activeElement).toBe(panel)
+  })
+
+  it('recaptures focus that lands outside the panel back onto the panel', () => {
+    render(<ImportWizard {...baseProps} />)
+    const panel = screen.getByRole('dialog')
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    fireEvent.focusIn(outside)
+    expect(document.activeElement).toBe(panel)
+    outside.remove()
+  })
+})
+
+describe('<ImportWizard /> — focus trap Tab wrapping (with layout faked)', () => {
+  const FOCUSABLE =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  let restore: () => void
+
+  beforeEach(() => {
+    const proto = HTMLElement.prototype
+    const original = Object.getOwnPropertyDescriptor(proto, 'offsetParent')
+    // Make every element report a non-null offsetParent so getFocusable()
+    // returns the real interactive children and the wrapping logic runs.
+    Object.defineProperty(proto, 'offsetParent', {
+      configurable: true,
+      get() {
+        return document.body
+      }
+    })
+    restore = () => {
+      if (original) Object.defineProperty(proto, 'offsetParent', original)
+      else delete (proto as unknown as { offsetParent?: unknown }).offsetParent
+    }
+  })
+  afterEach(() => restore())
+
+  it('Tab at the last focusable wraps to the first; Shift+Tab at the first wraps to the last', () => {
+    render(<ImportWizard {...baseProps} />)
+    const panel = screen.getByRole('dialog')
+    const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+    expect(focusables.length).toBeGreaterThan(1)
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+
+    // On open, the first focusable child receives focus.
+    expect(document.activeElement).toBe(first)
+
+    // Forward Tab from the last element wraps around to the first.
+    last.focus()
+    fireEvent.keyDown(panel, { key: 'Tab' })
+    expect(document.activeElement).toBe(first)
+
+    // Shift+Tab from the first element wraps around to the last.
+    first.focus()
+    fireEvent.keyDown(panel, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(last)
+  })
+
+  it('stray focus outside the panel is pulled back to the first focusable', () => {
+    render(<ImportWizard {...baseProps} />)
+    const panel = screen.getByRole('dialog')
+    const first = panel.querySelector<HTMLElement>(FOCUSABLE)
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    fireEvent.focusIn(outside)
+    expect(document.activeElement).toBe(first)
+    outside.remove()
+  })
+})
+
+// ── Delimiter re-parse (step 2) ─────────────────────────────────────────────────
+describe('<ImportWizard /> — delimiter re-parse', () => {
+  it('changing the delimiter re-parses the file and updates the preview', () => {
+    render(<ImportWizard {...baseProps} pickedFile={goodGroup1File} />)
+    fireEvent.click(screen.getByText('Next')) // step 2 (Data Preview)
+    // The comma file shows 6 columns; switching to Semicolon (absent from the
+    // data) collapses every line into a single column, proving the re-parse ran.
+    fireEvent.change(screen.getByTestId('dt-delimiter'), { target: { value: ';' } })
+    expect(screen.getAllByText('year,month,day,hour,minute,temp').length).toBeGreaterThan(0)
+  })
+
+  it('a delimiter that yields inconsistent columns surfaces a parse error and disables Next', () => {
+    const semiInField = {
+      filename: 'codes.csv',
+      // Auto-detects comma; each field "a;b;c" holds a varying number of semicolons.
+      rawText: 'name,codes\ndavis,a;b;c\nsac,a'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={semiInField} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.change(screen.getByTestId('dt-delimiter'), { target: { value: ';' } })
+    // Under ';' the header splits to 1 column but "davis,a;b;c" → 3 → parse throws.
+    expect(screen.getByText(/fields, expected/)).toBeInTheDocument()
+    expect(screen.getByText('Next')).toBeDisabled()
+  })
+})
+
+// ── Step-3 config-readiness / valid-invalid counting ────────────────────────────
+describe('<ImportWizard /> — step 3 stats branches', () => {
+  it('reports config-not-ready and blocks Next when no date column is mapped', () => {
+    const noDateFile = { filename: 'plain.csv', rawText: 'a,b,c\n1,2,3\n4,5,6' }
+    render(<ImportWizard {...baseProps} pickedFile={noDateFile} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    // dateMode defaults to 'string' with mapping.date=null → configReady false;
+    // every preview row is Invalid and Next stays disabled.
+    expect(screen.getAllByText('Invalid').length).toBeGreaterThan(0)
+    expect(screen.getByText('Next')).toBeDisabled()
+  })
+
+  it('counts a bad-date row as invalid in the valid/invalid banner', () => {
+    const mixed = { filename: 'd.csv', rawText: 'date,temp\n2026-02-26,20\nnope,21' }
+    render(<ImportWizard {...baseProps} pickedFile={mixed} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    // auto: date→'date', dateMode 'string', default format YYYY-MM-DD.
+    expect(screen.getByText(/1 of 2 valid/)).toBeInTheDocument()
+    expect(screen.getByText(/1 invalid/)).toBeInTheDocument()
+  })
+
+  it('handles an auto-detected Julian file (all rows valid) at step 3', () => {
+    const julianFile = { filename: 'j.csv', rawText: 'Year,DOY,temp\n2024,172,286.25\n2024,173,285.55' }
+    render(<ImportWizard {...baseProps} pickedFile={julianFile} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+  })
+})
+
+// ── Import: Date-Time sort ordering ─────────────────────────────────────────────
+describe('<ImportWizard /> — import sort ordering', () => {
+  it('sorts records ascending by Date-Time even when the file is descending', () => {
+    const onSubmit = vi.fn()
+    const descFile = { filename: 'desc.csv', rawText: 'year,month,day,temp\n2026,2,27,23.7\n2026,2,26,22.5' }
+    render(<ImportWizard {...baseProps} pickedFile={descFile} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Import'))
+
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.records).toHaveLength(2)
+    expect(ds.records[0].dtIso).toBe('2026-02-26T00:00:00.000Z')
+    expect(ds.records[1].dtIso).toBe('2026-02-27T00:00:00.000Z')
+  })
+
+  it('pushes invalid-date rows (null Date-Time) to the end after sorting', () => {
+    const onSubmit = vi.fn()
+    // Rows 2 and 3 have out-of-range months → invalid_date → dtIso null.
+    const withInvalid = {
+      filename: 'inv.csv',
+      rawText: 'year,month,day,temp\n2026,2,26,22.5\n2026,13,01,98\n2026,14,01,99'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={withInvalid} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Import'))
+
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.records).toHaveLength(3)
+    expect(ds.records[0].dtIso).toBe('2026-02-26T00:00:00.000Z')
+    expect(ds.records[1].dtIso).toBeNull()
+    expect(ds.records[2].dtIso).toBeNull()
+  })
+
+  it('sorts a valid row ahead of a leading invalid-date row (b-null comparator branch)', () => {
+    const onSubmit = vi.fn()
+    // Invalid row FIRST → the comparator is called with (valid, null).
+    const invalidFirst = {
+      filename: 'invf.csv',
+      rawText: 'year,month,day,temp\n2026,13,01,98\n2026,2,26,22.5'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={invalidFirst} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Import'))
+
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.records[0].dtIso).toBe('2026-02-26T00:00:00.000Z')
+    expect(ds.records[1].dtIso).toBeNull()
+  })
+
+  it('keeps both rows (returning 0 from the comparator) when two Date-Times are equal', () => {
+    const onSubmit = vi.fn()
+    const equalDt = {
+      filename: 'eq.csv',
+      rawText: 'year,month,day,temp\n2026,2,26,20\n2026,2,26,21'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={equalDt} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Import'))
+
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.records).toHaveLength(2)
+    expect(ds.records[0].dtIso).toBe('2026-02-26T00:00:00.000Z')
+    expect(ds.records[1].dtIso).toBe('2026-02-26T00:00:00.000Z')
+  })
+})
+
+// ── Auto-mapping side-effects on parse ──────────────────────────────────────────
+describe('<ImportWizard /> — auto-detected date modes', () => {
+  it('auto-selects date-time mode and detects the datetime format for a Timestamp column', () => {
+    const tsFile = {
+      filename: 'ts.csv',
+      rawText: 'Timestamp,temp\n2026-02-26T10:00:00Z,20\n2026-02-27T11:00:00Z,21'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={tsFile} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    // datetime column detected → date-time mode with a matching format → all valid.
+    expect(screen.getByLabelText('date-time')).toBeInTheDocument()
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+  })
+
+  it('auto-selects string date + string time when date and time columns are present', () => {
+    const dtFile = {
+      filename: 'dt.csv',
+      rawText: 'date,time,temp\n2026-02-26,10:00,20\n2026-02-27,11:00,21'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={dtFile} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+  })
+
+  it('leaves the default datetime format when the Timestamp column matches no known format', () => {
+    const badTs = { filename: 'bad.csv', rawText: 'timestamp,temp\ngarbage,20\njunk,21' }
+    render(<ImportWizard {...baseProps} pickedFile={badTs} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    // datetime mode selected, no format detected → nothing parses → Next blocked.
+    expect(screen.getByText(/0 of 2 rows valid/)).toBeInTheDocument()
+    expect(screen.getByText('Next')).toBeDisabled()
+  })
+
+  it('changing the date mode to date-time on step 3 disables the Time controls', () => {
+    render(<ImportWizard {...baseProps} pickedFile={goodGroup1File} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // step 3
+    // Group1 auto-maps to parts mode → the time radios start enabled.
+    expect(screen.getByTestId('dt-timemode-parts')).not.toBeDisabled()
+    // Selecting date-time mode runs the wizard's onChangeDateMode → setTimeMode('none').
+    fireEvent.click(screen.getByTestId('dt-datemode-datetime'))
+    expect(screen.getByTestId('dt-timemode-parts')).toBeDisabled()
+  })
+
+  it('changing a mapping dropdown on step 3 re-validates via the wizard (onChangeMapping)', () => {
+    render(<ImportWizard {...baseProps} pickedFile={goodGroup1File} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // step 3, parts mode, all valid
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+    // Re-point Year at the non-date "temp" column → values are not 4-digit years,
+    // so every row fails date validation and Next is blocked.
+    fireEvent.change(screen.getByTestId('dt-year'), { target: { value: 'temp' } })
+    expect(screen.getByText(/0 of 2 rows valid/)).toBeInTheDocument()
+    expect(screen.getByText('Next')).toBeDisabled()
+  })
+
+  it('does not disable a numeric column that merely has an empty cell', () => {
+    const emptyCellFile = {
+      filename: 'gap.csv',
+      rawText: 'year,month,day,temp\n2026,2,26,\n2026,2,27,21'
+    }
+    const onSubmit = vi.fn()
+    render(<ImportWizard {...baseProps} pickedFile={emptyCellFile} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // review
+    const tempRow = screen.getByText('temp').closest('tr') as HTMLElement
+    expect(within(tempRow).getByRole('checkbox')).not.toBeDisabled()
+    fireEvent.click(screen.getByText('Import'))
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.columns.find((c) => c.label === 'temp')).toBeDefined()
+  })
+})
+
+// ── Step-4 review column toggles ────────────────────────────────────────────────
+describe('<ImportWizard /> — review column selection', () => {
+  const twoColFile = {
+    filename: 't.csv',
+    rawText: 'year,month,day,temp,rh\n2026,2,26,20,50\n2026,2,27,21,55'
+  }
+
+  it('unchecking a column in review excludes it from the imported dataset', () => {
+    const onSubmit = vi.fn()
+    render(<ImportWizard {...baseProps} pickedFile={twoColFile} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // review
+    fireEvent.click(screen.getByTestId('dt-col-rh'))
+    fireEvent.click(screen.getByText('Import'))
+
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.columns.find((c) => c.label === 'rh')).toBeUndefined()
+    expect(ds.columns.find((c) => c.label === 'temp')).toBeDefined()
+  })
+
+  it('Select-All unchecks every selectable column so only the synthetic check column remains', () => {
+    const onSubmit = vi.fn()
+    render(<ImportWizard {...baseProps} pickedFile={twoColFile} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // review
+    fireEvent.click(screen.getByTestId('dt-select-all')) // toggle all off
+    fireEvent.click(screen.getByText('Import'))
+
+    const ds = onSubmit.mock.calls[0][0] as ImportedDataset
+    expect(ds.columns.map((c) => c.label)).toEqual(['check'])
+  })
+})

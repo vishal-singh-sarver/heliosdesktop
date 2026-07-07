@@ -11,6 +11,7 @@ import makeSelectWeather, {
   selectImporting,
   selectImportError,
   selectDataset,
+  selectImportPrecisionWarningPending,
   selectWizardOpen
 } from '../selectors'
 import { initialState } from '../reducer'
@@ -122,6 +123,48 @@ describe('individual selectors — Import', () => {
         )
       )
     ).toEqual({ filename: 'other.csv', columns: [], records: [] })
+  })
+})
+
+describe('selectImportPrecisionWarningPending', () => {
+  it('returns true when a warning is pending for the active scope', () => {
+    expect(
+      selectImportPrecisionWarningPending(
+        withWeather({ importPrecisionWarningPendingByScope: { 'proj-1::sce-1': true } })
+      )
+    ).toBe(true)
+  })
+
+  it('returns false when nothing is pending for the active scope', () => {
+    expect(selectImportPrecisionWarningPending(withWeather({}))).toBe(false)
+  })
+
+  it('returns false when there is no active project or scenario', () => {
+    // Empty active project id trips the guard before any scope lookup.
+    expect(
+      selectImportPrecisionWarningPending(
+        withWeather({ importPrecisionWarningPendingByScope: { 'proj-1::sce-1': true } }, '', 'sce-1')
+      )
+    ).toBe(false)
+  })
+
+  it('stays scoped to the active project and scenario', () => {
+    // Pending only for proj-2::sce-2 — invisible while proj-1::sce-1 is active.
+    expect(
+      selectImportPrecisionWarningPending(
+        withWeather({ importPrecisionWarningPendingByScope: { 'proj-2::sce-2': true } })
+      )
+    ).toBe(false)
+    // Switching the active scope surfaces it.
+    expect(
+      selectImportPrecisionWarningPending(
+        withWeather(
+          { importPrecisionWarningPendingByScope: { 'proj-2::sce-2': true } },
+          'proj-2',
+          'sce-2'
+        )
+      )
+    ).toBe(true)
   })
 })
 
