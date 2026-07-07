@@ -1,21 +1,22 @@
-import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
-import projectScreenSaga, * as sagaModule from '../saga'
-import {
-  addColumnRequest,
-  addColumnsRequest,
-  addRowsRequest,
-  deleteHeaderRequest,
-  deleteRowsRequest,
-  getProjectRequest,
-  loadDataRequest,
-  loadDataTypesRequest,
-  loadHeadersRequest,
-  patchHeaderRequest,
-  updateColumnRequest,
-  updateCellRequest,
-  updateProjectRequest
-} from 'containers/Weather/service'
+// Unit tests for the ProjectScreen saga: drives the REAL worker generators to
+// completion (via runSaga) and asserts the actions they dispatch and the service
+// calls they make, mocking only the containers/Weather/service boundary. It does
+// NOT hand-mirror workers as local `function* worker()` copies — the real
+// saga.ts executes on every test, so coverage and regression signal are genuine.
+//
+// The workers are module-private, so instead of exporting them we harvest them
+// from the root saga: `projectScreenSaga` yields ForkEffects from
+// takeLatest/takeEvery whose `payload.args` is `[actionType, workerFn]`; we step
+// the root generator and key each real workerFn by its action type.
+
+import { runSaga, stdChannel } from 'redux-saga'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import projectScreenSaga, { updateColumnWorker } from '../saga'
 import * as actions from '../actions'
+import { initialState } from '../reducer'
+import { ApiError } from 'utils/api'
+import { STORAGE_KEYS } from 'utils/storageKeys'
+import { navigate } from 'store/navigationReducer'
 import {
   ADD_COLUMN_REQUESTED,
   ADD_ROW_REQUESTED,
@@ -23,770 +24,895 @@ import {
   DELETE_ROW_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_REQUESTED,
+  LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_SCENARIO_FAILED,
   LOAD_SCENARIO_REQUESTED,
+  LOAD_SCENARIO_SUCCEEDED,
   SEED_DEFAULT_COLUMNS_REQUESTED,
   UPDATE_ALL_CHECKBOXES_REQUESTED,
   UPDATE_CELL_LOCAL,
   UPDATE_COLUMN_REQUESTED,
   UPDATE_PROJECT_REQUESTED
 } from '../constants'
-import {
-  selectActiveWeatherTable,
-  selectAllDataTypes,
-  selectByScenario,
-  selectCheckDataTypeId,
-  selectDataTypesLoadStatus
-} from '../selectors'
-import { ApiError } from 'utils/api'
-import { STORAGE_KEYS } from 'utils/storageKeys'
-import { navigate } from 'store/navigationReducer'
-import {
-  CHECK_COL_NAME,
-  DATE_TIME_COL_NAME,
-  type ColumnDef,
-  type DataTypeDef,
-  type DataUnitDef,
-  type WeatherTable
-} from '../types'
+import type { DataTypeDef, DataUnitDef, ProjectMetadata, WeatherTable } from '../types'
+
+// ── Mock ONLY the service boundary ───────────────────────────────────────────
+// normalizeWireCellValue (a pure helper the load worker uses) is preserved from
+// the real module via importOriginal so row normalization runs for real.
+vi.mock('containers/Weather/service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('containers/Weather/service')>()
+  return {
+    ...actual,
+    loadDataTypesRequest: vi.fn(),
+    getProjectRequest: vi.fn(),
+    updateProjectRequest: vi.fn(),
+    loadHeadersRequest: vi.fn(),
+    loadDataRequest: vi.fn(),
+    addColumnsRequest: vi.fn(),
+    addColumnRequest: vi.fn(),
+    addRowsRequest: vi.fn(),
+    deleteHeaderRequest: vi.fn(),
+    deleteRowsRequest: vi.fn(),
+    patchHeaderRequest: vi.fn(),
+    updateColumnRequest: vi.fn(),
+    updateCellRequest: vi.fn()
+  }
+})
+import * as service from 'containers/Weather/service'
+
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const PROJ = 'project-1'
 const SCN = 'scenario-1'
 
-describe('projectScreenSaga (root watcher)', () => {
-  it('registers a watcher for every request action type the screen handles', () => {
-    const gen = projectScreenSaga()
-    const expected = [
-      LOAD_DATA_TYPES_REQUESTED,
-      UPDATE_PROJECT_REQUESTED,
-      LIST_SCENARIOS_REQUESTED,
-      LOAD_SCENARIO_REQUESTED,
-      SEED_DEFAULT_COLUMNS_REQUESTED,
-      ADD_ROW_REQUESTED,
-      ADD_COLUMN_REQUESTED,
-      UPDATE_COLUMN_REQUESTED,
-      DELETE_COLUMN_REQUESTED,
-      DELETE_ROW_REQUESTED,
-      UPDATE_ALL_CHECKBOXES_REQUESTED,
-      UPDATE_CELL_LOCAL
-    ]
-    const seen = new Set<string>()
-    for (let i = 0; i < expected.length; i++) {
-      const step = gen.next()
-      const serialised = JSON.stringify(step.value)
-      for (const t of expected) if (serialised.includes(t)) seen.add(t)
-    }
-    expect(gen.next().done).toBe(true)
-    for (const t of expected) expect(seen).toContain(t)
+// ── Catalog fixtures ─────────────────────────────────────────────────────────
 
-    // Reference imports so the linter doesn't drop them.
-    void takeEvery
-    void takeLatest
-    void sagaModule
-  })
-})
+const kelvin: DataUnitDef = {
+  id: 5,
+  unit: 'K',
+  alias: '',
+  data_type_id: 1,
+  min: null,
+  max: null,
+  to_base_factor: 1,
+  to_base_offset: 0,
+  is_base: true,
+  created_at: '',
+  updated_at: ''
+}
+const celsius: DataUnitDef = {
+  id: 6,
+  unit: 'C',
+  alias: '°C',
+  data_type_id: 1,
+  min: null,
+  max: null,
+  to_base_factor: 1,
+  to_base_offset: 273.15,
+  is_base: false,
+  created_at: '',
+  updated_at: ''
+}
+const temperature: DataTypeDef = {
+  id: 1,
+  data_type: 'air_temperature',
+  description: '',
+  created_at: '',
+  updated_at: '',
+  units: [kelvin, celsius]
+}
+const checkType: DataTypeDef = {
+  id: 2,
+  data_type: 'check',
+  description: '',
+  created_at: '',
+  updated_at: '',
+  units: []
+}
+const dtBaseUnit: DataUnitDef = {
+  id: 30,
+  unit: 'MM/DD/YYYY',
+  alias: '',
+  data_type_id: 3,
+  min: null,
+  max: null,
+  to_base_factor: 1,
+  to_base_offset: 0,
+  is_base: true,
+  created_at: '',
+  updated_at: ''
+}
+const dateTimeType: DataTypeDef = {
+  id: 3,
+  data_type: 'date_time',
+  description: '',
+  created_at: '',
+  updated_at: '',
+  units: [dtBaseUnit]
+}
+const CATALOG: DataTypeDef[] = [temperature, checkType, dateTimeType]
 
-// ── loadDataTypesWorker ──────────────────────────────────────────────────────
+// ── State + table builders shaped for the real selectors ─────────────────────
 
-describe('loadDataTypesWorker', () => {
-  // Re-import via the module's internal binding — the worker is not exported.
-  // Tests step through the saga via projectScreenSaga's effect descriptors
-  // rather than calling the worker function directly.
-  const runWorker = (): Generator => {
-    const gen = projectScreenSaga()
-    gen.next() // skip LOAD_DATA_TYPES_REQUESTED watcher registration
-    // The watcher itself isn't a worker — we exercise the worker by calling
-    // its action handler via a fresh generator using the module-private
-    // function. Since it's not exported, we test it indirectly by asserting
-    // the worker's effect sequence through the watcher's helper.
-    return gen
+interface StateOverrides {
+  dataTypes?: DataTypeDef[]
+  loadStatus?: 'idle' | 'loading' | 'loaded' | 'error'
+  activeScenarioId?: string | null
+  byScenario?: Record<string, WeatherTable>
+}
+
+function buildState(o: StateOverrides = {}): { projectScreen: typeof initialState } {
+  const byId: Record<number, DataTypeDef> = {}
+  const allIds: number[] = []
+  for (const dt of o.dataTypes ?? []) {
+    byId[dt.id] = dt
+    allIds.push(dt.id)
   }
-  void runWorker
-
-  it('GET /api/data-types/, then dispatches loadDataTypesSucceeded', () => {
-    // The worker isn't exported; build a fresh generator by hand using the
-    // same effects the saga uses. This assertion mirrors the source: a single
-    // call(loadDataTypesRequest) followed by put(loadDataTypesSucceeded).
-    function* worker(): Generator {
-      const res = (yield call(loadDataTypesRequest)) as { data_types: DataTypeDef[] }
-      yield put(actions.loadDataTypesSucceeded(res.data_types))
+  return {
+    projectScreen: {
+      ...initialState,
+      catalog: {
+        dataTypes: { byId, allIds, loadStatus: o.loadStatus ?? 'loaded', loadError: null }
+      },
+      activeProjectId: PROJ,
+      activeScenarioId: o.activeScenarioId ?? null,
+      byScenario: o.byScenario ?? {}
     }
-    const gen = worker()
-    expect(gen.next().value).toEqual(call(loadDataTypesRequest))
-    const types: DataTypeDef[] = [
-      {
-        id: 1,
-        data_type: 'temperature',
-        description: '',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
-        units: []
-      }
-    ]
-    expect(gen.next({ data_types: types }).value).toEqual(
-      put(actions.loadDataTypesSucceeded(types))
-    )
-    expect(gen.next().done).toBe(true)
-  })
-})
-
-// ── listScenariosWorker ──────────────────────────────────────────────────────
-
-describe('listScenariosWorker', () => {
-  const projectMeta = {
-    id: PROJ,
-    name: 'Project One',
-    latitude: 12.5,
-    longitude: 77.5,
-    utc_offset: '+05:30',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    scenarios: [
-      {
-        id: SCN,
-        name: 'Scenario One',
-        has_weather: true,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
-        weather_data_headers: []
-      }
-    ]
   }
+}
 
-  it('on success: dispatches loadProjectSucceeded → listScenariosSucceeded → setActiveScenario(first) → loadScenarioRequested', () => {
-    // Build a generator that mirrors the listScenariosWorker source. Since
-    // the worker isn't exported we replicate its effect sequence here, which
-    // is also how we'd exercise it via dispatch() in an integration test.
-    const action = actions.listScenariosRequested(PROJ)
-    function* worker(): Generator {
-      const res = (yield call(getProjectRequest, action.payload.projectId)) as {
-        project: typeof projectMeta
-      }
-      const project = res.project
-      yield put(
-        actions.loadProjectSucceeded({
-          id: project.id,
-          name: project.name,
-          latitude: project.latitude,
-          longitude: project.longitude,
-          utc_offset: project.utc_offset
-        })
-      )
-      const scenarios = project.scenarios
-      yield put(actions.listScenariosSucceeded(action.payload.projectId, scenarios))
-      const first = scenarios[0]
-      if (!first) return
-      yield call([localStorage, 'setItem'], STORAGE_KEYS.activeScenarioId, first.id)
-      yield put(actions.setActiveScenario(first.id))
-      yield put(actions.loadScenarioRequested(action.payload.projectId, first.id))
-    }
-    const gen = worker()
-
-    expect(gen.next().value).toEqual(call(getProjectRequest, PROJ))
-    expect(gen.next({ project: projectMeta }).value).toEqual(
-      put(
-        actions.loadProjectSucceeded({
-          id: PROJ,
-          name: 'Project One',
-          latitude: 12.5,
-          longitude: 77.5,
-          utc_offset: '+05:30'
-        })
-      )
-    )
-    expect(gen.next().value).toEqual(
-      put(actions.listScenariosSucceeded(PROJ, projectMeta.scenarios))
-    )
-    expect(gen.next().value).toEqual(
-      call([localStorage, 'setItem'], STORAGE_KEYS.activeScenarioId, SCN)
-    )
-    expect(gen.next().value).toEqual(put(actions.setActiveScenario(SCN)))
-    expect(gen.next().value).toEqual(put(actions.loadScenarioRequested(PROJ, SCN)))
-    expect(gen.next().done).toBe(true)
-  })
-
-  it('on a stale-id 4xx error: dispatches listScenariosFailed and bounces to home', () => {
-    const action = actions.listScenariosRequested(PROJ)
-    function* worker(): Generator {
-      try {
-        yield call(getProjectRequest, action.payload.projectId)
-      } catch (err) {
-        yield put(actions.listScenariosFailed(action.payload.projectId, (err as Error).message))
-        if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
-          yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
-          yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
-          yield put(navigate('home'))
-        }
-      }
-    }
-    const gen = worker()
-    gen.next() // call getProjectRequest
-    const err = new ApiError(404, 'Not found')
-    expect(gen.throw(err).value).toEqual(put(actions.listScenariosFailed(PROJ, 'Not found')))
-    expect(gen.next().value).toEqual(
-      call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
-    )
-    expect(gen.next().value).toEqual(
-      call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
-    )
-    expect(gen.next().value).toEqual(put(navigate('home')))
-    expect(gen.next().done).toBe(true)
-  })
-
-  it('on a 5xx error: dispatches listScenariosFailed but does NOT bounce', () => {
-    function* worker(): Generator {
-      try {
-        yield call(getProjectRequest, PROJ)
-      } catch (err) {
-        yield put(actions.listScenariosFailed(PROJ, (err as Error).message))
-        if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
-          yield put(navigate('home'))
-        }
-      }
-    }
-    const gen = worker()
-    gen.next()
-    const err = new ApiError(500, 'Server down')
-    expect(gen.throw(err).value).toEqual(put(actions.listScenariosFailed(PROJ, 'Server down')))
-    expect(gen.next().done).toBe(true)
-  })
-})
-
-// ── updateProjectWorker ─────────────────────────────────────────────────────
-
-describe('updateProjectWorker', () => {
-  it('PATCHes project metadata, refetches project, then dispatches updateProjectSucceeded', () => {
-    const action = actions.updateProjectRequested(PROJ, { latitude: 23.5 })
-    const projectMeta = {
-      id: PROJ,
-      name: 'Project One',
-      latitude: 23.5,
-      longitude: 77.5,
-      utc_offset: '+05:00',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-01T00:00:00Z',
-      scenarios: []
-    }
-
-    function* worker(): Generator {
-      yield call(updateProjectRequest, action.payload.projectId, action.payload.patch)
-      const res = (yield call(getProjectRequest, action.payload.projectId)) as {
-        project: typeof projectMeta
-      }
-      yield put(
-        actions.updateProjectSucceeded({
-          id: res.project.id,
-          name: res.project.name,
-          latitude: res.project.latitude,
-          longitude: res.project.longitude,
-          utc_offset: res.project.utc_offset
-        })
-      )
-    }
-
-    const gen = worker()
-    expect(gen.next().value).toEqual(call(updateProjectRequest, PROJ, { latitude: 23.5 }))
-    expect(gen.next().value).toEqual(call(getProjectRequest, PROJ))
-    expect(gen.next({ project: projectMeta }).value).toEqual(
-      put(
-        actions.updateProjectSucceeded({
-          id: PROJ,
-          name: 'Project One',
-          latitude: 23.5,
-          longitude: 77.5,
-          utc_offset: '+05:00'
-        })
-      )
-    )
-    expect(gen.next().done).toBe(true)
-  })
-})
-
-// ── loadScenarioWorker ───────────────────────────────────────────────────────
-
-describe('loadScenarioWorker', () => {
-  it('seeds default columns when both headers and rows are empty', () => {
-    function* worker(): Generator {
-      const [headers, dataRes] = (yield all([
-        call(loadHeadersRequest, PROJ, SCN),
-        call(loadDataRequest, PROJ, SCN)
-      ])) as [Array<unknown>, { rows: unknown[] }]
-      if (headers.length === 0 && dataRes.rows.length === 0) {
-        yield put(actions.seedDefaultColumnsRequested(PROJ, SCN))
-        return
-      }
-    }
-    const gen = worker()
-    gen.next() // all(...)
-    expect(gen.next([[], { labels: [], rows: [] }]).value).toEqual(
-      put(actions.seedDefaultColumnsRequested(PROJ, SCN))
-    )
-    expect(gen.next().done).toBe(true)
-  })
-})
-
-// ── seedDefaultColumnsWorker ─────────────────────────────────────────────────
-
-describe('seedDefaultColumnsWorker', () => {
-  it('on catalog loaded: POSTs check + date-time, re-loads, dispatches succeeded after the load', () => {
-    function* worker(): Generator {
-      const status = (yield select(selectDataTypesLoadStatus)) as string
-      if (status === 'idle' || status === 'loading') {
-        yield take([
-          'app/ProjectScreen/LOAD_DATA_TYPES_SUCCEEDED',
-          'app/ProjectScreen/LOAD_DATA_TYPES_FAILED'
-        ])
-      }
-      const checkDataTypeId = (yield select(selectCheckDataTypeId)) as number | null
-      yield call(addColumnsRequest, PROJ, SCN, [
-        { name: CHECK_COL_NAME, dataTypeId: checkDataTypeId, dataUnitId: null, values: [] },
-        { name: DATE_TIME_COL_NAME, dataTypeId: null, dataUnitId: null, values: [] }
-      ])
-      yield put(actions.loadScenarioRequested(PROJ, SCN))
-      // Race result resolved by the test driver.
-      const raceResult = (yield race({
-        succeeded: take('app/ProjectScreen/LOAD_SCENARIO_SUCCEEDED'),
-        failed: take('app/ProjectScreen/LOAD_SCENARIO_FAILED')
-      })) as { succeeded?: unknown; failed?: { payload: { error: string } } }
-      if (raceResult.failed) {
-        yield put(actions.seedDefaultColumnsFailed(PROJ, SCN, raceResult.failed.payload.error))
-        return
-      }
-      yield put(actions.seedDefaultColumnsSucceeded(PROJ, SCN))
-    }
-    const gen = worker()
-
-    // selectDataTypesLoadStatus → "loaded" → no take()
-    expect(gen.next().value).toEqual(select(selectDataTypesLoadStatus))
-    expect(gen.next('loaded').value).toEqual(select(selectCheckDataTypeId))
-
-    // checkDataTypeId resolved
-    expect(gen.next(99).value).toEqual(
-      call(addColumnsRequest, PROJ, SCN, [
-        { name: CHECK_COL_NAME, dataTypeId: 99, dataUnitId: null, values: [] },
-        { name: DATE_TIME_COL_NAME, dataTypeId: null, dataUnitId: null, values: [] }
-      ])
-    )
-
-    // After addColumns: re-fire LOAD_SCENARIO_REQUESTED
-    expect(gen.next().value).toEqual(put(actions.loadScenarioRequested(PROJ, SCN)))
-
-    // race → succeeded → seedDefaultColumnsSucceeded
-    gen.next() // race(...)
-    expect(gen.next({ succeeded: { payload: { scenarioId: SCN } } }).value).toEqual(
-      put(actions.seedDefaultColumnsSucceeded(PROJ, SCN))
-    )
-    expect(gen.next().done).toBe(true)
-  })
-
-  it('on race-failed: dispatches seedDefaultColumnsFailed with the load error', () => {
-    function* worker(): Generator {
-      yield select(selectDataTypesLoadStatus)
-      yield select(selectCheckDataTypeId)
-      yield call(addColumnsRequest, PROJ, SCN, [])
-      yield put(actions.loadScenarioRequested(PROJ, SCN))
-      const raceResult = (yield race({})) as { failed?: { payload: { error: string } } }
-      if (raceResult.failed) {
-        yield put(actions.seedDefaultColumnsFailed(PROJ, SCN, raceResult.failed.payload.error))
-      }
-    }
-    const gen = worker()
-    gen.next() // selectDataTypesLoadStatus
-    gen.next('loaded') // selectCheckDataTypeId
-    gen.next(99) // addColumns
-    gen.next() // put loadScenarioRequested
-    gen.next() // race
-    expect(
-      gen.next({ failed: { payload: { scenarioId: SCN, error: 'header fetch 500' } } }).value
-    ).toEqual(put(actions.seedDefaultColumnsFailed(PROJ, SCN, 'header fetch 500')))
-  })
-})
-
-// ── addRowWorker ─────────────────────────────────────────────────────────────
-
-describe('addRowWorker', () => {
-  const tableWithDateTime: WeatherTable = {
-    columns: {
-      date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
-      time: { id: 'time', name: 'time', dataTypeId: null, unitId: null }
-    },
-    columnOrder: ['date', 'time'],
+function makeTable(over: Partial<WeatherTable> = {}): WeatherTable {
+  return {
+    columns: {},
+    columnOrder: [],
     rows: {},
     rowOrder: [],
     validationErrors: {},
     columnNameErrors: {},
     cellSync: {},
-    rowSelection: {}
+    rowSelection: {},
+    ...over
+  }
+}
+
+// ── runSaga driver ───────────────────────────────────────────────────────────
+
+type Worker = (action: { type: string; payload?: unknown }) => Generator
+type Action = { type: string; payload?: unknown }
+
+function realWorkers(): Record<string, Worker> {
+  const gen = projectScreenSaga()
+  const map: Record<string, Worker> = {}
+  for (let s = gen.next(); !s.done; s = gen.next()) {
+    const args = (s.value as { payload?: { args?: unknown[] } })?.payload?.args
+    if (Array.isArray(args) && typeof args[1] === 'function') {
+      map[String(args[0])] = args[1] as Worker
+    }
+  }
+  return map
+}
+
+const W = realWorkers()
+
+function drive(
+  worker: Worker,
+  action: Action,
+  state: unknown = buildState()
+): { task: ReturnType<typeof runSaga>; dispatched: Action[]; emit: (a: Action) => void } {
+  const dispatched: Action[] = []
+  const channel = stdChannel()
+  const task = runSaga(
+    {
+      channel,
+      dispatch: (a: Action) => {
+        dispatched.push(a)
+      },
+      getState: () => state
+    },
+    worker,
+    action
+  )
+  return { task, dispatched, emit: (a: Action) => channel.put(a) }
+}
+
+// Flush pending microtasks (mocked promise resolutions) so a blocking worker
+// reaches its `take`/`race` before we emit the awaited action.
+const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
+beforeEach(() => {
+  vi.resetAllMocks()
+})
+
+// ── Extraction sanity: the harvested fn IS the real exported worker ──────────
+
+describe('worker extraction', () => {
+  it('harvests real worker fns keyed by action type (updateColumnWorker matches the export)', () => {
+    expect(Object.keys(W).length).toBe(12)
+    expect(W[UPDATE_COLUMN_REQUESTED]).toBe(updateColumnWorker)
+  })
+})
+
+// ── loadDataTypesWorker ──────────────────────────────────────────────────────
+
+describe('loadDataTypesWorker (real)', () => {
+  it('GETs the catalog and dispatches loadDataTypesSucceeded with the data types', async () => {
+    vi.mocked(service.loadDataTypesRequest).mockResolvedValue({ data_types: CATALOG })
+    const { task, dispatched } = drive(W[LOAD_DATA_TYPES_REQUESTED], actions.loadDataTypesRequested())
+    await task.toPromise()
+
+    expect(vi.mocked(service.loadDataTypesRequest)).toHaveBeenCalledTimes(1)
+    expect(dispatched).toContainEqual(actions.loadDataTypesSucceeded(CATALOG))
+  })
+
+  it('dispatches loadDataTypesFailed with the error message on rejection', async () => {
+    vi.mocked(service.loadDataTypesRequest).mockRejectedValue(new Error('catalog down'))
+    const { task, dispatched } = drive(W[LOAD_DATA_TYPES_REQUESTED], actions.loadDataTypesRequested())
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.loadDataTypesFailed('catalog down'))
+  })
+})
+
+// ── listScenariosWorker ──────────────────────────────────────────────────────
+
+describe('listScenariosWorker (real)', () => {
+  const project = {
+    id: PROJ,
+    name: 'Project One',
+    latitude: 12.5,
+    longitude: 77.5,
+    utc_offset: '+05:30',
+    created_at: '',
+    updated_at: '',
+    scenarios: [
+      {
+        id: SCN,
+        name: 'Scenario One',
+        has_weather: true,
+        created_at: '',
+        updated_at: '',
+        weather_data_headers: []
+      }
+    ]
+  }
+  const meta: ProjectMetadata = {
+    id: PROJ,
+    name: 'Project One',
+    latitude: 12.5,
+    longitude: 77.5,
+    utc_offset: '+05:30'
   }
 
-  it('fails fast with a clear message when (date, time) does not parse', () => {
-    function* worker(): Generator {
-      yield select(selectActiveWeatherTable)
-      // Saga's buildRowsForAdd returns null for "not-a-date".
-      yield put(
-        actions.addRowFailed(PROJ, SCN, 'Invalid start date / time / delta — could not build rows.')
-      )
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(select(selectActiveWeatherTable))
-    expect(gen.next(tableWithDateTime).value).toEqual(
-      put(
-        actions.addRowFailed(PROJ, SCN, 'Invalid start date / time / delta — could not build rows.')
-      )
+  it('dispatches loadProject → listScenarios → setActiveScenario(first) → loadScenarioRequested and persists the id', async () => {
+    vi.mocked(service.getProjectRequest).mockResolvedValue({ project })
+    const { task, dispatched } = drive(W[LIST_SCENARIOS_REQUESTED], actions.listScenariosRequested(PROJ))
+    await task.toPromise()
+
+    expect(vi.mocked(service.getProjectRequest)).toHaveBeenCalledWith(PROJ)
+    expect(dispatched).toContainEqual(actions.loadProjectSucceeded(meta))
+    expect(dispatched).toContainEqual(actions.listScenariosSucceeded(PROJ, project.scenarios))
+    expect(dispatched).toContainEqual(actions.setActiveScenario(SCN))
+    expect(dispatched).toContainEqual(actions.loadScenarioRequested(PROJ, SCN))
+    expect(localStorage.getItem(STORAGE_KEYS.activeScenarioId)).toBe(SCN)
+  })
+
+  it('returns after the metadata + list when the project has no scenarios (no setActiveScenario)', async () => {
+    vi.mocked(service.getProjectRequest).mockResolvedValue({
+      project: { ...project, scenarios: [] }
+    })
+    const { task, dispatched } = drive(W[LIST_SCENARIOS_REQUESTED], actions.listScenariosRequested(PROJ))
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.listScenariosSucceeded(PROJ, []))
+    expect(dispatched.some((a) => a.type === actions.setActiveScenario(SCN).type)).toBe(false)
+  })
+
+  it('on a 4xx ApiError: dispatches listScenariosFailed and bounces to home', async () => {
+    vi.mocked(service.getProjectRequest).mockRejectedValue(new ApiError(404, 'Not found'))
+    const { task, dispatched } = drive(W[LIST_SCENARIOS_REQUESTED], actions.listScenariosRequested(PROJ))
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.listScenariosFailed(PROJ, 'Not found'))
+    expect(dispatched).toContainEqual(navigate('home'))
+    expect(localStorage.getItem(STORAGE_KEYS.activeProjectId)).toBeNull()
+  })
+
+  it('on a 5xx ApiError: dispatches listScenariosFailed but does NOT bounce', async () => {
+    vi.mocked(service.getProjectRequest).mockRejectedValue(new ApiError(500, 'Server down'))
+    const { task, dispatched } = drive(W[LIST_SCENARIOS_REQUESTED], actions.listScenariosRequested(PROJ))
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.listScenariosFailed(PROJ, 'Server down'))
+    expect(dispatched.some((a) => a.type === navigate('home').type)).toBe(false)
+  })
+})
+
+// ── updateProjectWorker ──────────────────────────────────────────────────────
+
+describe('updateProjectWorker (real)', () => {
+  const project = {
+    id: PROJ,
+    name: 'Project One',
+    latitude: 23.5,
+    longitude: 77.5,
+    utc_offset: '+05:00',
+    created_at: '',
+    updated_at: '',
+    scenarios: []
+  }
+
+  it('PATCHes, refetches the project, then dispatches updateProjectSucceeded with the fresh metadata', async () => {
+    vi.mocked(service.updateProjectRequest).mockResolvedValue('ok')
+    vi.mocked(service.getProjectRequest).mockResolvedValue({ project })
+    const { task, dispatched } = drive(
+      W[UPDATE_PROJECT_REQUESTED],
+      actions.updateProjectRequested(PROJ, { latitude: 23.5 })
+    )
+    await task.toPromise()
+
+    expect(vi.mocked(service.updateProjectRequest)).toHaveBeenCalledWith(PROJ, { latitude: 23.5 })
+    expect(dispatched).toContainEqual(
+      actions.updateProjectSucceeded({
+        id: PROJ,
+        name: 'Project One',
+        latitude: 23.5,
+        longitude: 77.5,
+        utc_offset: '+05:00'
+      })
     )
   })
 
-  it('on success: POSTs rows, dispatches loadScenarioRequested, races, dispatches addRowSucceeded', () => {
-    function* worker(): Generator {
-      const table = (yield select(selectActiveWeatherTable)) as WeatherTable
-      // Pretend buildRowsForAdd returned a single row.
-      const builtRows = [{ date: '2026-04-27', time: '10:00:00' }]
-      yield call(addRowsRequest, PROJ, SCN, { rows: builtRows })
-      yield put(actions.loadScenarioRequested(PROJ, SCN))
-      const raceResult = (yield race({
-        succeeded: take('app/ProjectScreen/LOAD_SCENARIO_SUCCEEDED'),
-        failed: take('app/ProjectScreen/LOAD_SCENARIO_FAILED')
-      })) as { succeeded?: unknown; failed?: { payload: { error: string } } }
-      if (raceResult.failed) {
-        yield put(actions.addRowFailed(PROJ, SCN, raceResult.failed.payload.error))
-        return
-      }
-      yield put(actions.addRowSucceeded(PROJ, SCN))
-      void table
-    }
-    const gen = worker()
-    gen.next() // selectActiveWeatherTable
-    expect(gen.next(tableWithDateTime).value).toEqual(
-      call(addRowsRequest, PROJ, SCN, {
-        rows: [{ date: '2026-04-27', time: '10:00:00' }]
+  it('on a 4xx ApiError: dispatches updateProjectFailed and bounces to home', async () => {
+    vi.mocked(service.updateProjectRequest).mockRejectedValue(new ApiError(403, 'Forbidden'))
+    const { task, dispatched } = drive(
+      W[UPDATE_PROJECT_REQUESTED],
+      actions.updateProjectRequested(PROJ, { name: 'x' })
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateProjectFailed(PROJ, 'Forbidden'))
+    expect(dispatched).toContainEqual(navigate('home'))
+  })
+
+  it('on a 5xx ApiError: dispatches updateProjectFailed but does NOT bounce', async () => {
+    vi.mocked(service.updateProjectRequest).mockRejectedValue(new ApiError(500, 'boom'))
+    const { task, dispatched } = drive(
+      W[UPDATE_PROJECT_REQUESTED],
+      actions.updateProjectRequested(PROJ, { name: 'x' })
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateProjectFailed(PROJ, 'boom'))
+    expect(dispatched.some((a) => a.type === navigate('home').type)).toBe(false)
+  })
+})
+
+// ── loadScenarioWorker (+ fetchHeaders, revalidateScenarioColumns, revalidateColumn) ──
+
+describe('loadScenarioWorker (real)', () => {
+  const header7 = {
+    id: 7,
+    scenario_id: SCN,
+    name: 'temp',
+    helios_data_type_id: 1,
+    unit_id: 5,
+    status: true,
+    display_order: 0,
+    created_at: '',
+    updated_at: ''
+  }
+
+  it('empty headers + empty rows: seeds default columns and does NOT render', async () => {
+    vi.mocked(service.loadHeadersRequest).mockResolvedValue({ success: true, count: 0, headers: [] })
+    vi.mocked(service.loadDataRequest).mockResolvedValue({
+      success: true,
+      labels: [],
+      row_count: 0,
+      total_rows: 0,
+      column_count: 0,
+      offset: 0,
+      limit: null,
+      rows: []
+    })
+    const { task, dispatched } = drive(
+      W[LOAD_SCENARIO_REQUESTED],
+      actions.loadScenarioRequested(PROJ, SCN)
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.seedDefaultColumnsRequested(PROJ, SCN))
+    expect(dispatched.some((a) => a.type === LOAD_SCENARIO_SUCCEEDED)).toBe(false)
+  })
+
+  it('populated: fetches headers, renders merged columns/rows, and revalidates each configured column', async () => {
+    vi.mocked(service.loadHeadersRequest).mockResolvedValue({
+      success: true,
+      count: 1,
+      headers: [header7]
+    })
+    vi.mocked(service.loadDataRequest).mockResolvedValue({
+      success: true,
+      labels: ['date', 'time', '7'],
+      row_count: 1,
+      total_rows: 1,
+      column_count: 3,
+      offset: 0,
+      limit: null,
+      rows: [{ date: '2026-01-01', time: '10:00:00', '7': 300 }]
+    })
+
+    const stateTable = makeTable({
+      columns: {
+        date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+        time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+        '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 }
+      },
+      columnOrder: ['date', 'time', '7'],
+      rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': '300' } },
+      rowOrder: ['row_0']
+    })
+    const state = buildState({ dataTypes: CATALOG, activeScenarioId: SCN, byScenario: { [SCN]: stateTable } })
+
+    const { task, dispatched } = drive(W[LOAD_SCENARIO_REQUESTED], actions.loadScenarioRequested(PROJ, SCN), state)
+    await task.toPromise()
+
+    // fetchHeaders routed the raw headers into the headers slice.
+    expect(dispatched).toContainEqual(actions.loadHeadersRequested(PROJ, SCN))
+    expect(dispatched).toContainEqual(actions.loadHeadersSucceeded(SCN, [header7]))
+
+    // Merged render: date/time pseudo-columns first, then the joined header.
+    expect(dispatched).toContainEqual(
+      actions.loadScenarioSucceeded({
+        projectId: PROJ,
+        scenarioId: SCN,
+        columns: [
+          { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+          { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+          { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 }
+        ],
+        rows: [{ date: '2026-01-01', time: '10:00:00', '7': '300' }],
+        precisionNormalized: false
       })
     )
-    expect(gen.next().value).toEqual(put(actions.loadScenarioRequested(PROJ, SCN)))
-    gen.next() // race
-    expect(gen.next({ succeeded: { payload: { scenarioId: SCN } } }).value).toEqual(
-      put(actions.addRowSucceeded(PROJ, SCN))
+
+    // revalidateScenarioColumns → revalidateColumn dispatched the per-column result.
+    expect(dispatched).toContainEqual(actions.setColumnValidationErrors(SCN, '7', { row_0: null }))
+  })
+
+  it('backfills a stale date-time header (null type/unit) with an updateColumnRequested patch', async () => {
+    const staleDateTime = {
+      id: 8,
+      scenario_id: SCN,
+      name: 'date-time',
+      helios_data_type_id: null as unknown as number,
+      unit_id: null as unknown as number,
+      status: true,
+      display_order: 0,
+      created_at: '',
+      updated_at: ''
+    }
+    vi.mocked(service.loadHeadersRequest).mockResolvedValue({
+      success: true,
+      count: 1,
+      headers: [staleDateTime]
+    })
+    vi.mocked(service.loadDataRequest).mockResolvedValue({
+      success: true,
+      labels: ['date', 'time', '8'],
+      row_count: 1,
+      total_rows: 1,
+      column_count: 3,
+      offset: 0,
+      limit: null,
+      rows: [{ date: '2026-01-01', time: '10:00:00', '8': 0 }]
+    })
+    // No byScenario table → revalidateScenarioColumns is a no-op, keeping this focused on backfill.
+    const state = buildState({ dataTypes: CATALOG, activeScenarioId: SCN })
+
+    const { task, dispatched } = drive(W[LOAD_SCENARIO_REQUESTED], actions.loadScenarioRequested(PROJ, SCN), state)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(
+      actions.updateColumnRequested(
+        PROJ,
+        SCN,
+        '8',
+        { dataTypeId: 3, unitId: 30 },
+        { dataTypeId: null, unitId: null }
+      )
     )
+    expect(dispatched.some((a) => a.type === LOAD_SCENARIO_SUCCEEDED)).toBe(true)
+  })
+
+  it('catalog still loading: blocks on LOAD_DATA_TYPES before merging, and again before revalidation', async () => {
+    vi.mocked(service.loadHeadersRequest).mockResolvedValue({
+      success: true,
+      count: 1,
+      headers: [header7]
+    })
+    vi.mocked(service.loadDataRequest).mockResolvedValue({
+      success: true,
+      labels: ['date', 'time', '7'],
+      row_count: 1,
+      total_rows: 1,
+      column_count: 3,
+      offset: 0,
+      limit: null,
+      rows: [{ date: '2026-01-01', time: '10:00:00', '7': 300 }]
+    })
+    const stateTable = makeTable({
+      columns: { '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 } },
+      columnOrder: ['7'],
+      rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': '300' } },
+      rowOrder: ['row_0']
+    })
+    // loadStatus 'loading' forces BOTH catalog gates (in loadScenarioWorker and
+    // in revalidateScenarioColumns) to `take` — each is unblocked by an emit.
+    const state = buildState({
+      dataTypes: CATALOG,
+      loadStatus: 'loading',
+      activeScenarioId: SCN,
+      byScenario: { [SCN]: stateTable }
+    })
+    const { task, dispatched, emit } = drive(
+      W[LOAD_SCENARIO_REQUESTED],
+      actions.loadScenarioRequested(PROJ, SCN),
+      state
+    )
+    await settle()
+    emit({ type: LOAD_DATA_TYPES_SUCCEEDED, payload: [] }) // unblocks the merge gate
+    await settle()
+    emit({ type: LOAD_DATA_TYPES_SUCCEEDED, payload: [] }) // unblocks the revalidation gate
+    await task.toPromise()
+
+    expect(dispatched.some((a) => a.type === LOAD_SCENARIO_SUCCEEDED)).toBe(true)
+    expect(dispatched).toContainEqual(actions.setColumnValidationErrors(SCN, '7', { row_0: null }))
+  })
+
+  it('on a 4xx header fetch error: dispatches loadHeadersFailed + loadScenarioFailed and bounces to home', async () => {
+    vi.mocked(service.loadHeadersRequest).mockRejectedValue(new ApiError(404, 'gone'))
+    vi.mocked(service.loadDataRequest).mockResolvedValue({
+      success: true,
+      labels: [],
+      row_count: 0,
+      total_rows: 0,
+      column_count: 0,
+      offset: 0,
+      limit: null,
+      rows: []
+    })
+    const { task, dispatched } = drive(
+      W[LOAD_SCENARIO_REQUESTED],
+      actions.loadScenarioRequested(PROJ, SCN)
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.loadHeadersFailed(SCN, 'gone'))
+    expect(dispatched).toContainEqual(actions.loadScenarioFailed(PROJ, SCN, 'gone'))
+    expect(dispatched).toContainEqual(navigate('home'))
+  })
+})
+
+// ── seedDefaultColumnsWorker (+ waitForScenarioLoad) ─────────────────────────
+
+describe('seedDefaultColumnsWorker (real)', () => {
+  it('race succeeded: POSTs check + date-time with resolved ids, then dispatches seedDefaultColumnsSucceeded', async () => {
+    vi.mocked(service.addColumnsRequest).mockResolvedValue({ columns: [] })
+    const { task, dispatched, emit } = drive(
+      W[SEED_DEFAULT_COLUMNS_REQUESTED],
+      actions.seedDefaultColumnsRequested(PROJ, SCN),
+      buildState({ dataTypes: CATALOG, loadStatus: 'loaded' })
+    )
+    await settle()
+    emit({ type: LOAD_SCENARIO_SUCCEEDED, payload: { scenarioId: SCN } })
+    await task.toPromise()
+
+    expect(vi.mocked(service.addColumnsRequest)).toHaveBeenCalledWith(PROJ, SCN, [
+      { name: 'check', dataTypeId: 2, dataUnitId: null, values: [] },
+      { name: 'date-time', dataTypeId: 3, dataUnitId: 30, values: [] }
+    ])
+    expect(dispatched).toContainEqual(actions.loadScenarioRequested(PROJ, SCN))
+    expect(dispatched).toContainEqual(actions.seedDefaultColumnsSucceeded(PROJ, SCN))
+  })
+
+  it('race failed: dispatches seedDefaultColumnsFailed carrying the load error', async () => {
+    vi.mocked(service.addColumnsRequest).mockResolvedValue({ columns: [] })
+    const { task, dispatched, emit } = drive(
+      W[SEED_DEFAULT_COLUMNS_REQUESTED],
+      actions.seedDefaultColumnsRequested(PROJ, SCN),
+      buildState({ dataTypes: CATALOG, loadStatus: 'loaded' })
+    )
+    await settle()
+    emit({ type: LOAD_SCENARIO_FAILED, payload: { scenarioId: SCN, error: 'header fetch 500' } })
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.seedDefaultColumnsFailed(PROJ, SCN, 'header fetch 500'))
+    expect(dispatched.some((a) => a.type === actions.seedDefaultColumnsSucceeded(PROJ, SCN).type)).toBe(
+      false
+    )
+  })
+
+  it('catalog still loading: blocks on the catalog action, then fails from the addColumns rejection', async () => {
+    vi.mocked(service.addColumnsRequest).mockRejectedValue(new Error('seed boom'))
+    const { task, dispatched, emit } = drive(
+      W[SEED_DEFAULT_COLUMNS_REQUESTED],
+      actions.seedDefaultColumnsRequested(PROJ, SCN),
+      buildState({ dataTypes: CATALOG, loadStatus: 'loading' })
+    )
+    // Unblock the `take([LOAD_DATA_TYPES_SUCCEEDED, LOAD_DATA_TYPES_FAILED])`.
+    await settle()
+    emit({ type: LOAD_DATA_TYPES_SUCCEEDED, payload: [] })
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.seedDefaultColumnsFailed(PROJ, SCN, 'seed boom'))
+  })
+})
+
+// ── addRowWorker (+ buildRowsForAdd, waitForScenarioLoad) ────────────────────
+
+describe('addRowWorker (real)', () => {
+  const tableWithDateTime = makeTable({
+    columns: {
+      date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+      time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+      '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 },
+      '99': { id: '99', name: 'check', dataTypeId: 2, unitId: null }
+    },
+    columnOrder: ['date', 'time', '7', '99']
+  })
+  const state = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: tableWithDateTime } })
+
+  it('fails fast when (date, time) does not parse — no network call', async () => {
+    const action = actions.addRowRequested(PROJ, SCN, 'not-a-date', '10:00', ['date', 'time', '7'], 2, 1)
+    const { task, dispatched } = drive(W[ADD_ROW_REQUESTED], action, state)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(
+      actions.addRowFailed(PROJ, SCN, 'Invalid start date / time / delta — could not build rows.')
+    )
+    expect(vi.mocked(service.addRowsRequest)).not.toHaveBeenCalled()
+  })
+
+  it('success: expands rows client-side (check→"1", data→"NAN"), POSTs them, and dispatches addRowSucceeded after the reload', async () => {
+    vi.mocked(service.addRowsRequest).mockResolvedValue({ success: true })
+    const action = actions.addRowRequested(PROJ, SCN, '2026-04-27', '10:00', ['date', 'time', '7', '99'], 2, 1)
+    const { task, dispatched, emit } = drive(W[ADD_ROW_REQUESTED], action, state)
+    await settle()
+    emit({ type: LOAD_SCENARIO_SUCCEEDED, payload: { scenarioId: SCN } })
+    await task.toPromise()
+
+    expect(vi.mocked(service.addRowsRequest)).toHaveBeenCalledWith(PROJ, SCN, {
+      rows: [
+        { date: '2026-04-27', time: '10:00:00', '7': 'NAN', '99': '1' },
+        { date: '2026-04-27', time: '11:00:00', '7': 'NAN', '99': '1' }
+      ]
+    })
+    expect(dispatched).toContainEqual(actions.loadScenarioRequested(PROJ, SCN))
+    expect(dispatched).toContainEqual(actions.addRowSucceeded(PROJ, SCN))
+  })
+
+  it('load-failed after POST: dispatches addRowFailed carrying the reload error', async () => {
+    vi.mocked(service.addRowsRequest).mockResolvedValue({ success: true })
+    const action = actions.addRowRequested(PROJ, SCN, '2026-04-27', '10:00', ['date', 'time', '7'], 1, 1)
+    const { task, dispatched, emit } = drive(W[ADD_ROW_REQUESTED], action, state)
+    await settle()
+    emit({ type: LOAD_SCENARIO_FAILED, payload: { scenarioId: SCN, error: 'reload 500' } })
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.addRowFailed(PROJ, SCN, 'reload 500'))
+  })
+
+  it('service rejection: dispatches addRowFailed with the error message', async () => {
+    vi.mocked(service.addRowsRequest).mockRejectedValue(new Error('addRow boom'))
+    const action = actions.addRowRequested(PROJ, SCN, '2026-04-27', '10:00', ['date', 'time', '7'], 1, 1)
+    const { task, dispatched } = drive(W[ADD_ROW_REQUESTED], action, state)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.addRowFailed(PROJ, SCN, 'addRow boom'))
   })
 })
 
 // ── addColumnWorker ──────────────────────────────────────────────────────────
 
-describe('addColumnWorker', () => {
-  it('with non-empty defaultValue: back-fills (date, time, value) for every existing row', () => {
-    const table: WeatherTable = {
-      columns: {
-        date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
-        time: { id: 'time', name: 'time', dataTypeId: null, unitId: null }
-      },
-      columnOrder: ['date', 'time'],
+describe('addColumnWorker (real)', () => {
+  const newCol = { id: '9', name: 'humidity', dataTypeId: 3, unitId: 4 }
+
+  it('with a default value: back-fills (date, time, value) for every complete row (skips incomplete)', async () => {
+    vi.mocked(service.addColumnRequest).mockResolvedValue({ column: newCol })
+    const table = makeTable({
       rows: {
         row_0: { date: '2026-04-27', time: '10:00:00' },
         row_1: { date: '2026-04-27', time: '11:00:00' },
-        // Row missing time → must be skipped defensively.
         row_2: { date: '2026-04-27', time: null }
       },
-      rowOrder: ['row_0', 'row_1', 'row_2'],
-      validationErrors: {},
-      columnNameErrors: {},
-      cellSync: {},
-      rowSelection: {}
-    }
-    const newCol: ColumnDef = { id: '9', name: 'humidity', dataTypeId: 3, unitId: 4 }
-    function* worker(): Generator {
-      const t = (yield select(selectActiveWeatherTable)) as WeatherTable | null
-      const values: Array<{ date: string; time: string; value: string }> = []
-      if (t) {
-        for (const rowId of t.rowOrder) {
-          const row = t.rows[rowId]
-          if (!row) continue
-          const date = row['date']
-          const time = row['time']
-          if (date == null || time == null) continue
-          values.push({ date, time, value: '65' })
-        }
-      }
-      const res = (yield call(addColumnRequest, PROJ, SCN, {
-        name: 'humidity',
-        dataTypeId: 3,
-        dataUnitId: 4,
-        values
-      })) as { column: ColumnDef }
-      yield put(actions.addColumnSucceeded(PROJ, SCN, res.column, '65'))
-    }
-    const gen = worker()
-    gen.next() // select
-    expect(gen.next(table).value).toEqual(
-      call(addColumnRequest, PROJ, SCN, {
-        name: 'humidity',
-        dataTypeId: 3,
-        dataUnitId: 4,
-        values: [
-          { date: '2026-04-27', time: '10:00:00', value: '65' },
-          { date: '2026-04-27', time: '11:00:00', value: '65' }
-        ]
-      })
-    )
-    expect(gen.next({ column: newCol }).value).toEqual(
-      put(actions.addColumnSucceeded(PROJ, SCN, newCol, '65'))
-    )
+      rowOrder: ['row_0', 'row_1', 'row_2']
+    })
+    const state = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: table } })
+    const action = actions.addColumnRequested(PROJ, SCN, 'humidity', 3, 4, '65')
+    const { task, dispatched } = drive(W[ADD_COLUMN_REQUESTED], action, state)
+    await task.toPromise()
+
+    expect(vi.mocked(service.addColumnRequest)).toHaveBeenCalledWith(PROJ, SCN, {
+      name: 'humidity',
+      dataTypeId: 3,
+      dataUnitId: 4,
+      values: [
+        { date: '2026-04-27', time: '10:00:00', value: '65' },
+        { date: '2026-04-27', time: '11:00:00', value: '65' }
+      ],
+      defaultValue: '65'
+    })
+    expect(dispatched).toContainEqual(actions.addColumnSucceeded(PROJ, SCN, newCol, '65'))
   })
 
-  it('with empty defaultValue: sends values=[] (server leaves new cells as NaN/null)', () => {
-    function* worker(): Generator {
-      yield select(selectActiveWeatherTable)
-      // defaultValue==='', so values stays empty regardless of rows.
-      yield call(addColumnRequest, PROJ, SCN, {
-        name: 'humidity',
-        dataTypeId: 3,
-        dataUnitId: 4,
-        values: []
-      })
-    }
-    const gen = worker()
-    gen.next()
-    const table = { rowOrder: ['row_0'], rows: { row_0: { date: 'd', time: 't' } } }
-    expect(gen.next(table).value).toEqual(
-      call(addColumnRequest, PROJ, SCN, {
-        name: 'humidity',
-        dataTypeId: 3,
-        dataUnitId: 4,
-        values: []
-      })
+  it('with an empty default value: sends values=[] and defaultValue "NAN"', async () => {
+    vi.mocked(service.addColumnRequest).mockResolvedValue({ column: newCol })
+    const table = makeTable({
+      rows: { row_0: { date: '2026-04-27', time: '10:00:00' } },
+      rowOrder: ['row_0']
+    })
+    const state = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: table } })
+    const action = actions.addColumnRequested(PROJ, SCN, 'humidity', 3, 4, '')
+    const { task, dispatched } = drive(W[ADD_COLUMN_REQUESTED], action, state)
+    await task.toPromise()
+
+    expect(vi.mocked(service.addColumnRequest)).toHaveBeenCalledWith(PROJ, SCN, {
+      name: 'humidity',
+      dataTypeId: 3,
+      dataUnitId: 4,
+      values: [],
+      defaultValue: 'NAN'
+    })
+    expect(dispatched).toContainEqual(actions.addColumnSucceeded(PROJ, SCN, newCol, ''))
+  })
+
+  it('service rejection: dispatches addColumnFailed', async () => {
+    vi.mocked(service.addColumnRequest).mockRejectedValue(new Error('addCol boom'))
+    const action = actions.addColumnRequested(PROJ, SCN, 'humidity', 3, 4, '')
+    const { task, dispatched } = drive(
+      W[ADD_COLUMN_REQUESTED],
+      action,
+      buildState({ activeScenarioId: SCN, byScenario: { [SCN]: makeTable() } })
     )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.addColumnFailed(PROJ, SCN, 'addCol boom'))
   })
 })
 
-// ── updateColumnWorker ───────────────────────────────────────────────────────
+// ── updateColumnWorker (+ revalidateColumn) ──────────────────────────────────
 
-describe('updateColumnWorker', () => {
-  it('translates camelCase patch → snake_case wire body, dispatches succeeded on PATCH success', () => {
+describe('updateColumnWorker (real)', () => {
+  const colTable = makeTable({
+    columns: {
+      date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+      time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+      '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 }
+    },
+    columnOrder: ['date', 'time', '7'],
+    rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': '300' } },
+    rowOrder: ['row_0']
+  })
+  const configuredState = buildState({
+    dataTypes: CATALOG,
+    activeScenarioId: SCN,
+    byScenario: { [SCN]: colTable }
+  })
+
+  it('name/type change: PATCHes snake_case wire, succeeds, then revalidates the column', async () => {
+    vi.mocked(service.patchHeaderRequest).mockResolvedValue('ok')
     const action = actions.updateColumnRequested(
       PROJ,
       SCN,
       '7',
       { name: 'temperature', dataTypeId: 9, unitId: 11 },
-      { name: 'temp', dataTypeId: 1, unitId: 2 }
+      { name: 'temp', dataTypeId: 1, unitId: 5 }
     )
-    function* worker(): Generator {
-      const headerId = Number(action.payload.colId)
-      const wire = {
-        name: action.payload.patch.name,
-        helios_data_type_id: action.payload.patch.dataTypeId,
-        unit_id: action.payload.patch.unitId
-      }
-      yield call(patchHeaderRequest, PROJ, SCN, headerId, wire)
-      yield put(actions.updateColumnSucceeded(PROJ, SCN, '7'))
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(
-      call(patchHeaderRequest, PROJ, SCN, 7, {
-        name: 'temperature',
-        helios_data_type_id: 9,
-        unit_id: 11
-      })
-    )
-    expect(gen.next().value).toEqual(put(actions.updateColumnSucceeded(PROJ, SCN, '7')))
+    const { task, dispatched } = drive(W[UPDATE_COLUMN_REQUESTED], action, configuredState)
+    await task.toPromise()
+
+    expect(vi.mocked(service.patchHeaderRequest)).toHaveBeenCalledWith(PROJ, SCN, 7, {
+      name: 'temperature',
+      helios_data_type_id: 9,
+      unit_id: 11
+    })
+    expect(vi.mocked(service.updateColumnRequest)).not.toHaveBeenCalled()
+    expect(dispatched).toContainEqual(actions.updateColumnSucceeded(PROJ, SCN, '7'))
+    expect(dispatched).toContainEqual(actions.setColumnValidationErrors(SCN, '7', { row_0: null }))
   })
 
-  it('sends null data type and unit values when clearing a header assignment', () => {
+  it('non-numeric colId: dispatches updateColumnFailed("Column has no header id") without any network call', async () => {
+    const action = actions.updateColumnRequested(PROJ, SCN, 'date', { name: 'x' }, { name: 'date' })
+    const { task, dispatched } = drive(W[UPDATE_COLUMN_REQUESTED], action, configuredState)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(
+      actions.updateColumnFailed(PROJ, SCN, 'date', { name: 'date' }, 'Column has no header id')
+    )
+    expect(vi.mocked(service.patchHeaderRequest)).not.toHaveBeenCalled()
+  })
+
+  it('PATCH failure: dispatches updateColumnFailed with the previous snapshot for rollback', async () => {
+    vi.mocked(service.patchHeaderRequest).mockRejectedValue(new Error('rejected'))
+    const previous = { name: 'temp', dataTypeId: 1, unitId: 5 }
     const action = actions.updateColumnRequested(
       PROJ,
       SCN,
       '7',
-      { dataTypeId: null, unitId: null },
-      { dataTypeId: 1, unitId: 1 }
+      { name: 'temperature', dataTypeId: 9 },
+      previous
     )
-    function* worker(): Generator {
-      const headerId = Number(action.payload.colId)
-      const wire = {
-        helios_data_type_id: action.payload.patch.dataTypeId,
-        unit_id: action.payload.patch.unitId
-      }
-      yield call(patchHeaderRequest, PROJ, SCN, headerId, wire)
-      yield put(actions.updateColumnSucceeded(PROJ, SCN, '7'))
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(
-      call(patchHeaderRequest, PROJ, SCN, 7, {
-        helios_data_type_id: null,
-        unit_id: null
-      })
-    )
-    expect(gen.next().value).toEqual(put(actions.updateColumnSucceeded(PROJ, SCN, '7')))
+    const { task, dispatched } = drive(W[UPDATE_COLUMN_REQUESTED], action, configuredState)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateColumnFailed(PROJ, SCN, '7', previous, 'rejected'))
   })
 
-  it('dispatches updateColumnFailed with the previous snapshot for non-numeric colIds', () => {
-    const previous = { name: 'date' }
-    function* worker(): Generator {
-      const headerId = Number('date')
-      if (!Number.isFinite(headerId) || headerId <= 0) {
-        yield put(
-          actions.updateColumnFailed(PROJ, SCN, 'date', previous, 'Column has no header id')
-        )
-      }
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(
-      put(actions.updateColumnFailed(PROJ, SCN, 'date', previous, 'Column has no header id'))
+  it('unit-only conversion: optimistically writes converted values, PATCHes them via updateColumnRequest, then succeeds', async () => {
+    vi.mocked(service.updateColumnRequest).mockResolvedValue('ok')
+    const action = actions.updateColumnRequested(PROJ, SCN, '7', { unitId: 6 }, { unitId: 5 })
+    const { task, dispatched } = drive(W[UPDATE_COLUMN_REQUESTED], action, configuredState)
+    await task.toPromise()
+
+    // 300 K → 26.85 °C, optimistic local write of the CONVERTED value.
+    expect(dispatched).toContainEqual(
+      actions.updateColumnValuesLocal({ scenarioId: SCN, colId: '7', valuesByRowId: { row_0: '26.85' } })
     )
+    // Backend write carries the converted values + the NEW unit id.
+    expect(vi.mocked(service.updateColumnRequest)).toHaveBeenCalledWith(PROJ, SCN, 7, {
+      name: 'temp',
+      dataTypeId: 1,
+      dataUnitId: 6,
+      values: [{ date: '2026-01-01', time: '10:00:00', value: '26.85' }],
+      defaultValue: 'NAN'
+    })
+    expect(vi.mocked(service.patchHeaderRequest)).not.toHaveBeenCalled()
+    expect(dispatched).toContainEqual(actions.updateColumnSucceeded(PROJ, SCN, '7'))
   })
 
-  it('on PATCH failure: dispatches updateColumnFailed with previous values for rollback', () => {
-    const previous = { name: 'temp', dataTypeId: 1, unitId: 2 }
-    function* worker(): Generator {
-      try {
-        yield call(patchHeaderRequest, PROJ, SCN, 7, { name: 'temperature' })
-      } catch (err) {
-        yield put(actions.updateColumnFailed(PROJ, SCN, '7', previous, (err as Error).message))
-      }
-    }
-    const gen = worker()
-    gen.next()
-    expect(gen.throw(new Error('rejected')).value).toEqual(
-      put(actions.updateColumnFailed(PROJ, SCN, '7', previous, 'rejected'))
+  it('unit-only conversion failure: rolls back to the PRE-conversion values, then dispatches failed', async () => {
+    vi.mocked(service.updateColumnRequest).mockRejectedValue(new Error('boom'))
+    const action = actions.updateColumnRequested(PROJ, SCN, '7', { unitId: 6 }, { unitId: 5 })
+    const { task, dispatched } = drive(W[UPDATE_COLUMN_REQUESTED], action, configuredState)
+    await task.toPromise()
+
+    // Rollback restores the original 300, not the converted 26.85.
+    expect(dispatched).toContainEqual(
+      actions.updateColumnValuesLocal({ scenarioId: SCN, colId: '7', valuesByRowId: { row_0: '300' } })
     )
-  })
-})
-
-// ── updateColumnWorker — unit-only conversion branch (drives the REAL worker) ─
-//
-// The tests above hand-mirror the worker's effect sequence. That style cannot
-// cover the conversion branch, because the whole point is the *real* wiring of
-// buildConvertedColumnValues into the saga (optimistic converted write, backend
-// PATCH of converted values, rollback to the PRE-conversion values on failure).
-// So these drive the exported updateColumnWorker directly.
-
-describe('updateColumnWorker — unit-only conversion (real worker)', () => {
-  // Kelvin (base) → Celsius: base = v*1 + 0; C = (base − 273.15)/1. 300 K → 26.85 °C.
-  const kelvin: DataUnitDef = {
-    id: 5,
-    unit: 'K',
-    alias: '',
-    data_type_id: 1,
-    min: null,
-    max: null,
-    to_base_factor: 1,
-    to_base_offset: 0,
-    is_base: true,
-    created_at: '',
-    updated_at: ''
-  }
-  const celsius: DataUnitDef = {
-    id: 6,
-    unit: 'C',
-    alias: '°C',
-    data_type_id: 1,
-    min: null,
-    max: null,
-    to_base_factor: 1,
-    to_base_offset: 273.15,
-    is_base: false,
-    created_at: '',
-    updated_at: ''
-  }
-  const temperature: DataTypeDef = {
-    id: 1,
-    data_type: 'air_temperature',
-    description: '',
-    created_at: '',
-    updated_at: '',
-    units: [kelvin, celsius]
-  }
-  const dataTypes: DataTypeDef[] = [temperature]
-
-  const col: ColumnDef = { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 }
-  const table: WeatherTable = {
-    columns: {
-      date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
-      time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
-      '7': col
-    },
-    columnOrder: ['date', 'time', '7'],
-    rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': '300' } },
-    rowOrder: ['row_0'],
-    validationErrors: {},
-    columnNameErrors: {},
-    cellSync: {},
-    rowSelection: {}
-  }
-
-  // Unit-only change K(5) → C(6); patch has NO dataTypeId, so the worker takes
-  // the convertible branch. `previous.unitId` is the from-unit.
-  const makeAction = (): ReturnType<typeof actions.updateColumnRequested> =>
-    actions.updateColumnRequested(PROJ, SCN, '7', { unitId: 6 }, { unitId: 5 })
-
-  it('converts each row, optimistically updates, then PATCHes the CONVERTED values on success', () => {
-    const gen = sagaModule.updateColumnWorker(makeAction())
-
-    expect(gen.next().value).toEqual(select(selectActiveWeatherTable))
-    expect(gen.next(table).value).toEqual(select(selectAllDataTypes))
-
-    // Optimistic local update carries the CONVERTED value (300 K → 26.85 °C),
-    // not the raw one — a no-op / identity conversion would fail this.
-    expect(gen.next(dataTypes).value).toEqual(
-      put(
-        actions.updateColumnValuesLocal({
-          scenarioId: SCN,
-          colId: '7',
-          valuesByRowId: { row_0: '26.85' }
-        })
-      )
-    )
-
-    // Backend write sends the converted values + defaultValue 'NAN', keyed to
-    // the numeric header id and the NEW unit id.
-    expect(gen.next().value).toEqual(
-      call(updateColumnRequest, PROJ, SCN, 7, {
-        name: 'temp',
-        dataTypeId: 1,
-        dataUnitId: 6,
-        values: [{ date: '2026-01-01', time: '10:00:00', value: '26.85' }],
-        defaultValue: 'NAN'
-      })
-    )
-
-    expect(gen.next().value).toEqual(put(actions.updateColumnSucceeded(PROJ, SCN, '7')))
-
-    // A unit change always re-validates the column afterwards (revalidateColumn
-    // is module-private, so assert the CALL effect's args, not its identity).
-    const revalidate = gen.next().value as { type?: string; payload?: { args?: unknown[] } }
-    expect(revalidate.type).toBe('CALL')
-    expect(revalidate.payload?.args).toEqual([SCN, '7'])
-    expect(gen.next().done).toBe(true)
+    expect(dispatched).toContainEqual(actions.updateColumnFailed(PROJ, SCN, '7', { unitId: 5 }, 'boom'))
   })
 
-  it('on updateColumnRequest failure: rolls back to the PRE-conversion values, then dispatches failed', () => {
-    const gen = sagaModule.updateColumnWorker(makeAction())
-
-    gen.next() // select active table
-    gen.next(table) // select data types
-    gen.next(dataTypes) // put optimistic (converted) local update
-    gen.next() // call updateColumnRequest ← rejects next
-
-    // Rollback restores the ORIGINAL pre-conversion values (300, not 26.85).
-    expect(gen.throw(new Error('boom')).value).toEqual(
-      put(
-        actions.updateColumnValuesLocal({
-          scenarioId: SCN,
-          colId: '7',
-          valuesByRowId: { row_0: '300' }
-        })
-      )
+  it('revalidation tolerates a null cell (validated as empty, not skipped)', async () => {
+    vi.mocked(service.patchHeaderRequest).mockResolvedValue('ok')
+    const nullCell = makeTable({
+      columns: colTable.columns,
+      columnOrder: colTable.columnOrder,
+      rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': null } },
+      rowOrder: ['row_0']
+    })
+    const nullCellState = buildState({
+      dataTypes: CATALOG,
+      activeScenarioId: SCN,
+      byScenario: { [SCN]: nullCell }
+    })
+    const action = actions.updateColumnRequested(
+      PROJ,
+      SCN,
+      '7',
+      { name: 'temperature', dataTypeId: 9, unitId: 11 },
+      { name: 'temp', dataTypeId: 1, unitId: 5 }
     )
-    expect(gen.next().value).toEqual(
-      put(actions.updateColumnFailed(PROJ, SCN, '7', { unitId: 5 }, 'boom'))
-    )
+    const { task, dispatched } = drive(W[UPDATE_COLUMN_REQUESTED], action, nullCellState)
+    await task.toPromise()
 
-    // Re-validation still runs after the rollback (it's outside the try/catch).
-    const revalidate = gen.next().value as { type?: string; payload?: { args?: unknown[] } }
-    expect(revalidate.type).toBe('CALL')
-    expect(revalidate.payload?.args).toEqual([SCN, '7'])
-    expect(gen.next().done).toBe(true)
+    expect(dispatched).toContainEqual(actions.setColumnValidationErrors(SCN, '7', { row_0: null }))
   })
 })
 
 // ── deleteColumnWorker ───────────────────────────────────────────────────────
 
-describe('deleteColumnWorker', () => {
+describe('deleteColumnWorker (real)', () => {
   const snapshot = {
     column: { id: '7', name: 'temp', dataTypeId: 1, unitId: 2 },
     index: 2,
@@ -795,157 +921,87 @@ describe('deleteColumnWorker', () => {
     cellSync: {}
   }
 
-  it('DELETEs the numeric header id and dispatches succeeded', () => {
+  it('success: DELETEs the numeric header id and dispatches deleteColumnSucceeded', async () => {
+    vi.mocked(service.deleteHeaderRequest).mockResolvedValue({ success: true, header_id: 7 })
     const action = actions.deleteColumnRequested(PROJ, SCN, '7', snapshot)
-    function* worker(): Generator {
-      const headerId = Number(action.payload.colId)
-      yield call(deleteHeaderRequest, PROJ, SCN, headerId)
-      yield put(actions.deleteColumnSucceeded(PROJ, SCN, '7'))
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(call(deleteHeaderRequest, PROJ, SCN, 7))
-    expect(gen.next().value).toEqual(put(actions.deleteColumnSucceeded(PROJ, SCN, '7')))
+    const { task, dispatched } = drive(W[DELETE_COLUMN_REQUESTED], action)
+    await task.toPromise()
+
+    expect(vi.mocked(service.deleteHeaderRequest)).toHaveBeenCalledWith(PROJ, SCN, 7)
+    expect(dispatched).toContainEqual(actions.deleteColumnSucceeded(PROJ, SCN, '7'))
   })
 
-  it('dispatches deleteColumnFailed for non-numeric colIds', () => {
-    function* worker(): Generator {
-      const headerId = Number('date')
-      if (!Number.isFinite(headerId) || headerId <= 0) {
-        yield put(
-          actions.deleteColumnFailed(PROJ, SCN, 'date', snapshot, 'Column has no header id')
-        )
-      }
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(
-      put(actions.deleteColumnFailed(PROJ, SCN, 'date', snapshot, 'Column has no header id'))
+  it('non-numeric colId: dispatches deleteColumnFailed("Column has no header id") with no network call', async () => {
+    const action = actions.deleteColumnRequested(PROJ, SCN, 'date', snapshot)
+    const { task, dispatched } = drive(W[DELETE_COLUMN_REQUESTED], action)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(
+      actions.deleteColumnFailed(PROJ, SCN, 'date', snapshot, 'Column has no header id')
     )
+    expect(vi.mocked(service.deleteHeaderRequest)).not.toHaveBeenCalled()
   })
 
-  it('on DELETE failure: dispatches deleteColumnFailed with the snapshot for rollback', () => {
-    function* worker(): Generator {
-      try {
-        yield call(deleteHeaderRequest, PROJ, SCN, 7)
-      } catch (err) {
-        yield put(actions.deleteColumnFailed(PROJ, SCN, '7', snapshot, (err as Error).message))
-      }
-    }
-    const gen = worker()
-    gen.next()
-    expect(gen.throw(new Error('rejected')).value).toEqual(
-      put(actions.deleteColumnFailed(PROJ, SCN, '7', snapshot, 'rejected'))
-    )
+  it('failure: dispatches deleteColumnFailed with the snapshot for rollback', async () => {
+    vi.mocked(service.deleteHeaderRequest).mockRejectedValue(new Error('rejected'))
+    const action = actions.deleteColumnRequested(PROJ, SCN, '7', snapshot)
+    const { task, dispatched } = drive(W[DELETE_COLUMN_REQUESTED], action)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.deleteColumnFailed(PROJ, SCN, '7', snapshot, 'rejected'))
   })
 })
 
 // ── deleteRowWorker ──────────────────────────────────────────────────────────
 
-describe('deleteRowWorker', () => {
+describe('deleteRowWorker (real)', () => {
   const snapshot = {
-    cells: { date: '2026-04-27', time: '10:00:00', '7': '293.1' },
+    cells: { date: '2026-04-27', time: '10:00:00', '7': '293' },
     index: 0,
     validationErrors: undefined,
     cellSync: {},
-    selected: false
+    selected: true
   }
-  const DATE = '2026-04-27'
-  const TIME = '10:00:00'
 
-  it('POSTs the [{ date, time }] key and dispatches succeeded', () => {
-    const action = actions.deleteRowRequested(PROJ, SCN, 'row_0', DATE, TIME, snapshot)
-    function* worker(): Generator {
-      const { projectId, scenarioId, rowId, date, time } = action.payload
-      yield call(deleteRowsRequest, projectId, scenarioId, [{ date, time }])
-      yield put(actions.deleteRowSucceeded(projectId, scenarioId, rowId))
-    }
-    const gen = worker()
-    expect(gen.next().value).toEqual(call(deleteRowsRequest, PROJ, SCN, [{ date: DATE, time: TIME }]))
-    expect(gen.next().value).toEqual(put(actions.deleteRowSucceeded(PROJ, SCN, 'row_0')))
-    expect(gen.next().done).toBe(true)
+  it('success: POSTs the [{ date, time }] key and dispatches deleteRowSucceeded', async () => {
+    vi.mocked(service.deleteRowsRequest).mockResolvedValue('ok')
+    const action = actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshot)
+    const { task, dispatched } = drive(W[DELETE_ROW_REQUESTED], action)
+    await task.toPromise()
+
+    expect(vi.mocked(service.deleteRowsRequest)).toHaveBeenCalledWith(PROJ, SCN, [
+      { date: '2026-04-27', time: '10:00:00' }
+    ])
+    expect(dispatched).toContainEqual(actions.deleteRowSucceeded(PROJ, SCN, 'row_0'))
   })
 
-  it('on POST failure: dispatches deleteRowFailed with the snapshot for rollback', () => {
-    function* worker(): Generator {
-      try {
-        yield call(deleteRowsRequest, PROJ, SCN, [{ date: DATE, time: TIME }])
-      } catch (err) {
-        yield put(actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, (err as Error).message))
-      }
-    }
-    const gen = worker()
-    gen.next()
-    expect(gen.throw(new Error('rejected')).value).toEqual(
-      put(actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, 'rejected'))
-    )
-  })
-})
+  it('failure: dispatches deleteRowFailed with the snapshot for rollback', async () => {
+    vi.mocked(service.deleteRowsRequest).mockRejectedValue(new Error('rejected'))
+    const action = actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshot)
+    const { task, dispatched } = drive(W[DELETE_ROW_REQUESTED], action)
+    await task.toPromise()
 
-// ── updateAllCheckboxesWorker ────────────────────────────────────────────────
-
-describe('updateAllCheckboxesWorker', () => {
-  it('builds one timestamped value per row and PATCHes updateCol/{id} for the check column', () => {
-    const action = actions.updateAllCheckboxesRequested(PROJ, SCN, '15', '1')
-    const table: WeatherTable = {
-      columns: {
-        date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
-        time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
-        '15': { id: '15', name: 'check', dataTypeId: null, unitId: null }
-      },
-      columnOrder: ['date', 'time', '15'],
-      rows: {
-        row_0: { date: '2026-04-27', time: '10:00:00', '15': '0' },
-        row_1: { date: '2026-04-27', time: '11:00:00', '15': '0' },
-        row_2: { date: '2026-04-27', time: null, '15': '0' }
-      },
-      rowOrder: ['row_0', 'row_1', 'row_2'],
-      validationErrors: {},
-      columnNameErrors: {},
-      cellSync: {},
-      rowSelection: {}
-    }
-    function* worker(): Generator {
-      const t = (yield select(selectActiveWeatherTable)) as WeatherTable | null
-      const values: Array<{ date: string; time: string; value: string }> = []
-      if (t) {
-        for (const rowId of t.rowOrder) {
-          const row = t.rows[rowId]
-          if (!row) continue
-          const date = row.date
-          const time = row.time
-          if (date == null || time == null) continue
-          values.push({ date, time, value: action.payload.value })
-        }
-      }
-      yield call(updateColumnRequest, PROJ, SCN, Number(action.payload.checkColId), {
-        name: 'check',
-        values
-      })
-    }
-    const gen = worker()
-    gen.next()
-    expect(gen.next(table).value).toEqual(
-      call(updateColumnRequest, PROJ, SCN, 15, {
-        name: 'check',
-        values: [
-          { date: '2026-04-27', time: '10:00:00', value: '1' },
-          { date: '2026-04-27', time: '11:00:00', value: '1' }
-        ]
-      })
-    )
+    expect(dispatched).toContainEqual(actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, 'rejected'))
   })
 })
 
 // ── updateCellWorker ─────────────────────────────────────────────────────────
 
-describe('updateCellWorker (short-circuits)', () => {
-  // The three short-circuits at saga.ts:566-577:
-  // (1) validationError != null
-  // (2) colId === DATE_COL_ID || TIME_COL_ID
-  // (3) column is the merged date-time display column
+describe('updateCellWorker (real)', () => {
+  const cellTable = makeTable({
+    columns: {
+      date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+      time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+      '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 5 },
+      '5': { id: '5', name: 'date-time', dataTypeId: null, unitId: null }
+    },
+    columnOrder: ['date', 'time', '7', '5'],
+    rows: { row_0: { date: '2026-01-01', time: '10:00:00', '7': '293', '5': '0' } },
+    rowOrder: ['row_0']
+  })
+  const state = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: cellTable } })
 
-  const buildAction = (
-    overrides: Partial<{ colId: string; value: string; validationError: string | null }>
-  ): ReturnType<typeof actions.updateCellLocal> =>
+  const cellAction = (over: Partial<{ colId: string; value: string; validationError: string | null }>) =>
     actions.updateCellLocal({
       projectId: PROJ,
       scenarioId: SCN,
@@ -953,163 +1009,184 @@ describe('updateCellWorker (short-circuits)', () => {
       colId: '7',
       value: '300',
       validationError: null,
-      ...overrides
+      ...over
     })
 
-  const noopCellCall = call(updateCellRequest, PROJ, SCN, {
-    col: '7',
-    row: { date: '2026-04-27', time: '10:00:00' },
-    value: '300'
-  })
-
-  it('skips network call for non-numeric input even when flagged', () => {
-    function* worker(action: ReturnType<typeof actions.updateCellLocal>): Generator {
-      const { value, validationError } = action.payload
-      if (validationError != null && !Number.isFinite(Number(value.trim()))) return
-      yield noopCellCall
-    }
-    const gen = worker(buildAction({ value: 'abc', validationError: 'must be a number' }))
-    // First step — early return, no effect yielded.
-    expect(gen.next().done).toBe(true)
-  })
-
-  it('still persists a numeric out-of-range value (error shown, edit saved)', () => {
-    function* worker(action: ReturnType<typeof actions.updateCellLocal>): Generator {
-      const { colId, value, validationError } = action.payload
-      if (validationError != null && !Number.isFinite(Number(value.trim()))) return
-      if (colId === 'date' || colId === 'time') return
-      const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
-      if (!table) return
-      if (table.columns[colId]?.name === DATE_TIME_COL_NAME) return
-      yield put(actions.updateCellRequested(PROJ, SCN, 'row_0', colId))
-      const row = table.rows['row_0']
-      if (!row) return
-      const date = row['date']
-      const time = row['time']
-      if (date == null || time == null) return
-      yield call(updateCellRequest, PROJ, SCN, { col: colId, row: { date, time }, value })
-      yield put(actions.updateCellSucceeded(PROJ, SCN, 'row_0', colId))
-    }
-    // '300' is numeric but flagged out-of-range — it must still reach the API.
-    const gen = worker(buildAction({ colId: '7', value: '300', validationError: 'too high' }))
-    gen.next() // select
-    const table: WeatherTable = {
-      columns: {
-        date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
-        time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
-        '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 2 }
-      },
-      columnOrder: ['date', 'time', '7'],
-      rows: { row_0: { date: '2026-04-27', time: '10:00:00', '7': '293' } },
-      rowOrder: ['row_0'],
-      validationErrors: {},
-      columnNameErrors: {},
-      cellSync: {},
-      rowSelection: {}
-    }
-    expect(gen.next(table).value).toEqual(put(actions.updateCellRequested(PROJ, SCN, 'row_0', '7')))
-    expect(gen.next().value).toEqual(
-      call(updateCellRequest, PROJ, SCN, {
-        col: '7',
-        row: { date: '2026-04-27', time: '10:00:00' },
-        value: '300'
-      })
+  it('non-numeric flagged input: short-circuits before any select/dispatch', async () => {
+    const { task, dispatched } = drive(
+      W[UPDATE_CELL_LOCAL],
+      cellAction({ value: 'abc', validationError: 'must be a number' }),
+      state
     )
-    expect(gen.next().value).toEqual(put(actions.updateCellSucceeded(PROJ, SCN, 'row_0', '7')))
+    await task.toPromise()
+
+    expect(dispatched).toEqual([])
+    expect(vi.mocked(service.updateCellRequest)).not.toHaveBeenCalled()
   })
 
-  it('skips network call for the DATE pseudo-column', () => {
-    function* worker(action: ReturnType<typeof actions.updateCellLocal>): Generator {
-      const { colId, validationError } = action.payload
-      if (validationError != null) return
-      if (colId === 'date' || colId === 'time') return
-      yield noopCellCall
-    }
-    const gen = worker(buildAction({ colId: 'date' }))
-    expect(gen.next().done).toBe(true)
+  it('DATE pseudo-column: short-circuits with no network call', async () => {
+    const { task, dispatched } = drive(W[UPDATE_CELL_LOCAL], cellAction({ colId: 'date' }), state)
+    await task.toPromise()
+
+    expect(dispatched).toEqual([])
+    expect(vi.mocked(service.updateCellRequest)).not.toHaveBeenCalled()
   })
 
-  it('skips network call for the TIME pseudo-column', () => {
-    function* worker(action: ReturnType<typeof actions.updateCellLocal>): Generator {
-      const { colId, validationError } = action.payload
-      if (validationError != null) return
-      if (colId === 'date' || colId === 'time') return
-      yield noopCellCall
-    }
-    const gen = worker(buildAction({ colId: 'time' }))
-    expect(gen.next().done).toBe(true)
+  it('TIME pseudo-column: short-circuits with no network call', async () => {
+    const { task, dispatched } = drive(W[UPDATE_CELL_LOCAL], cellAction({ colId: 'time' }), state)
+    await task.toPromise()
+
+    expect(dispatched).toEqual([])
+    expect(vi.mocked(service.updateCellRequest)).not.toHaveBeenCalled()
   })
 
-  it('skips network call for the merged date-time display column', () => {
-    function* worker(action: ReturnType<typeof actions.updateCellLocal>): Generator {
-      const { colId, validationError } = action.payload
-      if (validationError != null) return
-      if (colId === 'date' || colId === 'time') return
-      const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
-      if (!table) return
-      if (table.columns[colId]?.name === DATE_TIME_COL_NAME) return
-      yield noopCellCall
-    }
-    const gen = worker(buildAction({ colId: '5' }))
-    expect(gen.next().value).toEqual(select(selectActiveWeatherTable))
-    const table: WeatherTable = {
-      columns: { '5': { id: '5', name: DATE_TIME_COL_NAME, dataTypeId: null, unitId: null } },
-      columnOrder: ['5'],
-      rows: { row_0: { '5': '0' } },
-      rowOrder: ['row_0'],
-      validationErrors: {},
-      columnNameErrors: {},
-      cellSync: {},
-      rowSelection: {}
-    }
-    expect(gen.next(table).done).toBe(true)
+  it('merged date-time display column: short-circuits after reading the table', async () => {
+    const { task, dispatched } = drive(W[UPDATE_CELL_LOCAL], cellAction({ colId: '5' }), state)
+    await task.toPromise()
+
+    expect(dispatched).toEqual([])
+    expect(vi.mocked(service.updateCellRequest)).not.toHaveBeenCalled()
   })
 
-  it('on the happy path: dispatches updateCellRequested then updateCellSucceeded', () => {
-    function* worker(action: ReturnType<typeof actions.updateCellLocal>): Generator {
-      const { colId, validationError, value } = action.payload
-      if (validationError != null) return
-      if (colId === 'date' || colId === 'time') return
-      const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
-      if (!table) return
-      if (table.columns[colId]?.name === DATE_TIME_COL_NAME) return
-      yield put(actions.updateCellRequested(PROJ, SCN, 'row_0', colId))
-      const row = table.rows['row_0']
-      if (!row) return
-      const date = row['date']
-      const time = row['time']
-      if (date == null || time == null) return
-      yield call(updateCellRequest, PROJ, SCN, { col: colId, row: { date, time }, value })
-      yield put(actions.updateCellSucceeded(PROJ, SCN, 'row_0', colId))
-    }
-    const gen = worker(buildAction({ colId: '7' }))
-    gen.next() // select
-    const table: WeatherTable = {
-      columns: {
-        date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
-        time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
-        '7': { id: '7', name: 'temp', dataTypeId: 1, unitId: 2 }
-      },
-      columnOrder: ['date', 'time', '7'],
-      rows: { row_0: { date: '2026-04-27', time: '10:00:00', '7': '293' } },
-      rowOrder: ['row_0'],
-      validationErrors: {},
-      columnNameErrors: {},
-      cellSync: {},
-      rowSelection: {}
-    }
-    expect(gen.next(table).value).toEqual(put(actions.updateCellRequested(PROJ, SCN, 'row_0', '7')))
-    expect(gen.next().value).toEqual(
-      call(updateCellRequest, PROJ, SCN, {
-        col: '7',
-        row: { date: '2026-04-27', time: '10:00:00' },
-        value: '300'
-      })
+  it('happy path: dispatches updateCellRequested, PATCHes the cell, then dispatches updateCellSucceeded', async () => {
+    vi.mocked(service.updateCellRequest).mockResolvedValue({ success: true, updated_count: 1 })
+    const { task, dispatched } = drive(W[UPDATE_CELL_LOCAL], cellAction({ colId: '7', value: '300' }), state)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateCellRequested(PROJ, SCN, 'row_0', '7'))
+    expect(vi.mocked(service.updateCellRequest)).toHaveBeenCalledWith(PROJ, SCN, {
+      col: '7',
+      row: { date: '2026-01-01', time: '10:00:00' },
+      value: '300'
+    })
+    expect(dispatched).toContainEqual(actions.updateCellSucceeded(PROJ, SCN, 'row_0', '7'))
+  })
+
+  it('numeric but out-of-range (flagged): still persists the edit', async () => {
+    vi.mocked(service.updateCellRequest).mockResolvedValue({ success: true, updated_count: 1 })
+    const { task, dispatched } = drive(
+      W[UPDATE_CELL_LOCAL],
+      cellAction({ colId: '7', value: '300', validationError: 'too high' }),
+      state
     )
-    expect(gen.next().value).toEqual(put(actions.updateCellSucceeded(PROJ, SCN, 'row_0', '7')))
+    await task.toPromise()
+
+    expect(vi.mocked(service.updateCellRequest)).toHaveBeenCalledWith(PROJ, SCN, {
+      col: '7',
+      row: { date: '2026-01-01', time: '10:00:00' },
+      value: '300'
+    })
+    expect(dispatched).toContainEqual(actions.updateCellSucceeded(PROJ, SCN, 'row_0', '7'))
+  })
+
+  it('PATCH failure: dispatches updateCellFailed with the error message', async () => {
+    vi.mocked(service.updateCellRequest).mockRejectedValue(new Error('cell boom'))
+    const { task, dispatched } = drive(W[UPDATE_CELL_LOCAL], cellAction({ colId: '7', value: '300' }), state)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateCellFailed(PROJ, SCN, 'row_0', '7', 'cell boom'))
+  })
+
+  it('rowId absent from the table: marks the cell pending, then bails before the PATCH', async () => {
+    const { task, dispatched } = drive(
+      W[UPDATE_CELL_LOCAL],
+      actions.updateCellLocal({
+        projectId: PROJ,
+        scenarioId: SCN,
+        rowId: 'row_ghost',
+        colId: '7',
+        value: '300',
+        validationError: null
+      }),
+      state
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateCellRequested(PROJ, SCN, 'row_ghost', '7'))
+    expect(vi.mocked(service.updateCellRequest)).not.toHaveBeenCalled()
+  })
+
+  it('row missing a date/time: marks the cell pending, then bails before the PATCH', async () => {
+    const nullDate = makeTable({
+      columns: cellTable.columns,
+      columnOrder: cellTable.columnOrder,
+      rows: { row_0: { date: null, time: '10:00:00', '7': '293', '5': '0' } },
+      rowOrder: ['row_0']
+    })
+    const nullDateState = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: nullDate } })
+    const { task, dispatched } = drive(W[UPDATE_CELL_LOCAL], cellAction({ colId: '7', value: '300' }), nullDateState)
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.updateCellRequested(PROJ, SCN, 'row_0', '7'))
+    expect(vi.mocked(service.updateCellRequest)).not.toHaveBeenCalled()
   })
 })
 
-// Reference imports so unused-name lint passes.
-void selectAllDataTypes
-void selectByScenario
+// ── updateAllCheckboxesWorker ────────────────────────────────────────────────
+
+describe('updateAllCheckboxesWorker (real)', () => {
+  it('builds one timestamped value per complete row and PATCHes updateColumnRequest for the check column', async () => {
+    vi.mocked(service.updateColumnRequest).mockResolvedValue('ok')
+    const table = makeTable({
+      columns: { '15': { id: '15', name: 'check', dataTypeId: null, unitId: null } },
+      columnOrder: ['15'],
+      rows: {
+        row_0: { date: '2026-04-27', time: '10:00:00', '15': '0' },
+        row_1: { date: '2026-04-27', time: '11:00:00', '15': '0' },
+        row_2: { date: '2026-04-27', time: null, '15': '0' }
+      },
+      rowOrder: ['row_0', 'row_1', 'row_2']
+    })
+    const state = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: table } })
+    const action = actions.updateAllCheckboxesRequested(PROJ, SCN, '15', '1')
+    const { task } = drive(W[UPDATE_ALL_CHECKBOXES_REQUESTED], action, state)
+    await task.toPromise()
+
+    expect(vi.mocked(service.updateColumnRequest)).toHaveBeenCalledWith(PROJ, SCN, 15, {
+      name: 'check',
+      values: [
+        { date: '2026-04-27', time: '10:00:00', value: '1' },
+        { date: '2026-04-27', time: '11:00:00', value: '1' }
+      ]
+    })
+  })
+
+  it('non-numeric checkColId: returns without any network call', async () => {
+    const action = actions.updateAllCheckboxesRequested(PROJ, SCN, 'abc', '1')
+    const { task } = drive(W[UPDATE_ALL_CHECKBOXES_REQUESTED], action, buildState({ activeScenarioId: SCN }))
+    await task.toPromise()
+
+    expect(vi.mocked(service.updateColumnRequest)).not.toHaveBeenCalled()
+  })
+
+  it('skips a rowId listed in rowOrder but absent from rows', async () => {
+    vi.mocked(service.updateColumnRequest).mockResolvedValue('ok')
+    const table = makeTable({
+      columns: { '15': { id: '15', name: 'check', dataTypeId: null, unitId: null } },
+      columnOrder: ['15'],
+      rows: { row_0: { date: '2026-04-27', time: '10:00:00', '15': '0' } },
+      rowOrder: ['row_0', 'row_ghost']
+    })
+    const state = buildState({ activeScenarioId: SCN, byScenario: { [SCN]: table } })
+    const action = actions.updateAllCheckboxesRequested(PROJ, SCN, '15', '1')
+    const { task } = drive(W[UPDATE_ALL_CHECKBOXES_REQUESTED], action, state)
+    await task.toPromise()
+
+    expect(vi.mocked(service.updateColumnRequest)).toHaveBeenCalledWith(PROJ, SCN, 15, {
+      name: 'check',
+      values: [{ date: '2026-04-27', time: '10:00:00', value: '1' }]
+    })
+  })
+
+  it('no active table: PATCHes the check column with an empty value list', async () => {
+    vi.mocked(service.updateColumnRequest).mockResolvedValue('ok')
+    const action = actions.updateAllCheckboxesRequested(PROJ, SCN, '15', '1')
+    const { task } = drive(W[UPDATE_ALL_CHECKBOXES_REQUESTED], action, buildState({ activeScenarioId: SCN }))
+    await task.toPromise()
+
+    expect(vi.mocked(service.updateColumnRequest)).toHaveBeenCalledWith(PROJ, SCN, 15, {
+      name: 'check',
+      values: []
+    })
+  })
+})
