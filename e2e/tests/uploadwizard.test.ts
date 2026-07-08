@@ -270,6 +270,120 @@ describe('Weather import — mapping modes (synthetic)', () => {
   })
 })
 
+// The tests above assert only that N rows imported. These assert the RESULTING
+// INSTANT — the actual normalized date/time in the cell — so a parse that yields
+// a valid-but-WRONG date/time (rollover, offset shift, day/month transposition,
+// day-of-year, compact time) is caught instead of passing on row count alone.
+describe('Weather import — date/time normalization (asserts the resulting instant)', () => {
+  // Pin the Date-Time column's DISPLAY format to 'YYYY-MM-DD HH:MM' so the
+  // rendered cell text is deterministic regardless of the import format, then
+  // return that column's colId.
+  async function pinIsoDisplay(): Promise<string> {
+    const dtColId = await Weather.dateTimeColId()
+    await Weather.openDateTimeFormatPicker()
+    const target = (await Weather.dateTimeFormatOptions()).find((o) => o.text === 'YYYY-MM-DD HH:MM')
+    if (target && !target.selected) {
+      await Weather.pickDateTimeFormat('YYYY-MM-DD HH:MM')
+    } else {
+      // Already selected, or (unexpectedly) absent — close the listbox and rely on
+      // the current format; the exact-string asserts below will flag a mismatch.
+      await Weather.dateTimeHeaderTrigger.click()
+      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 }).catch(() => {})
+    }
+    return dtColId
+  }
+
+  /** Rendered Date-Time cell text for every visible row, in row order. */
+  async function cellTexts(dtColId: string): Promise<string[]> {
+    const rows = await Weather.visibleRowIds()
+    const out: string[] = []
+    for (const r of rows) out.push(await Weather.dateTimeCellText(r, dtColId))
+    return out
+  }
+
+  async function importRows(content: string, mapping: ImportMapping, rows: number): Promise<void> {
+    await stubFileImport(content)
+    const ok = await Weather.importWithMapping(mapping)
+    expect(ok).toBe(true)
+    await Weather.waitForColumn('temp')
+    await browser.waitUntil(async () => (await Weather.rowCount()) === rows, {
+      timeout: 20000,
+      timeoutMsg: `expected ${rows} imported row(s)`
+    })
+  }
+
+  it('a 24:00 time rolls the date over to 00:00 of the next day', async () => {
+    await enterWeather('roll24')
+    // 24:00 is VALID (rolls to next-day 00:00) — unlike 25:00, which is rejected.
+    await importRows(
+      'date,time,temp\n2026-01-02,23:00,5\n2026-01-02,24:00,6',
+      { date: { mode: 'string', date: 'date', format: 'YYYY-MM-DD' }, time: { mode: 'string', time: 'time' } },
+      2
+    )
+    const cells = await cellTexts(await pinIsoDisplay())
+    expect(cells.some((c) => c.startsWith('2026-01-02 23:00'))).toBe(true)
+    expect(cells.some((c) => c.startsWith('2026-01-03 00:00'))).toBe(true) // rolled
+    expect(cells.every((c) => !c.includes('24:00'))).toBe(true) // never renders un-rolled
+  })
+
+  it('compact time 0100 / 0130 parses to 01:00 / 01:30 (value, not just row count)', async () => {
+    await enterWeather('compactval')
+    await importRows(
+      'date,hhmm,temp\n2026-01-02,0100,5\n2026-01-02,0130,6',
+      { date: { mode: 'string', date: 'date', format: 'YYYY-MM-DD' }, time: { mode: 'compact', time: 'hhmm' } },
+      2
+    )
+    const cells = await cellTexts(await pinIsoDisplay())
+    expect(cells).toContain('2026-01-02 01:00')
+    expect(cells).toContain('2026-01-02 01:30')
+  })
+
+  it('DD/MM/YYYY parses 02/01/2026 to 2 Jan (not 1 Feb — day/month transposition)', async () => {
+    await enterWeather('ddmmyyyy')
+    await importRows(
+      'date,temp\n02/01/2026,5',
+      { date: { mode: 'string', date: 'date', format: 'DD/MM/YYYY' }, time: { mode: 'none' } },
+      1
+    )
+    const [cell] = await cellTexts(await pinIsoDisplay())
+    expect(cell).toBe('2026-01-02 00:00')
+  })
+
+  it('YYYY/MM/DD parses 2026/01/02 to the SAME instant as the DD/MM/YYYY form', async () => {
+    await enterWeather('yyyymmdd')
+    await importRows(
+      'date,temp\n2026/01/02,5',
+      { date: { mode: 'string', date: 'date', format: 'YYYY/MM/DD' }, time: { mode: 'none' } },
+      1
+    )
+    const [cell] = await cellTexts(await pinIsoDisplay())
+    expect(cell).toBe('2026-01-02 00:00') // identical instant regardless of source format
+  })
+
+  it('an ISO datetime with a -08:00 offset keeps the wall-clock time verbatim (no shift)', async () => {
+    await enterWeather('tzoffset')
+    await importRows(
+      'dt,temp\n2026-01-02T10:00:00-08:00,5',
+      { date: { mode: 'datetime', datetime: 'dt', format: 'YYYY-MM-DDTHH:MM:SS-HH:MM' }, time: { mode: 'none' } },
+      1
+    )
+    const [cell] = await cellTexts(await pinIsoDisplay())
+    // 10:00 kept verbatim on 2026-01-02 — NOT shifted to 18:00 UTC by the offset.
+    expect(cell).toBe('2026-01-02 10:00')
+  })
+
+  it('a "YYYY DOY" day-of-year string imports to the correct calendar date', async () => {
+    await enterWeather('doystr')
+    await importRows(
+      'date,temp\n2026 002,5',
+      { date: { mode: 'string', date: 'date', format: 'YYYY DOY' }, time: { mode: 'none' } },
+      1
+    )
+    const [cell] = await cellTexts(await pinIsoDisplay())
+    expect(cell).toBe('2026-01-02 00:00') // DOY 002 of 2026 = 2 Jan
+  })
+})
+
 describe('Weather import — wizard mechanics', () => {
   it('header-skip drops the metadata line and imports the data', async () => {
     await enterWeather('hskip')

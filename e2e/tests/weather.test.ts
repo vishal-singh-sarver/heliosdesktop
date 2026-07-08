@@ -337,6 +337,45 @@ describe('Weather — virtualization', () => {
     expect(ids.length).toBeGreaterThan(0)
     expect(new Set(ids).size).toBe(ids.length)
   })
+
+  it('scrolling the body to the bottom renders later rows and lets you edit one', async () => {
+    const project = await enterWeather('vscroll')
+    void project
+    const colId = await columnWithRows('v', 100)
+    const firstWindow = await Weather.visibleRowIds()
+    expect(firstWindow.length).toBeGreaterThan(0)
+    expect(firstWindow.length).toBeLessThan(100)
+
+    // Drive the real scroll: find the scrollable ancestor of a rendered cell (the
+    // bodyRef div, overflow-auto) and jump it to the bottom → onBodyScroll
+    // recomputes the window (jsdom can't do this, so unit tests can't cover it).
+    await browser.execute(() => {
+      const cell = document.querySelector('[data-testid^="weather-cell-"]') as HTMLElement | null
+      let el: HTMLElement | null = cell
+      while (el && !(el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY !== 'visible')) {
+        el = el.parentElement
+      }
+      if (el) el.scrollTop = el.scrollHeight
+    })
+
+    // A later window must now be rendered — rows absent from the initial window.
+    await browser.waitUntil(
+      async () => {
+        const now = await Weather.visibleRowIds()
+        return now.length > 0 && now.some((id) => !firstWindow.includes(id))
+      },
+      { timeout: 10000, timeoutMsg: 'scrolling the body revealed no new rows' }
+    )
+
+    // And a now-visible far-down row is editable end-to-end.
+    const nowIds = await Weather.visibleRowIds()
+    const newRow = nowIds.find((id) => !firstWindow.includes(id)) ?? nowIds[nowIds.length - 1]
+    await Weather.editCell(newRow, colId, '7')
+    await browser.waitUntil(async () => (await Weather.cellInput(newRow, colId).getValue()) === '7', {
+      timeout: 10000,
+      timeoutMsg: 'a far-down row did not accept an edit after scrolling'
+    })
+  })
 })
 
 describe('Weather — multi-column header structure', () => {
@@ -1197,6 +1236,224 @@ describe('Weather units — concrete physical conversion (when available)', () =
       async () => Math.abs(Number(await Weather.cellInput(row, colId).getValue())) < 0.1,
       { timeout: 15000, timeoutMsg: '32°F did not convert back to ~0°C' }
     )
+  })
+})
+
+describe('Weather units — per-type conversion against the live catalog (both directions)', () => {
+  // One test PER data type: assign its base unit, seed an in-range value, then for
+  // each OTHER catalog unit assert changeUnit recomputes the cell to
+  // convert(seed, base, alt) using the catalog's REAL to_base_factor/offset, and
+  // that switching back restores the seed (the reverse direction). This
+  // value-verifies every catalog factor — kg/m³, kWh/m²/day, µmol/m²/s,
+  // atm/bar/mmHg, mph/knots/ft/s, ppb — that the °C⇄°F test and the range-only
+  // datatype-validation sweep never exercise. Split per type (like
+  // datatype-validation.test.ts) so one flake can't sink the rest and a bad
+  // factor names its own unit. A type the catalog lacks self-skips (never green).
+
+  // Seed expressed in the BASE unit and inside its catalog range, so every
+  // converted value stays within the ±1e6 global cell bound and is float32-
+  // representable. `match` picks the catalog data_type; `name` titles the test.
+  const TYPES: Array<{ name: string; match: RegExp; seed: number }> = [
+    { name: 'air_temperature', match: /temperature/i, seed: 300 }, // base K
+    { name: 'air_pressure', match: /pressure/i, seed: 100000 }, // base Pa
+    { name: 'wind_speed', match: /wind/i, seed: 10 }, // base m/s
+    { name: 'air_CO2', match: /co2/i, seed: 400 }, // base ppm
+    { name: 'direct radiation', match: /direct.*radiat/i, seed: 750 }, // base W/m²
+    { name: 'diffuse radiation', match: /diffuse.*radiat/i, seed: 750 }, // base W/m²
+    { name: 'air_humidity', match: /humid/i, seed: 0.5 }, // base 0-1
+    { name: 'turbidity', match: /turbid/i, seed: 0.5 } // base 0-1
+  ]
+
+  // Relative tolerance for float32 backend storage (mirrors the round-trip test).
+  const near = (v: number, expected: number): boolean =>
+    Number.isFinite(v) && Math.abs(v - expected) <= Math.abs(expected) * 1e-3 + 1e-4
+
+  // An alt is swept only if BOTH its seed and converted value stay within ±1e6.
+  const inBounds = (seed: number, base: WeatherCatalogUnit, alt: WeatherCatalogUnit): boolean => {
+    const c = convert(seed, base, alt)
+    return Math.abs(seed) <= 1e6 && Number.isFinite(c) && Math.abs(c) <= 1e6
+  }
+
+  for (const spec of TYPES) {
+    it(`${spec.name}: every unit converts to and from base at the exact catalog value`, async function () {
+      this.timeout(120000)
+      // Provision FIRST — enter → column+rows → fetch catalog — the exact order
+      // of the proven round-trip test, so a seedable cell + the header picker
+      // exist before any catalog lookup.
+      await enterWeather('conv')
+      const colId = await columnWithRows('cv')
+      const [row] = await Weather.visibleRowIds()
+
+      const catalog = await Weather.fetchCatalog()
+      if (!catalog) this.skip() // backend unreachable → SKIP, never a silent green.
+      const type = catalog.find((t) => spec.match.test(t.data_type) && t.units.length >= 2)
+      if (!type) this.skip() // catalog lacks this convertible type → SKIP, not green.
+      const base = type.units.find((u) => u.is_base) ?? type.units[0]
+      const alts = type.units.filter((u) => u.id !== base.id && inBounds(spec.seed, base, u))
+      if (alts.length === 0) this.skip()
+
+      // Assign the type + base unit through the header picker. Rendered type/unit
+      // labels can be prettified, so resolve them from what the picker shows (via
+      // the catalog) and confirm we landed on THIS type before committing.
+      await Weather.openHeaderPicker(colId)
+      // The picker renders each type option as the raw data_type
+      // (DataTypeUnitPicker.tsx), and two types can share unit labels (direct vs
+      // diffuse radiation), so we MUST select by the type name, not by units.
+      const typeLabels = await Weather.pickerOptions()
+      const typeLabel =
+        typeLabels.find((tl) => tl === type.data_type) ??
+        typeLabels.find((tl) => spec.match.test(tl))
+      if (!typeLabel) {
+        throw new Error(
+          `header picker never surfaced "${type.data_type}" (saw: ${typeLabels.join(', ')})`
+        )
+      }
+      await Weather.pickerPick(typeLabel)
+      await Weather.pickerListbox
+        .$('button*=Back to Assign Type')
+        .waitForExist({ timeout: 5000 })
+        .catch(() => {})
+
+      // Map each of THIS type's units to the label the picker shows for it
+      // ("unit" or "unit (alias)"), scoped to the selected type only.
+      const shownUnitLabels = await Weather.pickerOptions()
+      const matchUnit = (label: string, u: WeatherCatalogUnit): boolean =>
+        label === u.unit || label === (u.alias ? `${u.unit} (${u.alias})` : u.unit)
+      const labelOf = (u: WeatherCatalogUnit): string =>
+        shownUnitLabels.find((l) => matchUnit(l, u)) ?? (u.alias ? `${u.unit} (${u.alias})` : u.unit)
+      const baseLabel = labelOf(base)
+
+      // Commit the base unit (picker is in this type's unit view).
+      await Weather.pickerPick(baseLabel)
+      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+
+      for (const alt of alts) {
+        // Re-seed in the base unit so each leg is an independent assertion.
+        await Weather.editCell(row, colId, String(spec.seed))
+        await browser.waitUntil(
+          async () => (await Weather.cellInput(row, colId).getValue()) === String(spec.seed),
+          { timeout: 10000, timeoutMsg: `seed ${spec.seed} did not commit for ${type.data_type}` }
+        )
+
+        const expected = convert(spec.seed, base, alt)
+        await Weather.changeUnit(colId, labelOf(alt))
+        await browser.waitUntil(
+          async () => near(Number(await Weather.cellInput(row, colId).getValue()), expected),
+          {
+            timeout: 15000,
+            timeoutMsg: `${type.data_type}: ${base.unit}→${alt.unit} of ${spec.seed} expected ~${expected} (factor ${alt.to_base_factor}, offset ${alt.to_base_offset})`
+          }
+        )
+
+        // Reverse direction: back to base must restore the seed.
+        await Weather.changeUnit(colId, baseLabel)
+        await browser.waitUntil(
+          async () => near(Number(await Weather.cellInput(row, colId).getValue()), spec.seed),
+          {
+            timeout: 15000,
+            timeoutMsg: `${type.data_type}: ${alt.unit}→${base.unit} did not restore ${spec.seed}`
+          }
+        )
+      }
+    })
+  }
+})
+
+describe('Weather — reopen persistence & un-assign (audit additions)', () => {
+  // Reopen the SAME project from Home in-session (the backend session survives
+  // during a run) and land back on its Weather table — mirrors the celledit
+  // persist test. These assert that state re-read FROM the backend matches what
+  // the optimistic UI showed, so a write that never persisted is caught.
+  async function reopen(name: string): Promise<void> {
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    const homeId = await HomePage.rowIdForName(name)
+    if (!homeId) throw new Error(`project row "${name}" not found on Home`)
+    await HomePage.row(homeId).doubleClick()
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+  }
+
+  it('a toggled per-row checkbox persists across a reopen', async () => {
+    const { name } = await enterWeather('chkpersist')
+    await Weather.addColumn('c')
+    await Weather.waitForColumn('c')
+    await Weather.addRows(2)
+    const ids = await Weather.visibleRowIds()
+    const initial = await Weather.rowCheckbox(ids[0]).isSelected()
+    await Weather.rowCheckbox(ids[0]).click()
+    await browser.waitUntil(
+      async () => (await Weather.rowCheckbox(ids[0]).isSelected()) === !initial,
+      { timeout: 10000, timeoutMsg: 'row checkbox did not toggle' }
+    )
+    await reopen(name)
+    const ids2 = await Weather.visibleRowIds()
+    // Row order is stable, so ids2[0] is the same row — assert the PERSISTED state.
+    await expect(await Weather.rowCheckbox(ids2[0]).isSelected()).toBe(!initial)
+  })
+
+  it('an out-of-range (flagged) numeric cell value persists across a reopen', async function () {
+    this.timeout(90000)
+    const { name } = await enterWeather('oobpersist')
+    const colId = await columnWithRows('oob', 1)
+    const [row] = await Weather.visibleRowIds()
+    const catalog = await Weather.fetchCatalog()
+    if (!catalog) this.skip()
+    // Pick any type whose unit has a finite max well within the ±1e6 global bound.
+    let target: { type: string; unit: string; over: string } | null = null
+    for (const t of catalog) {
+      const u = t.units.find((x) => x.max != null && Math.ceil(x.max) + 10 < 1_000_000)
+      if (u) {
+        target = { type: t.data_type, unit: u.unit, over: String(Math.ceil(u.max as number) + 10) }
+        break
+      }
+    }
+    if (!target) this.skip()
+    const tgt = target
+    await Weather.assignDataTypeUnit(colId, tgt.type, tgt.unit)
+    // Above-max but < ±1e6: the keystroke gate admits it, validateCellValue flags
+    // it, and the app POSTs the flagged value. On reopen it must round-trip.
+    await Weather.editCell(row, colId, tgt.over)
+    await browser.waitUntil(async () => (await Weather.cellInput(row, colId).getValue()) === tgt.over, {
+      timeout: 15000,
+      timeoutMsg: 'out-of-range value did not commit'
+    })
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'out-of-range value was not flagged aria-invalid'
+    })
+    await reopen(name)
+    const colId2 = await Weather.waitForColumn('oob')
+    const [row2] = await Weather.visibleRowIds()
+    await expect(Weather.cellInput(row2, colId2)).toHaveValue(tgt.over)
+  })
+
+  it('"Back to Assign Type" un-assigns a committed type + unit and the null survives a reopen', async () => {
+    const { name } = await enterWeather('unassign')
+    const colId = await columnWithRows('unassign', 1)
+    const emptyLabel = await Weather.headerPickerLabel(colId)
+    const found = await discoverConvertibleType(colId)
+    if (!found) throw new Error('catalog exposes no data type with ≥2 units')
+    await Weather.pickerPick(found.units[0])
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await browser.waitUntil(async () => (await Weather.headerPickerLabel(colId)) !== emptyLabel, {
+      timeout: 10000,
+      timeoutMsg: 'header did not relabel after assigning a unit'
+    })
+    // Reopen the picker (a committed column opens into unit view) and click "Back
+    // to Assign Type" → PATCHes {dataTypeId:null, unitId:null} (DataTypeUnitPicker
+    // handleBackToAssignType, no pending type). Close the now type-view popover.
+    await Weather.openHeaderPicker(colId)
+    await Weather.pickerListbox.$('button*=Back to Assign Type').click()
+    await Weather.filterButton.click()
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 }).catch(() => {})
+    await browser.waitUntil(async () => (await Weather.headerPickerLabel(colId)) === emptyLabel, {
+      timeout: 10000,
+      timeoutMsg: 'header did not revert to unassigned after Back to Assign Type'
+    })
+    await reopen(name)
+    const colId2 = await Weather.waitForColumn('unassign')
+    await expect(await Weather.headerPickerLabel(colId2)).toBe(emptyLabel)
   })
 })
 

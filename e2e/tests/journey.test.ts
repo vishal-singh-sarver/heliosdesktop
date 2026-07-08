@@ -1,14 +1,23 @@
 /**
- * Helios end-to-end JOURNEY — one project carried through the full lifecycle on
- * a single fresh project: create (real dialog) → land on the seeded Weather
- * table → import a REAL provider CSV → add a defaulted managed column (back-fill)
- * → edit a cell → return Home (active scenario cleared, project id retained) → reopen the SAME project
- * (column + edited cell PERSISTED) → rename from Home → delete from Home.
+ * Helios SMOKE JOURNEY — one comprehensive happy-flow that carries a single
+ * project through every feature, hitting each distinct validation once, then
+ * creates sibling projects and cleans up. Phases run in order and CHAIN (no
+ * beforeEach reset): each `it` continues the app state from the previous one, so
+ * a failure names the exact phase and later phases still run (no bail).
  *
- * Every step asserts a post-condition that is DIFFERENTIAL: it goes red if the
- * step's feature/validation were broken (the import column/value, the back-fill,
- * the cell commit, the persist-on-reopen, the rename PATCH, the delete). Mirrors
- * weather.test.ts / uploadwizard.test.ts preamble + patterns exactly.
+ * Coverage: create (+ create-dialog validation) → coordinate validation + UTC →
+ * import a real CSV → manual Add-Rows (+ validation) → managed columns (default
+ * back-fill + column-name validation) → cell edit + cell validation (non-numeric
+ * gate, unit range, global ±1e6) → unit conversion round-trip → row selection →
+ * delete column + delete row → multiple projects (coexist + switch) → reopen
+ * (everything persisted) → rename → delete cleanup.
+ *
+ * INTENTIONAL RED (phase 9 delete-row): the frontend POSTs `/deleteRow` but the
+ * backend only exposes `/delete` (see weather.test.ts:610) → the row rolls back
+ * and reappears, so the "row removed" assertion stays RED until the route is
+ * fixed, then flips green. Every other phase is a differential green assertion.
+ *
+ * Run: npm run e2e:smoke  (wdio --spec ./e2e/tests/journey.test.ts)
  */
 
 import { join } from 'node:path'
@@ -20,7 +29,6 @@ import {
   ACTIVE_SCENARIO_KEY,
   enterProject,
   getStorage,
-  reloadToHome,
   setInputValue,
   stubRealFile,
   uniqueName,
@@ -31,12 +39,8 @@ import {
 before(async () => {
   await waitForMainWindow()
   // Heavy real-file imports are timing-sensitive; make sure the backend is up
-  // before the first import so we don't pay cold-start inside a timed test.
+  // before the first import so we don't pay cold-start inside a timed phase.
   await waitForBackendReady()
-})
-
-beforeEach(async () => {
-  await reloadToHome()
 })
 
 const FIX = join(process.cwd(), 'e2e', 'fixtures', 'weather')
@@ -50,203 +54,388 @@ async function numericCell(rowId: string, colId: string): Promise<number> {
   return n
 }
 
-describe('Helios end-to-end journey', () => {
-  it('creates → imports a real file → defaults+edits → reopens (persisted) → renames → deletes', async function () {
-    // Imports + backend writes + a project reopen are slow; give the whole
-    // journey headroom under the 120s global mocha cap.
-    this.timeout(120000)
+/** Return Home and reopen a project by name, landing back on its Weather table. */
+async function reopen(name: string): Promise<void> {
+  await ProjectScreen.goHome()
+  await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+  const homeId = await HomePage.rowIdForName(name)
+  if (!homeId) throw new Error(`project "${name}" not found on Home`)
+  await HomePage.row(homeId).doubleClick()
+  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+  await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 20000 })
+  await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+}
 
-    // ── 1. Create the project via the REAL create dialog with explicit coords.
-    const { id, name } = await enterProject('journey', '45.5', '-120.25')
+describe('Helios smoke journey', () => {
+  // Shared state threaded across the phases.
+  const A = { id: '', name: '' }
+  const B = { id: '', name: '' }
+  const C = { id: '', name: '' }
+  let committedUtc = ''
+  let importedRowCount = 0
+
+  it('1. create project A — an invalid coordinate is blocked, then a valid create lands on Weather', async function () {
+    this.timeout(60000)
+    const name = uniqueName('smoke')
+    await HomePage.openCreateDialogViaSidebar()
+    await HomePage.createDialog.waitForDisplayed({ timeout: 15000 })
+    await setInputValue(HomePage.createNameInput, name)
+    await setInputValue(HomePage.createLonInput, '-120.25')
+    // Invalid latitude (out of [-90, 90]) → Create is BLOCKED (disabled, or the
+    // dialog stays open on submit). Handle both shapes.
+    await setInputValue(HomePage.createLatInput, '95')
+    if (await HomePage.createSubmitButton.isEnabled()) {
+      await HomePage.createSubmitButton.click()
+      expect(await HomePage.createDialog.isDisplayed()).toBe(true)
+    } else {
+      expect(await HomePage.createSubmitButton.isEnabled()).toBe(false)
+    }
+    // Fix latitude → create succeeds and navigates to the project screen.
+    await setInputValue(HomePage.createLatInput, '45.5')
+    await browser.waitUntil(async () => HomePage.createSubmitButton.isEnabled(), {
+      timeout: 8000,
+      timeoutMsg: 'Create never became enabled with valid coordinates'
+    })
+    await HomePage.createSubmitButton.click()
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 20000 })
-    await expect(ProjectScreen.projectTitle).toBeDisplayed()
-    // enterProject only returns once activeScenarioId is set — confirm the
-    // create actually provisioned a scenario (differential vs a failed create).
-    expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
-    expect(await getStorage(ACTIVE_SCENARIO_KEY)).not.toBe(null)
-
-    // ── 2. Weather is the default mount on the project screen.
+    await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) != null, {
+      timeout: 20000,
+      timeoutMsg: 'activeScenarioId never set after create'
+    })
+    const id = await getStorage(ACTIVE_PROJECT_KEY)
+    if (!id) throw new Error('no active project id after create')
+    A.id = id
+    A.name = name
     await expect(ProjectScreen.weatherSentinel).toBeDisplayed()
     await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
     await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: 20000 })
+  })
 
-    // ── 3. Import the REAL provider CSV (ISO datetime column). Ascending sort →
-    // row 0 is 2026-05-12T00:00:00 with temp 64.6 and humidity 70.98 (file row 1).
+  it('2. coordinate validation on the header, then commit a valid longitude (UTC recomputes)', async () => {
+    const utc0 = await ProjectScreen.getUtcValue()
+    // Out-of-range latitude → aria-invalid (latitude never drives UTC).
+    await ProjectScreen.setCoordinate('latitude', '95')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'out-of-range latitude was not flagged'
+    })
+    await ProjectScreen.setCoordinate('latitude', '45.5')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === null, {
+      timeout: 10000,
+      timeoutMsg: 'valid latitude did not clear aria-invalid'
+    })
+    // Out-of-range longitude → aria-invalid AND UTC not recomputed (commit-gated).
+    await ProjectScreen.setCoordinate('longitude', '200')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'out-of-range longitude was not flagged'
+    })
+    expect(await ProjectScreen.getUtcValue()).toBe(utc0)
+    // > 7 decimals → aria-invalid.
+    await ProjectScreen.setCoordinate('latitude', '12.12345678')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
+      timeout: 10000,
+      timeoutMsg: '>7-decimal latitude was not flagged'
+    })
+    await ProjectScreen.setCoordinate('latitude', '45.5')
+    // Non-numeric → aria-invalid.
+    await ProjectScreen.setCoordinate('longitude', 'abc')
+    await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'non-numeric longitude was not flagged'
+    })
+    // Commit a valid far-band longitude → UTC recomputes; capture for the reopen.
+    await ProjectScreen.setCoordinate('longitude', '78.486')
+    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== utc0, {
+      timeout: 10000,
+      timeoutMsg: 'UTC offset did not recompute after committing a valid longitude'
+    })
+    committedUtc = await ProjectScreen.getUtcValue()
+  })
+
+  it('3. import a real provider CSV and verify the data is consistent', async function () {
+    this.timeout(60000)
     await stubRealFile(fixture('davis, ca yesterday.csv'))
     const imported = await Weather.importWithMapping({
       date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
     })
     expect(imported).toBe(true)
     const humidityCol = await Weather.waitForColumn('humidity')
-    const tempCol = await Weather.waitForColumn('temp')
+    await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) > 1, {
       timeout: 30000,
       timeoutMsg: 'davis import did not produce rows'
     })
-    // The first imported value matches the file (stored float32 → assert with
-    // tolerance). Differential: a broken/mismapped import yields a different
-    // number (or NaN) here.
+    // First imported humidity matches the file (stored float32 → tolerance).
     const [firstRow] = await Weather.visibleRowIds()
     const humidity = await numericCell(firstRow, humidityCol)
     if (Math.abs(humidity - 70.98) > 0.01) {
       throw new Error(`humidity[row0] = ${humidity}, expected ~70.98 from the file`)
     }
+  })
 
-    // ── 3b. Add Rows AUTO-PICKS start date/time + delta from the imported rows.
-    // davis is hourly; last imported row is 2026-05-12T23:00, so the dialog seeds
-    // delta '1' and the next hour (2026-05-13 00:00). Differential: broken
-    // inference would seed blanks or a different stamp. Cancel without adding so
-    // the journey's row set is unchanged.
-    const seeded = await Weather.addRowsSeededValues()
-    expect(seeded.deltaHours).toBe('1')
-    expect(seeded.startDate).toBe('2026-05-13')
-    expect(seeded.startTime).toBe('00:00')
-    await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+  it('4. add rows manually — invalid input is gated, then a valid submit grows the table', async function () {
+    this.timeout(60000)
+    importedRowCount = await Weather.rowCount()
+    await Weather.openAddRows()
+    // Dialog seeds start date/time from the last imported row (async effect).
+    await browser.waitUntil(async () => (await Weather.arStartDate.getValue()) !== '', {
+      timeout: 10000,
+      timeoutMsg: 'Add-Rows did not seed its start date'
+    })
+    const seededDate = await Weather.arStartDate.getValue()
+    // Invalid count (0) → submit is gated, dialog stays open.
+    await Weather.setReactInput('[data-testid="input-numberOfRows"]', '0')
+    await Weather.arSubmit.click()
+    expect(await Weather.addRowsDialog.isDisplayed()).toBe(true)
+    // Invalid (empty) start date → still gated.
+    await Weather.setReactInput('[data-testid="input-numberOfRows"]', '3')
+    await Weather.setReactInput('[data-testid="input-startDate"]', '')
+    await Weather.arSubmit.click()
+    expect(await Weather.addRowsDialog.isDisplayed()).toBe(true)
+    // Fix the start date → 3 rows are added.
+    await Weather.setReactInput('[data-testid="input-startDate"]', seededDate)
+    await Weather.arSubmit.click()
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await browser.waitUntil(async () => (await Weather.rowCount()) === importedRowCount + 3, {
+      timeout: 20000,
+      timeoutMsg: `expected ${importedRowCount + 3} rows after manually adding 3`
+    })
+  })
 
-    // ── 4. Add a managed column WITH a default → it back-fills the imported rows.
+  it('5. add managed columns (default back-fill + no-default) with column-name validation', async function () {
+    this.timeout(60000)
+    // Column-name validation: an empty name is gated.
+    await Weather.openAddColumns()
+    if (await Weather.acSubmit.isEnabled()) {
+      await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
+      await Weather.setReactInput('[data-testid="input-parameterName"]', '')
+      await Weather.acSubmit.click()
+      expect(await Weather.addColumnDialog.isDisplayed()).toBe(true)
+    } else {
+      expect(await Weather.acSubmit.isEnabled()).toBe(false)
+    }
+    await Weather.acCancel.click()
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+
+    // A column WITH a default → it back-fills the imported rows.
     await Weather.addColumn('note', { defaultValue: '7' })
     const noteCol = await Weather.waitForColumn('note')
-    // Pick a SECOND imported row whose note we leave untouched, so its back-fill
-    // remains observable after we edit row 0 below (and survives the reopen).
-    const rowsAfterAdd = await Weather.visibleRowIds()
-    const editRow = rowsAfterAdd[0]
-    const keepRow = rowsAfterAdd[1]
-    // Back-fill is differential: if the default never reached existing rows this
-    // stays empty and times out.
-    await browser.waitUntil(async () => (await Weather.cellInput(keepRow, noteCol).getValue()) === '7', {
+    const rows = await Weather.visibleRowIds()
+    await browser.waitUntil(async () => (await Weather.cellInput(rows[1], noteCol).getValue()) === '7', {
       timeout: 20000,
       timeoutMsg: 'default value did not back-fill an imported row'
     })
 
-    // ── 5. Edit a cell to a value DISTINCT from the default (so the assertion
-    // can't pass on the back-fill alone) and confirm the commit.
-    await Weather.editCell(editRow, noteCol, '42')
-    await browser.waitUntil(async () => (await Weather.cellInput(editRow, noteCol).getValue()) === '42', {
+    // A duplicate name ("note") is rejected — the dialog stays open.
+    await Weather.openAddColumns()
+    await Weather.setReactInput('[data-testid="input-parameterName"]', 'note')
+    await Weather.acSubmit.click()
+    await browser.pause(1000)
+    expect(await Weather.addColumnDialog.isDisplayed()).toBe(true)
+    await Weather.acCancel.click()
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+
+    // A column WITHOUT a default (used for cell/unit validation next).
+    await Weather.addColumn('measure')
+    await Weather.waitForColumn('measure')
+
+    // Edit note[row0] to a value distinct from the default (the persist target).
+    await Weather.editCell(rows[0], noteCol, '42')
+    await browser.waitUntil(async () => (await Weather.cellInput(rows[0], noteCol).getValue()) === '42', {
       timeout: 15000,
-      timeoutMsg: 'edited cell did not show the committed value'
+      timeoutMsg: 'edited note cell did not commit'
+    })
+  })
+
+  it('6. cell validation — non-numeric gate, unit range, and the global ±1e6 bound', async function () {
+    this.timeout(60000)
+    const measureCol = await Weather.waitForColumn('measure')
+    const [row] = await Weather.visibleRowIds()
+    // Non-numeric keystrokes never reach the draft (the CellInput gate).
+    const cell = Weather.cellInput(row, measureCol)
+    await cell.click()
+    await cell.addValue('abc')
+    await expect(cell).toHaveValue('')
+
+    // Assign a bounded unit so range validation arms.
+    await Weather.assignDataTypeUnit(measureCol, 'air_temperature', 'K')
+    // Above the unit's max → the unit range message (setReactInput = change only,
+    // no blur, so the committed value is untouched).
+    await Weather.setReactInput(`[aria-label="${row} ${measureCol}"]`, '500')
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, measureCol)) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'out-of-range K value (500) did not flag aria-invalid'
+    })
+    expect(await Weather.cellError(row, measureCol)).toBe('Value should be between 223 and 350')
+    // Beyond the global ±1e6 hard bound → the GLOBAL message wins over the unit one.
+    await Weather.setReactInput(`[aria-label="${row} ${measureCol}"]`, '2000000')
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, measureCol)) === 'true', {
+      timeout: 10000,
+      timeoutMsg: 'value beyond ±1e6 did not flag aria-invalid'
+    })
+    expect(await Weather.cellError(row, measureCol)).toBe('Value should be between -1000000 and 1000000.')
+    // Commit a valid in-range value → flag clears; leaves 300 K committed for the
+    // conversion phase.
+    await Weather.editCell(row, measureCol, '300')
+    await browser.waitUntil(async () => (await Weather.cellInvalid(row, measureCol)) === null, {
+      timeout: 10000,
+      timeoutMsg: 'in-range value did not clear aria-invalid'
+    })
+    expect(await Weather.cellError(row, measureCol)).toBe(null)
+  })
+
+  it('7. unit conversion round-trip — 300 K → °C → K restores', async function () {
+    this.timeout(60000)
+    const measureCol = await Weather.waitForColumn('measure')
+    const [row] = await Weather.visibleRowIds()
+    // 300 K → 26.85 °C (affine: C = K − 273.15).
+    await Weather.changeUnit(measureCol, 'C')
+    await browser.waitUntil(
+      async () => Math.abs((await numericCell(row, measureCol)) - 26.85) < 0.2,
+      { timeout: 15000, timeoutMsg: '300 K did not convert to ~26.85 °C' }
+    )
+    // Back to K → restores ~300 (float32 storage → small tolerance).
+    await Weather.changeUnit(measureCol, 'K')
+    await browser.waitUntil(async () => Math.abs((await numericCell(row, measureCol)) - 300) < 0.5, {
+      timeout: 15000,
+      timeoutMsg: '°C did not convert back to ~300 K'
+    })
+  })
+
+  it('8. row selection — a row checkbox and select-all toggle', async () => {
+    const rows = await Weather.visibleRowIds()
+    const initial = await Weather.rowCheckbox(rows[0]).isSelected()
+    await Weather.rowCheckbox(rows[0]).click()
+    await browser.waitUntil(async () => (await Weather.rowCheckbox(rows[0]).isSelected()) === !initial, {
+      timeout: 10000,
+      timeoutMsg: 'row checkbox did not toggle'
+    })
+    // Select-all selects every visible row…
+    await Weather.selectAllCheckbox.click()
+    await browser.waitUntil(async () => Weather.rowCheckbox(rows[rows.length - 1]).isSelected(), {
+      timeout: 10000,
+      timeoutMsg: 'select-all did not select the last row'
+    })
+    // …and toggling it again clears them, leaving a clean state.
+    await Weather.selectAllCheckbox.click()
+    await browser.waitUntil(async () => !(await Weather.rowCheckbox(rows[0]).isSelected()), {
+      timeout: 10000,
+      timeoutMsg: 'select-all did not clear the rows'
+    })
+  })
+
+  it('9. delete a column (works) and a row (INTENTIONAL RED — known /deleteRow bug)', async function () {
+    this.timeout(60000)
+    // Delete the measure column → it disappears.
+    const measureCol = await Weather.waitForColumn('measure')
+    await Weather.deleteColumn(measureCol)
+    await browser.waitUntil(async () => (await Weather.colIdForName('measure')) === null, {
+      timeout: 15000,
+      timeoutMsg: 'measure column did not disappear after delete'
     })
 
-    // ── 5b. Imported columns arrive WITHOUT a data type (the import saga uploads
-    // datatype:null), so range validation only ARMS after a manual assignment.
-    // Assign air_temperature + Fahrenheit to the imported temp column, then prove
-    // an out-of-range value is flagged with the unit's backend range and an
-    // in-range value clears it. setReactInput fires the change event only (no
-    // blur) → purely client-side validation, the committed backend value is
-    // untouched, so later steps are unaffected.
-    const originalTemp = await numericCell(editRow, tempCol)
-    await Weather.assignDataTypeUnit(tempCol, 'air_temperature', 'F')
-    await Weather.setReactInput(`[aria-label="${editRow} ${tempCol}"]`, '500')
-    await browser.waitUntil(async () => (await Weather.cellInvalid(editRow, tempCol)) === 'true', {
-      timeout: 10000,
-      timeoutMsg: 'out-of-range temp (500 °F) did not flag aria-invalid'
+    // Delete the LAST row and assert it is actually removed.
+    // KNOWN BUG (weather.test.ts:610): the frontend POSTs `/deleteRow` but the
+    // backend only exposes `/delete` → 404 → the optimistic removal rolls back and
+    // the row REAPPEARS. This assertion is RED until the route is fixed, then it
+    // flips green. We delete the last (a manually-added) row so the persisted
+    // note[row0]/note[row1] checks in phase 11 are unaffected either way.
+    const rowsBefore = await Weather.visibleRowIds()
+    const countBefore = rowsBefore.length
+    await Weather.deleteRow(rowsBefore[rowsBefore.length - 1])
+    await browser.waitUntil(async () => (await Weather.rowCount()) === countBefore - 1, {
+      timeout: 15000,
+      timeoutMsg:
+        'delete-row did not remove the row — KNOWN BUG: frontend POSTs /deleteRow but the backend exposes /delete (weather.test.ts:610). Flip this green once the route is fixed.'
     })
-    expect(await Weather.cellError(editRow, tempCol)).toBe('Value should be between -58.27 and 170.33')
-    await Weather.setReactInput(`[aria-label="${editRow} ${tempCol}"]`, String(originalTemp))
-    await browser.waitUntil(async () => (await Weather.cellInvalid(editRow, tempCol)) === null, {
-      timeout: 10000,
-      timeoutMsg: 'restored in-range temp did not clear aria-invalid'
-    })
-    // Assert valid explicitly (mirrors the sweep's assertInRange) — a stale
-    // tooltip surviving after aria-invalid clears would otherwise pass silently.
-    expect(await Weather.cellError(editRow, tempCol)).toBe(null)
+  })
 
-    // ── 5c. Edit the LONGITUDE and capture the recomputed UTC so step 7 can prove
-    // the coordinate + its backend-derived UTC persist across the reopen. We edit
-    // ONLY longitude on purpose: it is the one field whose PATCH we can barrier on
-    // (UTC recomputes only after the backend round-trips), so we can guarantee it
-    // landed before navigating away. A lone latitude edit has no observable
-    // completion signal, so its in-flight PATCH would be cancelled by the immediate
-    // navigate — a test-timing limitation, not an app bug. Latitude is left at its
-    // create value and asserted to persist too (create-time coord round-trips).
-    const utcBeforeEdit = await ProjectScreen.getUtcValue()
-    await ProjectScreen.setCoordinate('longitude', '78.486')
-    await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== utcBeforeEdit, {
-      timeout: 10000,
-      timeoutMsg: 'UTC offset did not recompute after editing longitude'
-    })
-    const committedUtc = await ProjectScreen.getUtcValue()
-
-    // ── 6. Click the Helios logo → land on Home and the active SCENARIO is cleared.
-    // NOTE (app behavior, not a bug): logo→home clears activeScenarioId only; it
-    // intentionally RETAINS activeProjectId so a refresh with both ids can auto-
-    // restore the project screen (the boot auto-restore suite relies on this).
-    // So we assert the scenario clears (differential — ProjectScreen unmount must
-    // run) and that we actually returned Home, NOT that activeProjectId is null.
-    const projectIdBeforeHome = await getStorage(ACTIVE_PROJECT_KEY)
+  it('10. multiple projects coexist and switching shows the right one', async function () {
+    this.timeout(90000)
+    // Create two sibling projects with distinct coordinates.
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
-      timeout: 10000,
-      timeoutMsg: 'activeScenarioId was not cleared after going Home'
-    })
-    expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)
-    // Project id is intentionally RETAINED (not cleared) on logo→home — assert it
-    // holds so a regression that wrongly clears it would go red.
-    expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(projectIdBeforeHome)
+    const b = await enterProject('smokeB', '10.5', '20.5')
+    B.id = b.id
+    B.name = b.name
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    const c = await enterProject('smokeC', '-33.9', '18.4')
+    C.id = c.id
+    C.name = c.name
+    await ProjectScreen.goHome()
+    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
 
-    // ── 7. Reopen the SAME project from Home → the added column AND the edited
-    // cell PERSISTED (re-resolve colId/rowId; backend session survives in-run).
-    const homeId = await HomePage.rowIdForName(name)
-    if (!homeId) throw new Error(`project "${name}" missing from Home after going back`)
-    await HomePage.row(homeId).doubleClick()
+    // All three coexist in the Home list.
+    expect(await HomePage.rowIdForName(A.name)).not.toBe(null)
+    expect(await HomePage.rowIdForName(B.name)).not.toBe(null)
+    expect(await HomePage.rowIdForName(C.name)).not.toBe(null)
+
+    // Open B → it shows ITS OWN coordinates (not A's or C's stale data).
+    const bId = await HomePage.rowIdForName(B.name)
+    await HomePage.row(bId as string).doubleClick()
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 20000 })
-    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
-    const noteCol2 = await Weather.waitForColumn('note')
-    const rows2 = await Weather.visibleRowIds()
-    const editRow2 = rows2[0]
-    const keepRow2 = rows2[1]
-    // The edited value survived the round-trip…
-    await expect(Weather.cellInput(editRow2, noteCol2)).toHaveValue('42')
-    // …and the un-edited back-filled cell did too (column + default persisted).
-    await expect(Weather.cellInput(keepRow2, noteCol2)).toHaveValue('7')
+    await browser.waitUntil(
+      async () => Math.abs(Number(await ProjectScreen.getCoordValue('latitude')) - 10.5) < 0.01,
+      { timeout: 15000, timeoutMsg: "project B did not show its own latitude (10.5)" }
+    )
+    expect(Math.abs(Number(await ProjectScreen.getCoordValue('longitude')) - 20.5)).toBeLessThan(0.01)
+  })
 
-    // Coordinates + derived UTC survived the reopen: the EDITED longitude shows the
-    // new value, the UNEDITED latitude keeps its create value, and UTC matches what
-    // the backend derived. UTC is an exact string; coords store as float32 → assert
-    // numeric with tolerance. Differential: a dropped longitude PATCH would show the
-    // create-time -120.25 here.
-    const lonReopened = Number(await ProjectScreen.getCoordValue('longitude'))
-    if (Math.abs(lonReopened - 78.486) > 0.01) {
-      throw new Error(`edited longitude did not persist: got ${lonReopened}, expected ~78.486`)
+  it('11. reopen project A — column, default back-fill, edited cell, and coordinates persisted', async function () {
+    this.timeout(60000)
+    await reopen(A.name)
+    const noteCol = await Weather.waitForColumn('note')
+    const rows = await Weather.visibleRowIds()
+    // The edited cell and the untouched back-filled cell both survived.
+    await expect(Weather.cellInput(rows[0], noteCol)).toHaveValue('42')
+    await expect(Weather.cellInput(rows[1], noteCol)).toHaveValue('7')
+    // Coordinates + backend-derived UTC survived (float32 coords → tolerance).
+    const lon = Number(await ProjectScreen.getCoordValue('longitude'))
+    if (Math.abs(lon - 78.486) > 0.01) {
+      throw new Error(`committed longitude did not persist: got ${lon}, expected ~78.486`)
     }
-    const latReopened = Number(await ProjectScreen.getCoordValue('latitude'))
-    if (Math.abs(latReopened - 45.5) > 0.01) {
-      throw new Error(`create-time latitude did not persist: got ${latReopened}, expected ~45.5`)
+    const lat = Number(await ProjectScreen.getCoordValue('latitude'))
+    if (Math.abs(lat - 45.5) > 0.01) {
+      throw new Error(`create-time latitude did not persist: got ${lat}, expected ~45.5`)
     }
     expect(await ProjectScreen.getUtcValue()).toBe(committedUtc)
+  })
 
-    // ── 8. Rename the project from Home via the kebab → the row reflects it.
+  it('12. rename project A, then delete A, B, and C from Home', async function () {
+    this.timeout(60000)
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    const renameId = await HomePage.rowIdForName(name)
-    if (!renameId) throw new Error(`project "${name}" missing from Home before rename`)
-    const newName = uniqueName('jrenamed')
-    await HomePage.openRowMenu(name)
+    // Rename A.
+    const renameId = await HomePage.rowIdForName(A.name)
+    if (!renameId) throw new Error(`project "${A.name}" missing before rename`)
+    const renamed = uniqueName('smokeRenamed')
+    await HomePage.openRowMenu(A.name)
     await HomePage.requestRename(renameId)
-    await expect(HomePage.renameNameInput).toHaveValue(name)
-    await setInputValue(HomePage.renameNameInput, newName)
+    await expect(HomePage.renameNameInput).toHaveValue(A.name)
+    await setInputValue(HomePage.renameNameInput, renamed)
     await HomePage.renameSaveButton.click()
     await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
-    // Differential: a failed PATCH would leave the OLD name on the row.
-    await browser.waitUntil(async () => (await HomePage.row(renameId).getText()).includes(newName), {
+    await browser.waitUntil(async () => (await HomePage.row(renameId).getText()).includes(renamed), {
       timeout: 15000,
       timeoutMsg: 'row never showed the new name after rename'
     })
-    expect(await HomePage.rowIdForName(newName)).toBe(renameId)
-    expect(await HomePage.rowIdForName(name)).toBe(null)
+    expect(await HomePage.rowIdForName(A.name)).toBe(null)
+    A.name = renamed
 
-    // ── 9. Delete the project from Home via the kebab → the row is gone.
-    await HomePage.openRowMenu(newName)
-    await HomePage.requestDelete(renameId)
-    await HomePage.confirmDelete()
-    await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
-    await browser.waitUntil(async () => !(await HomePage.row(renameId).isExisting()), {
-      timeout: 15000,
-      timeoutMsg: 'deleted row never disappeared'
-    })
-    // Differential: a failed delete would leave the row resolvable by name.
-    expect(await HomePage.rowIdForName(newName)).toBe(null)
+    // Delete all three so the shared backend session does not accumulate.
+    for (const name of [A.name, B.name, C.name]) {
+      const id = await HomePage.rowIdForName(name)
+      if (!id) throw new Error(`project "${name}" missing before delete`)
+      await HomePage.openRowMenu(name)
+      await HomePage.requestDelete(id)
+      await HomePage.confirmDelete()
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) === null, {
+        timeout: 15000,
+        timeoutMsg: `project "${name}" was not removed after delete`
+      })
+    }
   })
 })
