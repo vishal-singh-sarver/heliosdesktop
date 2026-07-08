@@ -139,21 +139,27 @@ async function addTypedColumn(name: string, dataType: string): Promise<{ colId: 
 /** Set a cell and assert it flags aria-invalid with the EXACT unit message. */
 async function assertOutOfRange(colId: string, value: number, message: string): Promise<void> {
   await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
-  await browser.waitUntil(async () => (await Weather.cellInvalid(SHARED_ROW, colId)) === 'true', {
+  // Wait for the EXACT thing we assert (the tooltip message), not the
+  // aria-invalid proxy: the flag flips a render-tick before the tooltip mounts,
+  // so "wait for flag, then read message once" races the render (observed
+  // air_humidity flake — message read back null).
+  await browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === message, {
     timeout: 10000,
-    timeoutMsg: `cell[${colId}] never became aria-invalid for out-of-range ${value}`
+    timeoutMsg: `cell[${colId}] never showed "${message}" for out-of-range ${value}`
   })
-  expect(await Weather.cellError(SHARED_ROW, colId)).toBe(message)
+  expect(await Weather.cellInvalid(SHARED_ROW, colId)).toBe('true')
 }
 
 /** Set an in-range value and assert the flag clears (no false positive). */
 async function assertInRange(colId: string, value: number): Promise<void> {
   await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
-  await browser.waitUntil(async () => (await Weather.cellInvalid(SHARED_ROW, colId)) === null, {
+  // Same discipline as assertOutOfRange: wait until the tooltip is GONE (the
+  // asserted condition), then confirm the flag cleared with it.
+  await browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === null, {
     timeout: 10000,
-    timeoutMsg: `in-range ${value} did not clear aria-invalid on ${colId}`
+    timeoutMsg: `in-range ${value} did not clear the validation message on ${colId}`
   })
-  expect(await Weather.cellError(SHARED_ROW, colId)).toBe(null)
+  expect(await Weather.cellInvalid(SHARED_ROW, colId)).toBe(null)
 }
 
 /** Drive the below/above probes (whichever the unit has) + the in-range guard. */
