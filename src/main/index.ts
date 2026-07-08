@@ -177,7 +177,7 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
 function createSplashWindow(): BrowserWindow {
   const splash = new BrowserWindow({
     width: 1000,
-    height: 500,
+    height: 600,
     show: true,
     frame: false,
     alwaysOnTop: true,
