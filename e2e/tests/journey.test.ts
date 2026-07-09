@@ -325,7 +325,7 @@ describe('Helios smoke journey', () => {
     })
   })
 
-  it('9. delete a column (works) and a row (INTENTIONAL RED — known /deleteRow bug)', async function () {
+  it('9. delete a column and a row (both are removed from the table)', async function () {
     this.timeout(60000)
     // Delete the measure column → it disappears.
     const measureCol = await Weather.waitForColumn('measure')
@@ -335,19 +335,23 @@ describe('Helios smoke journey', () => {
       timeoutMsg: 'measure column did not disappear after delete'
     })
 
-    // Delete the LAST row and assert it is actually removed.
-    // KNOWN BUG (weather.test.ts:610): the frontend POSTs `/deleteRow` but the
-    // backend only exposes `/delete` → 404 → the optimistic removal rolls back and
-    // the row REAPPEARS. This assertion is RED until the route is fixed, then it
-    // flips green. We delete the last (a manually-added) row so the persisted
-    // note[row0]/note[row1] checks in phase 11 are unaffected either way.
+    // Delete the last visible row (never row0/row1, so phase 11's persisted
+    // note[row0]/note[row1] checks stay unaffected) and assert THAT row is gone.
+    //
+    // We assert on the specific row's absence rather than a rowCount() delta:
+    // rowCount() reads the virtualized DOM window, and clicking the last row's
+    // trash icon scrolls the body to the bottom, so after the delete the window
+    // renders one fewer row than the true total (the top row shifts into the
+    // spacer). A deleted row is removed from rowOrder and never re-renders,
+    // whereas a rolled-back delete would re-render it right here at the bottom —
+    // so its continued absence is the reliable, virtualization-proof signal.
     const rowsBefore = await Weather.visibleRowIds()
-    const countBefore = rowsBefore.length
-    await Weather.deleteRow(rowsBefore[rowsBefore.length - 1])
-    await browser.waitUntil(async () => (await Weather.rowCount()) === countBefore - 1, {
+    const deletedRowId = rowsBefore[rowsBefore.length - 1]
+    await Weather.deleteRow(deletedRowId)
+    await Weather.row(deletedRowId).waitForExist({
+      reverse: true,
       timeout: 15000,
-      timeoutMsg:
-        'delete-row did not remove the row — KNOWN BUG: frontend POSTs /deleteRow but the backend exposes /delete (weather.test.ts:610). Flip this green once the route is fixed.'
+      timeoutMsg: `delete-row did not remove row ${deletedRowId}`
     })
   })
 
