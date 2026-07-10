@@ -4,7 +4,11 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
-import { selectActiveProjectId, selectAllMaterialTypes } from 'containers/ProjectScreen/selectors'
+import {
+  selectActiveProjectId,
+  selectActiveScenarioId,
+  selectAllMaterialTypes
+} from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
@@ -17,6 +21,7 @@ import {
   removeMaterial,
   removeParameterGroup,
   renameMaterialRequested,
+  saveMaterialRequested,
   setMaterialDraftName,
   setMaterialDraftValue,
   setParameterGroupType
@@ -25,8 +30,14 @@ import { resolveParameterGroups } from './materialBlueprint'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
-import { selectMaterialDraft, selectMaterialDraftNonce } from './selectors'
-import type { MaterialDraft, MaterialParameterGroup } from './types'
+import {
+  selectMaterialDraft,
+  selectMaterialDraftNonce,
+  selectSaveError,
+  selectSaveStatus
+} from './selectors'
+import type { MaterialDraft, MaterialMemberInput, MaterialParameterGroup } from './types'
+import { MAX_NAME_LENGTH } from './validation'
 
 // The right-panel Properties form for a material: +Add Materials opens this
 // populated with one empty "Parameter Group.01" box, a "+ Add Material Type"
@@ -53,7 +64,10 @@ export function MaterialPropertiesForm(): React.JSX.Element | null {
 function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Element {
   const dispatch = useDispatch()
   const projectId = useSelector(selectActiveProjectId)
+  const scenarioId = useSelector(selectActiveScenarioId)
   const materialTypes = useSelector(selectAllMaterialTypes)
+  const saveStatus = useSelector(selectSaveStatus)
+  const saveError = useSelector(selectSaveError)
 
   // The name is read-only until the pencil is tapped (matches the Geometry
   // object form); the delete confirmation lives here too.
@@ -110,6 +124,48 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     dispatch(removeMaterial(draft.materialId))
     setConfirmDeleteOpen(false)
     dispatch(closeMaterialDraft())
+  }
+
+  // The group members to persist: one per parameter group that has a type
+  // chosen, de-duplicated by type (the backend rejects a repeated type), each
+  // carrying only the properties the user actually entered for that type.
+  const members = React.useMemo<MaterialMemberInput[]>(() => {
+    const out: MaterialMemberInput[] = []
+    const seen = new Set<number>()
+    for (const group of draft.groups) {
+      if (group.typeId == null || seen.has(group.typeId)) continue
+      seen.add(group.typeId)
+      const type = materialTypes.find((t) => t.id === group.typeId)
+      const properties: Record<string, string> = {}
+      if (type) {
+        for (const def of type.properties) {
+          const value = draft.values[def.property]
+          if (value !== undefined && value !== '') properties[def.property] = value
+        }
+      }
+      out.push({ materialTypeId: group.typeId, properties })
+    }
+    return out
+  }, [draft.groups, draft.values, materialTypes])
+
+  // Save Material is enabled once the draft names a project-scoped material with
+  // at least one type and a valid (non-empty, ≤20-char) name. Uniqueness is left
+  // to the backend, which 409s with a message shown under the button.
+  const trimmedName = draft.name.trim()
+  const nameValid = trimmedName.length > 0 && trimmedName.length <= MAX_NAME_LENGTH
+  const canSave =
+    Boolean(projectId) && members.length > 0 && nameValid && saveStatus !== 'saving'
+
+  const onSave = (): void => {
+    if (!canSave || !projectId) return
+    dispatch(
+      saveMaterialRequested({
+        projectId,
+        scenarioId,
+        name: trimmedName,
+        materials: members
+      })
+    )
   }
 
   return (
@@ -183,11 +239,17 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
         </button>
         <button
           type="button"
-          disabled
+          disabled={!canSave}
+          onClick={onSave}
           className="flex h-[38px] w-full items-center justify-center gap-1 rounded border border-app-border bg-blue-600 px-2.5 py-[5px] text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-[#424242] disabled:bg-[#2A2A2A] disabled:text-[#6B6B6B]"
         >
           {messages.saveMaterial}
         </button>
+        {saveError && (
+          <span className="form-error-text px-1" style={{ color: '#D92D20' }}>
+            {saveError}
+          </span>
+        )}
       </div>
 
       {/* Delete confirmation. */}

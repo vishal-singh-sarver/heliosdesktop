@@ -11,6 +11,9 @@ import {
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_REQUESTED,
   RENAME_MATERIAL_SUCCEEDED,
+  SAVE_MATERIAL_FAILED,
+  SAVE_MATERIAL_REQUESTED,
+  SAVE_MATERIAL_SUCCEEDED,
   SELECT_MATERIAL,
   SET_MATERIAL_DRAFT_NAME,
   SET_MATERIAL_DRAFT_VALUE,
@@ -19,7 +22,7 @@ import {
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
 } from './constants'
-import type { Material } from './types'
+import type { Material, SaveMaterialInput } from './types'
 
 // ── Action types ────────────────────────────────────────────────────────────
 // Type aliases (not interfaces) so each is structurally assignable to redux's
@@ -87,6 +90,13 @@ export type SetMaterialDraftValueAction = {
 export type SetMaterialDraftNameAction = { type: typeof SET_MATERIAL_DRAFT_NAME; name: string }
 export type CloseMaterialDraftAction = { type: typeof CLOSE_MATERIAL_DRAFT }
 
+export type SaveMaterialRequestedAction = {
+  type: typeof SAVE_MATERIAL_REQUESTED
+  payload: SaveMaterialInput
+}
+export type SaveMaterialSucceededAction = { type: typeof SAVE_MATERIAL_SUCCEEDED }
+export type SaveMaterialFailedAction = { type: typeof SAVE_MATERIAL_FAILED; payload: string }
+
 export type MaterialsAction =
   | ListMaterialsRequestedAction
   | ListMaterialsSucceededAction
@@ -107,6 +117,9 @@ export type MaterialsAction =
   | SetMaterialDraftValueAction
   | SetMaterialDraftNameAction
   | CloseMaterialDraftAction
+  | SaveMaterialRequestedAction
+  | SaveMaterialSucceededAction
+  | SaveMaterialFailedAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -198,3 +211,16 @@ export const setMaterialDraftName = (name: string): SetMaterialDraftNameAction =
 })
 
 export const closeMaterialDraft = (): CloseMaterialDraftAction => ({ type: CLOSE_MATERIAL_DRAFT })
+
+// Save Material — persist the draft as a global material group.
+export const saveMaterialRequested = (input: SaveMaterialInput): SaveMaterialRequestedAction => ({
+  type: SAVE_MATERIAL_REQUESTED,
+  payload: input
+})
+export const saveMaterialSucceeded = (): SaveMaterialSucceededAction => ({
+  type: SAVE_MATERIAL_SUCCEEDED
+})
+export const saveMaterialFailed = (error: string): SaveMaterialFailedAction => ({
+  type: SAVE_MATERIAL_FAILED,
+  payload: error
+})

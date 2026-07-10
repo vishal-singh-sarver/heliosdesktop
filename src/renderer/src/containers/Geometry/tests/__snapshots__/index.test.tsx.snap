@@ -57,7 +57,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
     class="flex shrink-0 items-center justify-between gap-2"
   >
     <span
-      class="shrink-0 font-['Geist'] text-[12px] font-normal leading-[15px] tracking-normal text-[#D3D3D3] font-weight-600"
+      class="shrink-0 font-main text-[13px] font-normal leading-[15px] tracking-normal text-[#D3D3D3]"
     >
       Saved Geometries
     </span>
@@ -76,14 +76,14 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
       </span>
       <input
         aria-label="Search saved geometries"
-        class="min-w-0 flex-1 border-0 bg-dark px-2 text-neutral-200 outline-none focus-visible:outline-none h-5 text-[12px] bg-[#121212] placeholder:text-[#424242]"
+        class="min-w-0 flex-1 border-0 bg-dark px-2 text-neutral-200 outline-none focus-visible:outline-none h-5 text-[13px] bg-[#121212] placeholder:text-[#424242]"
         placeholder="Search..."
         value=""
       />
     </div>
   </div>
   <p
-    class="py-2 text-[12px] text-neutral-500"
+    class="py-2 text-[13px] text-neutral-500"
   >
     No saved geometries yet.
   </p>

@@ -41,6 +41,24 @@ export interface MaterialParameterGroup {
   typeId: number | null
 }
 
+// One member of a Create-Group request: a material type plus the property
+// values the user entered for it. Mirrors the backend `GroupMaterialIn`
+// (POST /api/materials/library/groups → `materials[]`).
+export interface MaterialMemberInput {
+  materialTypeId: number
+  properties: Record<string, string>
+}
+
+// Payload for persisting the right-panel draft as a global material GROUP
+// (POST /api/materials/library/groups). `projectId`/`scenarioId` are creation
+// provenance only — groups are global, not scoped to a project.
+export interface SaveMaterialInput {
+  projectId: string
+  scenarioId: string | null
+  name: string
+  materials: MaterialMemberInput[]
+}
+
 // Right-panel material Properties draft — the ONE material open in the
 // properties form (mirrors Geometry's CreateDraft). +Add Materials opens this;
 // it's local-only for now (Save Material is disabled until the create-form flow

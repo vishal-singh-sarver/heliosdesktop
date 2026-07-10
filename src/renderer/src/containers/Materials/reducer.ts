@@ -12,6 +12,9 @@ import {
   REMOVE_PARAMETER_GROUP,
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_SUCCEEDED,
+  SAVE_MATERIAL_FAILED,
+  SAVE_MATERIAL_REQUESTED,
+  SAVE_MATERIAL_SUCCEEDED,
   SELECT_MATERIAL,
   SET_MATERIAL_DRAFT_NAME,
   SET_MATERIAL_DRAFT_VALUE,
@@ -44,6 +47,10 @@ export interface MaterialsState {
   // RightPanel watches to auto-expand (bumped on every OPEN_MATERIAL_DRAFT).
   editDraft: MaterialDraft | null
   editDraftNonce: number
+  // Save Material (POST group) status + the backend failure message, shown under
+  // the Save button. Reset whenever the Properties form opens/closes.
+  saveStatus: 'idle' | 'saving' | 'error'
+  saveError: string | null
 }
 
 export const initialState: MaterialsState = {
@@ -55,7 +62,9 @@ export const initialState: MaterialsState = {
   loadError: null,
   nameErrors: {},
   editDraft: null,
-  editDraftNonce: 0
+  editDraftNonce: 0,
+  saveStatus: 'idle',
+  saveError: null
 }
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
@@ -173,6 +182,9 @@ const materialsReducer = (
           values: {}
         }
         draft.editDraftNonce += 1
+        // A freshly opened form starts with a clean save slate.
+        draft.saveStatus = 'idle'
+        draft.saveError = null
         break
       }
 
@@ -213,6 +225,25 @@ const materialsReducer = (
 
       case CLOSE_MATERIAL_DRAFT:
         draft.editDraft = null
+        draft.saveStatus = 'idle'
+        draft.saveError = null
+        break
+
+      case SAVE_MATERIAL_REQUESTED:
+        draft.saveStatus = 'saving'
+        draft.saveError = null
+        break
+
+      case SAVE_MATERIAL_SUCCEEDED:
+        // The list refresh + CLOSE_MATERIAL_DRAFT the saga dispatches next do the
+        // visible work; just settle the status here.
+        draft.saveStatus = 'idle'
+        draft.saveError = null
+        break
+
+      case SAVE_MATERIAL_FAILED:
+        draft.saveStatus = 'error'
+        draft.saveError = action.payload
         break
     }
   })

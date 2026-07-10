@@ -42,3 +42,10 @@ export const SET_MATERIAL_DRAFT_VALUE = 'app/Materials/SET_MATERIAL_DRAFT_VALUE'
 export const SET_MATERIAL_DRAFT_NAME = 'app/Materials/SET_MATERIAL_DRAFT_NAME' as const
 // Close the Properties form (draft discarded).
 export const CLOSE_MATERIAL_DRAFT = 'app/Materials/CLOSE_MATERIAL_DRAFT' as const
+
+// Save Material — persist the draft as a global material GROUP
+// (POST /api/materials/library/groups). On success the form closes and the list
+// refreshes; on failure the backend message surfaces under the Save button.
+export const SAVE_MATERIAL_REQUESTED = 'app/Materials/SAVE_MATERIAL_REQUESTED' as const
+export const SAVE_MATERIAL_SUCCEEDED = 'app/Materials/SAVE_MATERIAL_SUCCEEDED' as const
+export const SAVE_MATERIAL_FAILED = 'app/Materials/SAVE_MATERIAL_FAILED' as const

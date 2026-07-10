@@ -100,14 +100,15 @@ export const API_ROUTES = {
     remove: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
   },
-  // Material library (§7) — project-scoped, persisted. Only `list` is wired for
-  // now; create/rename/delete land with the right-panel material form later.
+  // Material library — GLOBAL material GROUPS (migration 022). A group is a named
+  // bundle of one-or-more material types + their property values. `groupsList`
+  // feeds the Saved Materials list (app open / project change); `groupsCreate`
+  // persists the right-panel draft on Save Material. The per-project `rename`
+  // route below still backs the inline rename of local rows.
   materials: {
-    list: (projectId: string) => `/api/materials/project/${projectId}/library`,
-    create: (projectId: string) => `/api/materials/project/${projectId}/library`,
+    groupsList: () => `/api/materials/library/groups`,
+    groupsCreate: () => `/api/materials/library/groups`,
     rename: (projectId: string, materialId: string) =>
-      `/api/materials/project/${projectId}/library/${materialId}/rename`,
-    remove: (projectId: string, materialId: string) =>
-      `/api/materials/project/${projectId}/library/${materialId}`
+      `/api/materials/project/${projectId}/library/${materialId}/rename`
   }
 } as const

@@ -1,55 +1,77 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
-import type { Material } from './types'
+import type { Material, SaveMaterialInput } from './types'
 
 // The single seam between the Materials sagas and the backend — sagas import
 // only this module, never `api` directly.
 
-// §7.2 list-item shape. `preview` carries visualisation props only.
+// GET /api/materials/library/groups list-item shape. `preview` is the single
+// colour swatch the backend derives from the group's precedence-winning member.
 interface WirePreview {
   color_r: number
   color_g: number
   color_b: number
   texture_file: string | null
 }
-interface WireMaterialListItem {
+interface WireGroupListItem {
   id: number
   name: string
-  material_type_id: number
-  material_type: string
+  material_type_ids: number[]
+  material_types: string[]
   preview: WirePreview | null
   created_at: string
 }
-interface ListMaterialsResponse {
-  materials: WireMaterialListItem[]
+interface ListGroupsResponse {
+  groups: WireGroupListItem[]
 }
 
-function wireToMaterial(m: WireMaterialListItem): Material {
+// A group renders as one Saved Materials row. The list keeps the app's existing
+// single-type Material shape by taking the group's first member for the
+// (currently unused) type fields; the array of types lives on the wire only.
+function groupToMaterial(g: WireGroupListItem): Material {
   return {
-    id: String(m.id),
-    name: m.name,
-    materialTypeId: m.material_type_id,
-    materialType: m.material_type,
-    preview: m.preview
+    id: String(g.id),
+    name: g.name,
+    materialTypeId: g.material_type_ids[0] ?? 0,
+    materialType: g.material_types[0] ?? '',
+    preview: g.preview
       ? {
-          colorR: m.preview.color_r,
-          colorG: m.preview.color_g,
-          colorB: m.preview.color_b,
-          textureFile: m.preview.texture_file ?? null
+          colorR: g.preview.color_r,
+          colorG: g.preview.color_g,
+          colorB: g.preview.color_b,
+          textureFile: g.preview.texture_file ?? null
         }
       : null,
-    createdAt: m.created_at,
+    createdAt: g.created_at,
     visible: true,
     local: false
   }
 }
 
-// GET .../library — the project's persisted material library, newest-first
-// (the backend orders by created_at descending).
-export function listMaterials(projectId: string): Promise<Material[]> {
+// GET /api/materials/library/groups — the GLOBAL material-group library,
+// newest-first (the backend orders by created_at descending). Called on app
+// open / project change.
+export function listMaterials(): Promise<Material[]> {
   return api
-    .get<ListMaterialsResponse>(API_ROUTES.materials.list(projectId))
-    .then((res) => (res.materials ?? []).map(wireToMaterial))
+    .get<ListGroupsResponse>(API_ROUTES.materials.groupsList())
+    .then((res) => (res.groups ?? []).map(groupToMaterial))
+}
+
+// POST /api/materials/library/groups — persist the right-panel draft as one
+// named group (Save Material). The response (the created group) is ignored; the
+// saga refreshes the list afterwards.
+export function createGroup(input: SaveMaterialInput): Promise<void> {
+  return api
+    .post(API_ROUTES.materials.groupsCreate(), {
+      name: input.name,
+      project_id: input.projectId,
+      scenario_id: input.scenarioId,
+      materials: input.materials.map((m) => ({
+        material_type_id: m.materialTypeId,
+        properties: m.properties
+      }))
+    })
+    .then(() => undefined)
 }
 
 // PATCH .../library/{id}/rename (§7.5). The backend enforces the ≤20-char +

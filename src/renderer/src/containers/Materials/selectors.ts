@@ -59,6 +59,10 @@ export const selectMaterialDraftNonce = createSelector(
   (s) => s.editDraftNonce
 )
 
+// Save Material status + backend error, consumed by the Properties form.
+export const selectSaveStatus = createSelector(selectMaterialsDomain, (s) => s.saveStatus)
+export const selectSaveError = createSelector(selectMaterialsDomain, (s) => s.saveError)
+
 const makeSelectMaterials = () => createSelector(selectMaterialsDomain, (s) => s)
 
 export default makeSelectMaterials
