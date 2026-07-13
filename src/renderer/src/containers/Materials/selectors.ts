@@ -59,9 +59,16 @@ export const selectMaterialDraftNonce = createSelector(
   (s) => s.editDraftNonce
 )
 
-// Save Material status + backend error, consumed by the Properties form.
-export const selectSaveStatus = createSelector(selectMaterialsDomain, (s) => s.saveStatus)
-export const selectSaveError = createSelector(selectMaterialsDomain, (s) => s.saveError)
+// Cached group details, by group id. The open-material saga reads this first so a
+// material that was already fetched reopens without a second GET.
+export const selectMaterialDetailsById = createSelector(
+  selectMaterialsDomain,
+  (s) => s.detailsById
+)
+
+// +Add Materials (create-empty-group) status + error, consumed by the left panel.
+export const selectCreateStatus = createSelector(selectMaterialsDomain, (s) => s.createStatus)
+export const selectCreateError = createSelector(selectMaterialsDomain, (s) => s.createError)
 
 const makeSelectMaterials = () => createSelector(selectMaterialsDomain, (s) => s)
 

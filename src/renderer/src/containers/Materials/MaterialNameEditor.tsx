@@ -6,7 +6,8 @@ import { validateMaterialName } from './validation'
 interface MaterialNameEditorProps {
   id: string
   initialName: string
-  projectId: string | null
+  // The active scenario, forwarded to the rename so the backend can reconcile it.
+  scenarioId: string | null
   // Lowercased names of OTHER materials (this one excluded) for the unique check.
   existingNames: Set<string>
   // Reports the current validation error (or null) so the row box can colour
@@ -18,11 +19,11 @@ interface MaterialNameEditorProps {
 // Inline editor shown when a material row's name is double-clicked. Validates
 // live (≤20 chars, non-empty, unique case-insensitive) and blocks commit while
 // invalid; commits a changed, valid name via renameMaterialRequested (the saga
-// PATCHes §7.5, or renames a local row in-place).
+// PUTs the group).
 export default function MaterialNameEditor({
   id,
   initialName,
-  projectId,
+  scenarioId,
   existingNames,
   onErrorChange,
   onClose
@@ -48,10 +49,9 @@ export default function MaterialNameEditor({
   const commit = (): void => {
     const trimmed = value.trim()
     if (error) return // stay open, keep showing the error
-    // Local rows have no backend id but still rename in-place (projectId unused
-    // by the saga for them); persisted rows need the active project.
-    if (trimmed !== initialName && (projectId || id.startsWith('local-'))) {
-      dispatch(renameMaterialRequested(projectId ?? '', id, trimmed))
+    // Every row is a persisted group, so a changed valid name always renames.
+    if (trimmed !== initialName) {
+      dispatch(renameMaterialRequested(id, trimmed, scenarioId))
     }
     onClose()
   }

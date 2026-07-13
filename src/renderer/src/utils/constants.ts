@@ -105,10 +105,26 @@ export const API_ROUTES = {
   // feeds the Saved Materials list (app open / project change); `groupsCreate`
   // persists the right-panel draft on Save Material. The per-project `rename`
   // route below still backs the inline rename of local rows.
+  // Material library — GLOBAL material GROUPS. A material IS a group: +Add
+  // creates it empty (groupsCreate), then each "Parameter Group" card adds
+  // (groupMaterials POST), updates (groupMaterial PATCH) or removes
+  // (groupMaterial DELETE) exactly one material type on it. `scenario_id` (the
+  // active scenario) is appended by the service on the mutating calls so the
+  // backend can reconcile + repaint that scenario.
   materials: {
     groupsList: () => `/api/materials/library/groups`,
+    // POST — create the material as an EMPTY group; returns its group id.
     groupsCreate: () => `/api/materials/library/groups`,
-    rename: (projectId: string, materialId: string) =>
-      `/api/materials/project/${projectId}/library/${materialId}/rename`
+    // GET one group's full members + property values (to open in the right panel).
+    groupsGet: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // PUT — update the group itself (used for renaming the material).
+    groupsUpdate: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // DELETE the whole material (group + all its members).
+    groupsDelete: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // POST — add one material type (with its properties) to the group.
+    groupMaterials: (groupId: string) => `/api/materials/library/groups/${groupId}/materials`,
+    // PATCH (update) / DELETE (remove) one material type already on the group.
+    groupMaterial: (groupId: string, materialTypeId: number) =>
+      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}`
   }
 } as const

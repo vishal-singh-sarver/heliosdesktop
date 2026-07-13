@@ -2,10 +2,18 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import dragHandleIcon from '@renderer/assets/DragHandleIco.svg'
 import eyeIcon from '@renderer/assets/EyeIcon.svg'
 import eyeOffIcon from '@renderer/assets/EyeOffIcon.svg'
+import Dialog from '@renderer/components/Dialog'
+import { selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import React from 'react'
-import { useDispatch } from 'react-redux'
-import { removeMaterial, selectMaterial, toggleMaterialVisibility } from './actions'
+import { useDispatch, useSelector } from 'react-redux'
+import {
+  deleteMaterialRequested,
+  openSavedMaterialRequested,
+  selectMaterial,
+  toggleMaterialVisibility
+} from './actions'
 import MaterialNameEditor from './MaterialNameEditor'
+import messages from './messages'
 import type { Material } from './types'
 
 interface IconButtonProps {
@@ -36,7 +44,6 @@ function IconButton({ label, children, active = false, onClick }: IconButtonProp
 interface MaterialRowProps {
   material: Material
   selected: boolean
-  projectId: string | null
   // Lowercased names of all materials (this row excludes its own) for the
   // rename uniqueness check.
   existingNames: Set<string>
@@ -50,24 +57,30 @@ interface MaterialRowProps {
 export default function MaterialRow({
   material,
   selected,
-  projectId,
   existingNames,
   nameError
 }: MaterialRowProps): React.JSX.Element {
   const dispatch = useDispatch()
+  const scenarioId = useSelector(selectActiveScenarioId)
   const [editing, setEditing] = React.useState(false)
   // Live rename validation error, lifted from MaterialNameEditor so the error
   // can render below (outside) the row box.
   const [editError, setEditError] = React.useState<string | null>(null)
+  // Delete needs an explicit confirmation first (matches the Geometry tree row);
+  // the icon opens the dialog, confirming dispatches the backend delete.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
 
   const onSelect = (): void => {
     dispatch(selectMaterial(material.id))
+    // Every row is a persisted group — open its properties in the right panel.
+    dispatch(openSavedMaterialRequested(material.id))
   }
   const onToggleVisibility = (): void => {
     dispatch(toggleMaterialVisibility(material.id))
   }
-  const onDelete = (): void => {
-    dispatch(removeMaterial(material.id))
+  const confirmDelete = (): void => {
+    dispatch(deleteMaterialRequested(material.id, scenarioId))
+    setConfirmDeleteOpen(false)
   }
 
   // Names to check a rename against, minus this row's own (so an unchanged name
@@ -109,7 +122,7 @@ export default function MaterialRow({
           <MaterialNameEditor
             id={material.id}
             initialName={material.name}
-            projectId={projectId}
+            scenarioId={scenarioId}
             existingNames={otherNames}
             onErrorChange={setEditError}
             onClose={() => {
@@ -139,7 +152,7 @@ export default function MaterialRow({
                 className="h-3.5 w-3.5"
               />
             </IconButton>
-            <IconButton label="Delete material" onClick={onDelete}>
+            <IconButton label="Delete material" onClick={() => setConfirmDeleteOpen(true)}>
               <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
             </IconButton>
             <span
@@ -158,6 +171,32 @@ export default function MaterialRow({
           {editing ? editError : nameError}
         </span>
       )}
+
+      {/* Delete confirmation — matches the Geometry tree row / right-panel form. */}
+      <Dialog
+        isOpen={confirmDeleteOpen}
+        title={messages.deleteTitle}
+        onClose={() => setConfirmDeleteOpen(false)}
+      >
+        <h3 className="text-base font-medium text-white">{messages.deleteHeading(material.name)}</h3>
+        <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteOpen(false)}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.deleteCancel}
+          </button>
+          <button
+            type="button"
+            onClick={confirmDelete}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+          >
+            {messages.deleteConfirm}
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }

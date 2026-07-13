@@ -1,39 +1,80 @@
-import { produce } from 'immer'
+import { produce, type Draft } from 'immer'
 import type { MaterialsAction } from './actions'
 import {
-  ADD_LOCAL_MATERIAL,
   ADD_PARAMETER_GROUP,
   CLOSE_MATERIAL_DRAFT,
+  CREATE_MATERIAL_FAILED,
+  CREATE_MATERIAL_REQUESTED,
+  CREATE_MATERIAL_SUCCEEDED,
+  DELETE_PARAMETER_GROUP_FAILED,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
-  OPEN_MATERIAL_DRAFT,
+  OPEN_SAVED_MATERIAL_LOADED,
   REMOVE_MATERIAL,
   REMOVE_PARAMETER_GROUP,
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_SUCCEEDED,
-  SAVE_MATERIAL_FAILED,
-  SAVE_MATERIAL_REQUESTED,
-  SAVE_MATERIAL_SUCCEEDED,
+  SAVE_PARAMETER_GROUP_FAILED,
+  SAVE_PARAMETER_GROUP_REQUESTED,
+  SAVE_PARAMETER_GROUP_SUCCEEDED,
   SELECT_MATERIAL,
   SET_MATERIAL_DRAFT_NAME,
-  SET_MATERIAL_DRAFT_VALUE,
   SET_NAME_ERROR,
   SET_PARAMETER_GROUP_TYPE,
+  SET_PARAMETER_GROUP_VALUE,
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
 } from './constants'
 import { lowestFreeNumber } from './naming'
-import type { Material, MaterialDraft } from './types'
+import type {
+  Material,
+  MaterialDraft,
+  MaterialGroupDetail,
+  MaterialParameterGroup
+} from './types'
 
 export type { Material }
+
+// A brand-new, unsaved "Parameter Group.0N" card.
+const emptyCard = (id: number, number: number): MaterialParameterGroup => ({
+  id,
+  number,
+  typeId: null,
+  values: {},
+  saved: false,
+  saveStatus: 'idle',
+  saveError: null
+})
+
+// Write-through cache refresh. After a card is saved or removed we already KNOW
+// the group's persisted state — it is exactly the draft's SAVED cards — so we
+// rewrite the cached detail from them instead of dropping it and forcing another
+// GET on the next click. Mirrors Geometry, which likewise refreshes detailsById
+// with the just-saved values rather than invalidating.
+const refreshDetailCache = (state: Draft<MaterialsState>): void => {
+  const d = state.editDraft
+  if (!d) return
+  state.detailsById[d.groupId] = {
+    id: d.groupId,
+    // The row is the source of truth for the name (a draft rename that the
+    // backend rejected must not leak into the cache).
+    name: state.byId[d.groupId]?.name ?? d.name,
+    members: d.groups
+      .filter((g): g is MaterialParameterGroup & { typeId: number } => g.saved && g.typeId != null)
+      .map((g) => ({
+        materialTypeId: g.typeId,
+        // Match what a GET returns: blank fields aren't stored.
+        properties: Object.fromEntries(Object.entries(g.values).filter(([, v]) => v !== ''))
+      }))
+  }
+}
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
 export interface MaterialsState {
-  // Materials keyed by id (backend integer-as-string, or `local-*` for unsaved
-  // rows), with a separate display order (newest-first from the backend; local
-  // adds append to the top).
+  // Materials keyed by backend group id (as a string), with a separate display
+  // order (newest-first from the backend).
   byId: Record<string, Material>
   order: string[]
   selectedId: string | null
@@ -42,15 +83,20 @@ export interface MaterialsState {
   loadError: string | null
   // Backend rename-failure messages (e.g. duplicate name), keyed by material id.
   nameErrors: Record<string, string>
-  // The single material open in the right-panel Properties form, or null. Mirrors
-  // Geometry's createDraft. `editDraftNonce` is a monotonic open counter the
-  // RightPanel watches to auto-expand (bumped on every OPEN_MATERIAL_DRAFT).
+  // Fetched group details, cached by group id — clicking a material that was
+  // already loaded reopens it from here instead of GETting it again (mirrors
+  // Geometry's detailsById). A fresh list load, or any mutation to a group,
+  // invalidates it so the next click refetches.
+  detailsById: Record<string, MaterialGroupDetail>
+  // The single material open in the right-panel Properties form, or null.
+  // `editDraftNonce` is a monotonic open counter the RightPanel watches to
+  // auto-expand.
   editDraft: MaterialDraft | null
   editDraftNonce: number
-  // Save Material (POST group) status + the backend failure message, shown under
-  // the Save button. Reset whenever the Properties form opens/closes.
-  saveStatus: 'idle' | 'saving' | 'error'
-  saveError: string | null
+  // +Add Materials creates the empty group on the backend; this gates the button
+  // and surfaces a create failure.
+  createStatus: 'idle' | 'creating' | 'error'
+  createError: string | null
 }
 
 export const initialState: MaterialsState = {
@@ -61,10 +107,11 @@ export const initialState: MaterialsState = {
   loadStatus: 'idle',
   loadError: null,
   nameErrors: {},
+  detailsById: {},
   editDraft: null,
   editDraftNonce: 0,
-  saveStatus: 'idle',
-  saveError: null
+  createStatus: 'idle',
+  createError: null
 }
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
@@ -81,19 +128,18 @@ const materialsReducer = (
         break
 
       case LIST_MATERIALS_SUCCEEDED: {
-        // Replace with the persisted library. Unsaved (local) rows are dropped —
-        // they were never persisted, so a refresh legitimately loses them.
         draft.byId = {}
         draft.order = []
         draft.nameErrors = {} // ids are reloaded; any pending rename error is stale
+        draft.detailsById = {} // a fresh load invalidates the cached group details
         for (const material of action.payload) {
           draft.byId[material.id] = material
           draft.order.push(material.id)
         }
         if (draft.selectedId && !draft.byId[draft.selectedId]) draft.selectedId = null
-        // A refresh drops unsaved (local) rows; close the Properties form if its
-        // material no longer exists so it can't edit a row that's gone.
-        if (draft.editDraft && !draft.byId[draft.editDraft.materialId]) draft.editDraft = null
+        // Close the Properties form if its material no longer exists (e.g. it was
+        // deleted elsewhere), so it can't edit a group that's gone.
+        if (draft.editDraft && !draft.byId[draft.editDraft.groupId]) draft.editDraft = null
         draft.loadStatus = 'loaded'
         draft.loadError = null
         break
@@ -104,34 +150,57 @@ const materialsReducer = (
         draft.loadError = action.payload
         break
 
-      case ADD_LOCAL_MATERIAL: {
-        // Client-only placeholder until the create-form flow exists. Keyed by a
-        // `local-` id and shown at the top, mirroring the backend's newest-first.
-        const id = `local-${action.name}`
-        if (!draft.byId[id]) {
-          draft.byId[id] = {
-            id,
-            name: action.name,
-            materialTypeId: 0,
-            materialType: '',
-            preview: null,
-            createdAt: '',
-            visible: true,
-            local: true
-          }
-          draft.order.unshift(id)
+      // ── +Add Materials → create the empty group ────────────────────────────
+      case CREATE_MATERIAL_REQUESTED:
+        draft.createStatus = 'creating'
+        draft.createError = null
+        break
+
+      case CREATE_MATERIAL_SUCCEEDED: {
+        const { groupId, name } = action
+        // The material now exists on the backend. Insert its row straight from
+        // what we know rather than refetching the whole list — a list reload would
+        // also wipe the detail cache. (Geometry does the same: it inserts the
+        // object the POST returned instead of re-listing.) It's the newest, so it
+        // goes to the top of the newest-first order.
+        draft.byId[groupId] = {
+          id: groupId,
+          name,
+          materialTypeId: 0,
+          materialType: '',
+          preview: null,
+          createdAt: '',
+          visible: true
         }
-        draft.selectedId = id
+        if (!draft.order.includes(groupId)) draft.order.unshift(groupId)
+        // A freshly created group is EMPTY by definition, so its detail is already
+        // known — seed the cache so clicking it later costs no GET.
+        draft.detailsById[groupId] = { id: groupId, name, members: [] }
+        // Open it with one blank card, ready to pick a material type.
+        draft.editDraft = { groupId, name, groups: [emptyCard(1, 1)], nextGroupId: 2 }
+        draft.editDraftNonce += 1
+        draft.selectedId = groupId
+        draft.createStatus = 'idle'
+        draft.createError = null
         break
       }
+
+      case CREATE_MATERIAL_FAILED:
+        draft.createStatus = 'error'
+        draft.createError = action.payload
+        break
 
       case RENAME_MATERIAL_SUCCEEDED: {
         const material = draft.byId[action.id]
         if (material) material.name = action.name
         // Keep the open Properties form's header in sync with the row.
-        if (draft.editDraft && draft.editDraft.materialId === action.id) {
+        if (draft.editDraft && draft.editDraft.groupId === action.id) {
           draft.editDraft.name = action.name
         }
+        // Keep the cached detail usable rather than dropping it — only its name
+        // went stale.
+        const cached = draft.detailsById[action.id]
+        if (cached) cached.name = action.name
         delete draft.nameErrors[action.id]
         break
       }
@@ -149,9 +218,10 @@ const materialsReducer = (
         delete draft.byId[action.id]
         draft.order = draft.order.filter((i) => i !== action.id)
         delete draft.nameErrors[action.id]
+        delete draft.detailsById[action.id]
         if (draft.selectedId === action.id) draft.selectedId = null
         // Close the Properties form if it was editing the removed material.
-        if (draft.editDraft && draft.editDraft.materialId === action.id) draft.editDraft = null
+        if (draft.editDraft && draft.editDraft.groupId === action.id) draft.editDraft = null
         break
       }
 
@@ -169,33 +239,41 @@ const materialsReducer = (
         draft.searchQuery = action.payload
         break
 
-      // ── Right-panel material Properties draft ──────────────────────────────
-      case OPEN_MATERIAL_DRAFT: {
-        // Edit the row +Add Materials just appended (same `local-<name>` id).
-        // Start with one empty "Parameter Group.01" so the form opens ready to
-        // pick a material type.
+      // ── Right-panel material Properties form ───────────────────────────────
+      case OPEN_SAVED_MATERIAL_LOADED: {
+        // A saved row was fetched — open it with one card per member, each
+        // pre-selecting its material type, carrying its own stored values and
+        // already marked `saved` (so its Save PATCHes and its Delete removes the
+        // member on the backend).
+        const { detail } = action
+        // Cache it, so re-clicking this material reopens it without a second GET.
+        draft.detailsById[detail.id] = detail
         draft.editDraft = {
-          materialId: `local-${action.name}`,
-          name: action.name,
-          groups: [{ id: 1, number: 1, typeId: null }],
-          nextGroupId: 2,
-          values: {}
+          groupId: detail.id,
+          name: detail.name,
+          groups: detail.members.map((member, index) => ({
+            id: index + 1,
+            number: index + 1,
+            typeId: member.materialTypeId,
+            values: { ...member.properties },
+            saved: true,
+            saveStatus: 'idle',
+            saveError: null
+          })),
+          nextGroupId: detail.members.length + 1
         }
         draft.editDraftNonce += 1
-        // A freshly opened form starts with a clean save slate.
-        draft.saveStatus = 'idle'
-        draft.saveError = null
         break
       }
 
       case ADD_PARAMETER_GROUP: {
-        // "+ Add Material Type" — append a new, empty parameter group. Its display
-        // number fills the lowest free slot (same gap-filling rule as Ground.NNN /
-        // Material.NNN), while its `id` stays monotonic for stable React keys.
+        // "+ Add Material Type" — append a new, empty card. Its display number
+        // fills the lowest free slot (the Ground.NNN gap-filling rule), while its
+        // `id` stays monotonic for stable React keys.
         const d = draft.editDraft
         if (d) {
           const number = lowestFreeNumber(d.groups.map((g) => g.number))
-          d.groups.push({ id: d.nextGroupId, number, typeId: null })
+          d.groups.push(emptyCard(d.nextGroupId, number))
           d.nextGroupId += 1
         }
         break
@@ -203,18 +281,64 @@ const materialsReducer = (
 
       case REMOVE_PARAMETER_GROUP: {
         const d = draft.editDraft
-        if (d) d.groups = d.groups.filter((g) => g.id !== action.groupId)
+        if (d) {
+          d.groups = d.groups.filter((g) => g.id !== action.groupId)
+          // The group's members changed — rewrite its cached detail from the cards
+          // that remain saved (no refetch needed; we know the new state).
+          refreshDetailCache(draft)
+        }
         break
       }
 
       case SET_PARAMETER_GROUP_TYPE: {
-        const group = draft.editDraft?.groups.find((g) => g.id === action.groupId)
-        if (group) group.typeId = action.typeId
+        const card = draft.editDraft?.groups.find((g) => g.id === action.groupId)
+        // Changing the type swaps the whole property set, so the old values are
+        // meaningless — drop them. (A saved card's type is locked in the UI.)
+        if (card && !card.saved) {
+          card.typeId = action.typeId
+          card.values = {}
+          card.saveStatus = 'idle'
+          card.saveError = null
+        }
         break
       }
 
-      case SET_MATERIAL_DRAFT_VALUE: {
-        if (draft.editDraft) draft.editDraft.values[action.property] = action.value
+      case SET_PARAMETER_GROUP_VALUE: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.groupId)
+        if (card) card.values[action.property] = action.value
+        break
+      }
+
+      case SAVE_PARAMETER_GROUP_REQUESTED: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.payload.cardId)
+        if (card) {
+          card.saveStatus = 'saving'
+          card.saveError = null
+        }
+        break
+      }
+
+      case SAVE_PARAMETER_GROUP_SUCCEEDED: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
+        if (card) {
+          // From here on this card updates (PATCH) rather than adds (POST).
+          card.saved = true
+          card.saveStatus = 'idle'
+          card.saveError = null
+        }
+        // Refresh the cache with the values we just persisted, so re-opening this
+        // material shows them without another GET.
+        refreshDetailCache(draft)
+        break
+      }
+
+      case SAVE_PARAMETER_GROUP_FAILED:
+      case DELETE_PARAMETER_GROUP_FAILED: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
+        if (card) {
+          card.saveStatus = 'error'
+          card.saveError = action.payload
+        }
         break
       }
 
@@ -225,25 +349,6 @@ const materialsReducer = (
 
       case CLOSE_MATERIAL_DRAFT:
         draft.editDraft = null
-        draft.saveStatus = 'idle'
-        draft.saveError = null
-        break
-
-      case SAVE_MATERIAL_REQUESTED:
-        draft.saveStatus = 'saving'
-        draft.saveError = null
-        break
-
-      case SAVE_MATERIAL_SUCCEEDED:
-        // The list refresh + CLOSE_MATERIAL_DRAFT the saga dispatches next do the
-        // visible work; just settle the status here.
-        draft.saveStatus = 'idle'
-        draft.saveError = null
-        break
-
-      case SAVE_MATERIAL_FAILED:
-        draft.saveStatus = 'error'
-        draft.saveError = action.payload
         break
     }
   })

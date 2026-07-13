@@ -5,7 +5,6 @@ import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import {
-  selectActiveProjectId,
   selectActiveScenarioId,
   selectAllMaterialTypes
 } from 'containers/ProjectScreen/selectors'
@@ -13,44 +12,38 @@ import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
+import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import {
   addParameterGroup,
   closeMaterialDraft,
-  removeMaterial,
-  removeParameterGroup,
+  deleteMaterialRequested,
+  deleteParameterGroupRequested,
   renameMaterialRequested,
-  saveMaterialRequested,
+  saveParameterGroupRequested,
   setMaterialDraftName,
-  setMaterialDraftValue,
-  setParameterGroupType
+  setParameterGroupType,
+  setParameterGroupValue
 } from './actions'
-import { resolveParameterGroups } from './materialBlueprint'
+import {
+  isMaterialFormValid,
+  resolveParameterGroups,
+  toNativeProperties,
+  validateMaterialFieldValue
+} from './materialBlueprint'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
-import {
-  selectMaterialDraft,
-  selectMaterialDraftNonce,
-  selectSaveError,
-  selectSaveStatus
-} from './selectors'
-import type { MaterialDraft, MaterialMemberInput, MaterialParameterGroup } from './types'
-import { MAX_NAME_LENGTH } from './validation'
+import { selectMaterialDraft, selectMaterialDraftNonce } from './selectors'
+import type { MaterialDraft, MaterialParameterGroup } from './types'
 
-// The right-panel Properties form for a material: +Add Materials opens this
-// populated with one empty "Parameter Group.01" box, a "+ Add Material Type"
-// button and a (disabled) "Save Material" button — the mockup's initial state.
-// Each parameter group has its own Select listing every material type from the
-// catalog (/api/catalog/material-types); picking one renders that type's
-// parameters (grouped by their `group` tag) inside the box. "+ Add Material
-// Type" appends another numbered group. Everything is client-side for now (Save
-// is disabled until the create-form persist flow lands). Injects the materials
-// slice so it works mounted in the RightPanel independently of the LeftPanel's
-// <Materials />. Renders nothing when there is no active material draft. Keyed by
-// the open-nonce so local state resets when a different material opens. Mirrors
-// Geometry's ObjectPropertiesForm.
+// The right-panel Properties form for a material. The material itself already
+// exists on the backend (+Add Materials created it as an empty group), so this
+// form builds it up one "Parameter Group" at a time: each card holds ONE material
+// type and saves itself — adding that type to the group on its first Save (POST)
+// and updating it on every later Save (PATCH). A card's trash removes just that
+// material type (DELETE); the header trash deletes the whole material.
 export function MaterialPropertiesForm(): React.JSX.Element | null {
   useInjectReducer({ key: 'materials', reducer: reducer as Reducer })
   useInjectSaga({ key: 'materials', saga })
@@ -63,19 +56,15 @@ export function MaterialPropertiesForm(): React.JSX.Element | null {
 
 function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Element {
   const dispatch = useDispatch()
-  const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
   const materialTypes = useSelector(selectAllMaterialTypes)
-  const saveStatus = useSelector(selectSaveStatus)
-  const saveError = useSelector(selectSaveError)
 
-  // The name is read-only until the pencil is tapped (matches the Geometry
-  // object form); the delete confirmation lives here too.
+  // The name is read-only until the pencil is tapped; the whole-material delete
+  // confirmation lives here too.
   const [nameEditing, setNameEditing] = React.useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
-  // Which parameter-group boxes are expanded (by group id). Adding a new group
-  // collapses the others so only the new box is open; manual toggles still allow
-  // several open at once.
+  // Which cards are expanded (by card id). Adding a card collapses the others so
+  // only the new one is open; manual toggles still allow several open at once.
   const [openGroupIds, setOpenGroupIds] = React.useState<Set<number>>(
     () => new Set(draft.groups.map((g) => g.id))
   )
@@ -91,8 +80,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   }
 
   const onAddGroup = (): void => {
-    // The appended group takes the draft's current nextGroupId; open only it so
-    // the groups above collapse.
     const newId = draft.nextGroupId
     dispatch(addParameterGroup())
     setOpenGroupIds(new Set([newId]))
@@ -103,8 +90,19 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     if (nameEditing) nameInputRef.current?.focus()
   }, [nameEditing])
 
-  // Every catalog material type, by name — each parameter group's Select options.
+  // Every catalog material type, by name — each card's Select options.
   const typeOptions = materialTypes.map((t) => ({ value: String(t.id), label: t.materialtype }))
+
+  // A material type can appear at most ONCE in a group (the backend keys each
+  // member by material_type_id and rejects a repeat), so a type already chosen in
+  // another card is shown disabled in this one's dropdown — the card's own type
+  // stays selectable so it keeps showing as the current value.
+  const typesUsedByOtherCards = (cardId: number): Set<string> =>
+    new Set(
+      draft.groups
+        .filter((g) => g.id !== cardId && g.typeId != null)
+        .map((g) => String(g.typeId))
+    )
 
   const handleNameChange = (next: string): void => {
     dispatch(setMaterialDraftName(next))
@@ -113,68 +111,53 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const handleNameBlur = (): void => {
     setNameEditing(false)
     const next = draft.name.trim()
-    // Local rows rename client-side (the saga short-circuits `local-*` ids). Only
-    // commit a non-empty, actually-changed name.
-    if (projectId && next !== '' && next !== draft.materialId.replace(/^local-/, '')) {
-      dispatch(renameMaterialRequested(projectId, draft.materialId, draft.name))
-    }
+    if (next !== '') dispatch(renameMaterialRequested(draft.groupId, next, scenarioId))
   }
 
+  // The header trash — deletes the whole material (group + every member).
   const performDelete = (): void => {
-    dispatch(removeMaterial(draft.materialId))
+    dispatch(deleteMaterialRequested(draft.groupId, scenarioId))
     setConfirmDeleteOpen(false)
     dispatch(closeMaterialDraft())
   }
 
-  // The group members to persist: one per parameter group that has a type
-  // chosen, de-duplicated by type (the backend rejects a repeated type), each
-  // carrying only the properties the user actually entered for that type.
-  const members = React.useMemo<MaterialMemberInput[]>(() => {
-    const out: MaterialMemberInput[] = []
-    const seen = new Set<number>()
-    for (const group of draft.groups) {
-      if (group.typeId == null || seen.has(group.typeId)) continue
-      seen.add(group.typeId)
-      const type = materialTypes.find((t) => t.id === group.typeId)
-      const properties: Record<string, string> = {}
-      if (type) {
-        for (const def of type.properties) {
-          const value = draft.values[def.property]
-          if (value !== undefined && value !== '') properties[def.property] = value
-        }
-      }
-      out.push({ materialTypeId: group.typeId, properties })
-    }
-    return out
-  }, [draft.groups, draft.values, materialTypes])
-
-  // Save Material is enabled once the draft names a project-scoped material with
-  // at least one type and a valid (non-empty, ≤20-char) name. Uniqueness is left
-  // to the backend, which 409s with a message shown under the button.
-  const trimmedName = draft.name.trim()
-  const nameValid = trimmedName.length > 0 && trimmedName.length <= MAX_NAME_LENGTH
-  const canSave =
-    Boolean(projectId) && members.length > 0 && nameValid && saveStatus !== 'saving'
-
-  const onSave = (): void => {
-    if (!canSave || !projectId) return
+  // A card's Save: add its material type to the group the first time, update it
+  // afterwards. Values are converted to the native JSON types the backend wants.
+  const handleSaveGroup = (card: MaterialParameterGroup): void => {
+    const type = materialTypes.find((t) => t.id === card.typeId)
+    if (!type) return
     dispatch(
-      saveMaterialRequested({
-        projectId,
-        scenarioId,
-        name: trimmedName,
-        materials: members
+      saveParameterGroupRequested({
+        groupId: draft.groupId,
+        cardId: card.id,
+        materialTypeId: type.id,
+        properties: toNativeProperties(type, card.values),
+        saved: card.saved,
+        scenarioId
+      })
+    )
+  }
+
+  // A card's trash: remove just this material type from the group (or drop the
+  // card outright if it was never saved).
+  const handleDeleteGroup = (card: MaterialParameterGroup): void => {
+    dispatch(
+      deleteParameterGroupRequested({
+        groupId: draft.groupId,
+        cardId: card.id,
+        materialTypeId: card.typeId,
+        saved: card.saved,
+        scenarioId
       })
     )
   }
 
   return (
     // Full-height column: a static name header, the Parameter Groups box that
-    // fills the space and scrolls its own fields, and a static footer holding
-    // the +Add Material Type and Save Material buttons.
+    // fills the space and scrolls its own cards, and a static footer.
     <div className="flex h-full flex-col gap-2.5">
       {/* Header: material name with a pencil (unlock to rename) and a trash
-          (delete). The name is read-only until the pencil is tapped. */}
+          (delete the whole material). */}
       <div className="flex shrink-0 items-center gap-1">
         <input
           ref={nameInputRef}
@@ -206,28 +189,30 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
         </button>
       </div>
 
-      {/* The numbered "Parameter Group.0N" boxes, scrolling as a group so they
-          all stay above the footer; each box hugs its own content. */}
+      {/* The numbered "Parameter Group.0N" cards, scrolling as a group so they all
+          stay above the footer; each card hugs its own content. */}
       <div className="scrollbar-custom-thin flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto">
         {draft.groups.map((group) => (
           <ParameterGroupCard
             key={group.id}
             group={group}
             typeOptions={typeOptions}
+            disabledTypeValues={typesUsedByOtherCards(group.id)}
             materialTypes={materialTypes}
-            values={draft.values}
             open={openGroupIds.has(group.id)}
             onToggle={() => toggleGroup(group.id)}
             onSelectType={(typeId) => dispatch(setParameterGroupType(group.id, typeId))}
-            onRemove={() => dispatch(removeParameterGroup(group.id))}
-            onChangeValue={(property, value) => dispatch(setMaterialDraftValue(property, value))}
+            onChangeValue={(property, value) =>
+              dispatch(setParameterGroupValue(group.id, property, value))
+            }
+            onSave={() => handleSaveGroup(group)}
+            onDelete={() => handleDeleteGroup(group)}
           />
         ))}
       </div>
 
-      {/* Footer — pinned to the bottom of the panel: +Add Material Type appends a
-          new parameter group; Save Material is disabled until the persist flow
-          lands (#2A2A2A fill, #424242 border, #6B6B6B text). */}
+      {/* Footer — pinned to the bottom: +Add Material Type appends another card.
+          There is no whole-material Save: each card saves itself. */}
       <div className="flex shrink-0 flex-col gap-2.5">
         <button
           type="button"
@@ -237,22 +222,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
           <img src={addIcon} alt="" aria-hidden="true" className="h-4 w-4 [filter:brightness(0)]" />
           {messages.addMaterialType}
         </button>
-        <button
-          type="button"
-          disabled={!canSave}
-          onClick={onSave}
-          className="flex h-[38px] w-full items-center justify-center gap-1 rounded border border-app-border bg-blue-600 px-2.5 py-[5px] text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-[#424242] disabled:bg-[#2A2A2A] disabled:text-[#6B6B6B]"
-        >
-          {messages.saveMaterial}
-        </button>
-        {saveError && (
-          <span className="form-error-text px-1" style={{ color: '#D92D20' }}>
-            {saveError}
-          </span>
-        )}
       </div>
 
-      {/* Delete confirmation. */}
+      {/* Whole-material delete confirmation. */}
       <Dialog
         isOpen={confirmDeleteOpen}
         title={messages.deleteTitle}
@@ -281,46 +253,107 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   )
 }
 
-// One "Parameter Group.0N" box: a collapsible card with its own material-type
-// Select and, once a type is chosen, that type's parameters (grouped by their
-// catalog `group` tag). Its own open/closed state is local. `index` drives the
-// numbered title; the box hugs its content so several stack in the scroll region.
+// One "Parameter Group.0N" card: a collapsible box holding ONE material type —
+// its Select, that type's parameters (grouped by their catalog `group` tag), and
+// its own Save + Delete. The card owns its validation state; the type Select
+// locks once the card is saved (the backend keys the member by material_type_id,
+// so switching type means deleting this card and adding another).
 function ParameterGroupCard({
   group,
   typeOptions,
+  disabledTypeValues,
   materialTypes,
-  values,
   open,
   onToggle,
   onSelectType,
-  onRemove,
-  onChangeValue
+  onChangeValue,
+  onSave,
+  onDelete
 }: {
   group: MaterialParameterGroup
   typeOptions: { value: string; label: string }[]
+  // Material types already taken by the other cards — shown but not selectable.
+  disabledTypeValues: Set<string>
   materialTypes: MaterialTypeDef[]
-  values: Record<string, string>
   open: boolean
   onToggle: () => void
   onSelectType: (typeId: number | null) => void
-  onRemove: () => void
   onChangeValue: (property: string, value: string) => void
+  onSave: () => void
+  onDelete: () => void
 }): React.JSX.Element {
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
   const parameterGroups = type ? resolveParameterGroups([type]) : []
-  // Gap-filled number stored on the group at creation (like Ground.NNN).
   const title = messages.parameterGroupTitle(group.number)
+
+  // Field-validation state, scoped to this card. `touched` gates the errors so
+  // they only appear after interaction; `guardErrors` holds the transient
+  // per-keystroke rejections (non-numeric / >7 decimals) that never reach the
+  // value and clear on blur. Mirrors the Geometry form.
+  const [touched, setTouched] = React.useState<Record<string, boolean>>({})
+  const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
+
+  const handleFieldChange = (
+    property: string,
+    next: string,
+    datatype: MaterialTypeDef['properties'][number]['datatype']
+  ): void => {
+    const numeric = datatype === 'float' || datatype === 'integer'
+    if (numeric) {
+      if (!isPartialNumericInput(next) || (datatype === 'integer' && next.includes('.'))) {
+        setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
+        return
+      }
+      if (exceedsMaxDecimals(next)) {
+        setGuardErrors((g) => ({ ...g, [property]: messages.decimalLimit }))
+        return
+      }
+    }
+    if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
+    onChangeValue(property, next)
+  }
+
+  const handleFieldBlur = (property: string): void => {
+    if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
+    setTouched((t) => ({ ...t, [property]: true }))
+  }
+
+  // Save is available once a type is chosen and every field of that type is
+  // valid. It adds the type the first time and updates it afterwards.
+  const fieldsValid = isMaterialFormValid(parameterGroups, group.values)
+  const saving = group.saveStatus === 'saving'
+  const canSave = group.typeId != null && fieldsValid && !saving
+
+  const onDeleteClick = (): void => {
+    // A card that was never saved has nothing on the backend — drop it without
+    // asking. A saved one is a real member, so confirm first.
+    if (!group.saved) {
+      onDelete()
+      return
+    }
+    setConfirmDeleteOpen(true)
+  }
 
   return (
     <div className="flex shrink-0 flex-col rounded-[5px] border border-app-border">
-      <div className="flex items-center justify-between px-3 pb-1 pt-2">
+      {/* The whole header row is the expand/collapse target — the chevron alone is
+          a tiny hit area, and the bare text next to it showed a text (I-beam)
+          cursor. The nested buttons stop propagation so they don't also toggle. */}
+      <div
+        onClick={onToggle}
+        className="flex cursor-pointer select-none items-center justify-between px-3 pb-1 pt-2"
+      >
         <span className="flex items-center gap-2 text-[13px] font-normal leading-[15px] text-neutral-200">
           {title}
           <button
             type="button"
             aria-label={`Remove ${title}`}
-            onClick={onRemove}
-            className="flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:bg-neutral-700/50 hover:text-neutral-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDeleteClick()
+            }}
+            className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-neutral-400 hover:bg-neutral-700/50 hover:text-neutral-100"
           >
             <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
@@ -329,8 +362,13 @@ function ParameterGroupCard({
           type="button"
           aria-expanded={open}
           aria-label={`Toggle ${title}`}
-          onClick={onToggle}
-          className="mr-1 flex h-5 w-5 items-center justify-center"
+          onClick={(e) => {
+            // The header already toggles; without this the click would toggle
+            // twice (button + header) and appear to do nothing.
+            e.stopPropagation()
+            onToggle()
+          }}
+          className="mr-1 flex h-5 w-5 cursor-pointer items-center justify-center"
         >
           <img
             src={chevronDown}
@@ -349,6 +387,10 @@ function ParameterGroupCard({
             value={group.typeId == null ? '' : String(group.typeId)}
             placeholder={messages.selectPlaceholder}
             ariaLabel={title}
+            // Locked once saved: the group keys this member by its material type.
+            disabled={group.saved}
+            // A type already used by another card can't be picked again.
+            disabledValues={disabledTypeValues}
             onChange={(v) => onSelectType(v === '' ? null : Number(v))}
           />
 
@@ -356,48 +398,111 @@ function ParameterGroupCard({
           {parameterGroups.map((pg) => (
             <div key={pg.group} className="flex flex-col gap-2">
               <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">{pg.label}</p>
-              {pg.fields.map((field) => (
-                <FormField
-                  key={field.property}
-                  labelProps={{ label: field.label, optional: true, helpText: field.description }}
-                  inputProps={{
-                    name: `${group.id}-${field.property}`,
-                    value: values[field.property] ?? '',
-                    placeholder: field.label,
-                    inputClassName: 'bg-[#121212]',
-                    options:
-                      field.datatype === 'enum' && field.enumValues
-                        ? field.enumValues.map((v) => ({ value: v, label: v }))
-                        : undefined,
-                    onChange: (e) => onChangeValue(field.property, e.target.value),
-                    onBlur: () => {}
-                  }}
-                />
-              ))}
+              {pg.fields.map((field) => {
+                const value = group.values[field.property] ?? ''
+                const guard = guardErrors[field.property]
+                const error =
+                  guard != null
+                    ? guard
+                    : touched[field.property] === true || value !== ''
+                      ? (validateMaterialFieldValue(field, value) ?? undefined)
+                      : undefined
+                return (
+                  <FormField
+                    key={field.property}
+                    labelProps={{ label: field.label, optional: true, helpText: field.description }}
+                    inputProps={{
+                      name: `${group.id}-${field.property}`,
+                      value,
+                      placeholder: field.label,
+                      error,
+                      inputClassName: 'bg-[#121212]',
+                      options:
+                        field.datatype === 'enum' && field.enumValues
+                          ? field.enumValues.map((v) => ({ value: v, label: v }))
+                          : undefined,
+                      onChange: (e) =>
+                        handleFieldChange(field.property, e.target.value, field.datatype),
+                      onBlur: () => handleFieldBlur(field.property)
+                    }}
+                  />
+                )
+              })}
             </div>
           ))}
+
+          {/* This card's own Save — adds its material type to the material the
+              first time, updates it after that. */}
+          <button
+            type="button"
+            disabled={!canSave}
+            onClick={onSave}
+            className="flex h-[38px] w-full items-center justify-center gap-1 rounded border border-app-border bg-blue-600 px-2.5 py-[5px] text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-[#424242] disabled:bg-[#2A2A2A] disabled:text-[#6B6B6B]"
+          >
+            {saving ? messages.savingParameterGroup : messages.saveParameterGroup}
+          </button>
+          {group.saveError && (
+            <span className="form-error-text" style={{ color: '#D92D20' }}>
+              {group.saveError}
+            </span>
+          )}
         </div>
       )}
+
+      {/* Removing a SAVED material type from the material — confirm first. */}
+      <Dialog
+        isOpen={confirmDeleteOpen}
+        title={messages.deleteTitle}
+        onClose={() => setConfirmDeleteOpen(false)}
+      >
+        <h3 className="text-base font-medium text-white">
+          {messages.deleteHeading(type?.materialtype ?? title)}
+        </h3>
+        <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteOpen(false)}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.deleteCancel}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmDeleteOpen(false)
+              onDelete()
+            }}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+          >
+            {messages.deleteConfirm}
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }
 
 // A searchable material-type picker: type to filter the catalog options, click
 // (or Enter) to select. Replaces the native <select> so the long material-type
-// list is filterable, matching the mockup. Controlled by the group's typeId (via
-// value/onChange); local state only tracks the typed query, the open state, and
-// the keyboard highlight.
+// list is filterable. Controlled by the card's typeId; local state only tracks
+// the typed query, the open state, and the keyboard highlight.
 function MaterialTypeSelect({
   options,
   value,
   placeholder,
   ariaLabel,
+  disabled = false,
+  disabledValues,
   onChange
 }: {
   options: { value: string; label: string }[]
   value: string
   placeholder: string
   ariaLabel: string
+  disabled?: boolean
+  // Option values that are present but not selectable (already used elsewhere).
+  disabledValues?: Set<string>
   onChange: (value: string) => void
 }): React.JSX.Element {
   const selected = options.find((o) => o.value === value) ?? null
@@ -405,6 +510,7 @@ function MaterialTypeSelect({
   const [open, setOpen] = React.useState(false)
   const [highlight, setHighlight] = React.useState(0)
   const rootRef = React.useRef<HTMLDivElement>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
   const listId = React.useId()
 
   // Close the dropdown on an outside click.
@@ -420,6 +526,7 @@ function MaterialTypeSelect({
   // Open from a closed state with a fresh (empty) query, so the full list shows;
   // no-op if already open, so clicking to reposition the caret keeps the text.
   const openList = (): void => {
+    if (disabled) return
     if (!open) {
       setOpen(true)
       setQuery('')
@@ -427,27 +534,52 @@ function MaterialTypeSelect({
     }
   }
 
+  // The chevron is a real toggle: it both opens AND closes the list. (The input
+  // itself only ever opens, so that clicking into the text to reposition the
+  // caret doesn't dismiss the list mid-typing.) Opening also focuses the input so
+  // the user can type to filter, since the chevron suppresses the focus itself.
+  const toggleList = (): void => {
+    if (disabled) return
+    if (open) {
+      setOpen(false)
+    } else {
+      openList()
+      inputRef.current?.focus()
+    }
+  }
+
   const q = query.trim().toLowerCase()
-  // Empty query (just opened) shows the full list; once the user types, filter
-  // the options by case-insensitive substring.
   const filtered = q === '' ? options : options.filter((o) => o.label.toLowerCase().includes(q))
 
+  const isTaken = (opt: { value: string }): boolean => disabledValues?.has(opt.value) ?? false
+  // Every option is spoken for — nothing left to add to this material.
+  const allTaken = filtered.length > 0 && filtered.every(isTaken)
+
   const commit = (opt: { value: string; label: string }): void => {
+    if (isTaken(opt)) return
     onChange(opt.value)
     setOpen(false)
+  }
+
+  // Arrow keys walk past the taken options rather than landing on them.
+  const nextSelectable = (from: number, step: 1 | -1): number => {
+    for (let i = from; i >= 0 && i < filtered.length; i += step) {
+      if (!isTaken(filtered[i])) return i
+    }
+    return highlight
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setOpen(true)
-      setHighlight((h) => Math.min(h + 1, filtered.length - 1))
+      setHighlight((h) => nextSelectable(Math.min(h + 1, filtered.length - 1), 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setHighlight((h) => Math.max(h - 1, 0))
+      setHighlight((h) => nextSelectable(Math.max(h - 1, 0), -1))
     } else if (e.key === 'Enter') {
       const opt = filtered[highlight]
-      if (open && opt) {
+      if (open && opt && !isTaken(opt)) {
         e.preventDefault()
         commit(opt)
       }
@@ -459,12 +591,14 @@ function MaterialTypeSelect({
   return (
     <div ref={rootRef} className="relative mt-1">
       <input
+        ref={inputRef}
         type="text"
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}
         aria-autocomplete="list"
         aria-label={ariaLabel}
+        disabled={disabled}
         value={open ? query : (selected?.label ?? '')}
         placeholder={placeholder}
         onChange={(e) => {
@@ -475,34 +609,67 @@ function MaterialTypeSelect({
         onFocus={openList}
         onClick={openList}
         onKeyDown={onKeyDown}
-        className="h-9 w-full rounded border border-app-border bg-[#121212] px-3 pr-9 text-sm text-white outline-none focus:border-neutral-500"
+        className="h-9 w-full rounded border border-app-border bg-[#121212] px-3 pr-9 text-sm text-white outline-none focus:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-60"
       />
-      <img
-        src={chevronDown}
-        alt=""
+      {/* The chevron is its own button, not an overlay image: as a bare image it
+          sat on top of the text input, so it showed the input's text (I-beam)
+          cursor and its click fell through to the input — which only ever opens
+          the list. As a button it toggles, and shows the pointer cursor. */}
+      <button
+        type="button"
+        tabIndex={-1}
         aria-hidden="true"
-        className="pointer-events-none absolute right-3 top-1/2 h-1.5 w-auto transition-transform duration-150"
-        style={{ transform: open ? 'translateY(-50%) rotate(180deg)' : 'translateY(-50%)' }}
-      />
+        disabled={disabled}
+        // Keep the click from blurring/refocusing the input, which would
+        // re-open the list via onFocus right after we closed it.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={toggleList}
+        className="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center disabled:cursor-not-allowed"
+      >
+        <img
+          src={chevronDown}
+          alt=""
+          aria-hidden="true"
+          className="h-1.5 w-auto transition-transform duration-150"
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+        />
+      </button>
       {open && filtered.length > 0 && (
         <div
           id={listId}
           className="scrollbar-custom-thin absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded border border-app-border bg-[#121212] py-1 shadow-lg"
         >
-          {filtered.map((opt, i) => (
-            <button
-              key={opt.value}
-              type="button"
-              aria-current={opt.value === value}
-              onMouseEnter={() => setHighlight(i)}
-              onClick={() => commit(opt)}
-              className={`flex w-full items-center px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-700/50 ${
-                i === highlight ? 'bg-neutral-700/50' : ''
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+          {/* Every remaining type is already on this material — say so rather than
+              showing a list where nothing can be picked. */}
+          {allTaken && (
+            <p className="px-3 py-2 text-sm text-neutral-500">{messages.allTypesAdded}</p>
+          )}
+          {filtered.map((opt, i) => {
+            // Already used by another parameter group: still listed (so the user
+            // can see it exists) but greyed out and unselectable.
+            const taken = isTaken(opt)
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={taken}
+                aria-current={opt.value === value}
+                onMouseEnter={() => {
+                  if (!taken) setHighlight(i)
+                }}
+                onClick={() => commit(opt)}
+                className={`flex w-full items-center px-3 py-2 text-left text-sm ${
+                  taken
+                    ? 'cursor-not-allowed text-neutral-600'
+                    : `text-neutral-200 hover:bg-neutral-700/50 ${
+                        i === highlight ? 'bg-neutral-700/50' : ''
+                      }`
+                }`}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

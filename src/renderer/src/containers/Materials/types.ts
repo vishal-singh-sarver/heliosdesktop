@@ -1,6 +1,6 @@
 // Domain types — imported by both actions.ts and reducer.ts to avoid circular deps.
 
-// Visualisation preview (the colour swatch the list shows). Mirrors the §7.2
+// Visualisation preview (the colour swatch the list shows). Mirrors the group
 // list response's `preview` block.
 export interface MaterialPreview {
   colorR: number
@@ -9,12 +9,10 @@ export interface MaterialPreview {
   textureFile: string | null
 }
 
-// One material in the project library (§7). Persisted materials come from
-// GET .../library and carry a backend integer `id` (kept as a string here).
-// `visible` is a client-only viewport-visibility flag driving the eye icon (the
-// backend has no material-visibility concept). `local` marks an unsaved row
-// added via +Add before the create-form flow exists — it vanishes on the next
-// list refresh (it was never persisted).
+// One material (backend GROUP) in the library. Every row is persisted — a
+// material is created on the backend the moment +Add Materials is clicked, so
+// there are no client-only placeholder rows. `visible` is a client-only viewport
+// flag driving the eye icon (the backend has no material-visibility concept).
 export interface Material {
   id: string
   name: string
@@ -23,57 +21,64 @@ export interface Material {
   preview: MaterialPreview | null
   createdAt: string
   visible: boolean
-  local: boolean
 }
 
-// One "Parameter Group.0N" block in the material Properties form: a material
-// type chosen from that group's Select, rendered as its catalog properties. The
-// `id` is a stable, per-draft key (for React keys and targeted updates), not a
-// catalog id.
+// Property values in the native JSON types the backend expects — numbers for
+// float/integer, booleans for boolean, strings for enum/date/time/file. A
+// mistyped value (e.g. the string "55" for a numeric property) is rejected with
+// DATATYPE_MISMATCH, so conversion happens before every add/update call.
+export type MaterialPropertyValues = Record<string, string | number | boolean>
+
+// One "Parameter Group.0N" card in the material Properties form: ONE material
+// type plus the property values entered for it. Each card saves itself —
+// `saved` decides whether Save adds the type to the group (POST) or updates it
+// (PATCH), and whether Delete removes it on the backend or just drops the card.
 export interface MaterialParameterGroup {
+  // Stable client key (React keys + targeted updates), not a catalog id.
   id: number
   // The display number in the "Parameter Group.0N" title, assigned at creation
   // via the lowest-free-N (gap-filling) rule — the same scheme as Geometry's
-  // Ground.NNN / Material.NNN, so removing a group frees its number for reuse.
+  // Ground.NNN, so removing a card frees its number for reuse.
   number: number
-  // The catalog material type picked in this group's Select (e.g. Radiation=1);
-  // null until the user chooses one.
+  // The catalog material type picked in this card's Select (e.g. Radiation=1);
+  // null until the user chooses one. Locked once the card is saved (the backend
+  // keys the member by material_type_id).
   typeId: number | null
+  // This card's own property values, keyed by catalog property name. Per-card
+  // (not shared across the draft) so two types exposing the same property don't
+  // overwrite each other, and so each card has its own save payload.
+  values: Record<string, string>
+  // Has this material type been persisted onto the group? POST on first save,
+  // PATCH afterwards.
+  saved: boolean
+  saveStatus: 'idle' | 'saving' | 'error'
+  saveError: string | null
 }
 
-// One member of a Create-Group request: a material type plus the property
-// values the user entered for it. Mirrors the backend `GroupMaterialIn`
-// (POST /api/materials/library/groups → `materials[]`).
-export interface MaterialMemberInput {
+// One member of a fetched group (GET /library/groups/{id}): a material type and
+// the property values stored for it, as strings ready for the form inputs.
+export interface MaterialGroupMemberDetail {
   materialTypeId: number
   properties: Record<string, string>
 }
 
-// Payload for persisting the right-panel draft as a global material GROUP
-// (POST /api/materials/library/groups). `projectId`/`scenarioId` are creation
-// provenance only — groups are global, not scoped to a project.
-export interface SaveMaterialInput {
-  projectId: string
-  scenarioId: string | null
+// A fetched group's full detail — populates the right-panel Properties form when
+// a saved material row is opened.
+export interface MaterialGroupDetail {
+  id: string
   name: string
-  materials: MaterialMemberInput[]
+  members: MaterialGroupMemberDetail[]
 }
 
-// Right-panel material Properties draft — the ONE material open in the
-// properties form (mirrors Geometry's CreateDraft). +Add Materials opens this;
-// it's local-only for now (Save Material is disabled until the create-form flow
-// §7.1 lands), so the draft just holds the parameter groups the user has added
-// and the per-property values they've entered.
+// Right-panel material Properties draft — the ONE material open in the form. The
+// material always exists on the backend (created empty by +Add Materials), so the
+// draft carries its real `groupId`; the cards are then added/updated/removed
+// against it one at a time.
 export interface MaterialDraft {
-  // The (client-only) material row this draft edits — `local-<name>`.
-  materialId: string
+  groupId: string
   name: string
-  // The "Parameter Group.0N" blocks, in add order. "+ Add Material Type" appends
-  // a new empty one; each renders its chosen type's properties.
+  // The "Parameter Group.0N" cards, in add order.
   groups: MaterialParameterGroup[]
-  // Monotonic id source for new groups (so ids stay stable as groups are added
-  // and removed).
+  // Monotonic id source for new cards (so ids stay stable as cards come and go).
   nextGroupId: number
-  // Per-property values the user has entered, keyed by catalog property name.
-  values: Record<string, string>
 }

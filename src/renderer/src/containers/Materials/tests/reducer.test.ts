@@ -1,6 +1,6 @@
 import * as actions from '../actions'
 import materialsReducer, { initialState } from '../reducer'
-import type { Material } from '../types'
+import type { Material, MaterialGroupDetail } from '../types'
 
 const make = (id: string, name: string): Material => ({
   id,
@@ -9,8 +9,7 @@ const make = (id: string, name: string): Material => ({
   materialType: 'Radiation',
   preview: { colorR: 90, colorG: 200, colorB: 90, textureFile: null },
   createdAt: '2026-06-23T06:41:16Z',
-  visible: true,
-  local: false
+  visible: true
 })
 
 describe('materialsReducer', () => {
@@ -20,7 +19,7 @@ describe('materialsReducer', () => {
 
   it('LIST_MATERIALS_REQUESTED sets loading and clears error', () => {
     const state = { ...initialState, loadError: 'prev' }
-    const result = materialsReducer(state, actions.listMaterialsRequested('p1'))
+    const result = materialsReducer(state, actions.listMaterialsRequested())
     expect(result.loadStatus).toBe('loading')
     expect(result.loadError).toBeNull()
   })
@@ -35,37 +34,138 @@ describe('materialsReducer', () => {
     expect(result.byId['11'].name).toBe('GMaterial.002')
   })
 
-  it('LIST_MATERIALS_SUCCEEDED drops unsaved local rows', () => {
-    const withLocal = materialsReducer(initialState, actions.addLocalMaterial('Material.001'))
-    const result = materialsReducer(withLocal, actions.listMaterialsSucceeded([make('9', 'Grass')]))
-    expect(result.order).toEqual(['9'])
-    expect(result.byId['local-Material.001']).toBeUndefined()
-  })
-
   it('LIST_MATERIALS_FAILED records the error', () => {
     const result = materialsReducer(initialState, actions.listMaterialsFailed('bad'))
     expect(result.loadStatus).toBe('error')
     expect(result.loadError).toBe('bad')
   })
 
-  it('ADD_LOCAL_MATERIAL prepends a local row and selects it', () => {
-    const start = materialsReducer(initialState, actions.listMaterialsSucceeded([make('9', 'Grass')]))
-    const result = materialsReducer(start, actions.addLocalMaterial('Material.001'))
-    expect(result.order).toEqual(['local-Material.001', '9'])
-    expect(result.byId['local-Material.001'].local).toBe(true)
-    expect(result.selectedId).toBe('local-Material.001')
+  it('CREATE_MATERIAL_SUCCEEDED opens the new empty group with one blank card', () => {
+    const result = materialsReducer(
+      { ...initialState, createStatus: 'creating' },
+      actions.createMaterialSucceeded('12', 'Material.001')
+    )
+    expect(result.createStatus).toBe('idle')
+    expect(result.selectedId).toBe('12')
+    expect(result.editDraft).toEqual({
+      groupId: '12',
+      name: 'Material.001',
+      groups: [
+        { id: 1, number: 1, typeId: null, values: {}, saved: false, saveStatus: 'idle', saveError: null }
+      ],
+      nextGroupId: 2
+    })
+    expect(result.editDraftNonce).toBe(1)
   })
 
-  it('REMOVE_MATERIAL drops the material and clears selection', () => {
+  it('CREATE_MATERIAL_SUCCEEDED inserts the row at the top without a list refetch', () => {
+    const start = materialsReducer(initialState, actions.listMaterialsSucceeded([make('9', 'Old')]))
+    const result = materialsReducer(start, actions.createMaterialSucceeded('12', 'Material.001'))
+    // Newest-first, straight from the create response.
+    expect(result.order).toEqual(['12', '9'])
+    expect(result.byId['12'].name).toBe('Material.001')
+  })
+
+  it('CREATE_MATERIAL_SUCCEEDED seeds the cache (a new group is empty, so no GET needed)', () => {
+    const result = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+    expect(result.detailsById['12']).toEqual({ id: '12', name: 'Mat', members: [] })
+  })
+
+  it('CREATE_MATERIAL_FAILED records the error', () => {
+    const result = materialsReducer(initialState, actions.createMaterialFailed('boom'))
+    expect(result.createStatus).toBe('error')
+    expect(result.createError).toBe('boom')
+  })
+
+  it('OPEN_SAVED_MATERIAL_LOADED builds one saved card per member', () => {
+    const detail: MaterialGroupDetail = {
+      id: '7',
+      name: 'Default Stomatal',
+      members: [
+        { materialTypeId: 6, properties: { air_humidity: '0.5' } },
+        { materialTypeId: 1, properties: {} }
+      ]
+    }
+    const result = materialsReducer(initialState, actions.openSavedMaterialLoaded(detail))
+    expect(result.editDraft?.groupId).toBe('7')
+    expect(result.editDraft?.groups).toHaveLength(2)
+    // Every member is already persisted, so its card saves via PATCH.
+    expect(result.editDraft?.groups.every((g) => g.saved)).toBe(true)
+    expect(result.editDraft?.groups[0].typeId).toBe(6)
+    expect(result.editDraft?.groups[0].values).toEqual({ air_humidity: '0.5' })
+    expect(result.editDraft?.nextGroupId).toBe(3)
+  })
+
+  describe('group-detail cache', () => {
+    const detail: MaterialGroupDetail = {
+      id: '7',
+      name: 'Default Stomatal',
+      members: [{ materialTypeId: 6, properties: { air_humidity: '0.5' } }]
+    }
+    const cached = materialsReducer(initialState, actions.openSavedMaterialLoaded(detail))
+
+    it('OPEN_SAVED_MATERIAL_LOADED caches the detail (so a re-click skips the GET)', () => {
+      expect(cached.detailsById['7']).toEqual(detail)
+    })
+
+    it('LIST_MATERIALS_SUCCEEDED invalidates the cache (a refresh refetches)', () => {
+      const result = materialsReducer(cached, actions.listMaterialsSucceeded([make('7', 'X')]))
+      expect(result.detailsById).toEqual({})
+    })
+
+    it('REMOVE_MATERIAL drops that material from the cache', () => {
+      const result = materialsReducer(cached, actions.removeMaterial('7'))
+      expect(result.detailsById['7']).toBeUndefined()
+    })
+
+    it('saving a parameter group REFRESHES the cache with the saved values (no refetch)', () => {
+      // A material open with one card, already saved, holding an edited value.
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 6))
+      const edited = materialsReducer(
+        typed,
+        actions.setParameterGroupValue(1, 'air_humidity', '0.9')
+      )
+      const result = materialsReducer(edited, actions.saveParameterGroupSucceeded(1))
+
+      // The cache now holds what we just persisted — so re-opening shows 0.9
+      // without another GET (this is the "your edit disappears" bug, prevented).
+      expect(result.detailsById['12']).toEqual({
+        id: '12',
+        name: 'Mat',
+        members: [{ materialTypeId: 6, properties: { air_humidity: '0.9' } }]
+      })
+    })
+
+    it('removing a parameter group rewrites the cache without that member', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 6))
+      const saved = materialsReducer(typed, actions.saveParameterGroupSucceeded(1))
+      expect(saved.detailsById['12'].members).toHaveLength(1)
+
+      const result = materialsReducer(saved, actions.removeParameterGroup(1))
+      // The removed member is gone from the cache — it can't "come back".
+      expect(result.detailsById['12'].members).toEqual([])
+    })
+
+    it('RENAME_MATERIAL_SUCCEEDED keeps the cache but updates the name', () => {
+      const result = materialsReducer(cached, actions.renameMaterialSucceeded('7', 'Renamed'))
+      expect(result.detailsById['7'].name).toBe('Renamed')
+      expect(result.detailsById['7'].members).toEqual(detail.members)
+    })
+  })
+
+  it('REMOVE_MATERIAL drops the material, clears selection and closes its form', () => {
     const start = materialsReducer(
       initialState,
       actions.listMaterialsSucceeded([make('11', 'A'), make('10', 'B')])
     )
-    const selected = materialsReducer(start, actions.selectMaterial('11'))
-    const result = materialsReducer(selected, actions.removeMaterial('11'))
+    const opened = materialsReducer(start, actions.createMaterialSucceeded('11', 'A'))
+    const result = materialsReducer(opened, actions.removeMaterial('11'))
     expect(result.order).toEqual(['10'])
     expect(result.byId['11']).toBeUndefined()
     expect(result.selectedId).toBeNull()
+    expect(result.editDraft).toBeNull()
   })
 
   it('RENAME_MATERIAL_SUCCEEDED updates the name and clears its error', () => {
@@ -102,8 +202,63 @@ describe('materialsReducer', () => {
     expect(materialsReducer(initialState, actions.setSearchQuery('foo')).searchQuery).toBe('foo')
   })
 
+  describe('parameter-group cards', () => {
+    // A draft with a single blank card (as +Add Materials leaves it).
+    const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+
+    it('ADD_PARAMETER_GROUP appends another blank card', () => {
+      const result = materialsReducer(opened, actions.addParameterGroup())
+      expect(result.editDraft?.groups).toHaveLength(2)
+      expect(result.editDraft?.groups[1]).toMatchObject({ id: 2, number: 2, typeId: null, saved: false })
+    })
+
+    it('SET_PARAMETER_GROUP_TYPE sets the type and clears stale values', () => {
+      const withValue = materialsReducer(opened, actions.setParameterGroupValue(1, 'old_prop', '5'))
+      const result = materialsReducer(withValue, actions.setParameterGroupType(1, 2))
+      expect(result.editDraft?.groups[0].typeId).toBe(2)
+      expect(result.editDraft?.groups[0].values).toEqual({})
+    })
+
+    it('SET_PARAMETER_GROUP_VALUE writes into that card only', () => {
+      const twoCards = materialsReducer(opened, actions.addParameterGroup())
+      const result = materialsReducer(twoCards, actions.setParameterGroupValue(1, 'reflectivity', '0.4'))
+      expect(result.editDraft?.groups[0].values).toEqual({ reflectivity: '0.4' })
+      expect(result.editDraft?.groups[1].values).toEqual({})
+    })
+
+    it('SAVE_PARAMETER_GROUP_SUCCEEDED marks the card saved (so it PATCHes next)', () => {
+      const saving = materialsReducer(
+        opened,
+        actions.saveParameterGroupRequested({
+          groupId: '12',
+          cardId: 1,
+          materialTypeId: 1,
+          properties: {},
+          saved: false,
+          scenarioId: null
+        })
+      )
+      expect(saving.editDraft?.groups[0].saveStatus).toBe('saving')
+      const result = materialsReducer(saving, actions.saveParameterGroupSucceeded(1))
+      expect(result.editDraft?.groups[0].saved).toBe(true)
+      expect(result.editDraft?.groups[0].saveStatus).toBe('idle')
+    })
+
+    it('SAVE_PARAMETER_GROUP_FAILED records the error on that card', () => {
+      const result = materialsReducer(opened, actions.saveParameterGroupFailed(1, 'boom'))
+      expect(result.editDraft?.groups[0].saveStatus).toBe('error')
+      expect(result.editDraft?.groups[0].saveError).toBe('boom')
+    })
+
+    it('REMOVE_PARAMETER_GROUP drops the card', () => {
+      const twoCards = materialsReducer(opened, actions.addParameterGroup())
+      const result = materialsReducer(twoCards, actions.removeParameterGroup(1))
+      expect(result.editDraft?.groups.map((g) => g.id)).toEqual([2])
+    })
+  })
+
   it('does not mutate the original state', () => {
-    materialsReducer(initialState, actions.addLocalMaterial('Material.001'))
+    materialsReducer(initialState, actions.listMaterialsSucceeded([make('9', 'Grass')]))
     expect(initialState.order).toHaveLength(0)
   })
 })

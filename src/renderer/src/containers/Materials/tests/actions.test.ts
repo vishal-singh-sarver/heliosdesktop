@@ -1,11 +1,12 @@
 import * as actions from '../actions'
 import {
-  ADD_LOCAL_MATERIAL,
+  CREATE_MATERIAL_REQUESTED,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
   REMOVE_MATERIAL,
   SELECT_MATERIAL,
+  SET_PARAMETER_GROUP_VALUE,
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
 } from '../constants'
@@ -18,16 +19,12 @@ const material: Material = {
   materialType: 'Radiation',
   preview: { colorR: 90, colorG: 200, colorB: 90, textureFile: null },
   createdAt: '2026-06-23T06:41:16Z',
-  visible: true,
-  local: false
+  visible: true
 }
 
 describe('Materials actions', () => {
-  it('listMaterialsRequested carries the projectId', () => {
-    expect(actions.listMaterialsRequested('p1')).toEqual({
-      type: LIST_MATERIALS_REQUESTED,
-      projectId: 'p1'
-    })
+  it('listMaterialsRequested takes no scope (the library is global)', () => {
+    expect(actions.listMaterialsRequested()).toEqual({ type: LIST_MATERIALS_REQUESTED })
   })
 
   it('listMaterialsSucceeded carries the list', () => {
@@ -44,10 +41,19 @@ describe('Materials actions', () => {
     })
   })
 
-  it('addLocalMaterial carries the name', () => {
-    expect(actions.addLocalMaterial('Material.001')).toEqual({
-      type: ADD_LOCAL_MATERIAL,
+  it('createMaterialRequested carries only the name (materials are global)', () => {
+    expect(actions.createMaterialRequested('Material.001')).toEqual({
+      type: CREATE_MATERIAL_REQUESTED,
       name: 'Material.001'
+    })
+  })
+
+  it('setParameterGroupValue targets one card', () => {
+    expect(actions.setParameterGroupValue(1, 'reflectivity', '0.4')).toEqual({
+      type: SET_PARAMETER_GROUP_VALUE,
+      groupId: 1,
+      property: 'reflectivity',
+      value: '0.4'
     })
   })
 

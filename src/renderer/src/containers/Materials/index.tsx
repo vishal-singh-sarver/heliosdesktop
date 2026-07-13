@@ -2,23 +2,19 @@ import addIcon from '@renderer/assets/add.svg'
 import searchIcon from '@renderer/assets/search.svg'
 import SearchBar from '@renderer/components/SearchBar'
 import ToolbarButton from '@renderer/components/ToolbarButton'
-import { selectActiveProjectId } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import {
-  addLocalMaterial,
-  listMaterialsRequested,
-  openMaterialDraft,
-  setSearchQuery
-} from './actions'
+import { createMaterialRequested, listMaterialsRequested, setSearchQuery } from './actions'
 import MaterialRow from './MaterialRow'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
 import {
+  selectCreateError,
+  selectCreateStatus,
   selectLoadError,
   selectLoadStatus,
   selectMaterialNamesLower,
@@ -39,7 +35,6 @@ export function Materials(): React.JSX.Element {
   useInjectSaga({ key: 'materials', saga })
 
   const dispatch = useDispatch()
-  const projectId = useSelector(selectActiveProjectId)
   const materials = useSelector(selectVisibleMaterials)
   const selectedId = useSelector(selectSelectedId)
   const nextName = useSelector(selectNextMaterialName)
@@ -48,21 +43,26 @@ export function Materials(): React.JSX.Element {
   const loadError = useSelector(selectLoadError)
   const namesLower = useSelector(selectMaterialNamesLower)
   const nameErrors = useSelector(selectNameErrors)
+  const createStatus = useSelector(selectCreateStatus)
+  const createError = useSelector(selectCreateError)
 
-  // Load the persisted library whenever the active project changes. We dispatch
-  // and let the saga own the fetch (never call the service from a component).
+  // The material library is GLOBAL — it isn't scoped to a project or scenario, so
+  // it loads once when the section mounts rather than per active project. We
+  // dispatch and let the saga own the fetch (never call the service from a
+  // component).
   React.useEffect(() => {
-    if (projectId) dispatch(listMaterialsRequested(projectId))
-  }, [projectId, dispatch])
+    dispatch(listMaterialsRequested())
+  }, [dispatch])
 
-  // +Add Materials appends a client-only Material.NNN placeholder (not persisted
-  // until the create-form flow saves it) AND opens it in the right-panel
-  // Properties form (openMaterialDraft edits the same `local-<name>` row and
-  // bumps the nonce the RightPanel watches to auto-expand). Mirrors Geometry's
-  // +Ground, which likewise creates the object and opens its Properties form.
+  // +Add Materials creates the material on the backend straight away as an EMPTY
+  // group (POST /library/groups), named with the next free Material.NNN (the same
+  // gap-filling scheme as Geometry's Ground.NNN). The saga opens the returned
+  // group in the right-panel Properties form, where each parameter group is then
+  // saved onto it. Mirrors Geometry's +Ground, which likewise creates the object
+  // and opens its Properties form.
   const onAddMaterials = (): void => {
-    dispatch(addLocalMaterial(nextName))
-    dispatch(openMaterialDraft(nextName))
+    if (createStatus === 'creating') return
+    dispatch(createMaterialRequested(nextName))
   }
 
   const onSearchChange = (value: string): void => {
@@ -108,6 +108,12 @@ export function Materials(): React.JSX.Element {
         </span>
       )}
 
+      {createStatus === 'error' && (
+        <span className="form-error-text px-1" style={{ color: '#F04438' }}>
+          {createError ?? messages.createError}
+        </span>
+      )}
+
       <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1">
         {showEmpty ? (
           <p className="px-1 py-2 text-[13px] text-neutral-500">
@@ -123,7 +129,6 @@ export function Materials(): React.JSX.Element {
               key={material.id}
               material={material}
               selected={material.id === selectedId}
-              projectId={projectId}
               existingNames={namesLower}
               nameError={nameErrors[material.id]}
             />

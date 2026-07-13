@@ -1,12 +1,22 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
-import type { Material, SaveMaterialInput } from './types'
+import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
 // The single seam between the Materials sagas and the backend — sagas import
 // only this module, never `api` directly.
+//
+// A material IS a global group. It is created EMPTY (createGroup) and then built
+// up one material type at a time: addGroupMaterial / updateGroupMaterial /
+// removeGroupMaterial, each keyed by material_type_id.
 
-// GET /api/materials/library/groups list-item shape. `preview` is the single
-// colour swatch the backend derives from the group's precedence-winning member.
+// The mutating group calls take the active scenario so the backend reconciles +
+// repaints it. Appended as a query param only when there is one.
+function withScenario(path: string, scenarioId: string | null): string {
+  return scenarioId ? `${path}?scenario_id=${encodeURIComponent(scenarioId)}` : path
+}
+
+// ── List ─────────────────────────────────────────────────────────────────────
+
 interface WirePreview {
   color_r: number
   color_g: number
@@ -25,9 +35,9 @@ interface ListGroupsResponse {
   groups: WireGroupListItem[]
 }
 
-// A group renders as one Saved Materials row. The list keeps the app's existing
-// single-type Material shape by taking the group's first member for the
-// (currently unused) type fields; the array of types lives on the wire only.
+// A group renders as one Saved Materials row. The row shows the name (and later
+// the preview swatch); the type fields take the group's first member, since a
+// group can hold several types.
 function groupToMaterial(g: WireGroupListItem): Material {
   return {
     id: String(g.id),
@@ -43,13 +53,11 @@ function groupToMaterial(g: WireGroupListItem): Material {
         }
       : null,
     createdAt: g.created_at,
-    visible: true,
-    local: false
+    visible: true
   }
 }
 
-// GET /api/materials/library/groups — the GLOBAL material-group library,
-// newest-first (the backend orders by created_at descending). Called on app
+// GET /library/groups — the GLOBAL material library, newest-first. Called on app
 // open / project change.
 export function listMaterials(): Promise<Material[]> {
   return api
@@ -57,28 +65,120 @@ export function listMaterials(): Promise<Material[]> {
     .then((res) => (res.groups ?? []).map(groupToMaterial))
 }
 
-// POST /api/materials/library/groups — persist the right-panel draft as one
-// named group (Save Material). The response (the created group) is ignored; the
-// saga refreshes the list afterwards.
-export function createGroup(input: SaveMaterialInput): Promise<void> {
+// ── The material (group) itself ───────────────────────────────────────────────
+
+// The create response carries the new group; tolerate both `{group:{id}}` and a
+// bare `{id}` shape.
+interface CreateGroupResponse {
+  group?: { id: number }
+  id?: number
+}
+
+// POST /library/groups — create the material as an EMPTY group (name only) and
+// return its id. The parameter-group cards are added onto it afterwards.
+// Materials are GLOBAL: a group belongs to no project and no scenario, so the
+// body carries nothing but the name.
+export function createGroup(name: string): Promise<string> {
   return api
-    .post(API_ROUTES.materials.groupsCreate(), {
-      name: input.name,
-      project_id: input.projectId,
-      scenario_id: input.scenarioId,
-      materials: input.materials.map((m) => ({
-        material_type_id: m.materialTypeId,
-        properties: m.properties
-      }))
+    .post<CreateGroupResponse>(API_ROUTES.materials.groupsCreate(), { name })
+    .then((res) => String(res.group?.id ?? res.id))
+}
+
+interface WireGroupMember {
+  material_id: number
+  material_type_id: number
+  material_type: string | null
+  properties: Record<string, unknown>
+}
+interface GetGroupResponse {
+  group: {
+    id: number
+    name: string
+    materials: WireGroupMember[]
+  }
+}
+
+// Stored values come back natively (number / boolean / string / null); the form
+// inputs are strings. An unset property becomes '' and is dropped.
+function valueToString(value: unknown): string {
+  return value == null ? '' : String(value)
+}
+
+// GET /library/groups/{id} — one group's members + values, to populate the form.
+export function getGroup(groupId: string): Promise<MaterialGroupDetail> {
+  return api.get<GetGroupResponse>(API_ROUTES.materials.groupsGet(groupId)).then((res) => ({
+    id: String(res.group.id),
+    name: res.group.name,
+    members: (res.group.materials ?? []).map((m) => {
+      const properties: Record<string, string> = {}
+      for (const [key, value] of Object.entries(m.properties ?? {})) {
+        const str = valueToString(value)
+        if (str !== '') properties[key] = str
+      }
+      return { materialTypeId: m.material_type_id, properties }
+    })
+  }))
+}
+
+// PUT /library/groups/{id} — update the group (used to rename the material).
+export function renameGroup(
+  groupId: string,
+  name: string,
+  scenarioId: string | null
+): Promise<void> {
+  return api
+    .put(withScenario(API_ROUTES.materials.groupsUpdate(groupId), scenarioId), { name })
+    .then(() => undefined)
+}
+
+// DELETE /library/groups/{id} — remove the material and all its members.
+export function deleteGroup(groupId: string, scenarioId: string | null): Promise<void> {
+  return api
+    .delete(withScenario(API_ROUTES.materials.groupsDelete(groupId), scenarioId))
+    .then(() => undefined)
+}
+
+// ── One parameter group (= one material type on the group) ───────────────────
+
+// POST /library/groups/{id}/materials — add a material type + its properties.
+// The first save of a parameter-group card.
+export function addGroupMaterial(
+  groupId: string,
+  materialTypeId: number,
+  properties: MaterialPropertyValues,
+  scenarioId: string | null
+): Promise<void> {
+  return api
+    .post(withScenario(API_ROUTES.materials.groupMaterials(groupId), scenarioId), {
+      material_type_id: materialTypeId,
+      properties
     })
     .then(() => undefined)
 }
 
-// PATCH .../library/{id}/rename (§7.5). The backend enforces the ≤20-char +
-// unique-name rules (200-no-ops an unchanged name). The response is ignored —
-// the slice already knows the new name.
-export function renameMaterial(projectId: string, materialId: string, name: string): Promise<void> {
+// PATCH /library/groups/{id}/materials/{typeId} — update the properties of a
+// material type already on the group. Every save after the first.
+export function updateGroupMaterial(
+  groupId: string,
+  materialTypeId: number,
+  properties: MaterialPropertyValues,
+  scenarioId: string | null
+): Promise<void> {
   return api
-    .patch(API_ROUTES.materials.rename(projectId, materialId), { name })
+    .patch(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId), {
+      properties
+    })
+    .then(() => undefined)
+}
+
+// DELETE /library/groups/{id}/materials/{typeId} — remove one material type from
+// the group (the card's Delete, once it has been saved).
+export function removeGroupMaterial(
+  groupId: string,
+  materialTypeId: number,
+  scenarioId: string | null
+): Promise<void> {
+  return api
+    .delete(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId))
     .then(() => undefined)
 }
