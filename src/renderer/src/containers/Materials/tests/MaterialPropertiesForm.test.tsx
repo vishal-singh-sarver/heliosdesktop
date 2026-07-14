@@ -4,7 +4,12 @@ import { createStore, Reducer, UnknownAction } from 'redux'
 import { initialState as projectScreenInitialState } from 'containers/ProjectScreen/reducer'
 import { InjectableStore } from 'store/configureStore'
 import MaterialPropertiesForm from '../MaterialPropertiesForm'
-import { initialState as materialsInitialState } from '../reducer'
+import type { MaterialsAction } from '../actions'
+import { RENAME_MATERIAL_REQUESTED } from '../constants'
+import materialsReducer, {
+  initialState as materialsInitialState,
+  type MaterialsState
+} from '../reducer'
 import type { MaterialParameterGroup } from '../types'
 
 const card = (id: number, over: Partial<MaterialParameterGroup> = {}): MaterialParameterGroup => ({
@@ -41,6 +46,41 @@ const storeWith = (groups: MaterialParameterGroup[]): InjectableStore => {
       toPromise: () => Promise.resolve()
     }) as any
   store.createReducer = () => ((s = state) => s) as Reducer<unknown, UnknownAction>
+  return store
+}
+
+// The same open draft, but running the REAL materials reducer — so dispatches from
+// the form (e.g. + Add Material Type) actually change the state the form renders
+// from. `storeWith` above freezes the state, which can't show a card being added.
+const liveStoreWith = (groups: MaterialParameterGroup[]): InjectableStore => {
+  type TestState = {
+    materials: MaterialsState
+    projectScreen: typeof projectScreenInitialState
+  }
+  const preloaded: TestState = {
+    materials: {
+      ...materialsInitialState,
+      editDraft: { groupId: '12', name: 'Material.001', groups, nextGroupId: groups.length + 1 },
+      editDraftNonce: 1
+    },
+    projectScreen: projectScreenInitialState
+  }
+  const root = ((s: TestState = preloaded, action: UnknownAction): TestState => ({
+    ...s,
+    materials: materialsReducer(s.materials, action as MaterialsAction)
+  })) as Reducer<unknown, UnknownAction>
+
+  const store = createStore(root) as InjectableStore
+  store.injectedReducers = {}
+  store.injectedSagas = {}
+  store.runSaga = () =>
+    ({
+      cancel: () => {},
+      error: () => {},
+      result: () => {},
+      toPromise: () => Promise.resolve()
+    }) as any
+  store.createReducer = () => root
   return store
 }
 
@@ -110,5 +150,71 @@ describe('<MaterialPropertiesForm /> parameter-group card', () => {
     const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
     fireEvent.click(screen.getByRole('button', { name: 'Remove Parameter Group.01' }))
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('<MaterialPropertiesForm /> + Add Material Type', () => {
+  it('opens the new card and scrolls to it, leaving the open ones alone', () => {
+    const scrollIntoView = vi.fn()
+    // jsdom has no layout, so scrollIntoView isn't implemented there.
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    render(
+      <Provider store={liveStoreWith([card(1)])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const first = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    expect(first).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Material Type' }))
+
+    // The card that was already open STAYS open — adding a second one used to
+    // collapse it.
+    expect(first).toHaveAttribute('aria-expanded', 'true')
+    const second = screen.getByRole('button', { name: 'Toggle Parameter Group.02' })
+    expect(second).toHaveAttribute('aria-expanded', 'true')
+    // …and the new card is brought into view, since it can land below the fold.
+    expect(scrollIntoView).toHaveBeenCalled()
+  })
+})
+
+describe('<MaterialPropertiesForm /> material name', () => {
+  const renameTypes = (dispatch: { mock: { calls: unknown[][] } }): string[] =>
+    dispatch.mock.calls
+      .map((c) => (c[0] as { type?: string }).type)
+      .filter((t): t is string => t === RENAME_MATERIAL_REQUESTED)
+
+  it('does not rename when the read-only field is only tabbed through', () => {
+    const store = storeWith([card(1)])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Tabbing across the panel focuses the read-only name and blurs it again. That
+    // used to fire the rename PATCH on every pass.
+    fireEvent.focus(screen.getByLabelText('Material name'))
+    fireEvent.blur(screen.getByLabelText('Material name'))
+    expect(renameTypes(dispatch)).toEqual([])
+  })
+
+  it('does not rename when an unlocked name is left unchanged', () => {
+    const store = storeWith([card(1)])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The pencil unlocks the field, but clicking away without editing is not a
+    // rename — the name is identical.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
+    fireEvent.blur(screen.getByLabelText('Material name'))
+    expect(renameTypes(dispatch)).toEqual([])
   })
 })

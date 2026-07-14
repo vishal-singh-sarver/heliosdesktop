@@ -53,8 +53,10 @@ export const SET_PARAMETER_GROUP_VALUE = 'app/Materials/SET_PARAMETER_GROUP_VALU
 
 // A card's own Save button: POST /groups/{id}/materials the first time, then
 // PATCH /groups/{id}/materials/{typeId} on every later save.
-export const SAVE_PARAMETER_GROUP_REQUESTED = 'app/Materials/SAVE_PARAMETER_GROUP_REQUESTED' as const
-export const SAVE_PARAMETER_GROUP_SUCCEEDED = 'app/Materials/SAVE_PARAMETER_GROUP_SUCCEEDED' as const
+export const SAVE_PARAMETER_GROUP_REQUESTED =
+  'app/Materials/SAVE_PARAMETER_GROUP_REQUESTED' as const
+export const SAVE_PARAMETER_GROUP_SUCCEEDED =
+  'app/Materials/SAVE_PARAMETER_GROUP_SUCCEEDED' as const
 export const SAVE_PARAMETER_GROUP_FAILED = 'app/Materials/SAVE_PARAMETER_GROUP_FAILED' as const
 
 // A card's Delete: DELETE /groups/{id}/materials/{typeId} when it was saved,

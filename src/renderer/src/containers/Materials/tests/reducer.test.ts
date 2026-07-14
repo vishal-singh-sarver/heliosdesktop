@@ -51,7 +51,15 @@ describe('materialsReducer', () => {
       groupId: '12',
       name: 'Material.001',
       groups: [
-        { id: 1, number: 1, typeId: null, values: {}, saved: false, saveStatus: 'idle', saveError: null }
+        {
+          id: 1,
+          number: 1,
+          typeId: null,
+          values: {},
+          saved: false,
+          saveStatus: 'idle',
+          saveError: null
+        }
       ],
       nextGroupId: 2
     })
@@ -94,6 +102,88 @@ describe('materialsReducer', () => {
     expect(result.editDraft?.groups[0].typeId).toBe(6)
     expect(result.editDraft?.groups[0].values).toEqual({ air_humidity: '0.5' })
     expect(result.editDraft?.nextGroupId).toBe(3)
+  })
+
+  it('OPEN_SAVED_MATERIAL_LOADED seeds a blank card when the group has no members', () => {
+    const detail: MaterialGroupDetail = { id: '7', name: 'Material.001', members: [] }
+    const result = materialsReducer(initialState, actions.openSavedMaterialLoaded(detail))
+    // Without a card there is no material-type Select to start from, so the form
+    // opens with the same blank card +Add Materials gives a new material.
+    expect(result.editDraft?.groups).toHaveLength(1)
+    expect(result.editDraft?.groups[0]).toMatchObject({
+      id: 1,
+      number: 1,
+      typeId: null,
+      saved: false
+    })
+    expect(result.editDraft?.nextGroupId).toBe(2)
+    // The seeded card is client-only — it must not appear as a member in the cache.
+    expect(result.detailsById['7'].members).toEqual([])
+  })
+
+  describe('unsaved parameter groups survive a material switch', () => {
+    const detailA: MaterialGroupDetail = {
+      id: '7',
+      name: 'A',
+      members: [{ materialTypeId: 6, properties: { air_humidity: '0.5' } }]
+    }
+    const detailB: MaterialGroupDetail = { id: '8', name: 'B', members: [] }
+
+    // Open A (one saved member), add a card, pick a type and type a value into it —
+    // then switch to B and back to A.
+    const opened = materialsReducer(initialState, actions.openSavedMaterialLoaded(detailA))
+    const added = materialsReducer(opened, actions.addParameterGroup())
+    const typed = materialsReducer(added, actions.setParameterGroupType(2, 1))
+    const filled = materialsReducer(typed, actions.setParameterGroupValue(2, 'emissivity', '0.9'))
+    const away = materialsReducer(filled, actions.openSavedMaterialLoaded(detailB))
+    const back = materialsReducer(away, actions.openSavedMaterialLoaded(detailA))
+
+    it('stashes the unsaved card when another material takes over the form', () => {
+      expect(away.editDraft?.groupId).toBe('8')
+      expect(away.unsavedById['7']).toHaveLength(1)
+      expect(away.unsavedById['7'][0]).toMatchObject({ typeId: 1, values: { emissivity: '0.9' } })
+    })
+
+    it('restores it — with its type and values — after the saved members', () => {
+      expect(back.editDraft?.groups).toHaveLength(2)
+      expect(back.editDraft?.groups[0]).toMatchObject({ typeId: 6, saved: true })
+      expect(back.editDraft?.groups[1]).toMatchObject({
+        number: 2,
+        typeId: 1,
+        values: { emissivity: '0.9' },
+        saved: false
+      })
+      expect(back.editDraft?.nextGroupId).toBe(3)
+    })
+
+    it('keeps it out of the cached detail (the backend has no such member)', () => {
+      expect(back.detailsById['7'].members).toEqual(detailA.members)
+    })
+
+    it('CLOSE_MATERIAL_DRAFT stashes rather than discards', () => {
+      const closed = materialsReducer(filled, actions.closeMaterialDraft())
+      expect(closed.editDraft).toBeNull()
+      expect(closed.unsavedById['7']).toHaveLength(1)
+    })
+
+    it('drops a stashed card whose material type was saved in the meantime', () => {
+      // A came back from the backend with the stashed card's type (1) now a member.
+      const withMember: MaterialGroupDetail = {
+        id: '7',
+        name: 'A',
+        members: [...detailA.members, { materialTypeId: 1, properties: { emissivity: '0.9' } }]
+      }
+      const result = materialsReducer(away, actions.openSavedMaterialLoaded(withMember))
+      // Two saved cards, and no duplicate of type 1 — a type can only be in the
+      // group once.
+      expect(result.editDraft?.groups).toHaveLength(2)
+      expect(result.editDraft?.groups.every((g) => g.saved)).toBe(true)
+    })
+
+    it('REMOVE_MATERIAL discards the stash (there is nothing to come back to)', () => {
+      const result = materialsReducer(away, actions.removeMaterial('7'))
+      expect(result.unsavedById['7']).toBeUndefined()
+    })
   })
 
   describe('group-detail cache', () => {
@@ -209,7 +299,12 @@ describe('materialsReducer', () => {
     it('ADD_PARAMETER_GROUP appends another blank card', () => {
       const result = materialsReducer(opened, actions.addParameterGroup())
       expect(result.editDraft?.groups).toHaveLength(2)
-      expect(result.editDraft?.groups[1]).toMatchObject({ id: 2, number: 2, typeId: null, saved: false })
+      expect(result.editDraft?.groups[1]).toMatchObject({
+        id: 2,
+        number: 2,
+        typeId: null,
+        saved: false
+      })
     })
 
     it('SET_PARAMETER_GROUP_TYPE sets the type and clears stale values', () => {
@@ -221,7 +316,10 @@ describe('materialsReducer', () => {
 
     it('SET_PARAMETER_GROUP_VALUE writes into that card only', () => {
       const twoCards = materialsReducer(opened, actions.addParameterGroup())
-      const result = materialsReducer(twoCards, actions.setParameterGroupValue(1, 'reflectivity', '0.4'))
+      const result = materialsReducer(
+        twoCards,
+        actions.setParameterGroupValue(1, 'reflectivity', '0.4')
+      )
       expect(result.editDraft?.groups[0].values).toEqual({ reflectivity: '0.4' })
       expect(result.editDraft?.groups[1].values).toEqual({})
     })

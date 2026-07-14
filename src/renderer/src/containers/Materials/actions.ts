@@ -318,9 +318,10 @@ export const setParameterGroupValue = (
 export const saveParameterGroupRequested = (
   input: SaveParameterGroupInput
 ): SaveParameterGroupRequestedAction => ({ type: SAVE_PARAMETER_GROUP_REQUESTED, payload: input })
-export const saveParameterGroupSucceeded = (
-  cardId: number
-): SaveParameterGroupSucceededAction => ({ type: SAVE_PARAMETER_GROUP_SUCCEEDED, cardId })
+export const saveParameterGroupSucceeded = (cardId: number): SaveParameterGroupSucceededAction => ({
+  type: SAVE_PARAMETER_GROUP_SUCCEEDED,
+  cardId
+})
 export const saveParameterGroupFailed = (
   cardId: number,
   error: string

@@ -127,7 +127,7 @@ export function renameGroup(
   scenarioId: string | null
 ): Promise<void> {
   return api
-    .put(withScenario(API_ROUTES.materials.groupsUpdate(groupId), scenarioId), { name })
+    .patch(withScenario(API_ROUTES.materials.renameGroup(groupId), scenarioId), { name })
     .then(() => undefined)
 }
 

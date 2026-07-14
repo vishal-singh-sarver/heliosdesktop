@@ -117,6 +117,8 @@ export const API_ROUTES = {
     groupsCreate: () => `/api/materials/library/groups`,
     // GET one group's full members + property values (to open in the right panel).
     groupsGet: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // PATCH — rename a material group (used for inline renames in panels).
+    renameGroup: (groupId: string) => `/api/materials/library/groups/${groupId}/rename`,
     // PUT — update the group itself (used for renaming the material).
     groupsUpdate: (groupId: string) => `/api/materials/library/groups/${groupId}`,
     // DELETE the whole material (group + all its members).

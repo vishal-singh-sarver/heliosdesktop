@@ -4,7 +4,9 @@ import { createStore, Reducer, UnknownAction } from 'redux'
 import { InjectableStore } from 'store/configureStore'
 import { Materials } from '../index'
 
-const mockStore = createStore(((state = {}) => state) as Reducer<unknown, UnknownAction>) as InjectableStore
+const mockStore = createStore(
+  ((state = {}) => state) as Reducer<unknown, UnknownAction>
+) as InjectableStore
 mockStore.injectedReducers = {}
 mockStore.injectedSagas = {}
 mockStore.runSaga = () =>

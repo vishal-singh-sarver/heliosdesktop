@@ -24,7 +24,12 @@ interface IconButtonProps {
 }
 
 // Small square icon button matching the Geometry row affordances.
-function IconButton({ label, children, active = false, onClick }: IconButtonProps): React.JSX.Element {
+function IconButton({
+  label,
+  children,
+  active = false,
+  onClick
+}: IconButtonProps): React.JSX.Element {
   return (
     <button
       type="button"
@@ -178,7 +183,9 @@ export default function MaterialRow({
         title={messages.deleteTitle}
         onClose={() => setConfirmDeleteOpen(false)}
       >
-        <h3 className="text-base font-medium text-white">{messages.deleteHeading(material.name)}</h3>
+        <h3 className="text-base font-medium text-white">
+          {messages.deleteHeading(material.name)}
+        </h3>
         <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
         <div className="flex justify-end gap-2 pt-2">
           <button

@@ -87,7 +87,10 @@ export function resolveParameterGroups(types: MaterialTypeDef[]): ResolvedParame
 // enum / boolean / file / date / time are chosen from controls that can't
 // produce an invalid value, so they always pass. Every material property is
 // optional, so an empty value is never an error.
-export function validateMaterialFieldValue(field: ResolvedMaterialField, raw: string): string | null {
+export function validateMaterialFieldValue(
+  field: ResolvedMaterialField,
+  raw: string
+): string | null {
   if (field.datatype !== 'float' && field.datatype !== 'integer') return null
   const trimmed = raw.trim()
   if (trimmed === '') return null

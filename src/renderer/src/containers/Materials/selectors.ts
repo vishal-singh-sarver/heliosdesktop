@@ -61,10 +61,7 @@ export const selectMaterialDraftNonce = createSelector(
 
 // Cached group details, by group id. The open-material saga reads this first so a
 // material that was already fetched reopens without a second GET.
-export const selectMaterialDetailsById = createSelector(
-  selectMaterialsDomain,
-  (s) => s.detailsById
-)
+export const selectMaterialDetailsById = createSelector(selectMaterialsDomain, (s) => s.detailsById)
 
 // +Add Materials (create-empty-group) status + error, consumed by the left panel.
 export const selectCreateStatus = createSelector(selectMaterialsDomain, (s) => s.createStatus)

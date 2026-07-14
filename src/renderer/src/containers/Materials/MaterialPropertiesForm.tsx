@@ -4,10 +4,7 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
-import {
-  selectActiveScenarioId,
-  selectAllMaterialTypes
-} from 'containers/ProjectScreen/selectors'
+import { selectActiveScenarioId, selectAllMaterialTypes } from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
@@ -68,7 +65,17 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const [openGroupIds, setOpenGroupIds] = React.useState<Set<number>>(
     () => new Set(draft.groups.map((g) => g.id))
   )
+  // The card the + just created — outlined and scrolled to, then cleared.
+  const [newCardId, setNewCardId] = React.useState<number | null>(null)
   const nameInputRef = React.useRef<HTMLInputElement>(null)
+  // The name as it stands on the backend, captured when the pencil unlocks the
+  // field — blur compares against it so an untouched name is not re-sent.
+  const nameBeforeEdit = React.useRef(draft.name)
+
+  const startNameEdit = (): void => {
+    nameBeforeEdit.current = draft.name
+    setNameEditing(true)
+  }
 
   const toggleGroup = (id: number): void => {
     setOpenGroupIds((prev) => {
@@ -79,11 +86,30 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     })
   }
 
+  // Each card holds one material type, and a type can appear at most once in the
+  // material — so there is no room for more cards than the catalog has types: an
+  // extra one could never be given a type. An empty catalog means it hasn't loaded
+  // yet, which is not a limit of zero.
+  const atTypeLimit = materialTypes.length > 0 && draft.groups.length >= materialTypes.length
+
   const onAddGroup = (): void => {
+    if (atTypeLimit) return
     const newId = draft.nextGroupId
     dispatch(addParameterGroup())
-    setOpenGroupIds(new Set([newId]))
+    // Open the new card WITHOUT collapsing the others — a card the user expanded
+    // is work in progress, and adding a second one shouldn't hide it.
+    setOpenGroupIds((prev) => new Set(prev).add(newId))
+    setNewCardId(newId)
   }
+
+  // The new card is scrolled into view and outlined for a moment, so it's obvious
+  // which one just appeared — it can otherwise land below the fold of the scrolling
+  // card list. The cue is transient: it fades once it has been noticed.
+  React.useEffect(() => {
+    if (newCardId == null) return undefined
+    const timer = window.setTimeout(() => setNewCardId(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [newCardId])
 
   // Focus the name field the moment the pencil unlocks it.
   React.useEffect(() => {
@@ -99,9 +125,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   // stays selectable so it keeps showing as the current value.
   const typesUsedByOtherCards = (cardId: number): Set<string> =>
     new Set(
-      draft.groups
-        .filter((g) => g.id !== cardId && g.typeId != null)
-        .map((g) => String(g.typeId))
+      draft.groups.filter((g) => g.id !== cardId && g.typeId != null).map((g) => String(g.typeId))
     )
 
   const handleNameChange = (next: string): void => {
@@ -109,9 +133,21 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   }
 
   const handleNameBlur = (): void => {
+    // The field stays focusable while read-only, so it is blurred just by tabbing
+    // through the panel — that is not a rename, and firing the PATCH on it hit the
+    // API on every pass. Only a field the pencil actually unlocked can rename, and
+    // only when the name really changed.
+    if (!nameEditing) return
     setNameEditing(false)
     const next = draft.name.trim()
-    if (next !== '') dispatch(renameMaterialRequested(draft.groupId, next, scenarioId))
+    // A blank name isn't a rename either — put the old one back rather than
+    // leaving the header empty.
+    if (next === '') {
+      dispatch(setMaterialDraftName(nameBeforeEdit.current))
+      return
+    }
+    if (next === nameBeforeEdit.current) return
+    dispatch(renameMaterialRequested(draft.groupId, next, scenarioId))
   }
 
   // The header trash — deletes the whole material (group + every member).
@@ -153,11 +189,11 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   }
 
   return (
-    // Full-height column: a static name header, the Parameter Groups box that
-    // fills the space and scrolls its own cards, and a static footer.
+    // Full-height column: a static name header over the Parameter Groups box,
+    // which fills the rest of the space and scrolls its own cards.
     <div className="flex h-full flex-col gap-2.5">
-      {/* Header: material name with a pencil (unlock to rename) and a trash
-          (delete the whole material). */}
+      {/* Header: material name with a + (add a Parameter Group), a pencil (unlock
+          to rename) and a trash (delete the whole material). */}
       <div className="flex shrink-0 items-center gap-1">
         <input
           ref={nameInputRef}
@@ -165,16 +201,36 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
           value={draft.name}
           readOnly={!nameEditing}
           onChange={(e) => handleNameChange(e.target.value)}
-          onDoubleClick={() => setNameEditing(true)}
+          onDoubleClick={startNameEdit}
           onBlur={handleNameBlur}
           className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none ${
             !nameEditing ? 'cursor-default ' : ''
           }${nameEditing ? 'border-neutral-500' : 'border-transparent hover:border-app-border'}`}
         />
+        {/* + Adds another Parameter Group card — the same action the footer button
+            used to carry, now sitting with the material's other row actions. It
+            stops once there is a card per catalog material type. */}
+        <button
+          type="button"
+          aria-label={messages.addMaterialType}
+          title={atTypeLimit ? messages.allTypesAdded : messages.addMaterialType}
+          onClick={onAddGroup}
+          disabled={atTypeLimit}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          {/* add.svg is a dark plus (meant for light buttons) — force it white so
+              it reads on the panel's dark background, like the toolbar does. */}
+          <img
+            src={addIcon}
+            alt=""
+            aria-hidden="true"
+            className="h-4 w-4 [filter:brightness(0)_invert(1)]"
+          />
+        </button>
         <button
           type="button"
           aria-label="Edit name"
-          onClick={() => setNameEditing(true)}
+          onClick={startNameEdit}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50"
         >
           <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
@@ -200,6 +256,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             disabledTypeValues={typesUsedByOtherCards(group.id)}
             materialTypes={materialTypes}
             open={openGroupIds.has(group.id)}
+            highlighted={group.id === newCardId}
             onToggle={() => toggleGroup(group.id)}
             onSelectType={(typeId) => dispatch(setParameterGroupType(group.id, typeId))}
             onChangeValue={(property, value) =>
@@ -209,19 +266,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             onDelete={() => handleDeleteGroup(group)}
           />
         ))}
-      </div>
-
-      {/* Footer — pinned to the bottom: +Add Material Type appends another card.
-          There is no whole-material Save: each card saves itself. */}
-      <div className="flex shrink-0 flex-col gap-2.5">
-        <button
-          type="button"
-          onClick={onAddGroup}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded border border-app-border bg-white text-sm font-medium text-black hover:opacity-90"
-        >
-          <img src={addIcon} alt="" aria-hidden="true" className="h-4 w-4 [filter:brightness(0)]" />
-          {messages.addMaterialType}
-        </button>
       </div>
 
       {/* Whole-material delete confirmation. */}
@@ -264,6 +308,7 @@ function ParameterGroupCard({
   disabledTypeValues,
   materialTypes,
   open,
+  highlighted,
   onToggle,
   onSelectType,
   onChangeValue,
@@ -276,6 +321,8 @@ function ParameterGroupCard({
   disabledTypeValues: Set<string>
   materialTypes: MaterialTypeDef[]
   open: boolean
+  // Just created by the + — outline it and bring it into view.
+  highlighted: boolean
   onToggle: () => void
   onSelectType: (typeId: number | null) => void
   onChangeValue: (property: string, value: string) => void
@@ -293,6 +340,15 @@ function ParameterGroupCard({
   const [touched, setTouched] = React.useState<Record<string, boolean>>({})
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
+
+  // Bring a freshly added card into view — with the other cards left open, it can
+  // be added below the fold of the scrolling list. `block: 'nearest'` scrolls the
+  // card list only as far as it must, and never the page behind it.
+  const cardRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    if (!highlighted) return
+    cardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+  }, [highlighted])
 
   const handleFieldChange = (
     property: string,
@@ -336,7 +392,12 @@ function ParameterGroupCard({
   }
 
   return (
-    <div className="flex shrink-0 flex-col rounded-[5px] border border-app-border">
+    <div
+      ref={cardRef}
+      className={`flex shrink-0 flex-col rounded-[5px] border transition-colors duration-500 ${
+        highlighted ? 'border-blue-500 bg-blue-500/5' : 'border-app-border'
+      }`}
+    >
       {/* The whole header row is the expand/collapse target — the chevron alone is
           a tiny hit area, and the bare text next to it showed a text (I-beam)
           cursor. The nested buttons stop propagation so they don't also toggle. */}
@@ -380,74 +441,84 @@ function ParameterGroupCard({
         </button>
       </div>
 
-      {open && (
-        <div className="flex flex-col gap-2.5 px-3 pb-2.5">
-          <MaterialTypeSelect
-            options={typeOptions}
-            value={group.typeId == null ? '' : String(group.typeId)}
-            placeholder={messages.selectPlaceholder}
-            ariaLabel={title}
-            // Locked once saved: the group keys this member by its material type.
-            disabled={group.saved}
-            // A type already used by another card can't be picked again.
-            disabledValues={disabledTypeValues}
-            onChange={(v) => onSelectType(v === '' ? null : Number(v))}
-          />
+      {/* The material-type box stays put whether the card is open or collapsed —
+          collapsed, it is the only thing saying WHICH type this card holds (it
+          reads as the type's name where an untouched card reads "Select").
+          Collapsing hides just that type's parameters and its Save. */}
+      <div className="flex flex-col gap-2.5 px-3 pb-2.5">
+        <MaterialTypeSelect
+          options={typeOptions}
+          value={group.typeId == null ? '' : String(group.typeId)}
+          placeholder={messages.selectPlaceholder}
+          ariaLabel={title}
+          // Locked once saved: the group keys this member by its material type.
+          disabled={group.saved}
+          // A type already used by another card can't be picked again.
+          disabledValues={disabledTypeValues}
+          onChange={(v) => onSelectType(v === '' ? null : Number(v))}
+        />
 
-          {/* The chosen type's parameters, grouped by their catalog `group` tag. */}
-          {parameterGroups.map((pg) => (
-            <div key={pg.group} className="flex flex-col gap-2">
-              <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">{pg.label}</p>
-              {pg.fields.map((field) => {
-                const value = group.values[field.property] ?? ''
-                const guard = guardErrors[field.property]
-                const error =
-                  guard != null
-                    ? guard
-                    : touched[field.property] === true || value !== ''
-                      ? (validateMaterialFieldValue(field, value) ?? undefined)
-                      : undefined
-                return (
-                  <FormField
-                    key={field.property}
-                    labelProps={{ label: field.label, optional: true, helpText: field.description }}
-                    inputProps={{
-                      name: `${group.id}-${field.property}`,
-                      value,
-                      placeholder: field.label,
-                      error,
-                      inputClassName: 'bg-[#121212]',
-                      options:
-                        field.datatype === 'enum' && field.enumValues
-                          ? field.enumValues.map((v) => ({ value: v, label: v }))
-                          : undefined,
-                      onChange: (e) =>
-                        handleFieldChange(field.property, e.target.value, field.datatype),
-                      onBlur: () => handleFieldBlur(field.property)
-                    }}
-                  />
-                )
-              })}
-            </div>
-          ))}
+        {open && (
+          <>
+            {/* The chosen type's parameters, grouped by their catalog `group` tag. */}
+            {parameterGroups.map((pg) => (
+              <div key={pg.group} className="flex flex-col gap-2">
+                <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">{pg.label}</p>
+                {pg.fields.map((field) => {
+                  const value = group.values[field.property] ?? ''
+                  const guard = guardErrors[field.property]
+                  const error =
+                    guard != null
+                      ? guard
+                      : touched[field.property] === true || value !== ''
+                        ? (validateMaterialFieldValue(field, value) ?? undefined)
+                        : undefined
+                  return (
+                    <FormField
+                      key={field.property}
+                      labelProps={{
+                        label: field.label,
+                        optional: true,
+                        helpText: field.description
+                      }}
+                      inputProps={{
+                        name: `${group.id}-${field.property}`,
+                        value,
+                        placeholder: field.label,
+                        error,
+                        inputClassName: 'bg-[#121212]',
+                        options:
+                          field.datatype === 'enum' && field.enumValues
+                            ? field.enumValues.map((v) => ({ value: v, label: v }))
+                            : undefined,
+                        onChange: (e) =>
+                          handleFieldChange(field.property, e.target.value, field.datatype),
+                        onBlur: () => handleFieldBlur(field.property)
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            ))}
 
-          {/* This card's own Save — adds its material type to the material the
-              first time, updates it after that. */}
-          <button
-            type="button"
-            disabled={!canSave}
-            onClick={onSave}
-            className="flex h-[38px] w-full items-center justify-center gap-1 rounded border border-app-border bg-blue-600 px-2.5 py-[5px] text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-[#424242] disabled:bg-[#2A2A2A] disabled:text-[#6B6B6B]"
-          >
-            {saving ? messages.savingParameterGroup : messages.saveParameterGroup}
-          </button>
-          {group.saveError && (
-            <span className="form-error-text" style={{ color: '#D92D20' }}>
-              {group.saveError}
-            </span>
-          )}
-        </div>
-      )}
+            {/* This card's own Save — adds its material type to the material the
+                first time, updates it after that. */}
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={onSave}
+              className="flex h-[38px] w-full items-center justify-center gap-1 rounded border border-app-border bg-blue-600 px-2.5 py-[5px] text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-[#424242] disabled:bg-[#2A2A2A] disabled:text-[#6B6B6B]"
+            >
+              {saving ? messages.savingParameterGroup : messages.saveParameterGroup}
+            </button>
+            {group.saveError && (
+              <span className="form-error-text" style={{ color: '#D92D20' }}>
+                {group.saveError}
+              </span>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Removing a SAVED material type from the material — confirm first. */}
       <Dialog
