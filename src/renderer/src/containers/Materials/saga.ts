@@ -14,12 +14,15 @@ import {
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_REQUESTED,
   OPEN_SAVED_MATERIAL_REQUESTED,
+  RECORD_RECENT_COLOR,
   RENAME_MATERIAL_REQUESTED,
   SAVE_PARAMETER_GROUP_REQUESTED
 } from './constants'
-import { selectMaterialDetailsById } from './selectors'
+import { saveRecentColors } from './recentColors'
+import { selectMaterialDetailsById, selectRecentColors } from './selectors'
 import * as service from './service'
-import type { Material, MaterialGroupDetail } from './types'
+import type { RgbColor } from 'utils/color'
+import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
 // Loads the GLOBAL material-group library. takeLatest cancels a stale load if a
 // newer request arrives (e.g. the active project changes mid-request).
@@ -108,9 +111,31 @@ export function* saveParameterGroupWorker(action: SaveParameterGroupRequestedAct
       yield call(service.addGroupMaterial, groupId, materialTypeId, properties, scenarioId)
     }
     yield put(actions.saveParameterGroupSucceeded(cardId))
+    // A committed visualisation colour joins the "Used colors" history. Keyed on
+    // the payload carrying all three channels (a colour-only save), so a plain
+    // model-type save records nothing.
+    const color = colorFromProperties(properties)
+    if (color) yield put(actions.recordRecentColor(color))
   } catch (err) {
     yield put(actions.saveParameterGroupFailed(cardId, (err as Error).message))
   }
+}
+
+// Pull an {r,g,b} out of a save payload when it carries all three colour
+// channels as numbers — otherwise null (nothing to record).
+function colorFromProperties(properties: MaterialPropertyValues): RgbColor | null {
+  const { color_r: r, color_g: g, color_b: b } = properties
+  if (typeof r === 'number' && typeof g === 'number' && typeof b === 'number') {
+    return { r, g, b }
+  }
+  return null
+}
+
+// Mirror the (already-updated) "Used colors" list to localStorage after each
+// record — the reducer holds the source of truth; this only persists it.
+export function* persistRecentColorsWorker(): Generator {
+  const colors = (yield select(selectRecentColors)) as RgbColor[]
+  yield call(saveRecentColors, colors)
 }
 
 // One parameter-group card's Delete. A card that was never saved (or has no type
@@ -140,4 +165,5 @@ export default function* materialsSaga(): Generator {
   yield takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
   yield takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)
   yield takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
+  yield takeEvery(RECORD_RECENT_COLOR, persistRecentColorsWorker)
 }

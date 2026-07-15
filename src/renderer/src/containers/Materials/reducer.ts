@@ -11,6 +11,7 @@ import {
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
   OPEN_SAVED_MATERIAL_LOADED,
+  RECORD_RECENT_COLOR,
   REMOVE_MATERIAL,
   REMOVE_PARAMETER_GROUP,
   RENAME_MATERIAL_FAILED,
@@ -27,6 +28,8 @@ import {
   TOGGLE_MATERIAL_VISIBILITY
 } from './constants'
 import { lowestFreeNumber } from './naming'
+import { loadRecentColors, prependRecentColor } from './recentColors'
+import type { RgbColor } from 'utils/color'
 import type { Material, MaterialDraft, MaterialGroupDetail, MaterialParameterGroup } from './types'
 
 export type { Material }
@@ -113,6 +116,9 @@ export interface MaterialsState {
   // and surfaces a create failure.
   createStatus: 'idle' | 'creating' | 'error'
   createError: string | null
+  // The visualisation colour picker's "Used colors" — a GLOBAL, most-recent-first
+  // history seeded from localStorage; a saga mirrors changes back to it.
+  recentColors: RgbColor[]
 }
 
 export const initialState: MaterialsState = {
@@ -128,7 +134,11 @@ export const initialState: MaterialsState = {
   editDraft: null,
   editDraftNonce: 0,
   createStatus: 'idle',
-  createError: null
+  createError: null,
+  // Seed the picker history from localStorage at slice creation (guarded — falls
+  // back to [] outside a browser). The selector fallback re-uses this object, so
+  // the picker still reads the persisted list before the slice mounts.
+  recentColors: loadRecentColors()
 }
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
@@ -412,6 +422,12 @@ const materialsReducer = (
         // back when the material is opened again.
         stashUnsavedCards(draft)
         draft.editDraft = null
+        break
+
+      case RECORD_RECENT_COLOR:
+        // Move the just-saved colour to the front of the history (de-duped,
+        // capped). A saga mirrors the new list to localStorage.
+        draft.recentColors = prependRecentColor(draft.recentColors, action.color)
         break
     }
   })

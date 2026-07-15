@@ -258,3 +258,115 @@ describe('<MaterialPropertiesForm /> material name', () => {
     expect(renameTypes(dispatch)).toEqual([])
   })
 })
+
+describe('<MaterialPropertiesForm /> visualisation type', () => {
+  // The "Visualizer" material type: every property is in the "visualisation"
+  // group, so its card body is the colour picker rather than plain fields.
+  const visualizer: MaterialTypeDef = {
+    id: 7,
+    materialtype: 'Visualizer',
+    description: '',
+    properties: [
+      {
+        property_type_id: 11,
+        property: 'color_r',
+        description: '',
+        datatype: 'integer',
+        min: 0,
+        max: 255,
+        display_order: 90,
+        group: 'visualisation'
+      },
+      {
+        property_type_id: 12,
+        property: 'color_g',
+        description: '',
+        datatype: 'integer',
+        min: 0,
+        max: 255,
+        display_order: 91,
+        group: 'visualisation'
+      },
+      {
+        property_type_id: 13,
+        property: 'color_b',
+        description: '',
+        datatype: 'integer',
+        min: 0,
+        max: 255,
+        display_order: 92,
+        group: 'visualisation'
+      },
+      {
+        property_type_id: 15,
+        property: 'opacity',
+        description: '',
+        datatype: 'integer',
+        min: 0,
+        max: 100,
+        display_order: 94,
+        group: 'visualisation'
+      }
+    ]
+  }
+  const radiation: MaterialTypeDef = {
+    id: 1,
+    materialtype: 'Radiation',
+    description: '',
+    properties: [
+      {
+        property_type_id: 1,
+        property: 'surface_albedo',
+        description: '',
+        datatype: 'float',
+        min: 0,
+        max: 1,
+        display_order: 1,
+        group: 'model'
+      }
+    ]
+  }
+
+  it('renders the colour picker for a visualisation-type card, not plain fields', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer, radiation])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The picker's controls are present…
+    expect(screen.getByRole('slider', { name: 'Saturation and brightness' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Custom' })).toBeInTheDocument()
+    expect(screen.getByLabelText('R')).toBeInTheDocument()
+    // …and there is no plain FormField for a raw colour channel.
+    expect(screen.queryByLabelText('Color R')).not.toBeInTheDocument()
+  })
+
+  it('writes all three colour channels when a channel field is edited', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Typing a red channel commits the whole colour (the two untouched channels
+    // fall back to the seed grey 128), so the card holds a full colour.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '200' } })
+    expect(screen.getByLabelText('R')).toHaveValue('200')
+    expect(screen.getByLabelText('G')).toHaveValue('128')
+    expect(screen.getByLabelText('B')).toHaveValue('128')
+  })
+
+  it('renders plain fields (no picker) for a model-type card', () => {
+    render(
+      <Provider store={storeWith([card(1, { typeId: 1 })])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(
+      screen.queryByRole('slider', { name: 'Saturation and brightness' })
+    ).not.toBeInTheDocument()
+  })
+})

@@ -29,6 +29,17 @@ const messages = {
   },
   selectPlaceholder: 'Select',
   addMaterialType: 'Add Material Type',
+  // Visualisation colour/texture editor (the "visualisation"-group card body).
+  visualisationCustomTab: 'Custom',
+  visualisationTextureTab: 'Select Texture',
+  visualisationTextureComingSoon: 'Texture selection is coming soon.',
+  rgbValues: 'RGB Values',
+  opacityLabel: 'Opacity',
+  usedColors: 'Used colors',
+  colorAreaLabel: 'Saturation and brightness',
+  hueSliderLabel: 'Hue',
+  opacitySliderLabel: 'Opacity',
+  usedColorSwatch: (hex: string): string => `Use colour ${hex}`,
   // Each Parameter Group card saves itself: the first save adds its material type
   // to the group, later ones update it.
   saveParameterGroup: 'Save',

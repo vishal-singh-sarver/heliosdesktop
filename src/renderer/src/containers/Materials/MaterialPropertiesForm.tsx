@@ -27,8 +27,10 @@ import {
   isMaterialFormValid,
   resolveParameterGroups,
   toNativeProperties,
-  validateMaterialFieldValue
+  validateMaterialFieldValue,
+  VISUALISATION_GROUP
 } from './materialBlueprint'
+import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
@@ -472,46 +474,58 @@ function ParameterGroupCard({
 
         {open && (
           <>
-            {/* The chosen type's parameters, grouped by their catalog `group` tag. */}
-            {parameterGroups.map((pg) => (
-              <div key={pg.group} className="flex flex-col gap-2">
-                <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">{pg.label}</p>
-                {pg.fields.map((field) => {
-                  const value = group.values[field.property] ?? ''
-                  const guard = guardErrors[field.property]
-                  const error =
-                    guard != null
-                      ? guard
-                      : touched[field.property] === true || value !== ''
-                        ? (validateMaterialFieldValue(field, value) ?? undefined)
-                        : undefined
-                  return (
-                    <FormField
-                      key={field.property}
-                      labelProps={{
-                        label: field.label,
-                        optional: true,
-                        helpText: field.description
-                      }}
-                      inputProps={{
-                        name: `${group.id}-${field.property}`,
-                        value,
-                        placeholder: field.label,
-                        error,
-                        inputClassName: 'bg-[#121212]',
-                        options:
-                          field.datatype === 'enum' && field.enumValues
-                            ? field.enumValues.map((v) => ({ value: v, label: v }))
-                            : undefined,
-                        onChange: (e) =>
-                          handleFieldChange(field.property, e.target.value, field.datatype),
-                        onBlur: () => handleFieldBlur(field.property)
-                      }}
-                    />
-                  )
-                })}
-              </div>
-            ))}
+            {/* The chosen type's parameters, grouped by their catalog `group` tag.
+                The "visualisation" group renders the colour/texture editor instead
+                of plain fields; every other group is plain FormFields. */}
+            {parameterGroups.map((pg) =>
+              pg.group === VISUALISATION_GROUP ? (
+                <MaterialVisualisationEditor
+                  key={pg.group}
+                  values={group.values}
+                  onChangeValue={onChangeValue}
+                />
+              ) : (
+                <div key={pg.group} className="flex flex-col gap-2">
+                  <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">
+                    {pg.label}
+                  </p>
+                  {pg.fields.map((field) => {
+                    const value = group.values[field.property] ?? ''
+                    const guard = guardErrors[field.property]
+                    const error =
+                      guard != null
+                        ? guard
+                        : touched[field.property] === true || value !== ''
+                          ? (validateMaterialFieldValue(field, value) ?? undefined)
+                          : undefined
+                    return (
+                      <FormField
+                        key={field.property}
+                        labelProps={{
+                          label: field.label,
+                          optional: true,
+                          helpText: field.description
+                        }}
+                        inputProps={{
+                          name: `${group.id}-${field.property}`,
+                          value,
+                          placeholder: field.label,
+                          error,
+                          inputClassName: 'bg-[#121212]',
+                          options:
+                            field.datatype === 'enum' && field.enumValues
+                              ? field.enumValues.map((v) => ({ value: v, label: v }))
+                              : undefined,
+                          onChange: (e) =>
+                            handleFieldChange(field.property, e.target.value, field.datatype),
+                          onBlur: () => handleFieldBlur(field.property)
+                        }}
+                      />
+                    )
+                  })}
+                </div>
+              )
+            )}
 
             {/* This card's own Save — adds its material type to the material the
                 first time, updates it after that. */}

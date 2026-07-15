@@ -68,3 +68,8 @@ export const DELETE_PARAMETER_GROUP_FAILED = 'app/Materials/DELETE_PARAMETER_GRO
 // Header rename input + closing the form.
 export const SET_MATERIAL_DRAFT_NAME = 'app/Materials/SET_MATERIAL_DRAFT_NAME' as const
 export const CLOSE_MATERIAL_DRAFT = 'app/Materials/CLOSE_MATERIAL_DRAFT' as const
+
+// ── "Used colors" history (visualisation colour picker) ──────────────────────
+// Record a colour the user just saved onto a material (most-recent-first, capped,
+// de-duped); a saga mirrors the resulting list to localStorage.
+export const RECORD_RECENT_COLOR = 'app/Materials/RECORD_RECENT_COLOR' as const

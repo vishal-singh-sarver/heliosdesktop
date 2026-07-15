@@ -16,6 +16,7 @@ import {
   OPEN_SAVED_MATERIAL_REQUESTED,
   REMOVE_MATERIAL,
   REMOVE_PARAMETER_GROUP,
+  RECORD_RECENT_COLOR,
   RENAME_MATERIAL_FAILED,
   RENAME_MATERIAL_REQUESTED,
   RENAME_MATERIAL_SUCCEEDED,
@@ -30,6 +31,7 @@ import {
   SET_SEARCH_QUERY,
   TOGGLE_MATERIAL_VISIBILITY
 } from './constants'
+import type { RgbColor } from 'utils/color'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
 // ── Action types ────────────────────────────────────────────────────────────
@@ -182,6 +184,10 @@ export type DeleteParameterGroupFailedAction = {
 export type SetMaterialDraftNameAction = { type: typeof SET_MATERIAL_DRAFT_NAME; name: string }
 export type CloseMaterialDraftAction = { type: typeof CLOSE_MATERIAL_DRAFT }
 
+// A colour the user just saved onto a material — prepended to the "Used colors"
+// history.
+export type RecordRecentColorAction = { type: typeof RECORD_RECENT_COLOR; color: RgbColor }
+
 export type MaterialsAction =
   | ListMaterialsRequestedAction
   | ListMaterialsSucceededAction
@@ -213,6 +219,7 @@ export type MaterialsAction =
   | DeleteParameterGroupFailedAction
   | SetMaterialDraftNameAction
   | CloseMaterialDraftAction
+  | RecordRecentColorAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -348,3 +355,8 @@ export const setMaterialDraftName = (name: string): SetMaterialDraftNameAction =
 })
 
 export const closeMaterialDraft = (): CloseMaterialDraftAction => ({ type: CLOSE_MATERIAL_DRAFT })
+
+export const recordRecentColor = (color: RgbColor): RecordRecentColorAction => ({
+  type: RECORD_RECENT_COLOR,
+  color
+})

@@ -67,6 +67,9 @@ export const selectMaterialDetailsById = createSelector(selectMaterialsDomain, (
 export const selectCreateStatus = createSelector(selectMaterialsDomain, (s) => s.createStatus)
 export const selectCreateError = createSelector(selectMaterialsDomain, (s) => s.createError)
 
+// The visualisation colour picker's "Used colors" history (most-recent-first).
+export const selectRecentColors = createSelector(selectMaterialsDomain, (s) => s.recentColors)
+
 const makeSelectMaterials = () => createSelector(selectMaterialsDomain, (s) => s)
 
 export default makeSelectMaterials

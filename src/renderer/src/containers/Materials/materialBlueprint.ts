@@ -41,6 +41,11 @@ export interface ResolvedParameterGroup {
 // Properties with no `group` tag fall under this catch-all so they still render.
 const UNGROUPED = 'General'
 
+// The catalog `group` tag whose fields (color_r/g/b, opacity, texture_file) the
+// right-panel card renders with the dedicated colour/texture editor instead of
+// plain FormFields.
+export const VISUALISATION_GROUP = 'visualisation'
+
 const toResolvedField = (def: MaterialTypeDef['properties'][number]): ResolvedMaterialField => ({
   property: def.property,
   label: humanizeProperty(def.property),

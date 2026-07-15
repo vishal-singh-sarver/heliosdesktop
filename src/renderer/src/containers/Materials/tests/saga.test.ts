@@ -6,6 +6,7 @@ import {
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_REQUESTED,
   OPEN_SAVED_MATERIAL_REQUESTED,
+  RECORD_RECENT_COLOR,
   RENAME_MATERIAL_REQUESTED,
   SAVE_PARAMETER_GROUP_REQUESTED
 } from '../constants'
@@ -15,10 +16,12 @@ import materialsSaga, {
   deleteParameterGroupWorker,
   listMaterialsWorker,
   openSavedMaterialWorker,
+  persistRecentColorsWorker,
   renameMaterialWorker,
   saveParameterGroupWorker
 } from '../saga'
-import { selectMaterialDetailsById } from '../selectors'
+import { selectMaterialDetailsById, selectRecentColors } from '../selectors'
+import { saveRecentColors } from '../recentColors'
 import * as service from '../service'
 import type { Material, MaterialGroupDetail } from '../types'
 
@@ -172,6 +175,41 @@ describe('saveParameterGroupWorker', () => {
       put(actions.saveParameterGroupFailed(1, 'DATATYPE_MISMATCH'))
     )
   })
+
+  it('records the colour when the saved payload carries all three channels', () => {
+    const gen = saveParameterGroupWorker(
+      actions.saveParameterGroupRequested({
+        ...base,
+        properties: { color_r: 10, color_g: 20, color_b: 30, opacity: 100 },
+        saved: false
+      })
+    )
+    gen.next() // add call
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded(1)))
+    // A visualisation colour save then feeds the "Used colors" history.
+    expect(gen.next().value).toEqual(put(actions.recordRecentColor({ r: 10, g: 20, b: 30 })))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('records nothing when the payload has no colour channels', () => {
+    const gen = saveParameterGroupWorker(
+      actions.saveParameterGroupRequested({ ...base, saved: false })
+    )
+    gen.next() // add call
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded(1)))
+    // No color_r/g/b → the worker finishes without a record.
+    expect(gen.next().done).toBe(true)
+  })
+})
+
+describe('persistRecentColorsWorker', () => {
+  it('mirrors the current recent-colours list to localStorage', () => {
+    const gen = persistRecentColorsWorker()
+    expect(gen.next().value).toEqual(select(selectRecentColors))
+    const list = [{ r: 1, g: 2, b: 3 }]
+    expect(gen.next(list).value).toEqual(call(saveRecentColors, list))
+    expect(gen.next().done).toBe(true)
+  })
 })
 
 describe('deleteParameterGroupWorker', () => {
@@ -237,6 +275,7 @@ describe('materialsSaga', () => {
     expect(gen.next().value).toEqual(
       takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
     )
+    expect(gen.next().value).toEqual(takeEvery(RECORD_RECENT_COLOR, persistRecentColorsWorker))
     expect(gen.next().done).toBe(true)
   })
 })
