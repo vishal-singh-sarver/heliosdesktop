@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'react-redux'
 import { createStore, Reducer, UnknownAction } from 'redux'
 import { initialState as projectScreenInitialState } from 'containers/ProjectScreen/reducer'
+import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import { InjectableStore } from 'store/configureStore'
 import MaterialPropertiesForm from '../MaterialPropertiesForm'
 import type { MaterialsAction } from '../actions'
@@ -52,7 +53,10 @@ const storeWith = (groups: MaterialParameterGroup[]): InjectableStore => {
 // The same open draft, but running the REAL materials reducer — so dispatches from
 // the form (e.g. + Add Material Type) actually change the state the form renders
 // from. `storeWith` above freezes the state, which can't show a card being added.
-const liveStoreWith = (groups: MaterialParameterGroup[]): InjectableStore => {
+const liveStoreWith = (
+  groups: MaterialParameterGroup[],
+  materialTypes: MaterialTypeDef[] = []
+): InjectableStore => {
   type TestState = {
     materials: MaterialsState
     projectScreen: typeof projectScreenInitialState
@@ -63,7 +67,17 @@ const liveStoreWith = (groups: MaterialParameterGroup[]): InjectableStore => {
       editDraft: { groupId: '12', name: 'Material.001', groups, nextGroupId: groups.length + 1 },
       editDraftNonce: 1
     },
-    projectScreen: projectScreenInitialState
+    projectScreen: {
+      ...projectScreenInitialState,
+      catalog: {
+        ...projectScreenInitialState.catalog,
+        materialTypes: {
+          ...projectScreenInitialState.catalog.materialTypes,
+          byId: Object.fromEntries(materialTypes.map((t) => [t.id, t])),
+          allIds: materialTypes.map((t) => t.id)
+        }
+      }
+    }
   }
   const root = ((s: TestState = preloaded, action: UnknownAction): TestState => ({
     ...s,
@@ -177,6 +191,32 @@ describe('<MaterialPropertiesForm /> + Add Material Type', () => {
     expect(second).toHaveAttribute('aria-expanded', 'true')
     // …and the new card is brought into view, since it can land below the fold.
     expect(scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('re-expands a collapsed card when a material type is picked on it', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const radiation: MaterialTypeDef = {
+      id: 1,
+      materialtype: 'Radiation',
+      description: '',
+      properties: []
+    }
+    render(
+      <Provider store={liveStoreWith([card(1)], [radiation])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Collapse the card. Its type Select stays visible even while collapsed.
+    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    // Pick a type — the parameters render in the (hidden) body, so selecting must
+    // re-open the card.
+    fireEvent.click(screen.getByRole('combobox', { name: 'Parameter Group.01' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Radiation' }))
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
 })
 

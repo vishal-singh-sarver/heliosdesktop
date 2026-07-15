@@ -85,7 +85,8 @@ const refreshDetailCache = (state: Draft<MaterialsState>): void => {
 
 export interface MaterialsState {
   // Materials keyed by backend group id (as a string), with a separate display
-  // order (newest-first from the backend).
+  // order (oldest-first — the service re-orders the newest-first response, so a
+  // newly created material appends at the bottom, matching Geometry).
   byId: Record<string, Material>
   order: string[]
   selectedId: string | null
@@ -186,8 +187,8 @@ const materialsReducer = (
         // The material now exists on the backend. Insert its row straight from
         // what we know rather than refetching the whole list — a list reload would
         // also wipe the detail cache. (Geometry does the same: it inserts the
-        // object the POST returned instead of re-listing.) It's the newest, so it
-        // goes to the top of the newest-first order.
+        // object the POST returned instead of re-listing.) It goes to the BOTTOM of
+        // the list, matching Geometry's +Ground, which appends the new object.
         draft.byId[groupId] = {
           id: groupId,
           name,
@@ -197,7 +198,7 @@ const materialsReducer = (
           createdAt: '',
           visible: true
         }
-        if (!draft.order.includes(groupId)) draft.order.unshift(groupId)
+        if (!draft.order.includes(groupId)) draft.order.push(groupId)
         // A freshly created group is EMPTY by definition, so its detail is already
         // known — seed the cache so clicking it later costs no GET.
         draft.detailsById[groupId] = { id: groupId, name, members: [] }

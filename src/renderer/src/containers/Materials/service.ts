@@ -57,12 +57,17 @@ function groupToMaterial(g: WireGroupListItem): Material {
   }
 }
 
-// GET /library/groups — the GLOBAL material library, newest-first. Called on app
-// open / project change.
+// GET /library/groups — the GLOBAL material library. Called on app open / project
+// change. The endpoint returns newest-first; we re-order oldest-first so the list
+// reads top-to-bottom in creation order and a newly created material sits at the
+// BOTTOM — matching Geometry, which sorts its objects by created_at ascending.
+// ISO-8601 timestamps sort correctly as plain strings.
 export function listMaterials(): Promise<Material[]> {
   return api
     .get<ListGroupsResponse>(API_ROUTES.materials.groupsList())
-    .then((res) => (res.groups ?? []).map(groupToMaterial))
+    .then((res) =>
+      (res.groups ?? []).map(groupToMaterial).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    )
 }
 
 // ── The material (group) itself ───────────────────────────────────────────────

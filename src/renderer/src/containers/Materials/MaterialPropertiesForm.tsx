@@ -86,6 +86,18 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     })
   }
 
+  const openGroup = (id: number): void => {
+    setOpenGroupIds((prev) => new Set(prev).add(id))
+  }
+
+  // Picking a type on a collapsed card reveals that type's parameters — but they
+  // render inside the card body, which is hidden while collapsed. So expand the
+  // card on select, otherwise the fields the user just unlocked stay out of sight.
+  const onSelectType = (id: number, typeId: number | null): void => {
+    dispatch(setParameterGroupType(id, typeId))
+    if (typeId != null) openGroup(id)
+  }
+
   // Each card holds one material type, and a type can appear at most once in the
   // material — so there is no room for more cards than the catalog has types: an
   // extra one could never be given a type. An empty catalog means it hasn't loaded
@@ -258,7 +270,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             open={openGroupIds.has(group.id)}
             highlighted={group.id === newCardId}
             onToggle={() => toggleGroup(group.id)}
-            onSelectType={(typeId) => dispatch(setParameterGroupType(group.id, typeId))}
+            onSelectType={(typeId) => onSelectType(group.id, typeId)}
             onChangeValue={(property, value) =>
               dispatch(setParameterGroupValue(group.id, property, value))
             }

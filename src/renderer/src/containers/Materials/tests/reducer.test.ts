@@ -66,11 +66,11 @@ describe('materialsReducer', () => {
     expect(result.editDraftNonce).toBe(1)
   })
 
-  it('CREATE_MATERIAL_SUCCEEDED inserts the row at the top without a list refetch', () => {
+  it('CREATE_MATERIAL_SUCCEEDED appends the row at the bottom without a list refetch', () => {
     const start = materialsReducer(initialState, actions.listMaterialsSucceeded([make('9', 'Old')]))
     const result = materialsReducer(start, actions.createMaterialSucceeded('12', 'Material.001'))
-    // Newest-first, straight from the create response.
-    expect(result.order).toEqual(['12', '9'])
+    // Appended to the bottom, straight from the create response (matches Geometry).
+    expect(result.order).toEqual(['9', '12'])
     expect(result.byId['12'].name).toBe('Material.001')
   })
 
