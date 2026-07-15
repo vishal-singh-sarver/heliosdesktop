@@ -110,7 +110,6 @@ function ColorPicker({
 
   const hex = rgbToHex(rgb)
   const hueColor = rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 }))
-  const rgbCss = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`
 
   return (
     <div className="flex flex-col gap-3">
@@ -121,7 +120,7 @@ function ColorPicker({
         aria-label={labels.colorArea}
         aria-valuetext={hex}
         {...dragHandlers(onAreaPointer)}
-        className="relative h-32 w-full cursor-crosshair touch-none rounded"
+        className="relative h-32 w-full cursor-pointer touch-none rounded"
         style={{ backgroundColor: hueColor }}
       >
         <div
@@ -132,9 +131,15 @@ function ColorPicker({
           className="pointer-events-none absolute inset-0 rounded"
           style={{ background: 'linear-gradient(to top, #000, rgba(0,0,0,0))' }}
         />
+        {/* Filled with the selected colour (a white ring + dark outer ring keep it
+            visible on any background) — not a hollow white circle. */}
         <span
-          className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
-          style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }}
+          className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+          style={{
+            left: `${hsv.s * 100}%`,
+            top: `${(1 - hsv.v) * 100}%`,
+            background: `radial-gradient(circle, ${hex} 0 5px, #fff 6px)`
+          }}
         />
       </div>
 
@@ -147,19 +152,22 @@ function ColorPicker({
         aria-valuemax={360}
         aria-valuenow={Math.round(hsv.h)}
         {...dragHandlers(onHuePointer)}
-        className="relative h-3 w-full cursor-pointer touch-none rounded-full"
+        className="relative h-2 w-full cursor-pointer touch-none rounded-full"
         style={{
           background:
             'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)'
         }}
       >
         <span
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
-          style={{ left: `${(hsv.h / 360) * 100}%` }}
+          className="pointer-events-none absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+          style={{
+            left: `${(hsv.h / 360) * 100}%`,
+            background: `radial-gradient(circle, ${hueColor} 0 5px, #fff 6px)`
+          }}
         />
       </div>
 
-      {/* Opacity slider (checkerboard behind a transparent→colour gradient). */}
+      {/* Opacity slider — a plain white track. */}
       <div
         role="slider"
         tabIndex={0}
@@ -168,14 +176,11 @@ function ColorPicker({
         aria-valuemax={100}
         aria-valuenow={opacity}
         {...dragHandlers(onOpacityPointer)}
-        className="relative h-3 w-full cursor-pointer touch-none rounded-full"
-        style={{
-          backgroundImage: `linear-gradient(to right, rgba(${rgb.r},${rgb.g},${rgb.b},0), ${rgbCss}), conic-gradient(#4b4b4b 0.25turn, #2a2a2a 0.25turn 0.5turn, #4b4b4b 0.5turn 0.75turn, #2a2a2a 0.75turn)`,
-          backgroundSize: '100% 100%, 10px 10px'
-        }}
+        className="relative mt-2 h-2 w-full cursor-pointer touch-none rounded-full bg-white"
       >
+        {/* Solid grey thumb (no colour dot) — opacity isn't a colour. */}
         <span
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
+          className="pointer-events-none absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#98A2B3] shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
           style={{ left: `${opacity}%` }}
         />
       </div>
