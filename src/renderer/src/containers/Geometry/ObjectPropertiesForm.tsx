@@ -2,6 +2,7 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
+import { selectAllMaterials } from 'containers/Materials/selectors'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
@@ -105,6 +106,15 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const objectTypes = useSelector(selectAllObjectTypes)
   const nodesById = useSelector(selectNodesById)
   const detailsById = useSelector(selectDetailsById)
+  // Saved-library materials (already loaded by the left panel's <Materials/>).
+  const libraryMaterials = useSelector(selectAllMaterials)
+
+  // Materials picked from the popup, shown under the Materials row. Client-side
+  // only for now (no backend assign yet); deduped by id.
+  const [pickedMaterials, setPickedMaterials] = React.useState<{ id: string; name: string }[]>([])
+  const handleSelectMaterial = (m: { id: string; name: string }): void => {
+    setPickedMaterials((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]))
+  }
 
   // The form's object was removed from the tree (deleted via the left panel)
   // while this form was open. It no longer exists on the backend, so editing /
@@ -388,6 +398,18 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           </button>
         </div>
 
+        {/* Picked materials — listed under the Materials row (client-side for now).
+            A bottom divider separates the last material from the Save button. */}
+        {pickedMaterials.length > 0 && (
+          <div className="flex flex-col border-b border-app-border pb-2">
+            {pickedMaterials.map((m) => (
+              <div key={m.id} className="py-2 text-[13px] leading-[18px] text-white">
+                {m.name}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* "Select Materials" popup — rendered in a portal so the panel's overflow
             can't clip it; an overlay closes it on outside-click. */}
         {popupCoords &&
@@ -399,7 +421,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 onClick={closeMaterialPopup}
               />
               <div className="fixed z-50" style={{ top: popupCoords.top, left: popupCoords.left }}>
-                <SelectMaterialsPopup onAddNewMaterial={() => {}} />
+                <SelectMaterialsPopup
+                  materials={libraryMaterials.map((m) => ({ id: m.id, name: m.name }))}
+                  onSelectMaterial={handleSelectMaterial}
+                  onAddNewMaterial={() => {}}
+                />
               </div>
             </>,
             document.body
