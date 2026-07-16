@@ -5,10 +5,10 @@ import FormField from '@renderer/components/FormField'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
-  selectAllMaterialTypes,
   selectAllObjectTypes
 } from 'containers/ProjectScreen/selectors'
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
@@ -18,7 +18,6 @@ import {
   closeCreateForm,
   deleteNodeRequested,
   renameRequested,
-  setDraftMaterial,
   setDraftName,
   setDraftValue,
   updateObjectRequested
@@ -27,6 +26,7 @@ import messages from './messages'
 import { isObjectFormValid, resolveObjectFormByType, validateFieldValue } from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
+import SelectMaterialsPopup from './SelectMaterialsPopup'
 import {
   selectCreateDraft,
   selectCreateDraftNonce,
@@ -103,7 +103,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
   const objectTypes = useSelector(selectAllObjectTypes)
-  const materialTypes = useSelector(selectAllMaterialTypes)
   const nodesById = useSelector(selectNodesById)
   const detailsById = useSelector(selectDetailsById)
 
@@ -127,6 +126,25 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const [nameEditing, setNameEditing] = React.useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
   const nameInputRef = React.useRef<HTMLInputElement>(null)
+
+  // "Select Materials" popup — anchored just outside the right panel's left edge,
+  // vertically following the Select button, clamped to stay on-screen. Popup size
+  // is hardcoded: 240 wide × 343 tall. popupCoords null = closed.
+  const selectBtnRef = React.useRef<HTMLButtonElement>(null)
+  const [popupCoords, setPopupCoords] = React.useState<{ top: number; left: number } | null>(null)
+  const materialPopupOpen = popupCoords !== null
+  const openMaterialPopup = (): void => {
+    const btn = selectBtnRef.current
+    if (!btn) return
+    const panel = btn.closest('aside')?.getBoundingClientRect()
+    const btnRect = btn.getBoundingClientRect()
+    const leftAnchor = panel ? panel.left : btnRect.left
+    setPopupCoords({
+      top: Math.max(8, Math.min(btnRect.top, window.innerHeight - 343 - 8)),
+      left: leftAnchor - 240 - 8
+    })
+  }
+  const closeMaterialPopup = (): void => setPopupCoords(null)
 
   // Focus the name field the moment the pencil unlocks it (it's read-only until
   // then, so we can't focus in the same click handler before the re-render).
@@ -351,27 +369,41 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           </div>
         ))}
 
-        {/* Material picker — populated from the material-types catalog. Selection
-            is held in the draft but not yet sent (materials wiring is pending the
-            materials-instance flow); the create payload sends an empty list.
-            Heading + sr-only label match the group pattern above. */}
-        <div>
-          <p className="mb-1.5 text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">Select Material</p>
-          <FormField
-            labelProps={{ label: 'Select Material', hideLabel: true, optional: true }}
-            inputProps={{
-              name: 'material',
-              value: draft.materialId == null ? '' : String(draft.materialId),
-              placeholder: 'Select',
-              disabled: objectDeleted,
-              inputClassName: 'bg-[#121212]',
-              options: materialTypes.map((m) => ({ value: String(m.id), label: m.materialtype })),
-              onChange: (e) =>
-                dispatch(setDraftMaterial(e.target.value === '' ? null : Number(e.target.value))),
-              onBlur: () => {}
-            }}
-          />
+        {/* Materials row — "Materials" label + a "Select" button that opens the
+            material picker (built next). 320×36 row; 58×25 button; bracketed by
+            1px #424242 divider lines (border-app-border). */}
+        <div className="flex h-9 items-center justify-between border-y border-app-border">
+          <p className="text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">
+            Materials
+          </p>
+          <button
+            ref={selectBtnRef}
+            type="button"
+            disabled={objectDeleted}
+            aria-expanded={materialPopupOpen}
+            onClick={() => (materialPopupOpen ? closeMaterialPopup() : openMaterialPopup())}
+            className="rounded-[4px] border border-app-border bg-white px-2.5 py-[5px] text-[13px] font-normal leading-[15px] text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Select
+          </button>
         </div>
+
+        {/* "Select Materials" popup — rendered in a portal so the panel's overflow
+            can't clip it; an overlay closes it on outside-click. */}
+        {popupCoords &&
+          createPortal(
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                aria-hidden="true"
+                onClick={closeMaterialPopup}
+              />
+              <div className="fixed z-50" style={{ top: popupCoords.top, left: popupCoords.left }}>
+                <SelectMaterialsPopup onAddNewMaterial={() => {}} />
+              </div>
+            </>,
+            document.body
+          )}
 
         {draft.saveError && !objectDeleted && <p className="form-error-text">{draft.saveError}</p>}
       </div>
