@@ -48,6 +48,12 @@ export interface MaterialParameterGroup {
   // (not shared across the draft) so two types exposing the same property don't
   // overwrite each other, and so each card has its own save payload.
   values: Record<string, string>
+  // The values as they stand on the backend — set when the card is loaded from a
+  // saved member and re-snapshotted on every successful save. Save compares
+  // against it so a card can't be re-saved unchanged, exactly like the Geometry
+  // form's baseline. null until the card has ever been saved, which makes any
+  // complete state count as a change.
+  savedValues: Record<string, string> | null
   // Has this material type been persisted onto the group? POST on first save,
   // PATCH afterwards.
   saved: boolean

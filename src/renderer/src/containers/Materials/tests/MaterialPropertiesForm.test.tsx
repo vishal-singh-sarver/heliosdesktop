@@ -1,11 +1,15 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'react-redux'
 import { createStore, Reducer, UnknownAction } from 'redux'
 import { initialState as projectScreenInitialState } from 'containers/ProjectScreen/reducer'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import { InjectableStore } from 'store/configureStore'
 import MaterialPropertiesForm from '../MaterialPropertiesForm'
-import type { MaterialsAction } from '../actions'
+import {
+  saveParameterGroupFailed,
+  saveParameterGroupSucceeded,
+  type MaterialsAction
+} from '../actions'
 import { RENAME_MATERIAL_REQUESTED } from '../constants'
 import materialsReducer, {
   initialState as materialsInitialState,
@@ -18,6 +22,7 @@ const card = (id: number, over: Partial<MaterialParameterGroup> = {}): MaterialP
   number: id,
   typeId: null,
   values: {},
+  savedValues: null,
   saved: false,
   saveStatus: 'idle',
   saveError: null,
@@ -346,6 +351,105 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(screen.getByLabelText('R')).toBeInTheDocument()
     // …and there is no plain FormField for a raw colour channel.
     expect(screen.queryByLabelText('Color R')).not.toBeInTheDocument()
+  })
+
+  it('disables Save on a card opened from the backend, until something changes', () => {
+    // The Geometry form's rule: a card loaded from its saved values starts clean,
+    // so there is nothing to save. Editing a field opens Save; putting the value
+    // back closes it again.
+    Element.prototype.scrollIntoView = vi.fn()
+    const saved = card(1, {
+      typeId: 1,
+      values: { surface_albedo: '0.5' },
+      savedValues: { surface_albedo: '0.5' },
+      saved: true
+    })
+    render(
+      <Provider store={liveStoreWith([saved], [radiation])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.7' } })
+    expect(save).toBeEnabled()
+
+    fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.5' } })
+    expect(save).toBeDisabled()
+  })
+
+  it('disables Save again once the card is saved, until the next edit', () => {
+    // What the whole change is for: Save used to stay lit after saving, inviting a
+    // second identical PATCH.
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 1 })], [radiation])
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const save = screen.getByRole('button', { name: 'Save' })
+    fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.5' } })
+    expect(save).toBeEnabled()
+
+    // The saga answers a real save; the card is now clean against the backend.
+    act(() => {
+      store.dispatch(saveParameterGroupSucceeded(1))
+    })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.9' } })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('collapses the card once its save lands', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 1 })], [radiation])
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    // Fill it in and save: the click puts the card into 'saving', the saga answers.
+    fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    act(() => {
+      store.dispatch(saveParameterGroupSucceeded(1))
+    })
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // The type still reads from the collapsed header — that's what says WHICH
+    // material type this card holds.
+    expect(screen.getByRole('combobox', { name: 'Parameter Group.01' })).toHaveValue('Radiation')
+  })
+
+  it('leaves the card open when the save fails, so the error is visible', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 1 })], [radiation])
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    act(() => {
+      store.dispatch(saveParameterGroupFailed(1, 'Nope'))
+    })
+
+    // Only a COMPLETED save folds the card away (saving → idle); a failure goes
+    // saving → error, and hiding the error under a collapsed card would strand it.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Nope')).toBeInTheDocument()
   })
 
   it('commits the edited channel independently (like the other fields)', () => {

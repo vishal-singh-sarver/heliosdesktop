@@ -49,6 +49,9 @@ const emptyCard = (id: number, number: number): MaterialParameterGroup => ({
   number,
   typeId: null,
   values: {},
+  // Never saved, so there is nothing to compare against — Save opens up as soon
+  // as the card is complete.
+  savedValues: null,
   saved: false,
   saveStatus: 'idle',
   saveError: null
@@ -321,6 +324,9 @@ const materialsReducer = (
           number: index + 1,
           typeId: member.materialTypeId,
           values: { ...member.properties },
+          // Opened straight from the backend, so it starts clean: Save stays
+          // disabled until something actually changes.
+          savedValues: { ...member.properties },
           saved: true,
           saveStatus: 'idle',
           saveError: null
@@ -419,6 +425,9 @@ const materialsReducer = (
           card.saved = true
           card.saveStatus = 'idle'
           card.saveError = null
+          // What's on the backend is now what's on screen — the card is clean, so
+          // Save closes again until the next edit.
+          card.savedValues = { ...card.values }
         }
         // Refresh the cache with the values we just persisted, so re-opening this
         // material shows them without another GET.
@@ -476,6 +485,9 @@ const materialsReducer = (
           card.values[TEXTURE_PROPERTY] = action.path
           card.values[TEXTURE_TOGGLE_PROPERTY] = 'true'
           for (const key of VISUALISATION_CUSTOM_PROPERTIES) card.values[key] = ''
+          // Snapshot AFTER the texture values above land, so the card reads as
+          // clean against what the upload actually persisted.
+          card.savedValues = { ...card.values }
         }
         refreshDetailCache(draft)
         break

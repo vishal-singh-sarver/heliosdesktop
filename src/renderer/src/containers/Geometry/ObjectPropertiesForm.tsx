@@ -14,6 +14,7 @@ import type { Reducer } from 'redux'
 import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
+import { sameValues } from 'utils/sameValues'
 import {
   closeCreateForm,
   deleteNodeRequested,
@@ -40,17 +41,6 @@ import { validateGroupName } from './validation'
 // geometry per keystroke. The empty set makes validateGroupName's uniqueness
 // branch a no-op, leaving the cheap instant rules: non-empty + ≤20 characters.
 const NO_NAME_CONFLICTS = new Set<string>()
-
-// Raw-string equality over the union of both maps' keys (a missing key reads as
-// ''). Drives the Save button's dirty check: any field whose current value
-// differs from the loaded/last-saved baseline makes the form dirty.
-function sameValues(a: Record<string, string>, b: Record<string, string>): boolean {
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
-  for (const k of keys) {
-    if ((a[k] ?? '') !== (b[k] ?? '')) return false
-  }
-  return true
-}
 
 // Texture Repeat tiles across the ground surface, so each repeat count can't
 // exceed the matching Ground Resolution the user entered: R (texture_x) ≤ Width

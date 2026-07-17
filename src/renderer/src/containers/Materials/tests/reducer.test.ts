@@ -56,6 +56,9 @@ describe('materialsReducer', () => {
           number: 1,
           typeId: null,
           values: {},
+          // Never saved — nothing to compare against, so Save opens as soon as
+          // the card is complete.
+          savedValues: null,
           saved: false,
           saveStatus: 'idle',
           saveError: null

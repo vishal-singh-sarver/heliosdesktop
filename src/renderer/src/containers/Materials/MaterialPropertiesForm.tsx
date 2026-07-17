@@ -13,6 +13,7 @@ import type { Reducer } from 'redux'
 import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
+import { sameValues } from 'utils/sameValues'
 import {
   HIGHLIGHT_CLASSES,
   useScrollIntoViewWhen,
@@ -108,6 +109,14 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
 
   const openGroup = (id: number): void => {
     setOpenGroupIds((prev) => new Set(prev).add(id))
+  }
+
+  const collapseGroup = (id: number): void => {
+    setOpenGroupIds((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
   }
 
   // Picking a type on a collapsed card reveals that type's parameters — but they
@@ -330,6 +339,10 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             onSaveColour={() => handleSaveColour(group)}
             onSaveTexture={(path) => handleSaveTexture(group, path)}
             onUploadTexture={(file) => handleUploadTexture(group, file)}
+            // A saved card folds itself away — its type still reads from the
+            // collapsed header, and the room goes to the cards still being
+            // filled in.
+            onSaved={() => collapseGroup(group.id)}
             onDelete={() => handleDeleteGroup(group)}
           />
         ))}
@@ -382,6 +395,7 @@ function ParameterGroupCard({
   onSaveColour,
   onSaveTexture,
   onUploadTexture,
+  onSaved,
   onDelete
 }: {
   group: MaterialParameterGroup
@@ -400,6 +414,8 @@ function ParameterGroupCard({
   onSaveColour: () => void
   onSaveTexture: (path: string) => void
   onUploadTexture: (file: File) => void
+  // A save landed on the backend — the parent folds this card away.
+  onSaved: () => void
   onDelete: () => void
 }): React.JSX.Element {
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
@@ -430,12 +446,18 @@ function ParameterGroupCard({
   }
   const pickFile = (file: File): void => setPending({ file, url: URL.createObjectURL(file) })
 
-  // Drop the pending file once a save completes (saving → idle).
+  // A save that COMPLETED: saving → idle. (A failure goes saving → error, which
+  // leaves the card open with its error showing.) That drops the pending file and
+  // folds the card away — its work is done and persisted, so the space goes back
+  // to the cards still being filled in.
   const prevSaveStatus = React.useRef(group.saveStatus)
   React.useEffect(() => {
-    if (prevSaveStatus.current === 'saving' && group.saveStatus === 'idle') setPending(null)
+    if (prevSaveStatus.current === 'saving' && group.saveStatus === 'idle') {
+      setPending(null)
+      onSaved()
+    }
     prevSaveStatus.current = group.saveStatus
-    // setPending is stable enough here; only the save-status transition matters.
+    // setPending/onSaved are stable enough here; only the transition matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.saveStatus])
   React.useEffect(
@@ -510,7 +532,20 @@ function ParameterGroupCard({
     : visualMode === 'custom'
       ? isVisualisationComplete(parameterGroups, group.values)
       : textureReady
-  const canSave = group.typeId != null && modeComplete && !saving
+
+  // …and once it actually differs from what's on the backend — the same dirty
+  // rule the Geometry form's Save uses. A card that was never saved has no
+  // baseline, so any complete state counts as a change; a saved card can't be
+  // re-saved unchanged, and editing back to the stored values closes Save again.
+  const valuesDirty = group.savedValues == null || !sameValues(group.values, group.savedValues)
+  // A texture pick lives outside `values` until Save writes it, so the baseline
+  // can't see it: a picked FILE is always a change (a fresh upload), and a library
+  // pick is one only when it isn't the texture already stored.
+  const textureDirty =
+    pendingFile != null || pendingLibrary !== (group.savedValues?.[TEXTURE_PROPERTY] ?? null)
+  const dirty = isVisualiser && visualMode === 'texture' ? textureDirty : valuesDirty
+
+  const canSave = group.typeId != null && modeComplete && dirty && !saving
 
   // Route Save by the Visualiser's active mode. In texture mode, a highlighted
   // library pick wins, then a picked file (upload). The gate guarantees one exists.
