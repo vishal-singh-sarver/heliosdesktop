@@ -23,6 +23,7 @@ import {
   setDraftValue,
   updateObjectRequested
 } from './actions'
+import MaterialPropertiesPopup from './MaterialPropertiesPopup'
 import messages from './messages'
 import { isObjectFormValid, resolveObjectFormByType, validateFieldValue } from './propertyBlueprint'
 import reducer from './reducer'
@@ -41,6 +42,16 @@ import { validateGroupName } from './validation'
 // geometry per keystroke. The empty set makes validateGroupName's uniqueness
 // branch a no-op, leaving the cheap instant rules: non-empty + ≤20 characters.
 const NO_NAME_CONFLICTS = new Set<string>()
+
+// The read-only material properties popup's footprint, used to place it. The
+// height is the Figma CAP, not a fixed height — the popup itself shrinks to the
+// viewport on a short window, so anything positioning it must clamp against
+// whichever is smaller (see openDetailPopup).
+const DETAIL_POPUP_WIDTH = 370
+const DETAIL_POPUP_MAX_HEIGHT = 866
+// The breathing room every popup on this panel keeps from the panel and the
+// viewport edges.
+const POPUP_GAP = 8
 
 // Raw-string equality over the union of both maps' keys (a missing key reads as
 // ''). Drives the Save button's dirty check: any field whose current value
@@ -146,6 +157,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const openMaterialPopup = (): void => {
     const btn = selectBtnRef.current
     if (!btn) return
+    closeDetailPopup()
     const panel = btn.closest('aside')?.getBoundingClientRect()
     const btnRect = btn.getBoundingClientRect()
     const leftAnchor = panel ? panel.left : btnRect.left
@@ -155,6 +167,40 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     })
   }
   const closeMaterialPopup = (): void => setPopupCoords(null)
+
+  // Read-only material properties popup — opened by clicking a picked material's
+  // name. One nullable object rather than separate coords/material state: null =
+  // closed (the same convention as popupCoords above), and the material can't
+  // desync from the position it was measured against. Measured once on open, so
+  // it doesn't follow a scroll — matching the Select popup and the kebab menu.
+  const [detailPopup, setDetailPopup] = React.useState<{
+    material: { id: string; name: string }
+    top: number
+    left: number
+  } | null>(null)
+  const closeDetailPopup = (): void => setDetailPopup(null)
+  const openDetailPopup = (row: HTMLElement, material: { id: string; name: string }): void => {
+    // Both popups sit on the same strip beside the panel and each lays down its
+    // own full-screen outside-click overlay — two open at once would stack
+    // overlays over each other's contents. So they're mutually exclusive.
+    closeMaterialPopup()
+    const panel = row.closest('aside')?.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    const leftAnchor = panel ? panel.left : rowRect.left
+    // Clamp against the height the popup can actually reach, not the 866 cap: on
+    // a short window it shrinks to the viewport (see MaterialPropertiesPopup's
+    // max-height), and clamping against 866 there would pin it off-screen.
+    const height = Math.min(DETAIL_POPUP_MAX_HEIGHT, window.innerHeight - POPUP_GAP * 2)
+    setDetailPopup({
+      material,
+      top: Math.max(POPUP_GAP, Math.min(rowRect.top, window.innerHeight - height - POPUP_GAP)),
+      // 8px left of the whole panel, like the Select popup — but clamped: at 370
+      // wide an unclamped left goes negative on a window under ~720px and walks
+      // off the left edge. Clamping can slide it over the panel instead; the
+      // portal renders at z-50, above it.
+      left: Math.max(POPUP_GAP, leftAnchor - DETAIL_POPUP_WIDTH - POPUP_GAP)
+    })
+  }
 
   // Focus the name field the moment the pencil unlocks it (it's read-only until
   // then, so we can't focus in the same click handler before the re-render).
@@ -399,13 +445,23 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         </div>
 
         {/* Picked materials — listed under the Materials row (client-side for now).
-            A bottom divider separates the last material from the Save button. */}
+            A bottom divider separates the last material from the Save button.
+            Each name opens that material's read-only properties popup. */}
         {pickedMaterials.length > 0 && (
           <div className="flex flex-col border-b border-app-border pb-2">
             {pickedMaterials.map((m) => (
-              <div key={m.id} className="py-2 text-[13px] leading-[18px] text-white">
+              <button
+                key={m.id}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={detailPopup?.material.id === m.id}
+                // currentTarget IS the anchor, measured synchronously here — so a
+                // growing list of rows needs no ref map.
+                onClick={(e) => openDetailPopup(e.currentTarget, m)}
+                className="w-full truncate rounded py-2 text-left text-[13px] leading-[18px] text-white hover:bg-white/5"
+              >
                 {m.name}
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -425,6 +481,25 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   materials={libraryMaterials.map((m) => ({ id: m.id, name: m.name }))}
                   onSelectMaterial={handleSelectMaterial}
                   onAddNewMaterial={() => {}}
+                />
+              </div>
+            </>,
+            document.body
+          )}
+
+        {/* A picked material's read-only properties — its own portal + overlay,
+            mirroring the Select popup. Only one of the two is ever open. The
+            property values aren't wired to the backend yet, so `sections` is
+            empty and the popup says so. */}
+        {detailPopup &&
+          createPortal(
+            <>
+              <div className="fixed inset-0 z-40" aria-hidden="true" onClick={closeDetailPopup} />
+              <div className="fixed z-50" style={{ top: detailPopup.top, left: detailPopup.left }}>
+                <MaterialPropertiesPopup
+                  name={detailPopup.material.name}
+                  sections={[]}
+                  onClose={closeDetailPopup}
                 />
               </div>
             </>,

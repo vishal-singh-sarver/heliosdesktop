@@ -1,4 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import materialsReducer, {
+  initialState as materialsInitialState
+} from 'containers/Materials/reducer'
+import type { Material } from 'containers/Materials/types'
 import projectScreenReducer, {
   initialState as projectScreenInitialState
 } from 'containers/ProjectScreen/reducer'
@@ -64,22 +68,43 @@ const node: GeoNode = {
   modelVisibility: {}
 }
 
+// A saved library material, as the left panel's <Materials/> would have loaded
+// it — the Select popup lists these.
+const material = (id: string, name: string): Material => ({
+  id,
+  name,
+  materialTypeId: 1,
+  materialType: 'Radiation',
+  preview: null,
+  createdAt: '2026-01-01T00:00:00Z',
+  visible: true
+})
+
 // A real store wired like the app's: combined geometry + projectScreen reducers,
 // preloaded with the active scope, the Ground catalog, the node, and an OPEN
 // draft whose values are empty (so every required field is invalid). detailsById
 // is left empty so `original` is undefined → the form reads as dirty → Save is
 // enabled without a prior edit.
-function makeStore(): InjectableStore {
+//
+// `materials` seeds the library the Select popup lists; the slice is included so
+// selectAllMaterials reads real rows instead of falling back to initialState.
+function makeStore(materials: Material[] = []): InjectableStore {
   // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
   // satisfy the bare Reducer the injectable store expects under Redux 5.
   const rootReducer = (injected: Record<string, Reducer> = {}): Reducer =>
     combineReducers({
       geometry: geometryReducer,
       projectScreen: projectScreenReducer,
+      materials: materialsReducer,
       ...injected
     }) as unknown as Reducer
 
   const preloaded = {
+    materials: {
+      ...materialsInitialState,
+      byId: Object.fromEntries(materials.map((m) => [m.id, m])),
+      order: materials.map((m) => m.id)
+    },
     geometry: {
       ...geometryInitialState,
       byScope: {
@@ -130,6 +155,62 @@ const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
   if (!el) throw new Error(`input[name="${name}"] not rendered`)
   return el as HTMLInputElement
 }
+
+describe('<ObjectPropertiesForm /> — material properties popup', () => {
+  // Pick Cotton from the Select popup, leaving it listed under the Materials row.
+  // The Select popup stays open afterwards (picking doesn't dismiss it), so the
+  // picked row is reached via `within(container)` — the popup is portaled to
+  // document.body and would otherwise make a bare 'Cotton' query ambiguous.
+  const pickCotton = (): void => {
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+  }
+
+  it('opens the read-only properties popup when a picked material is clicked', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+
+    expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    expect(screen.getByRole('dialog', { name: 'Cotton properties' })).toBeInTheDocument()
+  })
+
+  it('closes the Select Materials popup when the properties popup opens', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    // Both popups anchor to the same strip beside the panel and each lays down
+    // its own full-screen overlay — two open at once would stack overlays over
+    // each other's contents.
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+  })
+
+  it('dismisses the properties popup from its close button', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close material properties' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+  })
+})
 
 describe('<ObjectPropertiesForm /> — Save gating', () => {
   const saveButton = (): HTMLButtonElement =>

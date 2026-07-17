@@ -19,6 +19,15 @@ const messages = {
   // a bare "Invalid Input").
   textureExceedsResolution: (max: number) =>
     `Texture repeat can't exceed the ground resolution (${max})`,
+  // Read-only material properties popup, opened from a picked material's name
+  // under the Materials row. The heading is the material's own name — it says
+  // what you're looking at; a generic "Material Properties" would not.
+  materialDetailTitle: (name: string) => `${name} properties`,
+  materialDetailClose: 'Close material properties',
+  // Shown while `sections` is empty. Deliberately NOT "this material has no
+  // properties" — the values aren't fetched yet, so claiming the material is
+  // empty would be a lie the user can't act on. Says what's true today.
+  materialDetailEmpty: 'Material properties are not connected yet.',
   // Delete confirmation
   deleteTitle: 'Delete',
   deleteHeading: (name: string) => `Delete ${name}`,
