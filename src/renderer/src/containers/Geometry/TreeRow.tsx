@@ -2,6 +2,7 @@ import chevronIcon from '@renderer/assets/chevron.svg'
 import Dialog from '@renderer/components/Dialog'
 import React from 'react'
 import { useDispatch } from 'react-redux'
+import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
 import {
   deleteNodeRequested,
   groupNodesRequested,
@@ -37,6 +38,10 @@ interface TreeRowProps {
   projectId: string | null
   scenarioId: string | null
   selectedIds: string[]
+  // The node just created by +Ground (or null) — that row flashes and scrolls
+  // into view. Passed down the recursion so a new row nested in a group gets the
+  // cue too.
+  highlightedId: string | null
   // Lowercased names of all groups / all leaves (for the rename unique check;
   // geometry and group names are separate namespaces).
   groupNamesLower: Set<string>
@@ -56,6 +61,7 @@ function TreeRow({
   projectId,
   scenarioId,
   selectedIds,
+  highlightedId,
   groupNamesLower,
   leafNamesLower,
   nameErrors
@@ -63,6 +69,8 @@ function TreeRow({
   const dispatch = useDispatch()
   const isGroup = node.kind === 'group'
   const selected = selectedIds.includes(node.id)
+  const highlighted = node.id === highlightedId
+  const rowRef = useScrollIntoViewWhen<HTMLDivElement>(highlighted)
   const [editing, setEditing] = React.useState(false)
   // Current rename validation error, lifted from NameEditor so the row box can
   // turn red (vs blue) while editing an invalid name.
@@ -197,6 +205,7 @@ function TreeRow({
     <>
       <div className="mb-1">
         <div
+          ref={rowRef}
           role="button"
           tabIndex={0}
           onClick={handleSelect}
@@ -205,14 +214,20 @@ function TreeRow({
           onDragOver={handleDragOver}
           onDragLeave={() => setDropZone(null)}
           onDrop={handleDrop}
-          className={`group relative flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[13px] font-normal text-neutral-200 ${
+          // The "just created" cue sits under the error/editing states (both of
+          // which are about the name being wrong right now, and must win) but
+          // over selection — a new row is selected too, and the flash is what's
+          // new.
+          className={`group relative flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[13px] font-normal text-neutral-200 transition-colors duration-500 ${
             hasError
               ? 'border-[#D92D20] bg-[#2a2a2a]'
               : editing
                 ? 'border-[#245AC5] bg-[#2a2a2a]'
-                : selected
-                  ? 'border-app-border bg-[#2a2a2a]'
-                  : 'border-transparent hover:bg-neutral-700/40'
+                : highlighted
+                  ? HIGHLIGHT_CLASSES
+                  : selected
+                    ? 'border-app-border bg-[#2a2a2a]'
+                    : 'border-transparent hover:bg-neutral-700/40'
           } ${dropZone === 'into' ? 'ring-1 ring-inset ring-blue-500' : ''}`}
           style={{ paddingLeft: 10 + depth * 16 }}
         >
@@ -323,6 +338,7 @@ function TreeRow({
           projectId={projectId}
           scenarioId={scenarioId}
           selectedIds={selectedIds}
+          highlightedId={highlightedId}
           groupNamesLower={groupNamesLower}
           leafNamesLower={leafNamesLower}
           nameErrors={nameErrors}

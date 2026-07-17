@@ -125,8 +125,18 @@ export const API_ROUTES = {
     groupsDelete: (groupId: string) => `/api/materials/library/groups/${groupId}`,
     // POST — add one material type (with its properties) to the group.
     groupMaterials: (groupId: string) => `/api/materials/library/groups/${groupId}/materials`,
-    // PATCH (update) / DELETE (remove) one material type already on the group.
+    // PUT (full-replace update) / DELETE (remove) one material type on the group.
     groupMaterial: (groupId: string, materialTypeId: number) =>
-      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}`
+      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}`,
+    // POST (multipart) — upload a file for one property of a member (the Visualiser
+    // texture). Creates the member if it doesn't exist yet, in texture mode.
+    groupMaterialFile: (groupId: string, materialTypeId: number, property: string) =>
+      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}/files/${property}`
+  },
+  // Texture assets — serve one by (backend-side) path; `defaults` lists the
+  // built-in library textures (name + ready-to-use serve url).
+  textures: {
+    serve: (path: string) => `/api/textures/serve?path=${encodeURIComponent(path)}`,
+    defaults: () => `/api/textures/defaults`
   }
 } as const

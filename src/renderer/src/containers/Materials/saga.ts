@@ -6,7 +6,8 @@ import type {
   DeleteParameterGroupRequestedAction,
   OpenSavedMaterialRequestedAction,
   RenameMaterialRequestedAction,
-  SaveParameterGroupRequestedAction
+  SaveParameterGroupRequestedAction,
+  UploadTextureRequestedAction
 } from './actions'
 import {
   CREATE_MATERIAL_REQUESTED,
@@ -16,7 +17,8 @@ import {
   OPEN_SAVED_MATERIAL_REQUESTED,
   RECORD_RECENT_COLOR,
   RENAME_MATERIAL_REQUESTED,
-  SAVE_PARAMETER_GROUP_REQUESTED
+  SAVE_PARAMETER_GROUP_REQUESTED,
+  UPLOAD_TEXTURE_REQUESTED
 } from './constants'
 import { saveRecentColors } from './recentColors'
 import { selectMaterialDetailsById, selectRecentColors } from './selectors'
@@ -157,6 +159,25 @@ export function* deleteParameterGroupWorker(
   }
 }
 
+// Upload a Visualiser texture. The upload endpoint stores the file AND persists
+// the member in texture mode (creating it if missing), so on success we just
+// switch the card to the returned path.
+export function* uploadTextureWorker(action: UploadTextureRequestedAction): Generator {
+  const { groupId, cardId, materialTypeId, file, scenarioId } = action.payload
+  try {
+    const path = (yield call(
+      service.uploadTextureFile,
+      groupId,
+      materialTypeId,
+      file,
+      scenarioId
+    )) as string
+    yield put(actions.uploadTextureSucceeded(cardId, path))
+  } catch (err) {
+    yield put(actions.uploadTextureFailed(cardId, (err as Error).message))
+  }
+}
+
 export default function* materialsSaga(): Generator {
   yield takeLatest(LIST_MATERIALS_REQUESTED, listMaterialsWorker)
   yield takeLatest(CREATE_MATERIAL_REQUESTED, createMaterialWorker)
@@ -166,4 +187,5 @@ export default function* materialsSaga(): Generator {
   yield takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)
   yield takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
   yield takeEvery(RECORD_RECENT_COLOR, persistRecentColorsWorker)
+  yield takeEvery(UPLOAD_TEXTURE_REQUESTED, uploadTextureWorker)
 }

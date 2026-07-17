@@ -90,10 +90,38 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+// Multipart POST for file uploads. Passing `Content-Type: undefined` drops the
+// instance's default JSON header so the browser sets `multipart/form-data` with
+// the correct boundary itself; errors are normalised exactly like `request`.
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  try {
+    const res = await client.request<T>({
+      method: 'POST',
+      url: path,
+      data: form,
+      headers: { 'Content-Type': undefined }
+    })
+    return res.data
+  } catch (err) {
+    const axErr = err as AxiosError
+    if (axErr.response) {
+      const parsed = parseErrorBody(axErr.response.data, axErr.response.statusText || axErr.message)
+      throw new ApiError(axErr.response.status, parsed.message, parsed.fieldErrors)
+    }
+    throw new ApiError(0, axErr.message || 'Network error')
+  }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  delete: <T>(path: string) => request<T>('DELETE', path)
+  delete: <T>(path: string) => request<T>('DELETE', path),
+  // Upload one file as multipart/form-data (field name `file`).
+  uploadFile: <T>(path: string, file: File): Promise<T> => {
+    const form = new FormData()
+    form.append('file', file)
+    return upload<T>(path, form)
+  }
 }

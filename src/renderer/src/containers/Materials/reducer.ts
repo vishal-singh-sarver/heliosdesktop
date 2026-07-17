@@ -2,6 +2,7 @@ import { produce, type Draft } from 'immer'
 import type { MaterialsAction } from './actions'
 import {
   ADD_PARAMETER_GROUP,
+  CLEAR_CREATE_HIGHLIGHT,
   CLOSE_MATERIAL_DRAFT,
   CREATE_MATERIAL_FAILED,
   CREATE_MATERIAL_REQUESTED,
@@ -25,8 +26,16 @@ import {
   SET_PARAMETER_GROUP_TYPE,
   SET_PARAMETER_GROUP_VALUE,
   SET_SEARCH_QUERY,
-  TOGGLE_MATERIAL_VISIBILITY
+  TOGGLE_MATERIAL_VISIBILITY,
+  UPLOAD_TEXTURE_FAILED,
+  UPLOAD_TEXTURE_REQUESTED,
+  UPLOAD_TEXTURE_SUCCEEDED
 } from './constants'
+import {
+  TEXTURE_PROPERTY,
+  TEXTURE_TOGGLE_PROPERTY,
+  VISUALISATION_CUSTOM_PROPERTIES
+} from './materialBlueprint'
 import { lowestFreeNumber } from './naming'
 import { loadRecentColors, prependRecentColor } from './recentColors'
 import type { RgbColor } from 'utils/color'
@@ -116,6 +125,10 @@ export interface MaterialsState {
   // and surfaces a create failure.
   createStatus: 'idle' | 'creating' | 'error'
   createError: string | null
+  // The material +Add Materials just created, so its row can flash the "just
+  // appeared" cue. Cleared once the cue has run (the list dispatches it), so a
+  // remount can't replay it.
+  lastCreatedId: string | null
   // The visualisation colour picker's "Used colors" — a GLOBAL, most-recent-first
   // history seeded from localStorage; a saga mirrors changes back to it.
   recentColors: RgbColor[]
@@ -135,6 +148,7 @@ export const initialState: MaterialsState = {
   editDraftNonce: 0,
   createStatus: 'idle',
   createError: null,
+  lastCreatedId: null,
   // Seed the picker history from localStorage at slice creation (guarded — falls
   // back to [] outside a browser). The selector fallback re-uses this object, so
   // the picker still reads the persisted list before the slice mounts.
@@ -157,6 +171,11 @@ const materialsReducer = (
       case LIST_MATERIALS_SUCCEEDED: {
         draft.byId = {}
         draft.order = []
+        // A create never re-lists (see the saga), so any pending cue here belongs
+        // to an earlier session of this list — forget it rather than flash a row
+        // the user created long ago. Belt and braces for the timer-driven clear:
+        // that one can't fire if the list unmounted mid-cue.
+        draft.lastCreatedId = null
         draft.nameErrors = {} // ids are reloaded; any pending rename error is stale
         draft.detailsById = {} // a fresh load invalidates the cached group details
         for (const material of action.payload) {
@@ -216,10 +235,15 @@ const materialsReducer = (
         draft.editDraft = { groupId, name, groups: [emptyCard(1, 1)], nextGroupId: 2 }
         draft.editDraftNonce += 1
         draft.selectedId = groupId
+        draft.lastCreatedId = groupId
         draft.createStatus = 'idle'
         draft.createError = null
         break
       }
+
+      case CLEAR_CREATE_HIGHLIGHT:
+        draft.lastCreatedId = null
+        break
 
       case CREATE_MATERIAL_FAILED:
         draft.createStatus = 'error'
@@ -429,6 +453,42 @@ const materialsReducer = (
         // capped). A saga mirrors the new list to localStorage.
         draft.recentColors = prependRecentColor(draft.recentColors, action.color)
         break
+
+      // ── Visualiser texture upload ──────────────────────────────────────────
+      case UPLOAD_TEXTURE_REQUESTED: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.payload.cardId)
+        if (card) {
+          card.saveStatus = 'saving'
+          card.saveError = null
+        }
+        break
+      }
+
+      case UPLOAD_TEXTURE_SUCCEEDED: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
+        if (card) {
+          // The upload persisted the member in texture mode — reflect that in the
+          // draft: switch to the returned path, drop the (now-cleared) colour, and
+          // mark it saved.
+          card.saved = true
+          card.saveStatus = 'idle'
+          card.saveError = null
+          card.values[TEXTURE_PROPERTY] = action.path
+          card.values[TEXTURE_TOGGLE_PROPERTY] = 'true'
+          for (const key of VISUALISATION_CUSTOM_PROPERTIES) card.values[key] = ''
+        }
+        refreshDetailCache(draft)
+        break
+      }
+
+      case UPLOAD_TEXTURE_FAILED: {
+        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
+        if (card) {
+          card.saveStatus = 'error'
+          card.saveError = action.payload
+        }
+        break
+      }
     }
   })
 

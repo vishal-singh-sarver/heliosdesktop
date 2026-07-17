@@ -1,7 +1,7 @@
-// src/renderer/src/tests/session.test.ts
+// src/renderer/src/utils/tests/session.test.ts
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { getSessionId, clearSessionId } from 'utils/session'
+import { getSessionId, clearSessionId } from '../session'
 
 // ── Mock localStorage ─────────────────────────────────────────────────────────
 

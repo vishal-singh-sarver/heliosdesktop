@@ -3,12 +3,14 @@ import {
   clamp,
   hexToRgb,
   hsvToRgb,
+  isDarkColor,
+  luminance,
   rgbEquals,
   rgbToHex,
   rgbToHsv,
   toChannel,
   type RgbColor
-} from './color'
+} from '../color'
 
 describe('clamp / toChannel', () => {
   it('clamps into range and treats NaN as the minimum', () => {
@@ -91,5 +93,35 @@ describe('rgbEquals', () => {
     expect(rgbEquals({ r: 10, g: 20, b: 30 }, { r: 10, g: 20, b: 30 })).toBe(true)
     expect(rgbEquals({ r: 10.4, g: 20, b: 30 }, { r: 10, g: 20, b: 30 })).toBe(true)
     expect(rgbEquals({ r: 11, g: 20, b: 30 }, { r: 10, g: 20, b: 30 })).toBe(false)
+  })
+})
+
+describe('luminance / isDarkColor', () => {
+  it('spans black to white', () => {
+    expect(luminance({ r: 0, g: 0, b: 0 })).toBe(0)
+    expect(luminance({ r: 255, g: 255, b: 255 })).toBe(255)
+  })
+
+  it('weights the channels by how bright the eye reads them', () => {
+    // Same channel value, very different perceived brightness: green reads as
+    // bright, blue as nearly black. An unweighted average would call both "mid".
+    expect(luminance({ r: 0, g: 255, b: 0 })).toBeGreaterThan(
+      luminance({ r: 0, g: 0, b: 255 })
+    )
+    expect(isDarkColor({ r: 0, g: 255, b: 0 })).toBe(false)
+    expect(isDarkColor({ r: 0, g: 0, b: 255 })).toBe(true)
+  })
+
+  it('calls the colours that vanish on a dark panel dark', () => {
+    // Black is the one that started this: it needs the light outline.
+    expect(isDarkColor({ r: 0, g: 0, b: 0 })).toBe(true)
+    expect(isDarkColor({ r: 32, g: 32, b: 32 })).toBe(true)
+    expect(isDarkColor({ r: 255, g: 255, b: 255 })).toBe(false)
+    expect(isDarkColor({ r: 255, g: 255, b: 0 })).toBe(false)
+  })
+
+  it('snaps out-of-range channels rather than reporting an impossible luma', () => {
+    expect(luminance({ r: 999, g: 999, b: 999 })).toBe(255)
+    expect(isDarkColor({ r: -5, g: -5, b: -5 })).toBe(true)
   })
 })

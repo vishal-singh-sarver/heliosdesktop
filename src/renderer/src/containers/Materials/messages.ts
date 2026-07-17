@@ -29,10 +29,11 @@ const messages = {
   },
   selectPlaceholder: 'Select',
   addMaterialType: 'Add Material Type',
-  // Visualisation colour/texture editor (the "visualisation"-group card body).
+  // The visible label on the header's add pill — the "+" carries the "Add".
+  materialType: 'Material Type',
+  // Visualisation colour/texture editor (the Visualiser type's card body).
   visualisationCustomTab: 'Custom',
   visualisationTextureTab: 'Select Texture',
-  visualisationTextureComingSoon: 'Texture selection is coming soon.',
   rgbValues: 'RGB Values',
   opacityLabel: 'Opacity',
   usedColors: 'Used colors',
@@ -40,6 +41,19 @@ const messages = {
   hueSliderLabel: 'Hue',
   opacitySliderLabel: 'Opacity',
   usedColorSwatch: (hex: string): string => `Use colour ${hex}`,
+  // Texture sub-tabs.
+  textureFromLibraryTab: 'From Library',
+  textureUploadTab: 'Upload File',
+  textureUploadButton: 'Upload File',
+  textureLibraryLoading: 'Loading textures…',
+  textureLibraryEmpty: 'No textures available.',
+  textureLibraryError: 'Unable to load textures',
+  textureSwatch: (name: string): string => `Use texture ${name}`,
+  texturePreviewAlt: 'Selected texture',
+  textureUploading: 'Uploading…',
+  textureUploadError: 'Unable to upload texture',
+  textureFileTypeError: 'Only JPG, JPEG or PNG files are allowed',
+  textureFileSizeError: 'File must be 10 MB or smaller',
   // Each Parameter Group card saves itself: the first save adds its material type
   // to the group, later ones update it.
   saveParameterGroup: 'Save',

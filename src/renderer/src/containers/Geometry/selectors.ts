@@ -53,6 +53,8 @@ export const selectSearchQuery = createSelector(selectActiveGeometry, (g) => g.s
 export const selectLoadStatus = createSelector(selectActiveGeometry, (g) => g.loadStatus)
 export const selectLoadError = createSelector(selectActiveGeometry, (g) => g.loadError)
 export const selectNameErrors = createSelector(selectActiveGeometry, (g) => g.nameErrors)
+// The row +Ground just created — drives its transient "just appeared" cue.
+export const selectLastCreatedId = createSelector(selectActiveGeometry, (g) => g.lastCreatedId)
 
 // Lowercased names of all groups in the active scenario — used for the unique-
 // name check while renaming (computed from the full, unfiltered node set).

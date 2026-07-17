@@ -502,6 +502,25 @@ describe('geometryReducer', () => {
       expect(r.createDraftNonce).toBe(1)
     })
 
+    it('CREATE_OBJECT_SUCCEEDED marks the new row for the "just created" cue', () => {
+      expect(created().byScope[KEY].lastCreatedId).toBe('27')
+    })
+
+    it('CLEAR_CREATE_HIGHLIGHT forgets the cued row once the cue has run', () => {
+      const r = geometryReducer(created(), actions.clearCreateHighlight(P, S))
+      expect(r.byScope[KEY].lastCreatedId).toBeNull()
+    })
+
+    it('LIST_NODES_SUCCEEDED forgets a cue left over from an earlier session', () => {
+      // The cue's timer can't fire if the tree unmounted (or the scenario changed)
+      // mid-cue; a reload must not flash a row created long ago.
+      const r = geometryReducer(
+        created(),
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      expect(r.byScope[KEY].lastCreatedId).toBeNull()
+    })
+
     it('LOAD_OBJECT_SUCCEEDED opens the form for an existing ground (isNew:false, no insert)', () => {
       // The ground is already in the tree; loading just opens the form.
       const seeded = geometryReducer(

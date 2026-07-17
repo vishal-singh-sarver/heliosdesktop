@@ -260,11 +260,12 @@ describe('<MaterialPropertiesForm /> material name', () => {
 })
 
 describe('<MaterialPropertiesForm /> visualisation type', () => {
-  // The "Visualizer" material type: every property is in the "visualisation"
-  // group, so its card body is the colour picker rather than plain fields.
+  // The live "Visualiser" material type (id 7). Its properties carry NO `group`
+  // tag — the card recognises it by its colour channels — so its body is the
+  // colour picker rather than plain fields.
   const visualizer: MaterialTypeDef = {
     id: 7,
-    materialtype: 'Visualizer',
+    materialtype: 'Visualiser',
     description: '',
     properties: [
       {
@@ -274,8 +275,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
         datatype: 'integer',
         min: 0,
         max: 255,
-        display_order: 90,
-        group: 'visualisation'
+        display_order: 90
       },
       {
         property_type_id: 12,
@@ -284,8 +284,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
         datatype: 'integer',
         min: 0,
         max: 255,
-        display_order: 91,
-        group: 'visualisation'
+        display_order: 91
       },
       {
         property_type_id: 13,
@@ -294,18 +293,25 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
         datatype: 'integer',
         min: 0,
         max: 255,
-        display_order: 92,
-        group: 'visualisation'
+        display_order: 92
       },
       {
-        property_type_id: 15,
+        property_type_id: 85,
         property: 'opacity',
         description: '',
         datatype: 'integer',
         min: 0,
         max: 100,
-        display_order: 94,
-        group: 'visualisation'
+        display_order: 93
+      },
+      {
+        property_type_id: 14,
+        property: 'texture_file',
+        description: '',
+        datatype: 'file',
+        min: null,
+        max: null,
+        display_order: 94
       }
     ]
   }
@@ -321,8 +327,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
         datatype: 'float',
         min: 0,
         max: 1,
-        display_order: 1,
-        group: 'model'
+        display_order: 1
       }
     ]
   }
@@ -343,7 +348,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(screen.queryByLabelText('Color R')).not.toBeInTheDocument()
   })
 
-  it('writes all three colour channels when a channel field is edited', () => {
+  it('commits the edited channel independently (like the other fields)', () => {
     Element.prototype.scrollIntoView = vi.fn()
     render(
       <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
@@ -351,12 +356,122 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       </Provider>
     )
 
-    // Typing a red channel commits the whole colour (the two untouched channels
-    // fall back to the seed grey 128), so the card holds a full colour.
+    // Editing one channel sets ONLY that channel — the others stay empty until
+    // touched, exactly like the plain numeric fields.
     fireEvent.change(screen.getByLabelText('R'), { target: { value: '200' } })
     expect(screen.getByLabelText('R')).toHaveValue('200')
-    expect(screen.getByLabelText('G')).toHaveValue('128')
-    expect(screen.getByLabelText('B')).toHaveValue('128')
+    expect(screen.getByLabelText('G')).toHaveValue('')
+    expect(screen.getByLabelText('B')).toHaveValue('')
+  })
+
+  it('blocks a decimal keystroke with "This input is not supported"', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Integer channel: the decimal point is rejected at the keystroke and never
+    // reaches the box.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '3.5' } })
+    expect(screen.getByLabelText('R')).toHaveValue('')
+    expect(screen.getByRole('alert')).toHaveTextContent('This input is not supported')
+  })
+
+  it('blocks a non-numeric keystroke with "This input is not supported"', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.change(screen.getByLabelText('G'), { target: { value: 'x' } })
+    expect(screen.getByLabelText('G')).toHaveValue('')
+    expect(screen.getByRole('alert')).toHaveTextContent('This input is not supported')
+  })
+
+  it('shows the range message for a channel above 255', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.change(screen.getByLabelText('B'), { target: { value: '300' } })
+    expect(screen.getByLabelText('B')).toHaveValue('300')
+    expect(screen.getByRole('alert')).toHaveTextContent('Values should be between 0-255')
+    expect(screen.getByLabelText('B')).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('shows the range message for a negative channel (out of range)', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // A minus can be typed (partial numeric), but -5 is below 0 → range message,
+    // matching the other numeric fields.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '-5' } })
+    expect(screen.getByRole('alert')).toHaveTextContent('Values should be between 0-255')
+  })
+
+  it('shows the range message for opacity above 100', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The opacity slider and its number field share the name; target the field.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Opacity' }), {
+      target: { value: '150' }
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('Values should be between 0-100')
+  })
+
+  it('keeps Save disabled until a full colour + opacity is entered', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const save = screen.getByRole('button', { name: 'Save' })
+    // Empty colour → required, so Save is disabled.
+    expect(save).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '10' } })
+    fireEvent.change(screen.getByLabelText('G'), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText('B'), { target: { value: '30' } })
+    // RGB complete but opacity still empty → still disabled.
+    expect(save).toBeDisabled()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Opacity' }), { target: { value: '80' } })
+    // Now colour + opacity are defined → Save enabled.
+    expect(save).toBeEnabled()
+  })
+
+  it('keeps Save disabled when a channel is out of range', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '10' } })
+    fireEvent.change(screen.getByLabelText('G'), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText('B'), { target: { value: '300' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Opacity' }), { target: { value: '80' } })
+    // B is out of range → not valid → Save stays disabled.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 
   it('renders plain fields (no picker) for a model-type card', () => {

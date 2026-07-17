@@ -11,6 +11,9 @@ export const LIST_MATERIALS_FAILED = 'app/Materials/LIST_MATERIALS_FAILED' as co
 export const CREATE_MATERIAL_REQUESTED = 'app/Materials/CREATE_MATERIAL_REQUESTED' as const
 export const CREATE_MATERIAL_SUCCEEDED = 'app/Materials/CREATE_MATERIAL_SUCCEEDED' as const
 export const CREATE_MATERIAL_FAILED = 'app/Materials/CREATE_MATERIAL_FAILED' as const
+// The new row's "just created" cue has run its course — forget which row it was,
+// so re-opening the panel doesn't flash a long-since-created row again.
+export const CLEAR_CREATE_HIGHLIGHT = 'app/Materials/CLEAR_CREATE_HIGHLIGHT' as const
 
 // Double-click rename (PUT /library/groups/{id}).
 export const RENAME_MATERIAL_REQUESTED = 'app/Materials/RENAME_MATERIAL_REQUESTED' as const
@@ -64,6 +67,13 @@ export const SAVE_PARAMETER_GROUP_FAILED = 'app/Materials/SAVE_PARAMETER_GROUP_F
 export const DELETE_PARAMETER_GROUP_REQUESTED =
   'app/Materials/DELETE_PARAMETER_GROUP_REQUESTED' as const
 export const DELETE_PARAMETER_GROUP_FAILED = 'app/Materials/DELETE_PARAMETER_GROUP_FAILED' as const
+
+// Visualiser texture upload: POST the file to the member's texture_file property.
+// The upload persists the member itself (texture mode), so success marks the card
+// saved and switches its draft to the returned path.
+export const UPLOAD_TEXTURE_REQUESTED = 'app/Materials/UPLOAD_TEXTURE_REQUESTED' as const
+export const UPLOAD_TEXTURE_SUCCEEDED = 'app/Materials/UPLOAD_TEXTURE_SUCCEEDED' as const
+export const UPLOAD_TEXTURE_FAILED = 'app/Materials/UPLOAD_TEXTURE_FAILED' as const
 
 // Header rename input + closing the form.
 export const SET_MATERIAL_DRAFT_NAME = 'app/Materials/SET_MATERIAL_DRAFT_NAME' as const

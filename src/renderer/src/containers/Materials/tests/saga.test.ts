@@ -8,7 +8,8 @@ import {
   OPEN_SAVED_MATERIAL_REQUESTED,
   RECORD_RECENT_COLOR,
   RENAME_MATERIAL_REQUESTED,
-  SAVE_PARAMETER_GROUP_REQUESTED
+  SAVE_PARAMETER_GROUP_REQUESTED,
+  UPLOAD_TEXTURE_REQUESTED
 } from '../constants'
 import materialsSaga, {
   createMaterialWorker,
@@ -18,7 +19,8 @@ import materialsSaga, {
   openSavedMaterialWorker,
   persistRecentColorsWorker,
   renameMaterialWorker,
-  saveParameterGroupWorker
+  saveParameterGroupWorker,
+  uploadTextureWorker
 } from '../saga'
 import { selectMaterialDetailsById, selectRecentColors } from '../selectors'
 import { saveRecentColors } from '../recentColors'
@@ -276,6 +278,42 @@ describe('materialsSaga', () => {
       takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
     )
     expect(gen.next().value).toEqual(takeEvery(RECORD_RECENT_COLOR, persistRecentColorsWorker))
+    expect(gen.next().value).toEqual(takeEvery(UPLOAD_TEXTURE_REQUESTED, uploadTextureWorker))
     expect(gen.next().done).toBe(true)
+  })
+})
+
+describe('uploadTextureWorker', () => {
+  it('uploads the file then puts uploadTextureSucceeded with the returned path', () => {
+    const file = new File(['x'], 'grass.png', { type: 'image/png' })
+    const gen = uploadTextureWorker(
+      actions.uploadTextureRequested({
+        groupId: '12',
+        cardId: 1,
+        materialTypeId: 7,
+        file,
+        scenarioId: 's1'
+      })
+    )
+    expect(gen.next().value).toEqual(call(service.uploadTextureFile, '12', 7, file, 's1'))
+    expect(gen.next('uploads/materials/12/grass.png').value).toEqual(
+      put(actions.uploadTextureSucceeded(1, 'uploads/materials/12/grass.png'))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('puts uploadTextureFailed on error', () => {
+    const file = new File(['x'], 'grass.png', { type: 'image/png' })
+    const gen = uploadTextureWorker(
+      actions.uploadTextureRequested({
+        groupId: '12',
+        cardId: 1,
+        materialTypeId: 7,
+        file,
+        scenarioId: null
+      })
+    )
+    gen.next()
+    expect(gen.throw(new Error('boom')).value).toEqual(put(actions.uploadTextureFailed(1, 'boom')))
   })
 })

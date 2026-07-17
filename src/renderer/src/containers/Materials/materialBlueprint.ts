@@ -41,10 +41,57 @@ export interface ResolvedParameterGroup {
 // Properties with no `group` tag fall under this catch-all so they still render.
 const UNGROUPED = 'General'
 
-// The catalog `group` tag whose fields (color_r/g/b, opacity, texture_file) the
-// right-panel card renders with the dedicated colour/texture editor instead of
-// plain FormFields.
-export const VISUALISATION_GROUP = 'visualisation'
+// The "Visualiser" catalog type (id 7) — its colour/opacity/texture properties
+// carry NO `group` tag in the live catalog, so it's identified by its signature
+// colour channels rather than a group name. `color_r` is enough to recognise it.
+const VISUALISATION_SIGNATURE_PROPERTY = 'color_r'
+
+// The "Custom" (colour) layer's fields — a full colour plus opacity. Required
+// (unlike the otherwise-optional material properties), so an empty colour can't be
+// saved. (The Texture layer, added later, will require texture_file instead.)
+export const VISUALISATION_CUSTOM_PROPERTIES = ['color_r', 'color_g', 'color_b', 'opacity'] as const
+
+// The backend's mode discriminator, a boolean inside the member's `properties`:
+// false = colour (RGB + opacity), true = texture (texture_file). Required on every
+// Visualiser write.
+export const TEXTURE_TOGGLE_PROPERTY = 'texture_toggle'
+// The texture path property.
+export const TEXTURE_PROPERTY = 'texture_file'
+
+// The Visualiser's two mutually-exclusive appearance modes.
+export type VisualisationMode = 'custom' | 'texture'
+
+// Read the persisted mode from a values bag (texture_toggle is stored as a string
+// once loaded). Defaults to colour.
+export function readVisualisationMode(values: Record<string, string>): VisualisationMode {
+  const raw = values[TEXTURE_TOGGLE_PROPERTY]
+  return raw === 'true' || raw === '1' ? 'texture' : 'custom'
+}
+
+// Whether a resolved field set belongs to the Visualiser — the right-panel card
+// renders the colour editor for it instead of plain FormFields.
+export function isVisualisationFieldSet(fields: ResolvedMaterialField[]): boolean {
+  return fields.some((f) => f.property === VISUALISATION_SIGNATURE_PROPERTY)
+}
+
+// True when the Visualiser's required Custom (colour) fields are all present and
+// valid — the visualisation half of a card's Save gate. Non-visualisation groups
+// are always "complete" here (their own fields are optional).
+export function isVisualisationComplete(
+  groups: ResolvedParameterGroup[],
+  values: Record<string, string>
+): boolean {
+  return groups.every((group) => {
+    if (!isVisualisationFieldSet(group.fields)) return true
+    return group.fields.every((field) => {
+      if (!(VISUALISATION_CUSTOM_PROPERTIES as readonly string[]).includes(field.property)) {
+        return true
+      }
+      const value = values[field.property] ?? ''
+      return value.trim() !== '' && validateMaterialFieldValue(field, value) === null
+    })
+  })
+}
 
 const toResolvedField = (def: MaterialTypeDef['properties'][number]): ResolvedMaterialField => ({
   property: def.property,
@@ -151,6 +198,36 @@ export function toNativeProperties(
     } else {
       out[def.property] = value
     }
+  }
+  return out
+}
+
+// Build the full-replace payload for a Visualiser member. The save is PUT/POST
+// (full-replace), so we send the complete state for the ACTIVE mode and OMIT the
+// other side's fields — the backend nulls whatever we leave out.
+//
+//   - colour  → `{ texture_toggle: false, color_r/g/b, opacity }` (texture omitted)
+//   - texture → `{ texture_toggle: true,  texture_file }` (colour omitted)
+//
+// `texturePath` overrides the stored path (a freshly picked library texture). The
+// texture upload path doesn't come through here — it uses the dedicated upload
+// endpoint, which writes the member itself.
+export function toVisualisationProperties(
+  type: MaterialTypeDef,
+  values: Record<string, string>,
+  mode: VisualisationMode,
+  texturePath?: string
+): Record<string, string | number | boolean> {
+  if (mode === 'texture') {
+    return {
+      [TEXTURE_TOGGLE_PROPERTY]: true,
+      [TEXTURE_PROPERTY]: texturePath ?? values[TEXTURE_PROPERTY] ?? ''
+    }
+  }
+  const native = toNativeProperties(type, values)
+  const out: Record<string, string | number | boolean> = { [TEXTURE_TOGGLE_PROPERTY]: false }
+  for (const key of VISUALISATION_CUSTOM_PROPERTIES) {
+    if (native[key] !== undefined) out[key] = native[key]
   }
   return out
 }

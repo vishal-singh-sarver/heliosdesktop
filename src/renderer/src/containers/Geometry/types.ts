@@ -70,6 +70,10 @@ export interface ScenarioGeometry {
   searchQuery: string
   nameErrors: Record<string, string> // inline rename validation, keyed by node id
   detailsById: Record<string, ObjectDetail> // cached property values per object
+  // The node +Ground just created, so its row can flash the "just appeared" cue.
+  // Cleared once the cue has run (the tree dispatches it), so a remount can't
+  // replay it.
+  lastCreatedId: string | null
   loadStatus: LoadStatus
   loadError: string | null
 }

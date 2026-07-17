@@ -8,7 +8,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
     class="flex shrink-0 flex-wrap gap-2"
   >
     <button
-      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
       style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
@@ -23,7 +23,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
       </span>
     </button>
     <button
-      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
       style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
@@ -38,7 +38,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
       </span>
     </button>
     <button
-      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+      class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
       style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >

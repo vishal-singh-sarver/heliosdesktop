@@ -4,6 +4,7 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
+import ToolbarButton from '@renderer/components/ToolbarButton'
 import { selectActiveScenarioId, selectAllMaterialTypes } from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
@@ -13,6 +14,11 @@ import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidati
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import {
+  HIGHLIGHT_CLASSES,
+  useScrollIntoViewWhen,
+  useTransientHighlight
+} from 'utils/useTransientHighlight'
+import {
   addParameterGroup,
   closeMaterialDraft,
   deleteMaterialRequested,
@@ -21,14 +27,23 @@ import {
   saveParameterGroupRequested,
   setMaterialDraftName,
   setParameterGroupType,
-  setParameterGroupValue
+  setParameterGroupValue,
+  uploadTextureRequested
 } from './actions'
 import {
   isMaterialFormValid,
+  isVisualisationComplete,
+  isVisualisationFieldSet,
+  readVisualisationMode,
   resolveParameterGroups,
+  TEXTURE_PROPERTY,
+  TEXTURE_TOGGLE_PROPERTY,
   toNativeProperties,
+  toVisualisationProperties,
   validateMaterialFieldValue,
-  VISUALISATION_GROUP
+  VISUALISATION_CUSTOM_PROPERTIES,
+  type ResolvedMaterialField,
+  type VisualisationMode
 } from './materialBlueprint'
 import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
@@ -67,8 +82,11 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const [openGroupIds, setOpenGroupIds] = React.useState<Set<number>>(
     () => new Set(draft.groups.map((g) => g.id))
   )
-  // The card the + just created — outlined and scrolled to, then cleared.
+  // The card the + just created — outlined and scrolled to, then cleared. The
+  // hook owns the "then cleared" half, on the same timing as the new-row cue in
+  // the Materials and Geometry lists.
   const [newCardId, setNewCardId] = React.useState<number | null>(null)
+  const highlightedCardId = useTransientHighlight(newCardId, () => setNewCardId(null))
   const nameInputRef = React.useRef<HTMLInputElement>(null)
   // The name as it stands on the backend, captured when the pencil unlocks the
   // field — blur compares against it so an untouched name is not re-sent.
@@ -116,15 +134,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     setNewCardId(newId)
   }
 
-  // The new card is scrolled into view and outlined for a moment, so it's obvious
-  // which one just appeared — it can otherwise land below the fold of the scrolling
-  // card list. The cue is transient: it fades once it has been noticed.
-  React.useEffect(() => {
-    if (newCardId == null) return undefined
-    const timer = window.setTimeout(() => setNewCardId(null), 2000)
-    return () => window.clearTimeout(timer)
-  }, [newCardId])
-
   // Focus the name field the moment the pencil unlocks it.
   React.useEffect(() => {
     if (nameEditing) nameInputRef.current?.focus()
@@ -171,18 +180,60 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     dispatch(closeMaterialDraft())
   }
 
-  // A card's Save: add its material type to the group the first time, update it
-  // afterwards. Values are converted to the native JSON types the backend wants.
-  const handleSaveGroup = (card: MaterialParameterGroup): void => {
-    const type = materialTypes.find((t) => t.id === card.typeId)
-    if (!type) return
+  const dispatchSave = (
+    card: MaterialParameterGroup,
+    materialTypeId: number,
+    properties: ReturnType<typeof toNativeProperties>
+  ): void => {
     dispatch(
       saveParameterGroupRequested({
         groupId: draft.groupId,
         cardId: card.id,
-        materialTypeId: type.id,
-        properties: toNativeProperties(type, card.values),
+        materialTypeId,
+        properties,
         saved: card.saved,
+        scenarioId
+      })
+    )
+  }
+
+  // The COLOUR / plain save: a Visualiser sends its Custom colour payload
+  // (texture_toggle false), every other type sends its plain native properties.
+  const handleSaveColour = (card: MaterialParameterGroup): void => {
+    const type = materialTypes.find((t) => t.id === card.typeId)
+    if (!type) return
+    const isVis = isVisualisationFieldSet(resolveParameterGroups([type]).flatMap((g) => g.fields))
+    const properties = isVis
+      ? toVisualisationProperties(type, card.values, 'custom')
+      : toNativeProperties(type, card.values)
+    dispatchSave(card, type.id, properties)
+  }
+
+  // The TEXTURE save for a chosen texture path (a highlighted library texture, or
+  // the already-stored one when re-saving) — texture_toggle true, colour cleared.
+  // The path is reflected in the draft so the cache + reopen show it.
+  const handleSaveTexture = (card: MaterialParameterGroup, path: string): void => {
+    const type = materialTypes.find((t) => t.id === card.typeId)
+    if (!type) return
+    dispatch(setParameterGroupValue(card.id, TEXTURE_PROPERTY, path))
+    dispatch(setParameterGroupValue(card.id, TEXTURE_TOGGLE_PROPERTY, 'true'))
+    for (const key of VISUALISATION_CUSTOM_PROPERTIES) {
+      if ((card.values[key] ?? '') !== '') dispatch(setParameterGroupValue(card.id, key, ''))
+    }
+    dispatchSave(card, type.id, toVisualisationProperties(type, card.values, 'texture', path))
+  }
+
+  // The TEXTURE save for a freshly-picked FILE — the upload endpoint persists the
+  // member itself (texture mode), so this doesn't go through the normal save path.
+  const handleUploadTexture = (card: MaterialParameterGroup, file: File): void => {
+    const type = materialTypes.find((t) => t.id === card.typeId)
+    if (!type) return
+    dispatch(
+      uploadTextureRequested({
+        groupId: draft.groupId,
+        cardId: card.id,
+        materialTypeId: type.id,
+        file,
         scenarioId
       })
     )
@@ -221,26 +272,26 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             !nameEditing ? 'cursor-default ' : ''
           }${nameEditing ? 'border-neutral-500' : 'border-transparent hover:border-app-border'}`}
         />
-        {/* + Adds another Parameter Group card — the same action the footer button
-            used to carry, now sitting with the material's other row actions. It
-            stops once there is a card per catalog material type. */}
-        <button
-          type="button"
-          aria-label={messages.addMaterialType}
+        {/* "+ Material Type" adds another Parameter Group card — the same action
+            the footer button used to carry, now sitting with the material's other
+            row actions. It stops once there is a card per catalog material type.
+            Same labelled pill as the Geometry / Materials create actions, so the
+            two panels' add-buttons read alike; the accessible name spells out the
+            full action the shorter visible label stands for. */}
+        <ToolbarButton
+          label={messages.materialType}
+          ariaLabel={messages.addMaterialType}
           title={atTypeLimit ? messages.allTypesAdded : messages.addMaterialType}
-          onClick={onAddGroup}
+          icon={addIcon}
+          // Pinned to the same 24px as the pencil and trash it sits beside.
+          size="xs"
+          bgColor="#ffffff"
+          textColor="#000000"
+          iconColor="dark"
           disabled={atTypeLimit}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-        >
-          {/* add.svg is a dark plus (meant for light buttons) — force it white so
-              it reads on the panel's dark background, like the toolbar does. */}
-          <img
-            src={addIcon}
-            alt=""
-            aria-hidden="true"
-            className="h-4 w-4 [filter:brightness(0)_invert(1)]"
-          />
-        </button>
+          className="shrink-0"
+          onClick={onAddGroup}
+        />
         <button
           type="button"
           aria-label="Edit name"
@@ -270,13 +321,15 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             disabledTypeValues={typesUsedByOtherCards(group.id)}
             materialTypes={materialTypes}
             open={openGroupIds.has(group.id)}
-            highlighted={group.id === newCardId}
+            highlighted={group.id === highlightedCardId}
             onToggle={() => toggleGroup(group.id)}
             onSelectType={(typeId) => onSelectType(group.id, typeId)}
             onChangeValue={(property, value) =>
               dispatch(setParameterGroupValue(group.id, property, value))
             }
-            onSave={() => handleSaveGroup(group)}
+            onSaveColour={() => handleSaveColour(group)}
+            onSaveTexture={(path) => handleSaveTexture(group, path)}
+            onUploadTexture={(file) => handleUploadTexture(group, file)}
             onDelete={() => handleDeleteGroup(group)}
           />
         ))}
@@ -326,7 +379,9 @@ function ParameterGroupCard({
   onToggle,
   onSelectType,
   onChangeValue,
-  onSave,
+  onSaveColour,
+  onSaveTexture,
+  onUploadTexture,
   onDelete
 }: {
   group: MaterialParameterGroup
@@ -340,12 +395,55 @@ function ParameterGroupCard({
   onToggle: () => void
   onSelectType: (typeId: number | null) => void
   onChangeValue: (property: string, value: string) => void
-  onSave: () => void
+  // Save routes by the Visualiser's mode: colour/plain, a picked library texture,
+  // or a picked file to upload.
+  onSaveColour: () => void
+  onSaveTexture: (path: string) => void
+  onUploadTexture: (file: File) => void
   onDelete: () => void
 }): React.JSX.Element {
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
   const parameterGroups = type ? resolveParameterGroups([type]) : []
   const title = messages.parameterGroupTitle(group.number)
+
+  // The Visualiser splits into two mutually-exclusive appearance modes; a
+  // freshly-picked (not-yet-uploaded) texture file lives here until Save uploads
+  // it. Both are card-local: the mode drives which payload Save sends, and the file
+  // can't live in the string value bag.
+  const isVisualiser = parameterGroups.some((pg) => isVisualisationFieldSet(pg.fields))
+  const [visualMode, setVisualMode] = React.useState<VisualisationMode>(() =>
+    readVisualisationMode(group.values)
+  )
+  // The highlighted library texture — transient: clicking toggles it, clicking away
+  // (blur) drops it, and it is only applied on Save. Not written to the value bag.
+  const [pendingLibrary, setPendingLibrary] = React.useState<string | null>(null)
+  const toggleLibrary = (path: string): void =>
+    setPendingLibrary((prev) => (prev === path ? null : path))
+  const [pendingFile, setPendingFile] = React.useState<{ file: File; url: string } | null>(null)
+  // The live object URL, mirrored in a ref so the unmount cleanup can revoke it
+  // without touching state.
+  const pendingUrlRef = React.useRef<string | null>(null)
+  const setPending = (next: { file: File; url: string } | null): void => {
+    if (pendingUrlRef.current) URL.revokeObjectURL(pendingUrlRef.current)
+    pendingUrlRef.current = next?.url ?? null
+    setPendingFile(next)
+  }
+  const pickFile = (file: File): void => setPending({ file, url: URL.createObjectURL(file) })
+
+  // Drop the pending file once a save completes (saving → idle).
+  const prevSaveStatus = React.useRef(group.saveStatus)
+  React.useEffect(() => {
+    if (prevSaveStatus.current === 'saving' && group.saveStatus === 'idle') setPending(null)
+    prevSaveStatus.current = group.saveStatus
+    // setPending is stable enough here; only the save-status transition matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.saveStatus])
+  React.useEffect(
+    () => () => {
+      if (pendingUrlRef.current) URL.revokeObjectURL(pendingUrlRef.current)
+    },
+    []
+  )
 
   // Field-validation state, scoped to this card. `touched` gates the errors so
   // they only appear after interaction; `guardErrors` holds the transient
@@ -356,13 +454,8 @@ function ParameterGroupCard({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
 
   // Bring a freshly added card into view — with the other cards left open, it can
-  // be added below the fold of the scrolling list. `block: 'nearest'` scrolls the
-  // card list only as far as it must, and never the page behind it.
-  const cardRef = React.useRef<HTMLDivElement>(null)
-  React.useEffect(() => {
-    if (!highlighted) return
-    cardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
-  }, [highlighted])
+  // be added below the fold of the scrolling list.
+  const cardRef = useScrollIntoViewWhen<HTMLDivElement>(highlighted)
 
   const handleFieldChange = (
     property: string,
@@ -389,11 +482,46 @@ function ParameterGroupCard({
     setTouched((t) => ({ ...t, [property]: true }))
   }
 
-  // Save is available once a type is chosen and every field of that type is
-  // valid. It adds the type the first time and updates it afterwards.
+  // The error shown under a field: the transient keystroke guard if any, else the
+  // committed value's validation once the field is touched or non-empty. Shared by
+  // the plain FormFields and the visualisation editor so both read identically.
+  const fieldError = (field: ResolvedMaterialField): string | undefined => {
+    const guard = guardErrors[field.property]
+    if (guard != null) return guard
+    const value = group.values[field.property] ?? ''
+    if (touched[field.property] === true || value !== '') {
+      return validateMaterialFieldValue(field, value) ?? undefined
+    }
+    return undefined
+  }
+
+  // Save is available once a type is chosen and its active mode is complete:
+  //  - plain type      → every field valid.
+  //  - Visualiser Custom → a full, valid colour + opacity.
+  //  - Visualiser Texture → a texture is chosen (a picked file or a stored path).
   const fieldsValid = isMaterialFormValid(parameterGroups, group.values)
   const saving = group.saveStatus === 'saving'
-  const canSave = group.typeId != null && fieldsValid && !saving
+  // Texture mode can save only when a texture is CHOSEN right now — a highlighted
+  // library texture or a picked file. An already-stored texture does NOT keep Save
+  // enabled (nothing selected ⇒ disabled), mirroring the colour gate.
+  const textureReady = pendingLibrary != null || pendingFile != null
+  const modeComplete = !isVisualiser
+    ? fieldsValid
+    : visualMode === 'custom'
+      ? isVisualisationComplete(parameterGroups, group.values)
+      : textureReady
+  const canSave = group.typeId != null && modeComplete && !saving
+
+  // Route Save by the Visualiser's active mode. In texture mode, a highlighted
+  // library pick wins, then a picked file (upload). The gate guarantees one exists.
+  const onSave = (): void => {
+    if (isVisualiser && visualMode === 'texture') {
+      if (pendingLibrary != null) onSaveTexture(pendingLibrary)
+      else if (pendingFile) onUploadTexture(pendingFile.file)
+    } else {
+      onSaveColour()
+    }
+  }
 
   const onDeleteClick = (): void => {
     // A card that was never saved has nothing on the backend — drop it without
@@ -409,7 +537,7 @@ function ParameterGroupCard({
     <div
       ref={cardRef}
       className={`flex shrink-0 flex-col rounded-[5px] border transition-colors duration-500 ${
-        highlighted ? 'border-blue-500 bg-blue-500/5' : 'border-app-border'
+        highlighted ? HIGHLIGHT_CLASSES : 'border-app-border'
       }`}
     >
       {/* The whole header row is the expand/collapse target — the chevron alone is
@@ -474,15 +602,29 @@ function ParameterGroupCard({
 
         {open && (
           <>
-            {/* The chosen type's parameters, grouped by their catalog `group` tag.
-                The "visualisation" group renders the colour/texture editor instead
-                of plain fields; every other group is plain FormFields. */}
+            {/* The chosen type's parameters. The Visualiser's fields (recognised
+                by their colour channels — the live catalog has no `group` tag)
+                render the colour editor; every other group is plain FormFields. */}
             {parameterGroups.map((pg) =>
-              pg.group === VISUALISATION_GROUP ? (
+              isVisualisationFieldSet(pg.fields) ? (
                 <MaterialVisualisationEditor
                   key={pg.group}
                   values={group.values}
-                  onChangeValue={onChangeValue}
+                  fields={pg.fields}
+                  fieldError={fieldError}
+                  onFieldChange={handleFieldChange}
+                  onFieldBlur={handleFieldBlur}
+                  mode={visualMode}
+                  onModeChange={setVisualMode}
+                  selectedPath={pendingLibrary}
+                  pendingFileUrl={pendingFile?.url}
+                  onPickLibrary={toggleLibrary}
+                  onClearLibrary={() => setPendingLibrary(null)}
+                  onPickFile={pickFile}
+                  uploading={saving}
+                  uploadError={
+                    visualMode === 'texture' ? (group.saveError ?? undefined) : undefined
+                  }
                 />
               ) : (
                 <div key={pg.group} className="flex flex-col gap-2">
@@ -491,13 +633,7 @@ function ParameterGroupCard({
                   </p>
                   {pg.fields.map((field) => {
                     const value = group.values[field.property] ?? ''
-                    const guard = guardErrors[field.property]
-                    const error =
-                      guard != null
-                        ? guard
-                        : touched[field.property] === true || value !== ''
-                          ? (validateMaterialFieldValue(field, value) ?? undefined)
-                          : undefined
+                    const error = fieldError(field)
                     return (
                       <FormField
                         key={field.property}
@@ -532,8 +668,12 @@ function ParameterGroupCard({
             <button
               type="button"
               disabled={!canSave}
+              // Don't steal focus from a highlighted library tile on mousedown —
+              // that would blur it and drop the pick before this click reads it.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onSave}
-              className="flex h-[38px] w-full items-center justify-center gap-1 rounded border border-app-border bg-blue-600 px-2.5 py-[5px] text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-[#424242] disabled:bg-[#2A2A2A] disabled:text-[#6B6B6B]"
+              // Same look as the Geometry ground Save: a faded-blue disabled state.
+              className="flex h-9 w-full items-center justify-center gap-1 rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? messages.savingParameterGroup : messages.saveParameterGroup}
             </button>

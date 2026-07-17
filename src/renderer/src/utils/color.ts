@@ -99,6 +99,26 @@ export function hexToRgb(hex: string): RgbColor | null {
   }
 }
 
+// Perceived brightness, 0 (black) … 255 (white) — the ITU-R BT.601 luma. The
+// channels are weighted because the eye reads green as far brighter than blue at
+// the same value, so a plain (r+g+b)/3 calls pure blue "mid" when it looks near
+// black.
+export function luminance({ r, g, b }: RgbColor): number {
+  return 0.299 * toChannel(r) + 0.587 * toChannel(g) + 0.114 * toChannel(b)
+}
+
+// Below this luma a swatch is too close to the panel's dark background to show
+// its own edge, so it needs a LIGHT outline instead of the default dark one.
+// Sits at the midpoint of the luma range: anything brighter reads clearly
+// against the panel already.
+const DARK_LUMA_MAX = 128
+
+// True when a colour is dark enough that a dark outline against a dark
+// background would vanish — see the swatches in the colour picker.
+export function isDarkColor(rgb: RgbColor): boolean {
+  return luminance(rgb) < DARK_LUMA_MAX
+}
+
 // Two colours are equal when every (snapped) channel matches — used to de-dupe
 // the recent-colours list.
 export function rgbEquals(a: RgbColor, b: RgbColor): boolean {

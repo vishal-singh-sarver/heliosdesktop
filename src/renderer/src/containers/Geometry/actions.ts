@@ -1,4 +1,5 @@
 import {
+  CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
   CREATE_OBJECT_REQUESTED,
@@ -259,6 +260,11 @@ export type CreateObjectFailedAction = {
   type: typeof CREATE_OBJECT_FAILED
   payload: string
 }
+export type ClearCreateHighlightAction = {
+  type: typeof CLEAR_CREATE_HIGHLIGHT
+  projectId: string
+  scenarioId: string
+}
 // Save fires this; the saga PATCHes the draft's object. Succeeded closes the form.
 export type UpdateObjectRequestedAction = {
   type: typeof UPDATE_OBJECT_REQUESTED
@@ -333,6 +339,7 @@ export type GeometryAction =
   | CreateObjectRequestedAction
   | CreateObjectSucceededAction
   | CreateObjectFailedAction
+  | ClearCreateHighlightAction
   | UpdateObjectRequestedAction
   | UpdateObjectSucceededAction
   | UpdateObjectFailedAction
@@ -602,6 +609,10 @@ export const createObjectFailed = (error: string): CreateObjectFailedAction => (
   type: CREATE_OBJECT_FAILED,
   payload: error
 })
+export const clearCreateHighlight = (
+  projectId: string,
+  scenarioId: string
+): ClearCreateHighlightAction => ({ type: CLEAR_CREATE_HIGHLIGHT, projectId, scenarioId })
 
 export const updateObjectRequested = (
   projectId: string,

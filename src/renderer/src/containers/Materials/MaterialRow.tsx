@@ -6,6 +6,7 @@ import Dialog from '@renderer/components/Dialog'
 import { selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
 import {
   deleteMaterialRequested,
   openSavedMaterialRequested,
@@ -49,6 +50,8 @@ function IconButton({
 interface MaterialRowProps {
   material: Material
   selected: boolean
+  // Just created by +Add Materials — flash it and bring it into view.
+  highlighted?: boolean
   // Lowercased names of all materials (this row excludes its own) for the
   // rename uniqueness check.
   existingNames: Set<string>
@@ -62,10 +65,12 @@ interface MaterialRowProps {
 export default function MaterialRow({
   material,
   selected,
+  highlighted = false,
   existingNames,
   nameError
 }: MaterialRowProps): React.JSX.Element {
   const dispatch = useDispatch()
+  const rowRef = useScrollIntoViewWhen<HTMLDivElement>(highlighted)
   const scenarioId = useSelector(selectActiveScenarioId)
   const [editing, setEditing] = React.useState(false)
   // Live rename validation error, lifted from MaterialNameEditor so the error
@@ -110,17 +115,23 @@ export default function MaterialRow({
   return (
     <div className="mb-1">
       <div
+        ref={rowRef}
         role="button"
         tabIndex={0}
         onClick={onSelect}
-        className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[13px] font-normal text-neutral-200 ${
+        // The "just created" cue sits under the error/editing states (both of
+        // which are about the name being wrong right now, and must win) but over
+        // selection — a new row is selected too, and the flash is what's new.
+        className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[13px] font-normal text-neutral-200 transition-colors duration-500 ${
           hasError
             ? 'border-[#D92D20] bg-[#2a2a2a]'
             : editing
               ? 'border-[#245AC5] bg-[#2a2a2a]'
-              : selected
-                ? 'border-app-border bg-[#2a2a2a]'
-                : 'border-transparent hover:bg-neutral-700/40'
+              : highlighted
+                ? HIGHLIGHT_CLASSES
+                : selected
+                  ? 'border-app-border bg-[#2a2a2a]'
+                  : 'border-transparent hover:bg-neutral-700/40'
         }`}
       >
         {editing ? (

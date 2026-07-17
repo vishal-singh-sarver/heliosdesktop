@@ -66,6 +66,8 @@ export const selectMaterialDetailsById = createSelector(selectMaterialsDomain, (
 // +Add Materials (create-empty-group) status + error, consumed by the left panel.
 export const selectCreateStatus = createSelector(selectMaterialsDomain, (s) => s.createStatus)
 export const selectCreateError = createSelector(selectMaterialsDomain, (s) => s.createError)
+// The row +Add Materials just created — drives its transient "just appeared" cue.
+export const selectLastCreatedId = createSelector(selectMaterialsDomain, (s) => s.lastCreatedId)
 
 // The visualisation colour picker's "Used colors" history (most-recent-first).
 export const selectRecentColors = createSelector(selectMaterialsDomain, (s) => s.recentColors)

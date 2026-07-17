@@ -1,5 +1,6 @@
 import {
   ADD_PARAMETER_GROUP,
+  CLEAR_CREATE_HIGHLIGHT,
   CLOSE_MATERIAL_DRAFT,
   CREATE_MATERIAL_FAILED,
   CREATE_MATERIAL_REQUESTED,
@@ -29,7 +30,10 @@ import {
   SET_PARAMETER_GROUP_TYPE,
   SET_PARAMETER_GROUP_VALUE,
   SET_SEARCH_QUERY,
-  TOGGLE_MATERIAL_VISIBILITY
+  TOGGLE_MATERIAL_VISIBILITY,
+  UPLOAD_TEXTURE_FAILED,
+  UPLOAD_TEXTURE_REQUESTED,
+  UPLOAD_TEXTURE_SUCCEEDED
 } from './constants'
 import type { RgbColor } from 'utils/color'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
@@ -65,6 +69,7 @@ export type CreateMaterialFailedAction = {
   type: typeof CREATE_MATERIAL_FAILED
   payload: string
 }
+export type ClearCreateHighlightAction = { type: typeof CLEAR_CREATE_HIGHLIGHT }
 
 export type RenameMaterialRequestedAction = {
   type: typeof RENAME_MATERIAL_REQUESTED
@@ -181,6 +186,31 @@ export type DeleteParameterGroupFailedAction = {
   payload: string
 }
 
+// Visualiser texture upload — POST the file, then switch the card to the returned
+// path on success. `cardId` targets the draft card; `materialTypeId` + `groupId`
+// address the backend member.
+export type UploadTextureInput = {
+  groupId: string
+  cardId: number
+  materialTypeId: number
+  file: File
+  scenarioId: string | null
+}
+export type UploadTextureRequestedAction = {
+  type: typeof UPLOAD_TEXTURE_REQUESTED
+  payload: UploadTextureInput
+}
+export type UploadTextureSucceededAction = {
+  type: typeof UPLOAD_TEXTURE_SUCCEEDED
+  cardId: number
+  path: string
+}
+export type UploadTextureFailedAction = {
+  type: typeof UPLOAD_TEXTURE_FAILED
+  cardId: number
+  payload: string
+}
+
 export type SetMaterialDraftNameAction = { type: typeof SET_MATERIAL_DRAFT_NAME; name: string }
 export type CloseMaterialDraftAction = { type: typeof CLOSE_MATERIAL_DRAFT }
 
@@ -195,6 +225,7 @@ export type MaterialsAction =
   | CreateMaterialRequestedAction
   | CreateMaterialSucceededAction
   | CreateMaterialFailedAction
+  | ClearCreateHighlightAction
   | RenameMaterialRequestedAction
   | RenameMaterialSucceededAction
   | RenameMaterialFailedAction
@@ -217,6 +248,9 @@ export type MaterialsAction =
   | SaveParameterGroupFailedAction
   | DeleteParameterGroupRequestedAction
   | DeleteParameterGroupFailedAction
+  | UploadTextureRequestedAction
+  | UploadTextureSucceededAction
+  | UploadTextureFailedAction
   | SetMaterialDraftNameAction
   | CloseMaterialDraftAction
   | RecordRecentColorAction
@@ -247,6 +281,9 @@ export const createMaterialSucceeded = (
 export const createMaterialFailed = (error: string): CreateMaterialFailedAction => ({
   type: CREATE_MATERIAL_FAILED,
   payload: error
+})
+export const clearCreateHighlight = (): ClearCreateHighlightAction => ({
+  type: CLEAR_CREATE_HIGHLIGHT
 })
 
 export const renameMaterialRequested = (
@@ -359,4 +396,17 @@ export const closeMaterialDraft = (): CloseMaterialDraftAction => ({ type: CLOSE
 export const recordRecentColor = (color: RgbColor): RecordRecentColorAction => ({
   type: RECORD_RECENT_COLOR,
   color
+})
+
+export const uploadTextureRequested = (
+  input: UploadTextureInput
+): UploadTextureRequestedAction => ({ type: UPLOAD_TEXTURE_REQUESTED, payload: input })
+export const uploadTextureSucceeded = (
+  cardId: number,
+  path: string
+): UploadTextureSucceededAction => ({ type: UPLOAD_TEXTURE_SUCCEEDED, cardId, path })
+export const uploadTextureFailed = (cardId: number, error: string): UploadTextureFailedAction => ({
+  type: UPLOAD_TEXTURE_FAILED,
+  cardId,
+  payload: error
 })

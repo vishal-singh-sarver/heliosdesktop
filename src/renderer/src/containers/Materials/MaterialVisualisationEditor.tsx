@@ -1,19 +1,22 @@
-import ColorPicker from '@renderer/components/ColorPicker'
+import ColorPicker, { type ColorPickerFieldControl } from '@renderer/components/ColorPicker'
 import React from 'react'
 import { useSelector } from 'react-redux'
 import { clamp, toChannel, type RgbColor } from 'utils/color'
+import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
+import type { ResolvedMaterialField, VisualisationMode } from './materialBlueprint'
 import messages from './messages'
 import { selectRecentColors } from './selectors'
+import TextureSelector from './TextureSelector'
 
-// The body a "visualisation"-group parameter-group card renders instead of plain
-// FormFields: the material's visual appearance. Two mutually-exclusive layers —
+// The body the Visualiser type's card renders instead of plain FormFields: the
+// material's visual appearance. Two mutually-exclusive layers —
 // "Custom" (an RGB colour + opacity) and "Select Texture" (a texture file). Only
 // Custom is live for now; the texture tab is a disabled placeholder.
 //
-// The card keeps every value as a string keyed by catalog property name; this
-// component adapts those strings to/from the ColorPicker's numeric model and
-// writes changes back through the same per-card `onChangeValue` the FormFields
-// use — so the existing Save path serialises the colour with no new plumbing.
+// The number fields (R/G/B/opacity) go through the CARD's own field pipeline
+// (onFieldChange/onFieldBlur/fieldError), so their keystroke guards, validation
+// and messages are byte-identical to the plain FormFields — the colour area and
+// sliders just commit valid values through that same pipeline.
 
 // The visualisation-group property names (the catalog contract, ids 11-15).
 const COLOR_R = 'color_r'
@@ -21,14 +24,14 @@ const COLOR_G = 'color_g'
 const COLOR_B = 'color_b'
 const OPACITY = 'opacity'
 
-// Seed the picker UI when a channel is unset. This is display-only — it is NOT
-// written back, so nothing saves until the user actually picks a colour.
+// Seed the VISUAL controls (area + sliders) when a value is unset — display-only,
+// never written back, so an untouched card still saves nothing. The number fields
+// stay empty when unset, exactly like the other optional fields.
 const DEFAULT_CHANNEL = 128
 const DEFAULT_OPACITY = 100
 
-type Tab = 'custom' | 'texture'
-
-// Parse a stored channel string to a whole 0-255, falling back to the seed.
+// Parse a stored channel string to a whole 0-255 for the visual controls, falling
+// back to the seed when unset or (transiently) out of range.
 function readChannel(values: Record<string, string>, key: string): number {
   const raw = values[key]
   return raw === undefined || raw === '' ? DEFAULT_CHANNEL : toChannel(Number(raw))
@@ -36,13 +39,63 @@ function readChannel(values: Record<string, string>, key: string): number {
 
 export function MaterialVisualisationEditor({
   values,
-  onChangeValue
+  fields,
+  fieldError,
+  onFieldChange,
+  onFieldBlur,
+  mode,
+  onModeChange,
+  selectedPath,
+  pendingFileUrl,
+  onPickLibrary,
+  onClearLibrary,
+  onPickFile,
+  uploading,
+  uploadError
 }: {
   values: Record<string, string>
-  onChangeValue: (property: string, value: string) => void
+  // The visualisation group's catalog fields (color_r/g/b, opacity, texture_file).
+  fields: ResolvedMaterialField[]
+  // The card's shared field helpers — reused verbatim so validation matches the
+  // plain FormFields.
+  fieldError: (field: ResolvedMaterialField) => string | undefined
+  onFieldChange: (property: string, next: string, datatype: CatalogPropertyDatatype) => void
+  onFieldBlur: (property: string) => void
+  // The active appearance mode (the top Custom/Texture tabs), owned by the card so
+  // it drives the Save payload.
+  mode: VisualisationMode
+  onModeChange: (mode: VisualisationMode) => void
+  // Texture state (only used in texture mode).
+  selectedPath: string | null
+  pendingFileUrl?: string
+  onPickLibrary: (path: string) => void
+  onClearLibrary: () => void
+  onPickFile: (file: File) => void
+  uploading: boolean
+  uploadError?: string
 }): React.JSX.Element {
   const recentColors = useSelector(selectRecentColors)
-  const [tab, setTab] = React.useState<Tab>('custom')
+
+  const fieldByProp = new Map(fields.map((f) => [f.property, f]))
+
+  // Commit a numeric property through the card's guarded change handler (drops
+  // invalid input, clears stale guards). Used by both the sliders and the boxes.
+  const commit = (property: string, value: string): void => {
+    const field = fieldByProp.get(property)
+    if (field) onFieldChange(property, value, field.datatype)
+  }
+
+  // The FormField-style control for one number box: current text, its error, and
+  // the guarded change/blur handlers.
+  const control = (property: string): ColorPickerFieldControl => {
+    const field = fieldByProp.get(property)
+    return {
+      value: values[property] ?? '',
+      error: field ? fieldError(field) : undefined,
+      onChange: (raw) => commit(property, raw),
+      onBlur: () => onFieldBlur(property)
+    }
+  }
 
   const rgb: RgbColor = {
     r: readChannel(values, COLOR_R),
@@ -55,16 +108,18 @@ export function MaterialVisualisationEditor({
       ? DEFAULT_OPACITY
       : clamp(Math.round(Number(opacityRaw)), 0, 100)
 
-  // Any colour change writes all three channels — a colour is the three together,
-  // and the first interaction is what commits them (before that they stay unset,
-  // so an untouched card saves nothing).
+  // A colour is the three channels together, so any area/hue/swatch change commits
+  // all three (each through the guarded handler). Opacity is required alongside a
+  // colour, so the first colour also defines the default 100% — the slider already
+  // sits there, and it means picking a colour yields a complete, saveable state.
   const handleColor = (next: RgbColor): void => {
-    onChangeValue(COLOR_R, String(next.r))
-    onChangeValue(COLOR_G, String(next.g))
-    onChangeValue(COLOR_B, String(next.b))
+    commit(COLOR_R, String(next.r))
+    commit(COLOR_G, String(next.g))
+    commit(COLOR_B, String(next.b))
+    if ((values[OPACITY] ?? '') === '') commit(OPACITY, String(DEFAULT_OPACITY))
   }
   const handleOpacity = (next: number): void => {
-    onChangeValue(OPACITY, String(next))
+    commit(OPACITY, String(next))
   }
 
   const tabClass = (active: boolean): string =>
@@ -79,32 +134,31 @@ export function MaterialVisualisationEditor({
       <div className="flex items-center gap-4">
         <button
           type="button"
-          aria-pressed={tab === 'custom'}
-          onClick={() => setTab('custom')}
-          className={tabClass(tab === 'custom')}
+          aria-pressed={mode === 'custom'}
+          onClick={() => onModeChange('custom')}
+          className={tabClass(mode === 'custom')}
         >
           {messages.visualisationCustomTab}
         </button>
-        {/* Texture selection is not built yet — the tab is shown (to match the
-            final layout) but disabled. */}
         <button
           type="button"
-          aria-pressed={tab === 'texture'}
-          disabled
-          title={messages.visualisationTextureComingSoon}
-          className={`${tabClass(false)} cursor-not-allowed opacity-50`}
+          aria-pressed={mode === 'texture'}
+          onClick={() => onModeChange('texture')}
+          className={tabClass(mode === 'texture')}
         >
           {messages.visualisationTextureTab}
         </button>
       </div>
 
-      {tab === 'custom' && (
+      {mode === 'custom' ? (
         <ColorPicker
           rgb={rgb}
           opacity={opacity}
           recentColors={recentColors}
           onChangeColor={handleColor}
           onChangeOpacity={handleOpacity}
+          channelFields={{ r: control(COLOR_R), g: control(COLOR_G), b: control(COLOR_B) }}
+          opacityField={control(OPACITY)}
           labels={{
             rgbValues: messages.rgbValues,
             opacity: messages.opacityLabel,
@@ -114,6 +168,16 @@ export function MaterialVisualisationEditor({
             opacitySlider: messages.opacitySliderLabel,
             swatch: messages.usedColorSwatch
           }}
+        />
+      ) : (
+        <TextureSelector
+          selectedPath={selectedPath}
+          pendingFileUrl={pendingFileUrl}
+          onPickLibrary={onPickLibrary}
+          onClearLibrary={onClearLibrary}
+          onPickFile={onPickFile}
+          uploading={uploading}
+          uploadError={uploadError}
         />
       )}
     </div>

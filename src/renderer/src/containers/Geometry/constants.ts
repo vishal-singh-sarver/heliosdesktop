@@ -62,6 +62,9 @@ export const CLOSE_CREATE_FORM = 'app/Geometry/CLOSE_CREATE_FORM' as const
 export const CREATE_OBJECT_REQUESTED = 'app/Geometry/CREATE_OBJECT_REQUESTED' as const
 export const CREATE_OBJECT_SUCCEEDED = 'app/Geometry/CREATE_OBJECT_SUCCEEDED' as const
 export const CREATE_OBJECT_FAILED = 'app/Geometry/CREATE_OBJECT_FAILED' as const
+// The new row's "just created" cue has run its course — forget which row it was,
+// so re-opening the panel doesn't flash a long-since-created row again.
+export const CLEAR_CREATE_HIGHLIGHT = 'app/Geometry/CLEAR_CREATE_HIGHLIGHT' as const
 export const UPDATE_OBJECT_REQUESTED = 'app/Geometry/UPDATE_OBJECT_REQUESTED' as const
 export const UPDATE_OBJECT_SUCCEEDED = 'app/Geometry/UPDATE_OBJECT_SUCCEEDED' as const
 export const UPDATE_OBJECT_FAILED = 'app/Geometry/UPDATE_OBJECT_FAILED' as const

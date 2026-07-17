@@ -2,6 +2,7 @@ import { produce } from 'immer'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import type { GeometryAction } from './actions'
 import {
+  CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
   CREATE_OBJECT_REQUESTED,
@@ -48,6 +49,7 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   searchQuery: '',
   nameErrors: {},
   detailsById: {},
+  lastCreatedId: null,
   loadStatus: 'idle',
   loadError: null
 })
@@ -214,6 +216,12 @@ const geometryReducer = (
         s.nodesById = {}
         s.rootOrder = []
         s.detailsById = {} // a fresh load invalidates the cached property values
+        // A create never re-lists (see the saga), so any pending cue here belongs
+        // to an earlier session of this tree — forget it rather than flash a row
+        // the user created long ago. Belt and braces for the timer-driven clear:
+        // that one can't fire if the tree unmounted (or the scenario changed)
+        // mid-cue.
+        s.lastCreatedId = null
         for (const node of action.payload) {
           s.nodesById[node.id] = node
           if (node.parentId === null) s.rootOrder.push(node.id)
@@ -514,6 +522,7 @@ const geometryReducer = (
         s.nodesById[node.id] = node
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
+        s.lastCreatedId = node.id
         s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
         draft.createDraft = {
           objectId: node.id,
@@ -558,6 +567,13 @@ const geometryReducer = (
         // POST failed before the form opened — nothing to roll back. (The error
         // surfaces via the saga; no draft slot exists to show it yet.)
         break
+
+      case CLEAR_CREATE_HIGHLIGHT: {
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        s.lastCreatedId = null
+        break
+      }
+
 
       case UPDATE_OBJECT_REQUESTED: {
         if (!draft.createDraft) break

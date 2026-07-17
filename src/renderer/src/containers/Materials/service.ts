@@ -1,5 +1,5 @@
 import { api } from 'utils/api'
-import { API_ROUTES } from 'utils/constants'
+import { API_ROUTES, BASE_URL } from 'utils/constants'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
 // The single seam between the Materials sagas and the backend — sagas import
@@ -161,8 +161,10 @@ export function addGroupMaterial(
     .then(() => undefined)
 }
 
-// PATCH /library/groups/{id}/materials/{typeId} — update the properties of a
-// material type already on the group. Every save after the first.
+// PUT /library/groups/{id}/materials/{typeId} — replace the properties of a
+// material type already on the group. Every save after the first. Full-replace
+// (not merge): the backend nulls any property we omit, so the caller sends the
+// member's COMPLETE property set. (The backend switched this from PATCH to PUT.)
 export function updateGroupMaterial(
   groupId: string,
   materialTypeId: number,
@@ -170,7 +172,7 @@ export function updateGroupMaterial(
   scenarioId: string | null
 ): Promise<void> {
   return api
-    .patch(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId), {
+    .put(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId), {
       properties
     })
     .then(() => undefined)
@@ -186,4 +188,60 @@ export function removeGroupMaterial(
   return api
     .delete(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId))
     .then(() => undefined)
+}
+
+// ── Texture (Visualiser) ──────────────────────────────────────────────────────
+
+// POST (multipart) the Visualiser texture. The backend stores the file, sets the
+// member to texture mode (texture_toggle true, colour nulled), CREATING the member
+// if it doesn't exist yet — so uploading is itself the save for texture mode.
+// Returns the stored relative path (e.g. "uploads/materials/8/grass.png").
+interface UploadFileResponse {
+  success: boolean
+  property: string
+  value: string
+}
+export function uploadTextureFile(
+  groupId: string,
+  materialTypeId: number,
+  file: File,
+  scenarioId: string | null
+): Promise<string> {
+  return api
+    .uploadFile<UploadFileResponse>(
+      withScenario(
+        API_ROUTES.materials.groupMaterialFile(groupId, materialTypeId, 'texture_file'),
+        scenarioId
+      ),
+      file
+    )
+    .then((res) => res.value)
+}
+
+// The full URL that renders a stored texture path (upload path or a default's
+// backend path) as an <img> source.
+export function textureServeUrl(path: string): string {
+  return `${BASE_URL}${API_ROUTES.textures.serve(path)}`
+}
+
+// GET the built-in default textures for the "From Library" grid.
+interface DefaultTexture {
+  name: string
+  url: string
+}
+// The defaults are static, so the request is cached (shared in-flight promise):
+// repeated mounts — including React StrictMode's double-invoke in dev — reuse the
+// one call. A failure clears the cache so a later attempt retries.
+let defaultTexturesCache: Promise<DefaultTexture[]> | null = null
+export function listDefaultTextures(): Promise<DefaultTexture[]> {
+  if (!defaultTexturesCache) {
+    defaultTexturesCache = api
+      .get<{ textures: DefaultTexture[] }>(API_ROUTES.textures.defaults())
+      .then((res) => res.textures ?? [])
+      .catch((err) => {
+        defaultTexturesCache = null
+        throw err
+      })
+  }
+  return defaultTexturesCache
 }

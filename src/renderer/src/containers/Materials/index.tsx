@@ -7,7 +7,13 @@ import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import { createMaterialRequested, listMaterialsRequested, setSearchQuery } from './actions'
+import { useTransientHighlight } from 'utils/useTransientHighlight'
+import {
+  clearCreateHighlight,
+  createMaterialRequested,
+  listMaterialsRequested,
+  setSearchQuery
+} from './actions'
 import MaterialRow from './MaterialRow'
 import messages from './messages'
 import reducer from './reducer'
@@ -15,6 +21,7 @@ import saga from './saga'
 import {
   selectCreateError,
   selectCreateStatus,
+  selectLastCreatedId,
   selectLoadError,
   selectLoadStatus,
   selectMaterialNamesLower,
@@ -45,6 +52,13 @@ export function Materials(): React.JSX.Element {
   const nameErrors = useSelector(selectNameErrors)
   const createStatus = useSelector(selectCreateStatus)
   const createError = useSelector(selectCreateError)
+  // +Add Materials appends its row at the bottom of the list, which can be below
+  // the fold — the row flashes and scrolls itself into view so it's obvious which
+  // one just appeared. Same cue the Properties form gives a new card.
+  const lastCreatedId = useSelector(selectLastCreatedId)
+  const highlightedId = useTransientHighlight(lastCreatedId, () =>
+    dispatch(clearCreateHighlight())
+  )
 
   // The material library is GLOBAL — it isn't scoped to a project or scenario, so
   // it loads once when the section mounts rather than per active project. We
@@ -129,6 +143,7 @@ export function Materials(): React.JSX.Element {
               key={material.id}
               material={material}
               selected={material.id === selectedId}
+              highlighted={material.id === highlightedId}
               existingNames={namesLower}
               nameError={nameErrors[material.id]}
             />

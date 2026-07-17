@@ -79,6 +79,24 @@ describe('materialsReducer', () => {
     expect(result.detailsById['12']).toEqual({ id: '12', name: 'Mat', members: [] })
   })
 
+  it('CREATE_MATERIAL_SUCCEEDED marks the new row for the "just created" cue', () => {
+    const result = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+    expect(result.lastCreatedId).toBe('12')
+  })
+
+  it('CLEAR_CREATE_HIGHLIGHT forgets the cued row once the cue has run', () => {
+    const start = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+    expect(materialsReducer(start, actions.clearCreateHighlight()).lastCreatedId).toBeNull()
+  })
+
+  it('LIST_MATERIALS_SUCCEEDED forgets a cue left over from an earlier session', () => {
+    // The cue's timer can't fire if the list unmounted mid-cue; a reload must not
+    // flash a row created long ago.
+    const start = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+    const result = materialsReducer(start, actions.listMaterialsSucceeded([make('12', 'Mat')]))
+    expect(result.lastCreatedId).toBeNull()
+  })
+
   it('CREATE_MATERIAL_FAILED records the error', () => {
     const result = materialsReducer(initialState, actions.createMaterialFailed('boom'))
     expect(result.createStatus).toBe('error')
@@ -236,6 +254,25 @@ describe('materialsReducer', () => {
       const result = materialsReducer(saved, actions.removeParameterGroup(1))
       // The removed member is gone from the cache — it can't "come back".
       expect(result.detailsById['12'].members).toEqual([])
+    })
+
+    it('UPLOAD_TEXTURE_SUCCEEDED switches the card to texture mode and clears colour', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 7))
+      // The card had a colour before the user switched to texture and uploaded.
+      const coloured = materialsReducer(typed, actions.setParameterGroupValue(1, 'color_r', '128'))
+      const result = materialsReducer(
+        coloured,
+        actions.uploadTextureSucceeded(1, 'uploads/materials/12/grass.png')
+      )
+
+      const card = result.editDraft?.groups[0]
+      expect(card?.saved).toBe(true)
+      expect(card?.saveStatus).toBe('idle')
+      expect(card?.values.texture_file).toBe('uploads/materials/12/grass.png')
+      expect(card?.values.texture_toggle).toBe('true')
+      // Colour is cleared — the member is now texture-only.
+      expect(card?.values.color_r).toBe('')
     })
 
     it('RENAME_MATERIAL_SUCCEEDED keeps the cache but updates the name', () => {
