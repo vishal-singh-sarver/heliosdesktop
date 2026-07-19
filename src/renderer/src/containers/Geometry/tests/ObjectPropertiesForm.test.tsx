@@ -195,6 +195,43 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     expect(screen.getByRole('dialog', { name: 'Cotton properties' })).toBeInTheDocument()
   })
 
+  it('sizes the popup to 80% of the 3D-window height and vertically centers it', () => {
+    // openDetailPopup sizes/centers the popup against the surrounding right-panel
+    // <aside> — a flex sibling of the 3D window, so it shares the window's top and
+    // height. jsdom returns a zero rect, so stub the aside's rect: a 600px-tall
+    // panel at top 100 → height round(600*0.8)=480, top 100+(600-480)/2=160.
+    const { container } = render(
+      <aside>
+        <Provider store={makeStore([material('m1', 'Cotton')])}>
+          <ObjectPropertiesForm />
+        </Provider>
+      </aside>
+    )
+    const aside = container.querySelector('aside') as HTMLElement
+    aside.getBoundingClientRect = () =>
+      ({
+        top: 100,
+        left: 400,
+        right: 740,
+        bottom: 700,
+        width: 340,
+        height: 600,
+        x: 400,
+        y: 100,
+        toJSON: () => ({})
+      }) as DOMRect
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    // Fixed height (the body scrolls inside it), not a content-hugging box.
+    const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
+    expect(dialog).toHaveStyle({ height: '480px' })
+    // The portal wrapper carries the computed position — centered in the panel.
+    expect(dialog.parentElement).toHaveStyle({ top: '160px' })
+  })
+
   it("shows an assigned material's properties (from the GET) in the read-only popup", () => {
     const radiationType: MaterialTypeDef = {
       id: 5,

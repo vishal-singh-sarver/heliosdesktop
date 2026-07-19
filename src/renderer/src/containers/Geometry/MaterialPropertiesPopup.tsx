@@ -33,8 +33,17 @@ interface MaterialPropertiesPopupProps {
   name: string
   // One section per material type on the material; [] renders the empty state.
   sections: MaterialDetailSection[]
+  // Fixed pixel height, set by the caller to size the popup against the 3D window.
+  // The body scrolls inside, so a material with many parameter groups scrolls
+  // rather than overflowing; a short material leaves empty space below (matching
+  // the Figma's tall fixed panel). Omitted → content-hugging with a viewport cap.
+  height?: number
   onClose: () => void
 }
+
+// Standalone fallback CAP (used only when no explicit `height` is given) — keeps
+// the popup from running past the viewport when it's not caller-sized.
+const DESIGN_MAX_HEIGHT = 866
 
 // The "General" (ungrouped) bucket resolveParameterGroups puts catalog properties
 // with no `group` tag under. It has no real heading in the design — its rows show
@@ -55,9 +64,6 @@ const parameterGroupTitle = (n: number): string => `Parameter Group.${String(n).
 // to show that type's name and its property values (grouped by the catalog's
 // `group` tag) in a two-column read-only grid.
 //
-// 370 wide; 866 tall is a CAP, not a fixed height — on a short window it shrinks
-// to the viewport and the body scrolls, so it can never run off-screen.
-//
 // Read-only by construction: every value is a <dd>, never an input. Reusing the
 // editable form's bordered input would say "type in me", and disabling it would
 // say "you may not type in me yet" — both false. This is information, not a
@@ -65,6 +71,7 @@ const parameterGroupTitle = (n: number): string => `Parameter Group.${String(n).
 export default function MaterialPropertiesPopup({
   name,
   sections,
+  height,
   onClose
 }: MaterialPropertiesPopupProps): React.JSX.Element {
   // Which type sections are expanded, by typeId. Empty = all collapsed (matching
@@ -82,11 +89,20 @@ export default function MaterialPropertiesPopup({
     <div
       role="dialog"
       aria-label={messages.materialDetailTitle(name)}
-      // Inline, not a `max-h-[...]` class: the arbitrary value would need
-      // underscore escaping (`min(866px,100vh_-_16px)`) to survive Tailwind's
-      // parser, and it fails silently when it doesn't — leaving no cap at all.
-      style={{ maxHeight: 'min(866px, 100vh - 16px)' }}
-      className="flex w-[370px] flex-col overflow-hidden rounded-[8px] bg-[#313131] shadow-lg"
+      // Inline, not a `max-h-[...]` / `h-[...]` class: the arbitrary value would
+      // need underscore escaping (`min(866px,100vh_-_16px)`) to survive Tailwind's
+      // parser, and it fails silently when it doesn't — leaving no sizing at all.
+      // A caller-supplied fixed height wins (the popup is sized to the 3D window);
+      // absent, it hugs content up to a viewport-bounded cap.
+      style={
+        height != null
+          ? { height: `${height}px` }
+          : { maxHeight: `min(${DESIGN_MAX_HEIGHT}px, 100vh - 16px)` }
+      }
+      // app-no-drag: this popup is portaled to <body> and can sit over the app's
+      // `-webkit-app-region: drag` title bar, which otherwise swallows pointer
+      // events — without this the close button (and every control) would go dead.
+      className="app-no-drag flex w-[370px] flex-col overflow-hidden rounded-[8px] bg-[#313131] shadow-lg"
     >
       {/* Header — the material's name, pinned while the body scrolls. */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-app-border px-4 py-3">

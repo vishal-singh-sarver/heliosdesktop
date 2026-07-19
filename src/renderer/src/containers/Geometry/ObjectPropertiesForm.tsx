@@ -55,12 +55,14 @@ import { validateGroupName } from './validation'
 // branch a no-op, leaving the cheap instant rules: non-empty + ≤20 characters.
 const NO_NAME_CONFLICTS = new Set<string>()
 
-// The read-only material properties popup's footprint, used to place it. The
-// height is the Figma CAP, not a fixed height — the popup itself shrinks to the
-// viewport on a short window, so anything positioning it must clamp against
-// whichever is smaller (see openDetailPopup).
+// The read-only material properties popup's width, used to place it beside the
+// panel. The popup is sized + centered against the 3D window (see openDetailPopup),
+// so positioning needs only the width; the height is derived from the workspace.
 const DETAIL_POPUP_WIDTH = 370
-const DETAIL_POPUP_MAX_HEIGHT = 866
+// The popup's height as a fraction of the 3D window's — "20% less than the window,
+// split top and bottom" (per the Figma), so it reads as a tall centered panel
+// rather than a content-hugging tooltip. Purely visual; tweak to taste.
+const DETAIL_POPUP_HEIGHT_RATIO = 0.8
 // The breathing room every popup on this panel keeps from the panel and the
 // viewport edges.
 const POPUP_GAP = 8
@@ -271,6 +273,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     material: DraftMaterialGroup
     top: number
     left: number
+    height: number
   } | null>(null)
   const closeDetailPopup = (): void => setDetailPopup(null)
   const openDetailPopup = (row: HTMLElement, material: DraftMaterialGroup): void => {
@@ -290,18 +293,28 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     const panel = row.closest('aside')?.getBoundingClientRect()
     const rowRect = row.getBoundingClientRect()
     const leftAnchor = panel ? panel.left : rowRect.left
-    // Clamp against the height the popup can actually reach, not the 866 cap: on
-    // a short window it shrinks to the viewport (see MaterialPropertiesPopup's
-    // max-height), and clamping against 866 there would pin it off-screen.
-    const height = Math.min(DETAIL_POPUP_MAX_HEIGHT, window.innerHeight - POPUP_GAP * 2)
+    // Size + center the popup against the 3D window, matching the Figma: a tall
+    // panel ~80% of the window's height, vertically centered (equal gap top and
+    // bottom). The right panel (this `aside`) is a flex sibling of the 3D window in
+    // the same row, so it shares the window's top and height — reuse it as the
+    // vertical anchor rather than reaching across to the workspace. Centering in it
+    // also keeps the popup well below the app's 45px `-webkit-app-region: drag`
+    // title bar, which would otherwise swallow the close button's click. Fall back
+    // to the viewport when there's no panel (e.g. unit tests).
+    const bounds = panel
+      ? { top: panel.top, height: panel.height }
+      : { top: POPUP_GAP, height: window.innerHeight - POPUP_GAP * 2 }
+    const height = Math.round(bounds.height * DETAIL_POPUP_HEIGHT_RATIO)
+    const top = bounds.top + (bounds.height - height) / 2
     setDetailPopup({
       material,
-      top: Math.max(POPUP_GAP, Math.min(rowRect.top, window.innerHeight - height - POPUP_GAP)),
+      top,
       // 8px left of the whole panel, like the Select popup — but clamped: at 370
       // wide an unclamped left goes negative on a window under ~720px and walks
       // off the left edge. Clamping can slide it over the panel instead; the
       // portal renders at z-50, above it.
-      left: Math.max(POPUP_GAP, leftAnchor - DETAIL_POPUP_WIDTH - POPUP_GAP)
+      left: Math.max(POPUP_GAP, leftAnchor - DETAIL_POPUP_WIDTH - POPUP_GAP),
+      height
     })
   }
 
@@ -620,6 +633,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                     membersFor(detailPopup.material) ?? [],
                     materialTypes
                   )}
+                  // Fixed height, sized to the 3D window (see openDetailPopup). The
+                  // popup's body scrolls inside it, so a material with many parameter
+                  // groups scrolls rather than overflowing the panel.
+                  height={detailPopup.height}
                   onClose={closeDetailPopup}
                 />
               </div>

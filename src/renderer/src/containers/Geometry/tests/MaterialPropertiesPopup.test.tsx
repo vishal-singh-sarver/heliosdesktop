@@ -161,6 +161,22 @@ describe('<MaterialPropertiesPopup />', () => {
     expect(screen.getByRole('dialog')).toHaveStyle({ maxHeight: 'min(866px, 100vh - 16px)' })
   })
 
+  it('renders at the caller-supplied fixed height (sized to the 3D window)', () => {
+    render(
+      <MaterialPropertiesPopup
+        name="Material.001"
+        sections={[radiation]}
+        height={480}
+        onClose={() => {}}
+      />
+    )
+    // A fixed height, not a content-hugging cap: the popup is a tall panel and its
+    // body scrolls inside it. The viewport-cap default only applies with no height.
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveStyle({ height: '480px' })
+    expect(dialog.style.maxHeight).toBe('')
+  })
+
   it('says the properties are not connected yet when it has no sections', () => {
     render(<MaterialPropertiesPopup name="Material.001" sections={[]} onClose={() => {}} />)
 
