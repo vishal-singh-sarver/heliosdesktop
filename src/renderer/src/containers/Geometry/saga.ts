@@ -177,14 +177,22 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     const nextProps = numericProperties(draft.values)
     const propsChanged = !original || !sameProperties(nextProps, numericProperties(original.values))
 
-    if (propsChanged) {
+    // ADD-only: send just the groups picked this session that aren't already
+    // assigned on the backend (baseline seeded from the GET). Empty = no material
+    // change, so a re-Save of an unchanged ground sends nothing and avoids a 409.
+    const newMaterials = draft.materials
+      .filter((m) => !draft.materialBaseline.includes(m.groupId))
+      .map((m) => ({ group_id: Number(m.groupId), sync: true }))
+
+    if (propsChanged || newMaterials.length) {
       yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
         properties: nextProps,
         visibility: {
           viewport: node?.visibleInViewport ?? true,
           render: node?.renderEnabled ?? true
         },
-        groupId: node?.parentId ?? null
+        groupId: node?.parentId ?? null,
+        materials: newMaterials
       })
     }
     yield put(

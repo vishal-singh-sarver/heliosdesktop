@@ -57,7 +57,7 @@ export const DELETE_NODE_FAILED = 'app/Geometry/DELETE_NODE_FAILED' as const
 //    DELETEs it (reuses DELETE_NODE + CLOSE_CREATE_FORM). ─
 export const SET_DRAFT_VALUE = 'app/Geometry/SET_DRAFT_VALUE' as const
 export const SET_DRAFT_NAME = 'app/Geometry/SET_DRAFT_NAME' as const
-export const SET_DRAFT_MATERIAL = 'app/Geometry/SET_DRAFT_MATERIAL' as const
+export const ADD_DRAFT_MATERIAL = 'app/Geometry/ADD_DRAFT_MATERIAL' as const
 export const CLOSE_CREATE_FORM = 'app/Geometry/CLOSE_CREATE_FORM' as const
 export const CREATE_OBJECT_REQUESTED = 'app/Geometry/CREATE_OBJECT_REQUESTED' as const
 export const CREATE_OBJECT_SUCCEEDED = 'app/Geometry/CREATE_OBJECT_SUCCEEDED' as const

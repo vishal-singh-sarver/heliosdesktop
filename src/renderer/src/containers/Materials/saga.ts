@@ -4,6 +4,7 @@ import type {
   CreateMaterialRequestedAction,
   DeleteMaterialRequestedAction,
   DeleteParameterGroupRequestedAction,
+  LoadMaterialDetailRequestedAction,
   OpenSavedMaterialRequestedAction,
   RenameMaterialRequestedAction,
   SaveParameterGroupRequestedAction
@@ -13,6 +14,7 @@ import {
   DELETE_MATERIAL_REQUESTED,
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_REQUESTED,
+  LOAD_MATERIAL_DETAIL_REQUESTED,
   OPEN_SAVED_MATERIAL_REQUESTED,
   RENAME_MATERIAL_REQUESTED,
   SAVE_PARAMETER_GROUP_REQUESTED
@@ -96,6 +98,26 @@ export function* openSavedMaterialWorker(action: OpenSavedMaterialRequestedActio
   }
 }
 
+// Same cache-check-then-GET as openSavedMaterialWorker, but it ONLY fills the
+// detail cache — it does not open the editor form. The geometry Materials popup
+// reads detailsById to show a picked material's properties; on a cache miss it
+// dispatches this to fetch them. takeEvery (not takeLatest) so concurrent loads
+// for different groups don't cancel each other. A failed fetch is swallowed —
+// the popup just keeps its empty state (this is a read-only view).
+export function* loadMaterialDetailWorker(action: LoadMaterialDetailRequestedAction): Generator {
+  try {
+    const detailsById = (yield select(selectMaterialDetailsById)) as Record<
+      string,
+      MaterialGroupDetail
+    >
+    if (detailsById[action.id]) return
+    const detail = (yield call(service.getGroup, action.id)) as MaterialGroupDetail
+    yield put(actions.materialDetailLoaded(detail))
+  } catch {
+    // Read-only view — leave the popup's empty state on failure.
+  }
+}
+
 // One parameter-group card's Save. The card's `saved` flag picks the call: the
 // first save ADDS the material type to the group (POST), every later one UPDATES
 // it (PATCH). Only on success is the card marked saved.
@@ -138,6 +160,7 @@ export default function* materialsSaga(): Generator {
   yield takeEvery(RENAME_MATERIAL_REQUESTED, renameMaterialWorker)
   yield takeEvery(DELETE_MATERIAL_REQUESTED, deleteMaterialWorker)
   yield takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
+  yield takeEvery(LOAD_MATERIAL_DETAIL_REQUESTED, loadMaterialDetailWorker)
   yield takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)
   yield takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
 }

@@ -85,6 +85,18 @@ describe('materialsReducer', () => {
     expect(result.createError).toBe('boom')
   })
 
+  it('MATERIAL_DETAIL_LOADED caches the detail without opening the editor form', () => {
+    const detail: MaterialGroupDetail = {
+      id: '7',
+      name: 'Grass',
+      members: [{ materialTypeId: 1, properties: { reflectivity: '0.3' } }]
+    }
+    const result = materialsReducer(initialState, actions.materialDetailLoaded(detail))
+    expect(result.detailsById['7']).toEqual(detail)
+    // Cache-only: the read-only popup uses this, so the editor form stays closed.
+    expect(result.editDraft).toBeNull()
+  })
+
   it('OPEN_SAVED_MATERIAL_LOADED builds one saved card per member', () => {
     const detail: MaterialGroupDetail = {
       id: '7',

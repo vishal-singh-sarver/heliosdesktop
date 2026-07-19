@@ -2,11 +2,11 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import materialsReducer, {
   initialState as materialsInitialState
 } from 'containers/Materials/reducer'
-import type { Material } from 'containers/Materials/types'
+import type { Material, MaterialGroupDetail } from 'containers/Materials/types'
 import projectScreenReducer, {
   initialState as projectScreenInitialState
 } from 'containers/ProjectScreen/reducer'
-import type { CatalogPropertyDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import type { CatalogPropertyDef, MaterialTypeDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
@@ -16,7 +16,7 @@ import geometryReducer, {
   initialState as geometryInitialState,
   scopeKey
 } from '../reducer'
-import type { GeoNode } from '../types'
+import type { DraftMaterialGroup, GeoNode } from '../types'
 
 const PROJECT = 'p'
 const SCENARIO = 's'
@@ -88,7 +88,14 @@ const material = (id: string, name: string): Material => ({
 //
 // `materials` seeds the library the Select popup lists; the slice is included so
 // selectAllMaterials reads real rows instead of falling back to initialState.
-function makeStore(materials: Material[] = []): InjectableStore {
+function makeStore(
+  materials: Material[] = [],
+  opts: {
+    draftMaterials?: DraftMaterialGroup[]
+    materialTypes?: MaterialTypeDef[]
+    materialDetails?: MaterialGroupDetail[]
+  } = {}
+): InjectableStore {
   // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
   // satisfy the bare Reducer the injectable store expects under Redux 5.
   const rootReducer = (injected: Record<string, Reducer> = {}): Reducer =>
@@ -103,7 +110,8 @@ function makeStore(materials: Material[] = []): InjectableStore {
     materials: {
       ...materialsInitialState,
       byId: Object.fromEntries(materials.map((m) => [m.id, m])),
-      order: materials.map((m) => m.id)
+      order: materials.map((m) => m.id),
+      detailsById: Object.fromEntries((opts.materialDetails ?? []).map((d) => [d.id, d]))
     },
     geometry: {
       ...geometryInitialState,
@@ -120,7 +128,8 @@ function makeStore(materials: Material[] = []): InjectableStore {
         objectName: 'Ground',
         name: 'Ground.001',
         values: {},
-        materialId: null,
+        materials: opts.draftMaterials ?? [],
+        materialBaseline: (opts.draftMaterials ?? []).map((m) => m.groupId),
         isNew: true,
         saving: false,
         saveError: null,
@@ -134,7 +143,13 @@ function makeStore(materials: Material[] = []): InjectableStore {
       activeScenarioId: SCENARIO,
       catalog: {
         ...projectScreenInitialState.catalog,
-        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null }
+        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null },
+        materialTypes: {
+          byId: Object.fromEntries((opts.materialTypes ?? []).map((t) => [t.id, t])),
+          allIds: (opts.materialTypes ?? []).map((t) => t.id),
+          loadStatus: 'loaded',
+          loadError: null
+        }
       }
     }
   }
@@ -178,6 +193,70 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
 
     expect(screen.getByRole('dialog', { name: 'Cotton properties' })).toBeInTheDocument()
+  })
+
+  it("shows an assigned material's properties (from the GET) in the read-only popup", () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })]
+    }
+    // A material already assigned to the ground (as the object GET returns it):
+    // it renders under the Materials row without needing the Select popup.
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+      ]
+    }
+    const { container } = render(
+      <Provider store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    // The resolved property + value render (not the empty state).
+    expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
+    expect(within(dialog).getByText('0.3')).toBeInTheDocument()
+  })
+
+  it("shows a freshly-picked material's properties from the Materials library cache", () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })]
+    }
+    // The library detail is already cached (as if a prior GET filled it), so the
+    // popup resolves properties for a picked-but-unsaved material — no baseline.
+    const detail: MaterialGroupDetail = {
+      id: '41',
+      name: 'Grass',
+      members: [{ materialTypeId: 5, properties: { reflectivity: '0.3' } }]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([material('41', 'Grass')], {
+          materialTypes: [radiationType],
+          materialDetails: [detail]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Pick it from the Select popup (no baseline → freshly picked)…
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Grass' }))
+    // …then open its properties from the row: the cached detail fills the popup.
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
+    expect(within(dialog).getByText('0.3')).toBeInTheDocument()
   })
 
   it('closes the Select Materials popup when the properties popup opens', () => {

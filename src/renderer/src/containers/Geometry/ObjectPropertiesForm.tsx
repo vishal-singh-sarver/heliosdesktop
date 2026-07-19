@@ -2,12 +2,18 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
-import { selectAllMaterials } from 'containers/Materials/selectors'
+import { loadMaterialDetailRequested } from 'containers/Materials/actions'
+import { resolveParameterGroups } from 'containers/Materials/materialBlueprint'
+import materialsReducer from 'containers/Materials/reducer'
+import materialsSaga from 'containers/Materials/saga'
+import { selectAllMaterials, selectMaterialDetailsById } from 'containers/Materials/selectors'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
+  selectAllMaterialTypes,
   selectAllObjectTypes
 } from 'containers/ProjectScreen/selectors'
+import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
@@ -21,11 +27,17 @@ import {
   renameRequested,
   setDraftName,
   setDraftValue,
-  updateObjectRequested
+  updateObjectRequested,
+  addDraftMaterial
 } from './actions'
-import MaterialPropertiesPopup from './MaterialPropertiesPopup'
+import MaterialPropertiesPopup, { type MaterialDetailSection } from './MaterialPropertiesPopup'
 import messages from './messages'
-import { isObjectFormValid, resolveObjectFormByType, validateFieldValue } from './propertyBlueprint'
+import {
+  humanizeProperty,
+  isObjectFormValid,
+  resolveObjectFormByType,
+  validateFieldValue
+} from './propertyBlueprint'
 import reducer from './reducer'
 import saga from './saga'
 import SelectMaterialsPopup from './SelectMaterialsPopup'
@@ -35,7 +47,7 @@ import {
   selectDetailsById,
   selectNodesById
 } from './selectors'
-import type { CreateDraft } from './types'
+import type { CreateDraft, DraftMaterialGroup } from './types'
 import { validateGroupName } from './validation'
 
 // Name uniqueness is enforced by the backend on Save, so we don't scan every
@@ -91,6 +103,56 @@ function textureDepErrors(values: Record<string, string>): Record<string, string
   return errors
 }
 
+const asDisplay = (v: number | string | boolean | null | undefined): string =>
+  v == null ? '' : String(v)
+
+// One material within a group, as the popup needs it — from the object GET's
+// baseline (carries `materialTypeName`) OR the Materials library detail cache
+// (name absent, resolved from the catalog).
+export interface PopupMaterialMember {
+  materialTypeId: number
+  materialTypeName?: string
+  properties: Record<string, number | string | boolean | null>
+}
+
+// Build the read-only material popup's sections from a group's members and the
+// material-type catalog. Each member → one section; its property values are
+// grouped/labelled via the shared material blueprint (same grouping the editable
+// Material form uses). Tolerant: a member whose type isn't in the catalog still
+// lists its raw property values under one "General" group so nothing is hidden.
+// [] members → [], which the popup renders as its empty state.
+export function buildMaterialSections(
+  members: PopupMaterialMember[],
+  materialTypes: MaterialTypeDef[]
+): MaterialDetailSection[] {
+  return members.map((member) => {
+    const type = materialTypes.find((t) => t.id === member.materialTypeId)
+    const typeName = member.materialTypeName ?? type?.materialtype ?? String(member.materialTypeId)
+    if (type) {
+      const groups = resolveParameterGroups([type]).map((pg) => ({
+        group: pg.group,
+        label: pg.label,
+        rows: pg.fields.map((f) => ({
+          property: f.property,
+          label: f.label,
+          value: asDisplay(member.properties[f.property])
+        }))
+      }))
+      return { typeId: member.materialTypeId, typeName, groups }
+    }
+    const rows = Object.entries(member.properties).map(([property, value]) => ({
+      property,
+      label: humanizeProperty(property),
+      value: asDisplay(value)
+    }))
+    return {
+      typeId: member.materialTypeId,
+      typeName,
+      groups: rows.length ? [{ group: 'general', label: 'General', rows }] : []
+    }
+  })
+}
+
 // The right-panel Properties form for editing an object: +Ground creates the
 // object and opens this form populated from the persisted values, and clicking a
 // ground opens it populated from a GET. Save PATCHes ONLY the property fields;
@@ -103,6 +165,12 @@ function textureDepErrors(values: Record<string, string>): Record<string, string
 export function ObjectPropertiesForm(): React.JSX.Element | null {
   useInjectReducer({ key: 'geometry', reducer: reducer as Reducer })
   useInjectSaga({ key: 'geometry', saga })
+  // The Materials slice + saga back the read-only material properties popup (the
+  // library detail cache + its on-demand GET), so the form resolves a picked
+  // material's properties even when the left panel's <Materials/> isn't mounted.
+  // Injection dedupes by key, so this is a no-op when <Materials/> is present.
+  useInjectReducer({ key: 'materials', reducer: materialsReducer as Reducer })
+  useInjectSaga({ key: 'materials', saga: materialsSaga })
 
   const draft = useSelector(selectCreateDraft)
   const draftNonce = useSelector(selectCreateDraftNonce)
@@ -119,12 +187,33 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const detailsById = useSelector(selectDetailsById)
   // Saved-library materials (already loaded by the left panel's <Materials/>).
   const libraryMaterials = useSelector(selectAllMaterials)
+  // Material-type catalog — resolves an assigned material's property labels for
+  // the read-only popup.
+  const materialTypes = useSelector(selectAllMaterialTypes)
+  // Material-library group details (members + property values), cached by the
+  // Materials container. Reused so a picked material's properties resolve even
+  // before the ground is saved.
+  const materialDetailsById = useSelector(selectMaterialDetailsById)
 
-  // Materials picked from the popup, shown under the Materials row. Client-side
-  // only for now (no backend assign yet); deduped by id.
-  const [pickedMaterials, setPickedMaterials] = React.useState<{ id: string; name: string }[]>([])
+  // Picking a material appends its GROUP to the draft (deduped in the reducer),
+  // so Save can PATCH it and the selection survives re-renders and a re-open.
   const handleSelectMaterial = (m: { id: string; name: string }): void => {
-    setPickedMaterials((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]))
+    dispatch(addDraftMaterial(m.id, m.name))
+  }
+
+  // Resolve a group's members for the read-only popup: the object GET's baseline
+  // (already carries per-type properties) wins; else the Materials library detail
+  // cache; else undefined = not loaded yet (openDetailPopup fetches it).
+  const membersFor = (group: DraftMaterialGroup): PopupMaterialMember[] | undefined => {
+    if (group.materials) return group.materials
+    const detail = materialDetailsById[group.groupId]
+    if (detail) {
+      return detail.members.map((m) => ({
+        materialTypeId: m.materialTypeId,
+        properties: m.properties
+      }))
+    }
+    return undefined
   }
 
   // The form's object was removed from the tree (deleted via the left panel)
@@ -174,16 +263,20 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // desync from the position it was measured against. Measured once on open, so
   // it doesn't follow a scroll — matching the Select popup and the kebab menu.
   const [detailPopup, setDetailPopup] = React.useState<{
-    material: { id: string; name: string }
+    material: DraftMaterialGroup
     top: number
     left: number
   } | null>(null)
   const closeDetailPopup = (): void => setDetailPopup(null)
-  const openDetailPopup = (row: HTMLElement, material: { id: string; name: string }): void => {
+  const openDetailPopup = (row: HTMLElement, material: DraftMaterialGroup): void => {
     // Both popups sit on the same strip beside the panel and each lays down its
     // own full-screen outside-click overlay — two open at once would stack
     // overlays over each other's contents. So they're mutually exclusive.
     closeMaterialPopup()
+    // Fetch this material's properties if we don't already have them (a freshly
+    // picked group carries none until the library detail loads). The Materials
+    // container caches the result, so the popup fills in on the next render.
+    if (!membersFor(material)) dispatch(loadMaterialDetailRequested(material.groupId))
     const panel = row.closest('aside')?.getBoundingClientRect()
     const rowRect = row.getBoundingClientRect()
     const leftAnchor = panel ? panel.left : rowRect.left
@@ -228,14 +321,14 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // dependency violations (texture > resolution) block Save too.
   const valid = fieldsValid && Object.keys(depErrors).length === 0
 
-  // Save is enabled only once the form differs from its loaded/last-saved
-  // baseline. The baseline is the cached object detail (values) + the node's
-  // persisted name; material has no persisted baseline yet, so any selection
-  // counts as a change. Editing back to the original values disables Save again.
+  // Save is enabled once the form differs from its loaded/last-saved baseline:
+  // any changed property value, or a picked material not already assigned on the
+  // backend (materialBaseline, seeded from the GET). Editing back to the original
+  // values / adding no new material disables Save again.
   const original = detailsById[draft.objectId]
   const node = nodesById[draft.objectId]
   const valuesDirty = !original || !sameValues(draft.values, original.values)
-  const materialDirty = draft.materialId != null
+  const materialDirty = draft.materials.some((m) => !draft.materialBaseline.includes(m.groupId))
   // Name changes are excluded — Save is field-only; the name commits on blur.
   const dirty = valuesDirty || materialDirty
 
@@ -444,23 +537,37 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           </button>
         </div>
 
-        {/* Picked materials — listed under the Materials row (client-side for now).
-            A bottom divider separates the last material from the Save button.
-            Each name opens that material's read-only properties popup. */}
-        {pickedMaterials.length > 0 && (
+        {/* Assigned materials — the GET baseline ∪ freshly-picked groups, listed
+            under the Materials row. A bottom divider separates the last material
+            from the Save button. Each name opens that material's read-only
+            properties popup; a marker flags a library mismatch (stale/drift). */}
+        {draft.materials.length > 0 && (
           <div className="flex flex-col border-b border-app-border pb-2">
-            {pickedMaterials.map((m) => (
+            {draft.materials.map((m) => (
               <button
-                key={m.id}
+                key={m.groupId}
                 type="button"
                 aria-haspopup="dialog"
-                aria-expanded={detailPopup?.material.id === m.id}
+                aria-expanded={detailPopup?.material.groupId === m.groupId}
                 // currentTarget IS the anchor, measured synchronously here — so a
                 // growing list of rows needs no ref map.
                 onClick={(e) => openDetailPopup(e.currentTarget, m)}
-                className="w-full truncate rounded py-2 text-left text-[13px] leading-[18px] text-white hover:bg-white/5"
+                className="flex w-full items-center gap-1.5 rounded py-2 text-left text-[13px] leading-[18px] text-white hover:bg-white/5"
               >
-                {m.name}
+                <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                {(m.stale || m.drift) && (
+                  <span
+                    aria-hidden="true"
+                    title={
+                      m.stale
+                        ? 'This material group was removed from the library'
+                        : 'Values differ from the material library'
+                    }
+                    className="shrink-0 text-amber-400"
+                  >
+                    •
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -487,10 +594,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             document.body
           )}
 
-        {/* A picked material's read-only properties — its own portal + overlay,
-            mirroring the Select popup. Only one of the two is ever open. The
-            property values aren't wired to the backend yet, so `sections` is
-            empty and the popup says so. */}
+        {/* An assigned material's read-only properties — its own portal + overlay,
+            mirroring the Select popup. Only one of the two is ever open. Sections
+            come from the group's members (from the GET); a freshly-picked group
+            has none yet, so the popup shows its empty state until the ground is
+            reopened. */}
         {detailPopup &&
           createPortal(
             <>
@@ -498,7 +606,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               <div className="fixed z-50" style={{ top: detailPopup.top, left: detailPopup.left }}>
                 <MaterialPropertiesPopup
                   name={detailPopup.material.name}
-                  sections={[]}
+                  sections={buildMaterialSections(
+                    membersFor(detailPopup.material) ?? [],
+                    materialTypes
+                  )}
                   onClose={closeDetailPopup}
                 />
               </div>

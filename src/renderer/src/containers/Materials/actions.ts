@@ -11,6 +11,8 @@ import {
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
+  LOAD_MATERIAL_DETAIL_REQUESTED,
+  MATERIAL_DETAIL_LOADED,
   OPEN_SAVED_MATERIAL_FAILED,
   OPEN_SAVED_MATERIAL_LOADED,
   OPEN_SAVED_MATERIAL_REQUESTED,
@@ -120,6 +122,15 @@ export type OpenSavedMaterialFailedAction = {
   id: string
   payload: string
 }
+// Load a group's detail into the cache without opening the editor form.
+export type LoadMaterialDetailRequestedAction = {
+  type: typeof LOAD_MATERIAL_DETAIL_REQUESTED
+  id: string
+}
+export type MaterialDetailLoadedAction = {
+  type: typeof MATERIAL_DETAIL_LOADED
+  detail: MaterialGroupDetail
+}
 
 export type AddParameterGroupAction = { type: typeof ADD_PARAMETER_GROUP }
 export type RemoveParameterGroupAction = {
@@ -202,6 +213,8 @@ export type MaterialsAction =
   | OpenSavedMaterialRequestedAction
   | OpenSavedMaterialLoadedAction
   | OpenSavedMaterialFailedAction
+  | LoadMaterialDetailRequestedAction
+  | MaterialDetailLoadedAction
   | AddParameterGroupAction
   | RemoveParameterGroupAction
   | SetParameterGroupTypeAction
@@ -292,6 +305,15 @@ export const openSavedMaterialRequested = (id: string): OpenSavedMaterialRequest
 export const openSavedMaterialLoaded = (
   detail: MaterialGroupDetail
 ): OpenSavedMaterialLoadedAction => ({ type: OPEN_SAVED_MATERIAL_LOADED, detail })
+
+export const loadMaterialDetailRequested = (id: string): LoadMaterialDetailRequestedAction => ({
+  type: LOAD_MATERIAL_DETAIL_REQUESTED,
+  id
+})
+export const materialDetailLoaded = (detail: MaterialGroupDetail): MaterialDetailLoadedAction => ({
+  type: MATERIAL_DETAIL_LOADED,
+  detail
+})
 export const openSavedMaterialFailed = (
   id: string,
   error: string

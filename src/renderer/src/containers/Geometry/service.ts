@@ -1,7 +1,7 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
 import { unionVisibility, type VisibilityLike } from './models'
-import type { GeoNode, ModelVisibility } from './types'
+import type { DraftMaterialGroup, GeoNode, ModelVisibility } from './types'
 
 // ── Create-object payload + wire shapes ──────────────────────────────────────
 //
@@ -18,6 +18,28 @@ export interface CreateObjectInput {
 // Subset of the backend's persisted object we actually consume. `properties` is
 // the flat catalog-property→value map (e.g. { length: 10, position_x: 0 }) the
 // POST/GET returns; the right-panel form reads it to show the saved values.
+// One material within an assigned group, as the object GET returns it (§ material
+// -groups): the resolved (library or frozen-snapshot) property values plus flags.
+interface WireMaterial {
+  material_id: number
+  material_type_id: number
+  material_type: string
+  properties?: Record<string, number | string | boolean | null>
+  library_drift?: boolean
+  stale?: boolean
+}
+
+// One material-GROUP assignment on the object, under the GET's `material_groups`.
+interface WireMaterialGroup {
+  object_id: number
+  group_id: number
+  name: string | null
+  sync: boolean
+  source: string
+  stale?: boolean
+  materials: WireMaterial[]
+}
+
 interface WireObject {
   id: number
   name: string
@@ -30,6 +52,7 @@ interface WireObject {
     render?: boolean
     models?: Record<string, boolean>
   }
+  material_groups?: WireMaterialGroup[]
 }
 
 interface CreateObjectResponse {
@@ -64,6 +87,25 @@ export function wireObjectToValues(obj: WireObject): Record<string, string> {
     values[property] = value == null ? '' : String(value)
   }
   return values
+}
+
+// The object GET's `material_groups` → the draft's assigned-materials rows.
+// Group ids become strings (matching the tree's string ids and the popup's
+// Material.id). Each member carries its resolved property values for the
+// read-only popup; `drift` is true when any member drifted from the library.
+// Absent → []. Exported for a pure unit test (mirrors wireObjectToNode).
+export function wireObjectToMaterialGroups(obj: WireObject): DraftMaterialGroup[] {
+  return (obj.material_groups ?? []).map((g) => ({
+    groupId: String(g.group_id),
+    name: g.name ?? '',
+    stale: g.stale === true,
+    drift: g.materials.some((m) => m.library_drift === true),
+    materials: g.materials.map((m) => ({
+      materialTypeId: m.material_type_id,
+      materialTypeName: m.material_type,
+      properties: m.properties ?? {}
+    }))
+  }))
 }
 
 // The API's visibility.models is keyed by stringified model id; convert to the
@@ -355,6 +397,7 @@ export interface LoadedObject {
   values: Record<string, string>
   objectTypeId: number
   objectName: string
+  materialGroups: DraftMaterialGroup[]
 }
 
 // GET one object's detail — used when a ground is clicked in the tree. Tolerant
@@ -372,7 +415,8 @@ export function getObject(
         node: wireObjectToNode(obj),
         values: wireObjectToValues(obj),
         objectTypeId: obj.object_type_id,
-        objectName: obj.object_type
+        objectName: obj.object_type,
+        materialGroups: wireObjectToMaterialGroups(obj)
       }
     })
 }
@@ -384,6 +428,8 @@ export interface UpdateObjectInput {
   properties: Record<string, number>
   visibility: { viewport: boolean; render: boolean }
   groupId: string | null
+  // Material GROUPS to ADD (the backend PATCH is ADD-only). Empty = no change.
+  materials: { group_id: number; sync: boolean }[]
 }
 
 export function updateObject(
@@ -396,7 +442,8 @@ export function updateObject(
     .patch(API_ROUTES.geometry.update(projectId, scenarioId, id), {
       properties: input.properties,
       visibility: input.visibility,
-      group_id: input.groupId == null ? null : Number(input.groupId)
+      group_id: input.groupId == null ? null : Number(input.groupId),
+      materials: input.materials
     })
     .then(() => undefined)
 }

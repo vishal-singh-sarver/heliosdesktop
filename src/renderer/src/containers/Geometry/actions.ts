@@ -23,7 +23,7 @@ import {
   RENAME_REQUESTED,
   RENAME_SUCCEEDED,
   SELECT,
-  SET_DRAFT_MATERIAL,
+  ADD_DRAFT_MATERIAL,
   SET_DRAFT_NAME,
   SET_DRAFT_VALUE,
   SET_MODEL_ON,
@@ -37,7 +37,7 @@ import {
   UPDATE_OBJECT_SUCCEEDED,
   VISIBILITY_SYNC_FAILED
 } from './constants'
-import type { GeoNode } from './types'
+import type { DraftMaterialGroup, GeoNode } from './types'
 
 // ── Action types ────────────────────────────────────────────────────────────
 //
@@ -224,9 +224,11 @@ export type SetDraftNameAction = {
   type: typeof SET_DRAFT_NAME
   payload: string
 }
-export type SetDraftMaterialAction = {
-  type: typeof SET_DRAFT_MATERIAL
-  payload: number | null
+// Picking a material in the Select popup appends its GROUP to the draft (deduped
+// by groupId in the reducer). Removal isn't wired (ADD-only).
+export type AddDraftMaterialAction = {
+  type: typeof ADD_DRAFT_MATERIAL
+  payload: { groupId: string; name: string }
 }
 export type CloseCreateFormAction = {
   type: typeof CLOSE_CREATE_FORM
@@ -294,6 +296,7 @@ export type LoadObjectSucceededAction = {
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 }
 export type LoadObjectFailedAction = {
@@ -328,7 +331,7 @@ export type GeometryAction =
   | DeleteNodeFailedAction
   | SetDraftValueAction
   | SetDraftNameAction
-  | SetDraftMaterialAction
+  | AddDraftMaterialAction
   | CloseCreateFormAction
   | CreateObjectRequestedAction
   | CreateObjectSucceededAction
@@ -560,9 +563,9 @@ export const setDraftName = (name: string): SetDraftNameAction => ({
   payload: name
 })
 
-export const setDraftMaterial = (materialId: number | null): SetDraftMaterialAction => ({
-  type: SET_DRAFT_MATERIAL,
-  payload: materialId
+export const addDraftMaterial = (groupId: string, name: string): AddDraftMaterialAction => ({
+  type: ADD_DRAFT_MATERIAL,
+  payload: { groupId, name }
 })
 
 export const closeCreateForm = (): CloseCreateFormAction => ({ type: CLOSE_CREATE_FORM })
@@ -633,6 +636,7 @@ export const loadObjectSucceeded = (
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 ): LoadObjectSucceededAction => ({ type: LOAD_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
 

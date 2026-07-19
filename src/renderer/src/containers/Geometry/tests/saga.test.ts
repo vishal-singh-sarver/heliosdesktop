@@ -216,7 +216,8 @@ describe('updateObjectWorker', () => {
     objectName: 'Ground',
     name: 'Ground.001',
     values: { length: '20', breadth: '10', position_x: ' ' },
-    materialId: null,
+    materials: [],
+    materialBaseline: [],
     isNew: false,
     saving: false,
     saveError: null,
@@ -234,7 +235,8 @@ describe('updateObjectWorker', () => {
       call(service.updateObject, P, S, '27', {
         properties: { length: 20, breadth: 10 },
         visibility: { viewport: true, render: true },
-        groupId: null
+        groupId: null,
+        materials: []
       })
     )
     // Save is properties-only → straight to success, no rename call.
@@ -256,7 +258,8 @@ describe('updateObjectWorker', () => {
       call(service.updateObject, P, S, '27', {
         properties: { length: 20, breadth: 10 },
         visibility: { viewport: true, render: true },
-        groupId: null
+        groupId: null,
+        materials: []
       })
     )
     expect(gen.next().value).toEqual(
@@ -293,6 +296,61 @@ describe('updateObjectWorker', () => {
     expect(gen.next().done).toBe(true)
   })
 
+  it('adds a newly-picked material (props unchanged) → PATCH carries only the new group', () => {
+    const picked: CreateDraft = {
+      ...draft,
+      materials: [{ groupId: '41', name: 'Grass' }],
+      materialBaseline: []
+    }
+    const original = {
+      values: { length: '20', breadth: '10' },
+      objectTypeId: 1,
+      objectName: 'Ground',
+      materialGroups: []
+    }
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
+    gen.next() // select draft
+    gen.next(picked) // select nodesById
+    gen.next({ '27': groundNode('27') }) // select detailsById
+    // Props match the cache, but the picked group isn't in the baseline → PATCH
+    // fires carrying the new group (sync defaults true).
+    expect(gen.next({ '27': original }).value).toEqual(
+      call(service.updateObject, P, S, '27', {
+        properties: { length: 20, breadth: 10 },
+        visibility: { viewport: true, render: true },
+        groupId: null,
+        materials: [{ group_id: 41, sync: true }]
+      })
+    )
+    expect(gen.next().value).toEqual(
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false }))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('re-Save of an already-assigned material → no PATCH (baseline diff empty)', () => {
+    const assigned: CreateDraft = {
+      ...draft,
+      materials: [{ groupId: '41', name: 'Grass' }],
+      materialBaseline: ['41']
+    }
+    const original = {
+      values: { length: '20', breadth: '10' },
+      objectTypeId: 1,
+      objectName: 'Ground',
+      materialGroups: []
+    }
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
+    gen.next() // select draft
+    gen.next(assigned) // select nodesById
+    gen.next({ '27': groundNode('27') }) // select detailsById
+    // Props unchanged + the material is already in the baseline → no API call.
+    expect(gen.next({ '27': original }).value).toEqual(
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false }))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
   it('no-ops when there is no draft', () => {
     const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     gen.next() // select draft
@@ -310,7 +368,12 @@ describe('updateObjectWorker', () => {
 })
 
 describe('loadObjectWorker', () => {
-  const cached = { values: { length: '10', breadth: '10' }, objectTypeId: 1, objectName: 'Ground' }
+  const cached = {
+    values: { length: '10', breadth: '10' },
+    objectTypeId: 1,
+    objectName: 'Ground',
+    materialGroups: []
+  }
 
   it('on a cache miss, GETs the object then puts loadObjectSucceeded', () => {
     const gen = loadObjectWorker(actions.loadObjectRequested(P, S, '27'))

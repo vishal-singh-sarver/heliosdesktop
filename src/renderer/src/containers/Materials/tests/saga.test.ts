@@ -5,6 +5,7 @@ import {
   DELETE_MATERIAL_REQUESTED,
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_REQUESTED,
+  LOAD_MATERIAL_DETAIL_REQUESTED,
   OPEN_SAVED_MATERIAL_REQUESTED,
   RENAME_MATERIAL_REQUESTED,
   SAVE_PARAMETER_GROUP_REQUESTED
@@ -14,6 +15,7 @@ import materialsSaga, {
   deleteMaterialWorker,
   deleteParameterGroupWorker,
   listMaterialsWorker,
+  loadMaterialDetailWorker,
   openSavedMaterialWorker,
   renameMaterialWorker,
   saveParameterGroupWorker
@@ -132,6 +134,38 @@ describe('openSavedMaterialWorker', () => {
   })
 })
 
+describe('loadMaterialDetailWorker', () => {
+  const detail: MaterialGroupDetail = {
+    id: '7',
+    name: 'Grass',
+    members: [{ materialTypeId: 1, properties: { reflectivity: '0.3' } }]
+  }
+
+  it('GETs the group on a cache miss and caches it (no form open)', () => {
+    const gen = loadMaterialDetailWorker(actions.loadMaterialDetailRequested('7'))
+    expect(gen.next().value).toEqual(select(selectMaterialDetailsById))
+    // Cache miss → fetch, then a cache-only load (NOT openSavedMaterialLoaded).
+    expect(gen.next({}).value).toEqual(call(service.getGroup, '7'))
+    expect(gen.next(detail).value).toEqual(put(actions.materialDetailLoaded(detail)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('serves from cache with NO api call and NO dispatch', () => {
+    const gen = loadMaterialDetailWorker(actions.loadMaterialDetailRequested('7'))
+    expect(gen.next().value).toEqual(select(selectMaterialDetailsById))
+    // Already cached → returns immediately, never calling getGroup or dispatching.
+    expect(gen.next({ '7': detail }).done).toBe(true)
+  })
+
+  it('swallows a fetch error (read-only view keeps its empty state)', () => {
+    const gen = loadMaterialDetailWorker(actions.loadMaterialDetailRequested('7'))
+    gen.next() // select cache
+    gen.next({}) // cache miss → getGroup
+    // Caught internally → the generator just finishes, no failure dispatched.
+    expect(gen.throw(new Error('boom')).done).toBe(true)
+  })
+})
+
 describe('saveParameterGroupWorker', () => {
   const base = {
     groupId: '12',
@@ -230,6 +264,9 @@ describe('materialsSaga', () => {
     expect(gen.next().value).toEqual(takeEvery(DELETE_MATERIAL_REQUESTED, deleteMaterialWorker))
     expect(gen.next().value).toEqual(
       takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
+    )
+    expect(gen.next().value).toEqual(
+      takeEvery(LOAD_MATERIAL_DETAIL_REQUESTED, loadMaterialDetailWorker)
     )
     expect(gen.next().value).toEqual(
       takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)

@@ -10,6 +10,7 @@ import {
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
+  MATERIAL_DETAIL_LOADED,
   OPEN_SAVED_MATERIAL_LOADED,
   REMOVE_MATERIAL,
   REMOVE_PARAMETER_GROUP,
@@ -268,6 +269,13 @@ const materialsReducer = (
       case SET_SEARCH_QUERY:
         draft.searchQuery = action.payload
         break
+
+      // Cache-only fetch (from the geometry Materials popup) — fill the detail
+      // cache without touching the editor form.
+      case MATERIAL_DETAIL_LOADED: {
+        draft.detailsById[action.detail.id] = action.detail
+        break
+      }
 
       // ── Right-panel material Properties form ───────────────────────────────
       case OPEN_SAVED_MATERIAL_LOADED: {

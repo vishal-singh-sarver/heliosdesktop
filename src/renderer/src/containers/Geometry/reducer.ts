@@ -17,7 +17,7 @@ import {
   RENAME_FAILED,
   RENAME_SUCCEEDED,
   SELECT,
-  SET_DRAFT_MATERIAL,
+  ADD_DRAFT_MATERIAL,
   SET_DRAFT_NAME,
   SET_DRAFT_VALUE,
   SET_MODEL_ON,
@@ -491,9 +491,15 @@ const geometryReducer = (
         break
       }
 
-      case SET_DRAFT_MATERIAL: {
+      case ADD_DRAFT_MATERIAL: {
         if (!draft.createDraft) break
-        draft.createDraft.materialId = action.payload
+        // Dedupe against the whole displayed set (baseline rows live here too),
+        // so re-picking an already-assigned material is a no-op — this alone
+        // prevents the "re-add → 409" case from ever reaching the backend.
+        const { groupId, name } = action.payload
+        if (!draft.createDraft.materials.some((m) => m.groupId === groupId)) {
+          draft.createDraft.materials.push({ groupId, name })
+        }
         break
       }
 
@@ -514,14 +520,16 @@ const geometryReducer = (
         s.nodesById[node.id] = node
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
-        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
+        // A brand-new object has no assignments yet.
+        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName, materialGroups: [] }
         draft.createDraft = {
           objectId: node.id,
           objectTypeId,
           objectName,
           name: node.name,
           values: { ...values },
-          materialId: null,
+          materials: [],
+          materialBaseline: [],
           isNew: true,
           saving: false,
           saveError: null,
@@ -535,16 +543,22 @@ const geometryReducer = (
         // Clicking a ground GETs its detail; open the form to view/edit it. The
         // node is already in the tree (and selected), so we don't insert it; this
         // is an existing object (isNew: false) so Cancel won't delete it.
-        const { node, values, objectTypeId, objectName } = action.payload
+        const { node, values, objectTypeId, objectName, materialGroups } = action.payload
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
+        s.detailsById[node.id] = {
+          values: { ...values },
+          objectTypeId,
+          objectName,
+          materialGroups: [...materialGroups]
+        }
         draft.createDraft = {
           objectId: node.id,
           objectTypeId,
           objectName,
           name: node.name,
           values: { ...values },
-          materialId: null,
+          materials: [...materialGroups],
+          materialBaseline: materialGroups.map((g) => g.groupId),
           isNew: false,
           saving: false,
           saveError: null,
@@ -576,11 +590,17 @@ const geometryReducer = (
         if (draft.createDraft) {
           draft.createDraft.saving = false
           draft.createDraft.isNew = false
-          // Refresh the cache with the just-saved values.
+          // The just-added materials are now assigned on the backend: fold them
+          // into the baseline so the row is no longer "new" and a re-Save is a
+          // no-op (won't 409). ADD-only, so the displayed set is unchanged.
+          draft.createDraft.materialBaseline = draft.createDraft.materials.map((m) => m.groupId)
+          // Refresh the cache with the just-saved values + materials, so a
+          // re-click of this ground still shows the assignments without a GET.
           s.detailsById[action.payload.objectId] = {
             values: { ...draft.createDraft.values },
             objectTypeId: draft.createDraft.objectTypeId,
-            objectName: draft.createDraft.objectName
+            objectName: draft.createDraft.objectName,
+            materialGroups: [...draft.createDraft.materials]
           }
         }
         break

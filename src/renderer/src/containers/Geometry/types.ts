@@ -26,6 +26,24 @@ export interface GeoNode {
 // Tree load lifecycle for the active scenario.
 export type LoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
+// One material-GROUP assignment on an object, as shown under the form's
+// Materials row. Baseline rows (parsed from the object GET's `material_groups`)
+// carry `materials` — the group's per-type resolved property values, for the
+// read-only properties popup; a freshly-picked row has only id+name until the
+// object is reloaded. `stale`/`drift` flag a library mismatch (group deleted, or
+// a frozen member whose values drifted from the library).
+export interface DraftMaterialGroup {
+  groupId: string // backend material-GROUP id (stringified), = PATCH group_id
+  name: string
+  materials?: {
+    materialTypeId: number
+    materialTypeName: string
+    properties: Record<string, number | string | boolean | null>
+  }[]
+  stale?: boolean
+  drift?: boolean
+}
+
 // Cached per-object detail for the right-panel form, keyed by node id. Filled
 // the first time a ground is fetched (or created/saved) so re-clicking it serves
 // from memory instead of a fresh GET.
@@ -33,6 +51,7 @@ export interface ObjectDetail {
   values: Record<string, string>
   objectTypeId: number
   objectName: string
+  materialGroups: DraftMaterialGroup[] // assigned material groups (from the GET)
 }
 
 // ── Edit-object draft (right-panel Properties form) ─────────────────────────
@@ -48,7 +67,13 @@ export interface CreateDraft {
   objectName: string // catalog `object` name, e.g. "Ground"
   name: string // node name, e.g. "Ground.001" (read-only; rename is separate)
   values: Record<string, string> // catalog property name -> raw input value
-  materialId: number | null // selected material (optional)
+  // Material-GROUP assignments shown under the form's Materials row: the GET
+  // baseline ∪ freshly-picked groups (deduped by groupId).
+  materials: DraftMaterialGroup[]
+  // Group ids already assigned on the backend (seeded from the GET). Save only
+  // PATCHes the groups NOT in this set — the object PATCH is ADD-only, so
+  // re-sending an already-assigned group would 409.
+  materialBaseline: string[]
   // true = just created via +Ground (Cancel DELETEs it); false = opened by
   // clicking an existing ground (Cancel just closes).
   isNew: boolean
