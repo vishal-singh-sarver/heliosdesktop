@@ -219,9 +219,52 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
-    // The resolved property + value render (not the empty state).
+    // Expand the type accordion, then the resolved property + value render.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Parameter Group.01' }))
     expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
     expect(within(dialog).getByText('0.3')).toBeInTheDocument()
+  })
+
+  it('shows the freshly-saved library values, not the stale GET baseline, for an assigned material', () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })]
+    }
+    // The ground's GET baked in reflectivity 0.3 when it loaded…
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+      ]
+    }
+    // …but the material was since edited to 0.7 in the Materials editor, which the
+    // library detail cache holds write-through. Because the assignment is synced,
+    // the popup must reflect the current library value, not the stale baseline.
+    const detail: MaterialGroupDetail = {
+      id: '41',
+      name: 'Grass',
+      members: [{ materialTypeId: 5, properties: { reflectivity: '0.7' } }]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([], {
+          draftMaterials: [assigned],
+          materialTypes: [radiationType],
+          materialDetails: [detail]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Parameter Group.01' }))
+    expect(within(dialog).getByText('0.7')).toBeInTheDocument()
+    expect(within(dialog).queryByText('0.3')).not.toBeInTheDocument()
   })
 
   it("shows a freshly-picked material's properties from the Materials library cache", () => {
@@ -255,6 +298,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Parameter Group.01' }))
     expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
     expect(within(dialog).getByText('0.3')).toBeInTheDocument()
   })

@@ -201,11 +201,15 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     dispatch(addDraftMaterial(m.id, m.name))
   }
 
-  // Resolve a group's members for the read-only popup: the object GET's baseline
-  // (already carries per-type properties) wins; else the Materials library detail
-  // cache; else undefined = not loaded yet (openDetailPopup fetches it).
+  // Resolve a group's members for the read-only popup. A material is assigned to a
+  // ground with sync:true (see saga.updateObjectWorker), so it stays live-linked to
+  // the library — the popup must show the material's CURRENT values, not the
+  // snapshot the object GET baked into the ground when it loaded. So the Materials
+  // library detail cache wins: it is refreshed write-through on every material edit
+  // (reducer.refreshDetailCache), so a value just saved in the Materials editor
+  // shows here immediately. The object GET's baseline is only the fallback until
+  // that cache loads; else undefined = nothing loaded (openDetailPopup fetches it).
   const membersFor = (group: DraftMaterialGroup): PopupMaterialMember[] | undefined => {
-    if (group.materials) return group.materials
     const detail = materialDetailsById[group.groupId]
     if (detail) {
       return detail.members.map((m) => ({
@@ -213,6 +217,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         properties: m.properties
       }))
     }
+    if (group.materials) return group.materials
     return undefined
   }
 
@@ -273,10 +278,15 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // own full-screen outside-click overlay — two open at once would stack
     // overlays over each other's contents. So they're mutually exclusive.
     closeMaterialPopup()
-    // Fetch this material's properties if we don't already have them (a freshly
-    // picked group carries none until the library detail loads). The Materials
-    // container caches the result, so the popup fills in on the next render.
-    if (!membersFor(material)) dispatch(loadMaterialDetailRequested(material.groupId))
+    // Load this material's CURRENT library properties whenever they aren't cached
+    // yet — a freshly-picked group (no baseline), or an assigned one we've not
+    // fetched this session (whose GET baseline may already be stale). The Materials
+    // container caches the result and refreshes it on every edit, so the popup fills
+    // in / updates on the next render. A stale group has no library entry to fetch,
+    // so it keeps its baseline.
+    if (!materialDetailsById[material.groupId] && !material.stale) {
+      dispatch(loadMaterialDetailRequested(material.groupId))
+    }
     const panel = row.closest('aside')?.getBoundingClientRect()
     const rowRect = row.getBoundingClientRect()
     const leftAnchor = panel ? panel.left : rowRect.left

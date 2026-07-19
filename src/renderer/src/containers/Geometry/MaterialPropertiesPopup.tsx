@@ -1,3 +1,4 @@
+import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import closeIcon from '@renderer/assets/close.svg'
 import React from 'react'
 import messages from './messages'
@@ -35,10 +36,24 @@ interface MaterialPropertiesPopupProps {
   onClose: () => void
 }
 
-// The read-only material properties popup, opened by clicking a picked material
-// under the geometry form's Materials row. Presentational only: it takes its
-// data and knows nothing about where it sits, so the caller owns the coords and
-// the portal (the same split as SelectMaterialsPopup).
+// The "General" (ungrouped) bucket resolveParameterGroups puts catalog properties
+// with no `group` tag under. It has no real heading in the design — its rows show
+// directly under the material type — so we suppress the label for it.
+const isUngrouped = (group: MaterialDetailGroup): boolean => group.group.toLowerCase() === 'general'
+
+// Read-only accordion label for a material type, mirroring the editable Material
+// form's "Parameter Group.0N" cards.
+const parameterGroupTitle = (n: number): string => `Parameter Group.${String(n).padStart(2, '0')}`
+
+// The read-only material properties popup, opened by clicking an assigned material
+// under the geometry form's Materials row. Presentational only: it takes its data
+// and knows nothing about where it sits, so the caller owns the coords and the
+// portal (the same split as SelectMaterialsPopup).
+//
+// Each material type is a collapsible "Parameter Group.0N" accordion, mirroring
+// the editable Material form: collapsed by default (the header alone), expanding
+// to show that type's name and its property values (grouped by the catalog's
+// `group` tag) in a two-column read-only grid.
 //
 // 370 wide; 866 tall is a CAP, not a fixed height — on a short window it shrinks
 // to the viewport and the body scrolls, so it can never run off-screen.
@@ -52,6 +67,17 @@ export default function MaterialPropertiesPopup({
   sections,
   onClose
 }: MaterialPropertiesPopupProps): React.JSX.Element {
+  // Which type sections are expanded, by typeId. Empty = all collapsed (matching
+  // the design's collapsed accordion list); the header toggles each open.
+  const [openTypeIds, setOpenTypeIds] = React.useState<Set<number>>(() => new Set())
+  const toggle = (typeId: number): void =>
+    setOpenTypeIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(typeId)) next.delete(typeId)
+      else next.add(typeId)
+      return next
+    })
+
   return (
     <div
       role="dialog"
@@ -79,45 +105,80 @@ export default function MaterialPropertiesPopup({
 
       {/* Body — the only scrolling region, so a long material can't push the
           name out of view. */}
-      <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {sections.length === 0 ? (
           <p className="py-6 text-center text-[13px] leading-[18px] text-neutral-400">
             {messages.materialDetailEmpty}
           </p>
         ) : (
-          sections.map((section) => (
-            <section key={section.typeId} className="mb-4 last:mb-0">
-              <h3 className="mb-2 text-[13px] font-medium leading-[20px] text-white">
-                {section.typeName}
-              </h3>
+          sections.map((section, index) => {
+            const title = parameterGroupTitle(index + 1)
+            const open = openTypeIds.has(section.typeId)
+            return (
+              <div
+                key={section.typeId}
+                className="mb-2 rounded-[5px] border border-app-border last:mb-0"
+              >
+                {/* The whole header is the expand/collapse target. */}
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => toggle(section.typeId)}
+                  className="flex w-full items-center justify-between px-3 py-2.5 text-left"
+                >
+                  <span className="text-[13px] font-normal leading-[15px] text-neutral-200">
+                    {title}
+                  </span>
+                  <img
+                    src={chevronDown}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-1.5 w-auto transition-transform duration-150"
+                    style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+                  />
+                </button>
 
-              {section.groups.map((group) => (
-                <div key={group.group} className="mb-3 last:mb-0">
-                  <p className="mb-1 text-[13px] font-medium leading-[20px] text-[#D3D3D3]">
-                    {group.label}
-                  </p>
-                  {/* <dl> pairs each property with its value, which is what lets
-                      an unset one render as a genuinely empty <dd> that is still
-                      locatable from its <dt>. */}
-                  <dl className="flex flex-col">
-                    {group.rows.map((row) => (
-                      <div
-                        key={row.property}
-                        className="flex items-start justify-between gap-3 py-1.5"
-                      >
-                        <dt className="min-w-0 text-[13px] leading-[18px] text-neutral-400">
-                          {row.label}
-                        </dt>
-                        <dd className="min-w-0 break-words text-right text-[13px] leading-[18px] text-white">
-                          {row.value}
-                        </dd>
+                {open && (
+                  <div className="flex flex-col gap-3 px-3 pb-3 pt-1">
+                    {/* The material type — the read-only stand-in for the editable
+                        form's "Parameter Group" type Select. */}
+                    <div>
+                      <dt className="text-[13px] leading-[18px] text-neutral-400">
+                        {messages.materialDetailTypeLabel}
+                      </dt>
+                      <dd className="mt-0.5 break-words text-[13px] leading-[18px] text-white">
+                        {section.typeName}
+                      </dd>
+                    </div>
+
+                    {/* The type's parameters, grouped by their catalog `group`
+                        tag; two columns, label over value, each value read-only. */}
+                    {section.groups.map((group) => (
+                      <div key={group.group} className="flex flex-col gap-2">
+                        {!isUngrouped(group) && (
+                          <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">
+                            {group.label}
+                          </p>
+                        )}
+                        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {group.rows.map((row) => (
+                            <div key={row.property} className="min-w-0">
+                              <dt className="truncate text-[13px] leading-[18px] text-neutral-400">
+                                {row.label}
+                              </dt>
+                              <dd className="mt-0.5 break-words text-[13px] leading-[18px] text-white">
+                                {row.value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
                       </div>
                     ))}
-                  </dl>
-                </div>
-              ))}
-            </section>
-          ))
+                  </div>
+                )}
+              </div>
+            )
+          })
         )}
       </div>
     </div>
