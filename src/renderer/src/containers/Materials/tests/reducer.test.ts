@@ -50,6 +50,7 @@ describe('materialsReducer', () => {
     expect(result.editDraft).toEqual({
       groupId: '12',
       name: 'Material.001',
+      nameError: null,
       groups: [
         {
           id: 1,
@@ -61,7 +62,8 @@ describe('materialsReducer', () => {
           savedValues: null,
           saved: false,
           saveStatus: 'idle',
-          saveError: null
+          saveError: null,
+          deleteStatus: 'idle'
         }
       ],
       nextGroupId: 2
@@ -237,7 +239,7 @@ describe('materialsReducer', () => {
         typed,
         actions.setParameterGroupValue(1, 'air_humidity', '0.9')
       )
-      const result = materialsReducer(edited, actions.saveParameterGroupSucceeded(1))
+      const result = materialsReducer(edited, actions.saveParameterGroupSucceeded('12', 1))
 
       // The cache now holds what we just persisted — so re-opening shows 0.9
       // without another GET (this is the "your edit disappears" bug, prevented).
@@ -251,10 +253,10 @@ describe('materialsReducer', () => {
     it('removing a parameter group rewrites the cache without that member', () => {
       const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
       const typed = materialsReducer(opened, actions.setParameterGroupType(1, 6))
-      const saved = materialsReducer(typed, actions.saveParameterGroupSucceeded(1))
+      const saved = materialsReducer(typed, actions.saveParameterGroupSucceeded('12', 1))
       expect(saved.detailsById['12'].members).toHaveLength(1)
 
-      const result = materialsReducer(saved, actions.removeParameterGroup(1))
+      const result = materialsReducer(saved, actions.removeParameterGroup('12', 1))
       // The removed member is gone from the cache — it can't "come back".
       expect(result.detailsById['12'].members).toEqual([])
     })
@@ -266,7 +268,7 @@ describe('materialsReducer', () => {
       const coloured = materialsReducer(typed, actions.setParameterGroupValue(1, 'color_r', '128'))
       const result = materialsReducer(
         coloured,
-        actions.uploadTextureSucceeded(1, 'uploads/materials/12/grass.png')
+        actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png')
       )
 
       const card = result.editDraft?.groups[0]
@@ -276,6 +278,39 @@ describe('materialsReducer', () => {
       expect(card?.values.texture_toggle).toBe('true')
       // Colour is cleared — the member is now texture-only.
       expect(card?.values.color_r).toBe('')
+    })
+
+    // The cache stands in for a GET (openSavedMaterialWorker serves from it and
+    // skips the network), so it must hold what the BACKEND confirmed. Saving one
+    // card used to cache every saved card's live draft values — so a sibling card
+    // edited but never saved had its pending edits cached as if stored, and
+    // re-opening the material showed them as clean and saved.
+    it('saving one card does NOT cache a sibling card’s unsaved edits', () => {
+      // Two saved cards: card 1 (air_humidity 0.5) and card 2 (air_humidity 0.2).
+      const opened = materialsReducer(
+        initialState,
+        actions.openSavedMaterialLoaded({
+          id: '12',
+          name: 'Mat',
+          members: [
+            { materialTypeId: 6, properties: { air_humidity: '0.5' } },
+            { materialTypeId: 9, properties: { air_humidity: '0.2' } }
+          ]
+        })
+      )
+      // The user edits card 2 and does NOT save it...
+      const dirty = materialsReducer(
+        opened,
+        actions.setParameterGroupValue(2, 'air_humidity', '0.9')
+      )
+      // ...then saves card 1 instead.
+      const result = materialsReducer(dirty, actions.saveParameterGroupSucceeded('12', 1))
+
+      // Card 2 still shows the edit on screen, and still reads as dirty.
+      expect(result.editDraft?.groups[1].values.air_humidity).toBe('0.9')
+      expect(result.editDraft?.groups[1].savedValues?.air_humidity).toBe('0.2')
+      // But the cache — the stand-in for the backend — keeps the STORED 0.2.
+      expect(result.detailsById['12'].members[1].properties.air_humidity).toBe('0.2')
     })
 
     it('RENAME_MATERIAL_SUCCEEDED keeps the cache but updates the name', () => {
@@ -314,6 +349,35 @@ describe('materialsReducer', () => {
       actions.renameMaterialFailed('11', 'Material name already exists')
     )
     expect(result.nameErrors['11']).toBe('Material name already exists')
+  })
+
+  // A rejection for the material open in the form belongs under the form's name
+  // field — the left row still shows the committed (valid) old name, so an error
+  // beneath THAT would point at a name the backend never refused.
+  describe('RENAME_MATERIAL_FAILED routing', () => {
+    const open = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+
+    it('goes to the draft when the form holds that material', () => {
+      const result = materialsReducer(open, actions.renameMaterialFailed('12', 'boom'))
+      expect(result.editDraft?.nameError).toBe('boom')
+      expect(result.nameErrors['12']).toBeUndefined()
+    })
+
+    it('goes to the row when the form holds a different material', () => {
+      const result = materialsReducer(open, actions.renameMaterialFailed('37', 'boom'))
+      expect(result.nameErrors['37']).toBe('boom')
+      expect(result.editDraft?.nameError).toBeNull()
+    })
+
+    it('is cleared by editing the draft name, and by a rename that lands', () => {
+      const failed = materialsReducer(open, actions.renameMaterialFailed('12', 'boom'))
+      expect(materialsReducer(failed, actions.setMaterialDraftName('X')).editDraft?.nameError).toBe(
+        null
+      )
+      expect(
+        materialsReducer(failed, actions.renameMaterialSucceeded('12', 'X')).editDraft?.nameError
+      ).toBeNull()
+    })
   })
 
   it('SET_NAME_ERROR clears the error when passed null', () => {
@@ -377,22 +441,217 @@ describe('materialsReducer', () => {
         })
       )
       expect(saving.editDraft?.groups[0].saveStatus).toBe('saving')
-      const result = materialsReducer(saving, actions.saveParameterGroupSucceeded(1))
+      const result = materialsReducer(saving, actions.saveParameterGroupSucceeded('12', 1))
       expect(result.editDraft?.groups[0].saved).toBe(true)
       expect(result.editDraft?.groups[0].saveStatus).toBe('idle')
     })
 
     it('SAVE_PARAMETER_GROUP_FAILED records the error on that card', () => {
-      const result = materialsReducer(opened, actions.saveParameterGroupFailed(1, 'boom'))
+      const result = materialsReducer(opened, actions.saveParameterGroupFailed('12', 1, 'boom'))
       expect(result.editDraft?.groups[0].saveStatus).toBe('error')
       expect(result.editDraft?.groups[0].saveError).toBe('boom')
     })
 
     it('REMOVE_PARAMETER_GROUP drops the card', () => {
       const twoCards = materialsReducer(opened, actions.addParameterGroup())
-      const result = materialsReducer(twoCards, actions.removeParameterGroup(1))
+      const result = materialsReducer(twoCards, actions.removeParameterGroup('12', 1))
       expect(result.editDraft?.groups.map((g) => g.id)).toEqual([2])
     })
+  })
+
+  // Card ids restart at 1 for EVERY material, so an outcome that names only a
+  // card id cannot say which material it belongs to. Clicking another material
+  // while a save/upload/delete is still in flight used to land the result on the
+  // new material's same-numbered card — marking it saved, overwriting its
+  // baseline, or writing the wrong texture onto it.
+  describe('a card outcome that arrives after the user switched materials', () => {
+    // Material '12' is open with one card; its save is in flight. Then material
+    // '37' — whose first card is ALSO id 1, and is untouched — takes over the form.
+    const switched = (): ReturnType<typeof materialsReducer> => {
+      const openedA = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'A'))
+      const savingA = materialsReducer(
+        openedA,
+        actions.saveParameterGroupRequested({
+          groupId: '12',
+          cardId: 1,
+          materialTypeId: 6,
+          properties: {},
+          saved: false,
+          scenarioId: null
+        })
+      )
+      return materialsReducer(
+        savingA,
+        actions.openSavedMaterialLoaded({
+          id: '37',
+          name: 'B',
+          members: [{ materialTypeId: 9, properties: { air_humidity: '0.5' } }]
+        })
+      )
+    }
+
+    it('SAVE_PARAMETER_GROUP_SUCCEEDED for the OLD material leaves the new one alone', () => {
+      // Edit '37' card 1 first, so a stale success has something to corrupt: it
+      // would snapshot this un-sent edit as the backend's copy, and the card
+      // would go clean (Save greys out) with the change never persisted.
+      const before = materialsReducer(
+        switched(),
+        actions.setParameterGroupValue(1, 'air_humidity', '0.9')
+      )
+      const result = materialsReducer(before, actions.saveParameterGroupSucceeded('12', 1))
+
+      expect(result.editDraft?.groupId).toBe('37')
+      // The edit stays DIRTY — its baseline is untouched, so Save is still open.
+      expect(result.editDraft?.groups[0].savedValues?.air_humidity).toBe('0.5')
+      expect(result.editDraft?.groups[0]).toEqual(before.editDraft?.groups[0])
+      // ...and the unsent edit did not reach '37's cache either.
+      expect(result.detailsById['37']).toEqual(before.detailsById['37'])
+    })
+
+    it('UPLOAD_TEXTURE_SUCCEEDED for the OLD material does not write its texture here', () => {
+      const before = switched()
+      const result = materialsReducer(
+        before,
+        actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png')
+      )
+      expect(result.editDraft?.groups[0].values.texture_file).toBeUndefined()
+      expect(result.editDraft?.groups[0]).toEqual(before.editDraft?.groups[0])
+    })
+
+    it('SAVE_PARAMETER_GROUP_FAILED for the OLD material does not error the new card', () => {
+      const result = materialsReducer(switched(), actions.saveParameterGroupFailed('12', 1, 'boom'))
+      expect(result.editDraft?.groups[0].saveStatus).toBe('idle')
+      expect(result.editDraft?.groups[0].saveError).toBeNull()
+    })
+
+    it('REMOVE_PARAMETER_GROUP for the OLD material does not drop the new card', () => {
+      const result = materialsReducer(switched(), actions.removeParameterGroup('12', 1))
+      expect(result.editDraft?.groups.map((g) => g.id)).toEqual([1])
+    })
+
+    // Refusing to apply the outcome is only half the job. The BACKEND took these
+    // writes, so the old material's cached detail now predates them — and the open
+    // saga serves that cache instead of re-GETting. It must be dropped, or the
+    // save is invisible until a full list reload.
+    describe('the old material’s cached detail is invalidated', () => {
+      // '12' was created empty, so CREATE_MATERIAL_SUCCEEDED seeded its cache.
+      it('after a save that landed', () => {
+        const before = switched()
+        expect(before.detailsById['12']).toBeDefined()
+        const result = materialsReducer(before, actions.saveParameterGroupSucceeded('12', 1))
+        expect(result.detailsById['12']).toBeUndefined()
+        // The material in the form is untouched — only the absent one is dropped.
+        expect(result.detailsById['37']).toBeDefined()
+      })
+
+      it('after an upload that landed', () => {
+        const result = materialsReducer(
+          switched(),
+          actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png')
+        )
+        expect(result.detailsById['12']).toBeUndefined()
+      })
+
+      it('after a member delete that landed', () => {
+        const result = materialsReducer(switched(), actions.removeParameterGroup('12', 1))
+        expect(result.detailsById['12']).toBeUndefined()
+      })
+
+      it('but NOT after a failure — nothing was persisted, so the cache still holds', () => {
+        const result = materialsReducer(switched(), actions.saveParameterGroupFailed('12', 1, 'x'))
+        expect(result.detailsById['12']).toBeDefined()
+      })
+    })
+  })
+
+  // Both of these actions were dispatched by the saga and handled by nobody, so
+  // the failure never reached the screen: a failed row-click left the panel on the
+  // previous material with no error, and a failed delete left the row in place.
+  describe('list-level action failures', () => {
+    it('OPEN_SAVED_MATERIAL_FAILED records the error', () => {
+      const result = materialsReducer(initialState, actions.openSavedMaterialFailed('7', 'boom'))
+      expect(result.actionError).toBe('boom')
+    })
+
+    it('DELETE_MATERIAL_FAILED records the error', () => {
+      const result = materialsReducer(initialState, actions.deleteMaterialFailed('7', 'nope'))
+      expect(result.actionError).toBe('nope')
+    })
+
+    it('a material that then opens clears the error', () => {
+      const failed = materialsReducer(initialState, actions.openSavedMaterialFailed('7', 'boom'))
+      const result = materialsReducer(
+        failed,
+        actions.openSavedMaterialLoaded({ id: '7', name: 'A', members: [] })
+      )
+      expect(result.actionError).toBeNull()
+    })
+
+    it('a delete that then lands clears the error', () => {
+      const failed = materialsReducer(initialState, actions.deleteMaterialFailed('7', 'nope'))
+      expect(materialsReducer(failed, actions.removeMaterial('7')).actionError).toBeNull()
+    })
+  })
+
+  it('LIST_MATERIALS_SUCCEEDED clears a stale create error (it outlived a tab switch)', () => {
+    const failed = materialsReducer(initialState, actions.createMaterialFailed('boom'))
+    expect(failed.createStatus).toBe('error')
+    const result = materialsReducer(failed, actions.listMaterialsSucceeded([make('9', 'A')]))
+    expect(result.createStatus).toBe('idle')
+    expect(result.createError).toBeNull()
+  })
+
+  describe('card delete in flight', () => {
+    const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+    const requested = materialsReducer(
+      opened,
+      actions.deleteParameterGroupRequested({
+        groupId: '12',
+        cardId: 1,
+        materialTypeId: 6,
+        saved: true,
+        scenarioId: null
+      })
+    )
+
+    it('DELETE_PARAMETER_GROUP_REQUESTED marks it deleting (so the trash locks)', () => {
+      expect(requested.editDraft?.groups[0].deleteStatus).toBe('deleting')
+      // The card is not "saving" — Save keeps its own copy and its own state.
+      expect(requested.editDraft?.groups[0].saveStatus).toBe('idle')
+    })
+
+    // A delete failure writes `saveError` but leaves `saveStatus` idle, so an
+    // edit-clears-error path gated on the STATUS never fired for it — the red text
+    // stuck around reading as a save failure.
+    it('a delete error clears on the next edit, like a save error does', () => {
+      const failed = materialsReducer(requested, actions.deleteParameterGroupFailed('12', 1, 'boom'))
+      expect(failed.editDraft?.groups[0].saveError).toBe('boom')
+
+      const result = materialsReducer(failed, actions.setParameterGroupValue(1, 'opacity', '50'))
+      expect(result.editDraft?.groups[0].saveError).toBeNull()
+      expect(result.editDraft?.groups[0].saveStatus).toBe('idle')
+    })
+
+    it('DELETE_PARAMETER_GROUP_FAILED releases the trash and shows why', () => {
+      const result = materialsReducer(
+        requested,
+        actions.deleteParameterGroupFailed('12', 1, 'boom')
+      )
+      expect(result.editDraft?.groups[0].deleteStatus).toBe('idle')
+      expect(result.editDraft?.groups[0].saveError).toBe('boom')
+      // A failed DELETE must not disable Save — that call never ran.
+      expect(result.editDraft?.groups[0].saveStatus).toBe('idle')
+    })
+  })
+
+  it('SET_PARAMETER_GROUP_VALUE clears a save error (the edit answers it)', () => {
+    const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+    const failed = materialsReducer(opened, actions.saveParameterGroupFailed('12', 1, 'boom'))
+    expect(failed.editDraft?.groups[0].saveStatus).toBe('error')
+
+    const result = materialsReducer(failed, actions.setParameterGroupValue(1, 'opacity', '50'))
+    expect(result.editDraft?.groups[0].saveStatus).toBe('idle')
+    expect(result.editDraft?.groups[0].saveError).toBeNull()
   })
 
   it('does not mutate the original state', () => {

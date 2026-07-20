@@ -85,6 +85,18 @@ export default function MaterialRow({
     // Every row is a persisted group — open its properties in the right panel.
     dispatch(openSavedMaterialRequested(material.id))
   }
+
+  // The row is a role="button", so it must answer Enter and Space the way a real
+  // <button> would — it took focus and announced itself as a button while doing
+  // nothing on either key, which left opening a material mouse-only.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // Keys pressed on the eye/trash inside the row bubble up to here; those
+    // buttons act on their own, and the row must not also open the material.
+    if (e.target !== e.currentTarget) return
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault() // Space would otherwise scroll the list
+    onSelect()
+  }
   const onToggleVisibility = (): void => {
     dispatch(toggleMaterialVisibility(material.id))
   }
@@ -119,6 +131,7 @@ export default function MaterialRow({
         role="button"
         tabIndex={0}
         onClick={onSelect}
+        onKeyDown={onKeyDown}
         // The "just created" cue sits under the error/editing states (both of
         // which are about the name being wrong right now, and must win) but over
         // selection — a new row is selected too, and the flash is what's new.

@@ -138,6 +138,41 @@ function useTrackDrag(
   }
 }
 
+// Keyboard steps along a 0..1 track: 1% per arrow, 10% with Shift or Page keys.
+const KEY_STEP = 0.01
+const KEY_STEP_COARSE = 0.1
+
+// Maps a key to a movement on a 0..1 track, positive meaning right/up. Home and
+// End return a full-range move, which the caller's clamp turns into "go to the
+// end". Returns null for keys the track doesn't own, so they keep bubbling —
+// Tab in particular must still move focus.
+//
+// Without this the three role="slider" tracks were focusable and announced as
+// adjustable while responding only to a pointer.
+function keyMove(e: React.KeyboardEvent): { dx: number; dy: number } | null {
+  const step = e.shiftKey ? KEY_STEP_COARSE : KEY_STEP
+  switch (e.key) {
+    case 'ArrowLeft':
+      return { dx: -step, dy: 0 }
+    case 'ArrowRight':
+      return { dx: step, dy: 0 }
+    case 'ArrowUp':
+      return { dx: 0, dy: step }
+    case 'ArrowDown':
+      return { dx: 0, dy: -step }
+    case 'PageUp':
+      return { dx: KEY_STEP_COARSE, dy: KEY_STEP_COARSE }
+    case 'PageDown':
+      return { dx: -KEY_STEP_COARSE, dy: -KEY_STEP_COARSE }
+    case 'Home':
+      return { dx: -1, dy: -1 }
+    case 'End':
+      return { dx: 1, dy: 1 }
+    default:
+      return null
+  }
+}
+
 function ColorPicker({
   rgb,
   opacity,
@@ -172,6 +207,32 @@ function ColorPicker({
   const hueDrag = useTrackDrag((fx) => emitFromHsv({ ...hsv, h: fx * 360 }))
   const opacityDrag = useTrackDrag((fx) => onChangeOpacity(Math.round(fx * 100)))
 
+  // The keyboard equivalents of those three drags. The area is two-axis, so it
+  // uses dx and dy separately; the two sliders are one-axis, so they take dx+dy
+  // and respond to Left/Down as well as Right/Up.
+  const onAreaKeyDown = (e: React.KeyboardEvent): void => {
+    const move = keyMove(e)
+    if (!move) return
+    e.preventDefault() // arrows would otherwise scroll the panel
+    emitFromHsv({
+      h: hsv.h,
+      s: clamp(hsv.s + move.dx, 0, 1),
+      v: clamp(hsv.v + move.dy, 0, 1)
+    })
+  }
+  const onHueKeyDown = (e: React.KeyboardEvent): void => {
+    const move = keyMove(e)
+    if (!move) return
+    e.preventDefault()
+    emitFromHsv({ ...hsv, h: clamp(hsv.h / 360 + move.dx + move.dy, 0, 1) * 360 })
+  }
+  const onOpacityKeyDown = (e: React.KeyboardEvent): void => {
+    const move = keyMove(e)
+    if (!move) return
+    e.preventDefault()
+    onChangeOpacity(Math.round(clamp(opacity / 100 + move.dx + move.dy, 0, 1) * 100))
+  }
+
   const hex = rgbToHex(rgb)
   const hueColor = rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 }))
 
@@ -182,7 +243,9 @@ function ColorPicker({
 
   // Same error treatment as the app's FormField: a red outline on the input.
   const fieldClass = (error?: string): string =>
-    `h-8 w-full rounded border bg-[#121212] px-2 text-center text-sm text-white outline-none ${
+    // The placeholder is the channel's own letter, so an empty box still says
+    // WHICH channel it is — greyed, so it never reads as an entered value.
+    `h-8 w-full rounded border bg-[#121212] px-2 text-center text-sm text-white outline-none placeholder:text-[#424242] ${
       error
         ? 'border-app-border outline outline-1 -outline-offset-1 outline-[#D92D20] focus:border-[#D92D20]'
         : 'border-app-border focus:border-neutral-500'
@@ -195,7 +258,14 @@ function ColorPicker({
         role="slider"
         tabIndex={0}
         aria-label={labels.colorArea}
+        // A two-axis control that `slider` can only half describe: the numeric
+        // value reports saturation (the x axis), while valuetext carries the
+        // resulting colour, which is the part that actually matters to a listener.
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(hsv.s * 100)}
         aria-valuetext={hex}
+        onKeyDown={onAreaKeyDown}
         {...areaDrag}
         className="relative h-32 w-full cursor-pointer touch-none rounded"
         style={{ backgroundColor: hueColor }}
@@ -228,6 +298,7 @@ function ColorPicker({
         aria-valuemin={0}
         aria-valuemax={360}
         aria-valuenow={Math.round(hsv.h)}
+        onKeyDown={onHueKeyDown}
         {...hueDrag}
         className="relative h-2 w-full cursor-pointer touch-none rounded-full"
         style={{
@@ -252,6 +323,7 @@ function ColorPicker({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={opacity}
+        onKeyDown={onOpacityKeyDown}
         {...opacityDrag}
         className="relative mt-2 h-2 w-full cursor-pointer touch-none rounded-full bg-white"
       >
@@ -278,6 +350,7 @@ function ColorPicker({
                   inputMode="numeric"
                   aria-label={key.toUpperCase()}
                   aria-invalid={field.error != null}
+                  placeholder={key.toUpperCase()}
                   value={field.value}
                   onChange={(e) => field.onChange(e.target.value)}
                   onBlur={field.onBlur}

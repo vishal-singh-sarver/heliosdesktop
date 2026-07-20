@@ -129,9 +129,18 @@ export type OpenSavedMaterialFailedAction = {
 }
 
 export type AddParameterGroupAction = { type: typeof ADD_PARAMETER_GROUP }
+
+// Every action that lands on ONE card carries `materialId` — the backend group
+// the card belongs to — alongside `cardId`. `cardId` is a per-draft key that
+// restarts at 1 for each material, so on its own it cannot tell material A's
+// card 1 from material B's: an async result arriving after the user switched
+// materials would be applied to whichever draft is open. The reducer checks
+// `materialId` against the open draft before touching anything (see `withCard`
+// in reducer.ts) and drops the result if they differ.
 export type RemoveParameterGroupAction = {
   type: typeof REMOVE_PARAMETER_GROUP
-  groupId: number
+  materialId: string
+  cardId: number
 }
 export type SetParameterGroupTypeAction = {
   type: typeof SET_PARAMETER_GROUP_TYPE
@@ -161,10 +170,12 @@ export type SaveParameterGroupRequestedAction = {
 }
 export type SaveParameterGroupSucceededAction = {
   type: typeof SAVE_PARAMETER_GROUP_SUCCEEDED
+  materialId: string
   cardId: number
 }
 export type SaveParameterGroupFailedAction = {
   type: typeof SAVE_PARAMETER_GROUP_FAILED
+  materialId: string
   cardId: number
   payload: string
 }
@@ -182,6 +193,7 @@ export type DeleteParameterGroupRequestedAction = {
 }
 export type DeleteParameterGroupFailedAction = {
   type: typeof DELETE_PARAMETER_GROUP_FAILED
+  materialId: string
   cardId: number
   payload: string
 }
@@ -202,11 +214,13 @@ export type UploadTextureRequestedAction = {
 }
 export type UploadTextureSucceededAction = {
   type: typeof UPLOAD_TEXTURE_SUCCEEDED
+  materialId: string
   cardId: number
   path: string
 }
 export type UploadTextureFailedAction = {
   type: typeof UPLOAD_TEXTURE_FAILED
+  materialId: string
   cardId: number
   payload: string
 }
@@ -343,9 +357,13 @@ export const openSavedMaterialFailed = (
 
 export const addParameterGroup = (): AddParameterGroupAction => ({ type: ADD_PARAMETER_GROUP })
 
-export const removeParameterGroup = (groupId: number): RemoveParameterGroupAction => ({
+export const removeParameterGroup = (
+  materialId: string,
+  cardId: number
+): RemoveParameterGroupAction => ({
   type: REMOVE_PARAMETER_GROUP,
-  groupId
+  materialId,
+  cardId
 })
 
 export const setParameterGroupType = (
@@ -362,14 +380,24 @@ export const setParameterGroupValue = (
 export const saveParameterGroupRequested = (
   input: SaveParameterGroupInput
 ): SaveParameterGroupRequestedAction => ({ type: SAVE_PARAMETER_GROUP_REQUESTED, payload: input })
-export const saveParameterGroupSucceeded = (cardId: number): SaveParameterGroupSucceededAction => ({
+export const saveParameterGroupSucceeded = (
+  materialId: string,
+  cardId: number
+): SaveParameterGroupSucceededAction => ({
   type: SAVE_PARAMETER_GROUP_SUCCEEDED,
+  materialId,
   cardId
 })
 export const saveParameterGroupFailed = (
+  materialId: string,
   cardId: number,
   error: string
-): SaveParameterGroupFailedAction => ({ type: SAVE_PARAMETER_GROUP_FAILED, cardId, payload: error })
+): SaveParameterGroupFailedAction => ({
+  type: SAVE_PARAMETER_GROUP_FAILED,
+  materialId,
+  cardId,
+  payload: error
+})
 
 export const deleteParameterGroupRequested = (
   input: DeleteParameterGroupInput
@@ -378,10 +406,12 @@ export const deleteParameterGroupRequested = (
   payload: input
 })
 export const deleteParameterGroupFailed = (
+  materialId: string,
   cardId: number,
   error: string
 ): DeleteParameterGroupFailedAction => ({
   type: DELETE_PARAMETER_GROUP_FAILED,
+  materialId,
   cardId,
   payload: error
 })
@@ -402,11 +432,17 @@ export const uploadTextureRequested = (
   input: UploadTextureInput
 ): UploadTextureRequestedAction => ({ type: UPLOAD_TEXTURE_REQUESTED, payload: input })
 export const uploadTextureSucceeded = (
+  materialId: string,
   cardId: number,
   path: string
-): UploadTextureSucceededAction => ({ type: UPLOAD_TEXTURE_SUCCEEDED, cardId, path })
-export const uploadTextureFailed = (cardId: number, error: string): UploadTextureFailedAction => ({
+): UploadTextureSucceededAction => ({ type: UPLOAD_TEXTURE_SUCCEEDED, materialId, cardId, path })
+export const uploadTextureFailed = (
+  materialId: string,
+  cardId: number,
+  error: string
+): UploadTextureFailedAction => ({
   type: UPLOAD_TEXTURE_FAILED,
+  materialId,
   cardId,
   payload: error
 })

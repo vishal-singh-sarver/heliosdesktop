@@ -1,4 +1,5 @@
-import { call, put, select, takeEvery, takeLatest } from 'redux-saga/effects'
+import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
+import type { Task } from 'redux-saga'
 import * as actions from './actions'
 import type {
   CreateMaterialRequestedAction,
@@ -65,6 +66,24 @@ export function* renameMaterialWorker(action: RenameMaterialRequestedAction): Ge
   }
 }
 
+// Watches renames, keeping at most ONE in flight PER MATERIAL: a second rename of
+// the same material cancels the first, so a slow earlier response can't land after
+// a newer one and put the older name back on screen.
+//
+// Not plain takeLatest, which is global — that would also cancel a rename of a
+// DIFFERENT material, losing an unrelated edit. Cancelling the worker doesn't
+// abort the request already in flight; it stops the stale SUCCEEDED from ever
+// being dispatched, which is the part that corrupted the UI.
+export function* renameWatcher(): Generator {
+  const inFlight: Record<string, Task> = {}
+  while (true) {
+    const action = (yield take(RENAME_MATERIAL_REQUESTED)) as RenameMaterialRequestedAction
+    const previous = inFlight[action.id]
+    if (previous) yield cancel(previous)
+    inFlight[action.id] = (yield fork(renameMaterialWorker, action)) as Task
+  }
+}
+
 // Deletes the whole material (group + members). Pessimistic: the row is removed
 // only on success, so a failed delete leaves it in the list.
 export function* deleteMaterialWorker(action: DeleteMaterialRequestedAction): Generator {
@@ -112,14 +131,18 @@ export function* saveParameterGroupWorker(action: SaveParameterGroupRequestedAct
     } else {
       yield call(service.addGroupMaterial, groupId, materialTypeId, properties, scenarioId)
     }
-    yield put(actions.saveParameterGroupSucceeded(cardId))
+    // The outcome carries `groupId` as well as `cardId`: this request may land
+    // after the user has opened a DIFFERENT material, and card ids restart at 1
+    // per material, so the reducer needs it to tell "my card 1" from "some other
+    // material's card 1".
+    yield put(actions.saveParameterGroupSucceeded(groupId, cardId))
     // A committed visualisation colour joins the "Used colors" history. Keyed on
     // the payload carrying all three channels (a colour-only save), so a plain
     // model-type save records nothing.
     const color = colorFromProperties(properties)
     if (color) yield put(actions.recordRecentColor(color))
   } catch (err) {
-    yield put(actions.saveParameterGroupFailed(cardId, (err as Error).message))
+    yield put(actions.saveParameterGroupFailed(groupId, cardId, (err as Error).message))
   }
 }
 
@@ -148,14 +171,14 @@ export function* deleteParameterGroupWorker(
 ): Generator {
   const { groupId, cardId, materialTypeId, saved, scenarioId } = action.payload
   if (!saved || materialTypeId == null) {
-    yield put(actions.removeParameterGroup(cardId))
+    yield put(actions.removeParameterGroup(groupId, cardId))
     return
   }
   try {
     yield call(service.removeGroupMaterial, groupId, materialTypeId, scenarioId)
-    yield put(actions.removeParameterGroup(cardId))
+    yield put(actions.removeParameterGroup(groupId, cardId))
   } catch (err) {
-    yield put(actions.deleteParameterGroupFailed(cardId, (err as Error).message))
+    yield put(actions.deleteParameterGroupFailed(groupId, cardId, (err as Error).message))
   }
 }
 
@@ -172,16 +195,16 @@ export function* uploadTextureWorker(action: UploadTextureRequestedAction): Gene
       file,
       scenarioId
     )) as string
-    yield put(actions.uploadTextureSucceeded(cardId, path))
+    yield put(actions.uploadTextureSucceeded(groupId, cardId, path))
   } catch (err) {
-    yield put(actions.uploadTextureFailed(cardId, (err as Error).message))
+    yield put(actions.uploadTextureFailed(groupId, cardId, (err as Error).message))
   }
 }
 
 export default function* materialsSaga(): Generator {
   yield takeLatest(LIST_MATERIALS_REQUESTED, listMaterialsWorker)
   yield takeLatest(CREATE_MATERIAL_REQUESTED, createMaterialWorker)
-  yield takeEvery(RENAME_MATERIAL_REQUESTED, renameMaterialWorker)
+  yield fork(renameWatcher)
   yield takeEvery(DELETE_MATERIAL_REQUESTED, deleteMaterialWorker)
   yield takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
   yield takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)

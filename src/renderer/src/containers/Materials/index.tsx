@@ -19,6 +19,7 @@ import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
 import {
+  selectActionError,
   selectCreateError,
   selectCreateStatus,
   selectLastCreatedId,
@@ -52,6 +53,9 @@ export function Materials(): React.JSX.Element {
   const nameErrors = useSelector(selectNameErrors)
   const createStatus = useSelector(selectCreateStatus)
   const createError = useSelector(selectCreateError)
+  // A row click whose GET failed, or a delete the backend refused — neither has a
+  // row or field of its own, so both surface here alongside the load/create errors.
+  const actionError = useSelector(selectActionError)
   // +Add Materials appends its row at the bottom of the list, which can be below
   // the fold — the row flashes and scrolls itself into view so it's obvious which
   // one just appeared. Same cue the Properties form gives a new card.
@@ -125,6 +129,12 @@ export function Materials(): React.JSX.Element {
       {createStatus === 'error' && (
         <span className="form-error-text px-1" style={{ color: '#F04438' }}>
           {createError ?? messages.createError}
+        </span>
+      )}
+
+      {actionError != null && (
+        <span className="form-error-text px-1" style={{ color: '#F04438' }}>
+          {actionError}
         </span>
       )}
 

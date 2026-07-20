@@ -43,15 +43,14 @@ export function MaterialVisualisationEditor({
   fieldError,
   onFieldChange,
   onFieldBlur,
+  saved,
   mode,
   onModeChange,
   selectedPath,
   pendingFileUrl,
   onPickLibrary,
-  onClearLibrary,
   onPickFile,
   uploading,
-  uploadError
 }: {
   values: Record<string, string>
   // The visualisation group's catalog fields (color_r/g/b, opacity, texture_file).
@@ -61,6 +60,9 @@ export function MaterialVisualisationEditor({
   fieldError: (field: ResolvedMaterialField) => string | undefined
   onFieldChange: (property: string, next: string, datatype: CatalogPropertyDatatype) => void
   onFieldBlur: (property: string) => void
+  // Whether this card is already persisted. A saved card is never seeded: what the
+  // backend stored is the truth, including a stored opacity of "none".
+  saved: boolean
   // The active appearance mode (the top Custom/Texture tabs), owned by the card so
   // it drives the Save payload.
   mode: VisualisationMode
@@ -69,10 +71,8 @@ export function MaterialVisualisationEditor({
   selectedPath: string | null
   pendingFileUrl?: string
   onPickLibrary: (path: string) => void
-  onClearLibrary: () => void
   onPickFile: (file: File) => void
   uploading: boolean
-  uploadError?: string
 }): React.JSX.Element {
   const recentColors = useSelector(selectRecentColors)
 
@@ -107,6 +107,31 @@ export function MaterialVisualisationEditor({
     opacityRaw === undefined || opacityRaw === ''
       ? DEFAULT_OPACITY
       : clamp(Math.round(Number(opacityRaw)), 0, 100)
+
+  // Opacity opens at 100%, as a REAL value rather than a display-only seed: the
+  // slider already sat at 100 while the box read empty, which said the material
+  // was fully opaque and unset at the same time.
+  //
+  // Seeded EXACTLY ONCE per card, on the first Custom render of a card that isn't
+  // persisted yet — never in response to the field later becoming empty. Two
+  // reasons it cannot watch the value:
+  //   - '' is a legal in-progress keystroke (isPartialNumericInput('') is true),
+  //     so backspacing through "100" reaches '' and a value-watching effect would
+  //     type 100 straight back — making the box impossible to clear.
+  //   - a SAVED card whose stored opacity is empty (e.g. a texture-mode member)
+  //     would be written to just by opening the Custom tab to look at it, marking
+  //     an untouched card as edited.
+  const seeded = React.useRef(false)
+  React.useEffect(() => {
+    if (seeded.current || mode !== 'custom') return
+    seeded.current = true
+    // What the backend stored wins, empty included — only a brand-new card is
+    // given the default.
+    if (!saved && (values[OPACITY] ?? '') === '') commit(OPACITY, String(DEFAULT_OPACITY))
+    // Deliberately not keyed on the opacity value — see above. `commit` closes
+    // over the card's handler, which is stable for the life of the card.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, saved])
 
   // A colour is the three channels together, so any area/hue/swatch change commits
   // all three (each through the guarded handler). Opacity is required alongside a
@@ -174,10 +199,8 @@ export function MaterialVisualisationEditor({
           selectedPath={selectedPath}
           pendingFileUrl={pendingFileUrl}
           onPickLibrary={onPickLibrary}
-          onClearLibrary={onClearLibrary}
           onPickFile={onPickFile}
           uploading={uploading}
-          uploadError={uploadError}
         />
       )}
     </div>

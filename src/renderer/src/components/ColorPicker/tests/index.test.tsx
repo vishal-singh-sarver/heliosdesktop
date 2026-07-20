@@ -224,3 +224,77 @@ describe('<ColorPicker /> dragging', () => {
     expect(swung.g).toBeGreaterThan(swung.r)
   })
 })
+
+// All three tracks are role="slider" with tabIndex=0 — they take focus and are
+// announced as adjustable, so they have to answer the arrow keys. They used to
+// carry pointer handlers only, leaving three focusable controls that were inert.
+describe('keyboard operation', () => {
+  it('moves the hue slider with the arrow keys, Shift for a coarse step', () => {
+    render(<Harness />)
+    const hue = screen.getByRole('slider', { name: 'Hue' })
+    expect(hue).toHaveAttribute('aria-valuenow', '0')
+
+    fireEvent.keyDown(hue, { key: 'ArrowRight' })
+    // 1% of the 0-360 range.
+    expect(hue).toHaveAttribute('aria-valuenow', '4')
+
+    fireEvent.keyDown(hue, { key: 'ArrowRight', shiftKey: true })
+    expect(hue).toHaveAttribute('aria-valuenow', '40')
+
+    fireEvent.keyDown(hue, { key: 'ArrowLeft' })
+    expect(hue).toHaveAttribute('aria-valuenow', '36')
+  })
+
+  it('jumps the hue slider to each end with Home and End', () => {
+    render(<Harness />)
+    const hue = screen.getByRole('slider', { name: 'Hue' })
+
+    fireEvent.keyDown(hue, { key: 'End' })
+    expect(hue).toHaveAttribute('aria-valuenow', '360')
+    fireEvent.keyDown(hue, { key: 'Home' })
+    expect(hue).toHaveAttribute('aria-valuenow', '0')
+  })
+
+  it('moves the opacity slider with the arrow keys', () => {
+    const onChangeOpacity = vi.fn()
+    render(<Harness onChangeOpacity={onChangeOpacity} />)
+    const slider = screen.getByRole('slider', { name: 'Opacity slider' })
+    expect(slider).toHaveAttribute('aria-valuenow', '100')
+
+    fireEvent.keyDown(slider, { key: 'ArrowDown' })
+    expect(onChangeOpacity).toHaveBeenLastCalledWith(99)
+    fireEvent.keyDown(slider, { key: 'Home' })
+    expect(onChangeOpacity).toHaveBeenLastCalledWith(0)
+  })
+
+  it('moves the colour area on both axes — left/right saturation, up/down brightness', () => {
+    const onChangeColor = vi.fn()
+    render(<Harness onChangeColor={onChangeColor} />)
+    const area = screen.getByRole('slider', { name: 'Saturation and brightness' })
+    // Starts fully saturated (255,0,0), so only a decrease is observable.
+    expect(area).toHaveAttribute('aria-valuenow', '100')
+
+    fireEvent.keyDown(area, { key: 'ArrowLeft' })
+    expect(area).toHaveAttribute('aria-valuenow', '99')
+    const washed = onChangeColor.mock.lastCall![0] as RgbColor
+    // Less saturated means the other channels lift off zero.
+    expect(washed.g).toBeGreaterThan(0)
+
+    // Down darkens without touching saturation.
+    fireEvent.keyDown(area, { key: 'ArrowDown' })
+    expect(area).toHaveAttribute('aria-valuenow', '99')
+    const darkened = onChangeColor.mock.lastCall![0] as RgbColor
+    expect(Math.max(darkened.r, darkened.g, darkened.b)).toBeLessThan(
+      Math.max(washed.r, washed.g, washed.b)
+    )
+  })
+
+  it('ignores keys it does not own, so Tab still moves focus', () => {
+    const onChangeColor = vi.fn()
+    render(<Harness onChangeColor={onChangeColor} />)
+    const area = screen.getByRole('slider', { name: 'Saturation and brightness' })
+    fireEvent.keyDown(area, { key: 'Tab' })
+    fireEvent.keyDown(area, { key: 'a' })
+    expect(onChangeColor).not.toHaveBeenCalled()
+  })
+})

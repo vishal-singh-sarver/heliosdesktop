@@ -1,6 +1,7 @@
 import { initialState } from '../reducer'
 import makeSelectMaterials, {
   selectAllMaterials,
+  selectMaterialNamesLower,
   selectMaterialsDomain,
   selectNextMaterialName,
   selectSelectedId,
@@ -104,5 +105,41 @@ describe('selectNextMaterialName', () => {
 describe('selectSelectedId', () => {
   it('returns the selected id', () => {
     expect(selectSelectedId(withMaterials({ selectedId: '11' }))).toBe('11')
+  })
+})
+
+// immer hands back a NEW slice object for every handled action, so a selector
+// keyed on the whole domain recomputed on each keystroke — a fresh Material[]
+// identity that re-rendered every row and rebuilt the name Set downstream.
+describe('list-selector memoisation', () => {
+  // What immer actually produces for an action that doesn't touch the list: a NEW
+  // slice object, but the SAME byId/order references carried over untouched. The
+  // selector must see through the new wrapper to the unchanged list.
+  const byId = { '11': make('11', 'B'), '10': make('10', 'A') }
+  const order = ['11', '10']
+  const sliceWith = (extra: Partial<typeof initialState> = {}) =>
+    ({ materials: { ...initialState, byId, order, ...extra } }) as any
+
+  it('keeps its identity when an unrelated field changes', () => {
+    const before = selectAllMaterials(sliceWith())
+    // A search keystroke / property-field edit / draft open: new slice, same list.
+    const after = selectAllMaterials(sliceWith({ searchQuery: 'gr', editDraftNonce: 3 }))
+    expect(after).toBe(before)
+    expect(selectMaterialNamesLower(sliceWith({ editDraftNonce: 3 }))).toBe(
+      selectMaterialNamesLower(sliceWith())
+    )
+  })
+
+  it('still recomputes when the list itself changes', () => {
+    const before = selectAllMaterials(sliceWith())
+    const after = selectAllMaterials(
+      loaded([
+        ['11', 'B'],
+        ['10', 'A'],
+        ['12', 'C']
+      ])
+    )
+    expect(after).not.toBe(before)
+    expect(after.map((m) => m.id)).toEqual(['11', '10', '12'])
   })
 })

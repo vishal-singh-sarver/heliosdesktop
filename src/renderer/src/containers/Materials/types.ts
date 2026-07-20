@@ -59,6 +59,11 @@ export interface MaterialParameterGroup {
   saved: boolean
   saveStatus: 'idle' | 'saving' | 'error'
   saveError: string | null
+  // A backend DELETE for this member is in flight. Tracked separately from
+  // `saveStatus` so the trash can disable itself without the Save button reading
+  // "Saving…" through a delete — and so a double-click can't fire two DELETEs,
+  // the second of which 404s and shows a spurious error on a vanishing card.
+  deleteStatus: 'idle' | 'deleting'
 }
 
 // One member of a fetched group (GET /library/groups/{id}): a material type and
@@ -83,6 +88,12 @@ export interface MaterialGroupDetail {
 export interface MaterialDraft {
   groupId: string
   name: string
+  // A backend rename rejection for the material open in THIS form. Kept on the
+  // draft rather than in `nameErrors` so it renders under the form's name field:
+  // the left row still shows the valid old name, so an error under that row would
+  // point at a name that is not the one the backend refused. Mirrors Geometry's
+  // createDraft.nameError. Cleared as soon as the name is edited again.
+  nameError: string | null
   // The "Parameter Group.0N" cards, in add order.
   groups: MaterialParameterGroup[]
   // Monotonic id source for new cards (so ids stay stable as cards come and go).

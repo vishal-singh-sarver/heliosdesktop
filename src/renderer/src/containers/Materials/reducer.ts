@@ -7,10 +7,13 @@ import {
   CREATE_MATERIAL_FAILED,
   CREATE_MATERIAL_REQUESTED,
   CREATE_MATERIAL_SUCCEEDED,
+  DELETE_MATERIAL_FAILED,
   DELETE_PARAMETER_GROUP_FAILED,
+  DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
+  OPEN_SAVED_MATERIAL_FAILED,
   OPEN_SAVED_MATERIAL_LOADED,
   RECORD_RECENT_COLOR,
   REMOVE_MATERIAL,
@@ -54,7 +57,8 @@ const emptyCard = (id: number, number: number): MaterialParameterGroup => ({
   savedValues: null,
   saved: false,
   saveStatus: 'idle',
-  saveError: null
+  saveError: null,
+  deleteStatus: 'idle'
 })
 
 // The cards that exist ONLY on the client: a card the user added but never saved
@@ -68,9 +72,53 @@ const stashUnsavedCards = (state: Draft<MaterialsState>): void => {
   if (!d) return
   const unsaved = d.groups
     .filter((g) => !g.saved)
-    .map((g) => ({ ...g, values: { ...g.values }, saveStatus: 'idle' as const, saveError: null }))
+    .map((g) => ({
+      ...g,
+      values: { ...g.values },
+      saveStatus: 'idle' as const,
+      saveError: null,
+      deleteStatus: 'idle' as const
+    }))
   if (unsaved.length > 0) state.unsavedById[d.groupId] = unsaved
   else delete state.unsavedById[d.groupId]
+}
+
+// A write the BACKEND accepted, whose outcome could not be applied because the
+// user has since opened a different material. The draft is gone, so there is
+// nothing to update — but the cached detail is now a lie: it still describes the
+// group as it was BEFORE the write, and openSavedMaterialWorker serves that cache
+// instead of re-GETting. Dropping the entry is the honest move — the next click
+// refetches and sees what the backend actually holds.
+//
+// Without this, a save that landed after a material switch was invisible until a
+// full list reload (the reopened card showed pre-save values and read as clean),
+// and a card whose first save landed that way stayed stashed as UNSAVED — so
+// saving it again POSTed a member the group already had.
+const invalidateDetailCache = (state: Draft<MaterialsState>, materialId: string): void => {
+  delete state.detailsById[materialId]
+}
+
+// Apply `mutate` to ONE card of the open draft, but only when that draft is the
+// material the action was raised for. `cardId` is a per-draft key that restarts
+// at 1 for every material (see OPEN_SAVED_MATERIAL_LOADED), so a save/upload/
+// delete that resolves after the user clicked a DIFFERENT material would
+// otherwise find that material's card with the same id and apply another
+// material's outcome to it — silently marking it saved, overwriting its baseline
+// and, for an upload, writing the wrong texture path. Matching on `materialId`
+// first drops the stale result instead. Returns whether it landed, so callers
+// can skip follow-up work (e.g. the cache refresh) on a dropped one.
+const withCard = (
+  state: Draft<MaterialsState>,
+  materialId: string,
+  cardId: number,
+  mutate: (card: Draft<MaterialParameterGroup>) => void
+): boolean => {
+  const d = state.editDraft
+  if (!d || d.groupId !== materialId) return false
+  const card = d.groups.find((g) => g.id === cardId)
+  if (!card) return false
+  mutate(card)
+  return true
 }
 
 // Write-through cache refresh. After a card is saved or removed we already KNOW
@@ -90,8 +138,16 @@ const refreshDetailCache = (state: Draft<MaterialsState>): void => {
       .filter((g): g is MaterialParameterGroup & { typeId: number } => g.saved && g.typeId != null)
       .map((g) => ({
         materialTypeId: g.typeId,
+        // `savedValues`, NOT `values`: this cache stands in for a GET, so it must
+        // hold what the backend confirmed. Only one card was just persisted, and
+        // `values` on the others is live draft state — a sibling card edited but
+        // not saved would have its pending edits cached as if they were stored,
+        // and re-opening the material would show them as clean and saved while
+        // the backend still had the old ones.
         // Match what a GET returns: blank fields aren't stored.
-        properties: Object.fromEntries(Object.entries(g.values).filter(([, v]) => v !== ''))
+        properties: Object.fromEntries(
+          Object.entries(g.savedValues ?? {}).filter(([, v]) => v !== '')
+        )
       }))
   }
 }
@@ -132,6 +188,12 @@ export interface MaterialsState {
   // appeared" cue. Cleared once the cue has run (the list dispatches it), so a
   // remount can't replay it.
   lastCreatedId: string | null
+  // The last list-level action that failed and has nowhere else to show: opening a
+  // material (the GET) or deleting one. Both used to be announced by the saga and
+  // received by nobody, so a failed row-click showed NOTHING — the panel simply
+  // stayed on the previous material — and a failed delete left the row in place
+  // unexplained. Cleared as soon as one of them next succeeds.
+  actionError: string | null
   // The visualisation colour picker's "Used colors" — a GLOBAL, most-recent-first
   // history seeded from localStorage; a saga mirrors changes back to it.
   recentColors: RgbColor[]
@@ -152,6 +214,7 @@ export const initialState: MaterialsState = {
   createStatus: 'idle',
   createError: null,
   lastCreatedId: null,
+  actionError: null,
   // Seed the picker history from localStorage at slice creation (guarded — falls
   // back to [] outside a browser). The selector fallback re-uses this object, so
   // the picker still reads the persisted list before the slice mounts.
@@ -181,6 +244,12 @@ const materialsReducer = (
         draft.lastCreatedId = null
         draft.nameErrors = {} // ids are reloaded; any pending rename error is stale
         draft.detailsById = {} // a fresh load invalidates the cached group details
+        draft.actionError = null // an open/delete failure can't outlive the list it referred to
+        // A failed create belongs to the list as it was BEFORE this load — leaving
+        // it set kept the banner up across a tab switch, complaining about an
+        // attempt the user had long since moved on from.
+        draft.createStatus = 'idle'
+        draft.createError = null
         for (const material of action.payload) {
           draft.byId[material.id] = material
           draft.order.push(material.id)
@@ -235,7 +304,13 @@ const materialsReducer = (
         // known — seed the cache so clicking it later costs no GET.
         draft.detailsById[groupId] = { id: groupId, name, members: [] }
         // Open it with one blank card, ready to pick a material type.
-        draft.editDraft = { groupId, name, groups: [emptyCard(1, 1)], nextGroupId: 2 }
+        draft.editDraft = {
+          groupId,
+          name,
+          nameError: null,
+          groups: [emptyCard(1, 1)],
+          nextGroupId: 2
+        }
         draft.editDraftNonce += 1
         draft.selectedId = groupId
         draft.lastCreatedId = groupId
@@ -256,9 +331,11 @@ const materialsReducer = (
       case RENAME_MATERIAL_SUCCEEDED: {
         const material = draft.byId[action.id]
         if (material) material.name = action.name
-        // Keep the open Properties form's header in sync with the row.
+        // Keep the open Properties form's header in sync with the row, and clear
+        // any rejection it was showing — this name was accepted.
         if (draft.editDraft && draft.editDraft.groupId === action.id) {
           draft.editDraft.name = action.name
+          draft.editDraft.nameError = null
         }
         // Keep the cached detail usable rather than dropping it — only its name
         // went stale.
@@ -269,7 +346,16 @@ const materialsReducer = (
       }
 
       case RENAME_MATERIAL_FAILED:
-        draft.nameErrors[action.id] = action.payload
+        // A rejection for the material open in the right-panel form belongs to
+        // that form — under its name field, where the refused text still sits.
+        // The left row shows the committed (still valid) old name, so an error
+        // beneath it would point at the wrong name and linger stale. Renames from
+        // anywhere else (the row's own inline editor) surface on the row.
+        if (draft.editDraft && draft.editDraft.groupId === action.id) {
+          draft.editDraft.nameError = action.payload
+        } else {
+          draft.nameErrors[action.id] = action.payload
+        }
         break
 
       case SET_NAME_ERROR:
@@ -277,7 +363,16 @@ const materialsReducer = (
         else draft.nameErrors[action.id] = action.payload
         break
 
+      case DELETE_MATERIAL_FAILED:
+      case OPEN_SAVED_MATERIAL_FAILED:
+        // Both were previously dispatched into the void: the reducer handled
+        // neither, so the failure never reached the screen.
+        draft.actionError = action.payload
+        break
+
       case REMOVE_MATERIAL: {
+        // A delete that landed clears the banner from any earlier failed attempt.
+        draft.actionError = null
         delete draft.byId[action.id]
         draft.order = draft.order.filter((i) => i !== action.id)
         delete draft.nameErrors[action.id]
@@ -313,6 +408,8 @@ const materialsReducer = (
         // already marked `saved` (so its Save PATCHes and its Delete removes the
         // member on the backend).
         const { detail } = action
+        // A material opened successfully — clear any earlier open/delete failure.
+        draft.actionError = null
         // Switching materials replaces the form — keep the outgoing material's
         // unsaved cards so going back to it shows them again.
         stashUnsavedCards(draft)
@@ -329,7 +426,8 @@ const materialsReducer = (
           savedValues: { ...member.properties },
           saved: true,
           saveStatus: 'idle',
-          saveError: null
+          saveError: null,
+          deleteStatus: 'idle'
         }))
 
         // Re-attach this material's client-only cards after its saved ones. Their
@@ -359,6 +457,7 @@ const materialsReducer = (
         draft.editDraft = {
           groupId: detail.id,
           name: detail.name,
+          nameError: null,
           groups: cards,
           nextGroupId: nextId
         }
@@ -381,11 +480,18 @@ const materialsReducer = (
 
       case REMOVE_PARAMETER_GROUP: {
         const d = draft.editDraft
-        if (d) {
-          d.groups = d.groups.filter((g) => g.id !== action.groupId)
+        // Guarded like the other card outcomes: a delete that resolves after the
+        // user switched materials must not drop the same-numbered card here.
+        if (d && d.groupId === action.materialId) {
+          d.groups = d.groups.filter((g) => g.id !== action.cardId)
           // The group's members changed — rewrite its cached detail from the cards
           // that remain saved (no refetch needed; we know the new state).
           refreshDetailCache(draft)
+        } else {
+          // The member IS gone on the backend; we just can't see the draft to say
+          // so. Leaving the cache would show the deleted member on reopen, and
+          // editing it would PUT to a member that no longer exists.
+          invalidateDetailCache(draft, action.materialId)
         }
         break
       }
@@ -405,22 +511,46 @@ const materialsReducer = (
 
       case SET_PARAMETER_GROUP_VALUE: {
         const card = draft.editDraft?.groups.find((g) => g.id === action.groupId)
-        if (card) card.values[action.property] = action.value
-        break
-      }
-
-      case SAVE_PARAMETER_GROUP_REQUESTED: {
-        const card = draft.editDraft?.groups.find((g) => g.id === action.payload.cardId)
         if (card) {
-          card.saveStatus = 'saving'
-          card.saveError = null
+          card.values[action.property] = action.value
+          // Editing answers the failure — the message described the values as
+          // they were, and pinning it under the card until the next round-trip
+          // left the user correcting a field while still being told it was wrong.
+          // SET_PARAMETER_GROUP_TYPE already clears these for the same reason.
+          //
+          // Keyed on the MESSAGE, not on saveStatus: a failed DELETE writes
+          // `saveError` while deliberately leaving `saveStatus` idle, so a
+          // status-gated clear never fired for it and its red text stuck around
+          // — reading as a save failure — until the next save or reopen.
+          if (card.saveError != null) {
+            card.saveStatus = 'idle'
+            card.saveError = null
+          }
         }
         break
       }
 
+      case DELETE_PARAMETER_GROUP_REQUESTED: {
+        // Mark the delete in flight so the trash disables — without this a
+        // double-click fired two DELETEs, and the second 404'd onto a card that
+        // was already on its way out.
+        withCard(draft, action.payload.groupId, action.payload.cardId, (card) => {
+          card.deleteStatus = 'deleting'
+          card.saveError = null
+        })
+        break
+      }
+
+      case SAVE_PARAMETER_GROUP_REQUESTED: {
+        withCard(draft, action.payload.groupId, action.payload.cardId, (card) => {
+          card.saveStatus = 'saving'
+          card.saveError = null
+        })
+        break
+      }
+
       case SAVE_PARAMETER_GROUP_SUCCEEDED: {
-        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
-        if (card) {
+        const applied = withCard(draft, action.materialId, action.cardId, (card) => {
           // From here on this card updates (PATCH) rather than adds (POST).
           card.saved = true
           card.saveStatus = 'idle'
@@ -428,25 +558,42 @@ const materialsReducer = (
           // What's on the backend is now what's on screen — the card is clean, so
           // Save closes again until the next edit.
           card.savedValues = { ...card.values }
-        }
+        })
         // Refresh the cache with the values we just persisted, so re-opening this
-        // material shows them without another GET.
-        refreshDetailCache(draft)
+        // material shows them without another GET. Only when the save actually
+        // landed on the open draft — otherwise this would rewrite the cache of
+        // whatever material happens to be open now. A dropped outcome invalidates
+        // instead: the backend took the write, so the cached detail is stale.
+        if (applied) refreshDetailCache(draft)
+        else invalidateDetailCache(draft, action.materialId)
         break
       }
 
-      case SAVE_PARAMETER_GROUP_FAILED:
-      case DELETE_PARAMETER_GROUP_FAILED: {
-        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
-        if (card) {
+      case SAVE_PARAMETER_GROUP_FAILED: {
+        withCard(draft, action.materialId, action.cardId, (card) => {
           card.saveStatus = 'error'
           card.saveError = action.payload
-        }
+        })
+        break
+      }
+
+      case DELETE_PARAMETER_GROUP_FAILED: {
+        // The member is still there — release the trash and show why it stayed.
+        // `saveStatus` is left alone: this was a delete, and flagging the card as
+        // save-errored would disable a Save that never ran.
+        withCard(draft, action.materialId, action.cardId, (card) => {
+          card.deleteStatus = 'idle'
+          card.saveError = action.payload
+        })
         break
       }
 
       case SET_MATERIAL_DRAFT_NAME: {
-        if (draft.editDraft) draft.editDraft.name = action.name
+        if (draft.editDraft) {
+          draft.editDraft.name = action.name
+          // Typing answers the rejection — it described the name as it was.
+          draft.editDraft.nameError = null
+        }
         break
       }
 
@@ -465,17 +612,15 @@ const materialsReducer = (
 
       // ── Visualiser texture upload ──────────────────────────────────────────
       case UPLOAD_TEXTURE_REQUESTED: {
-        const card = draft.editDraft?.groups.find((g) => g.id === action.payload.cardId)
-        if (card) {
+        withCard(draft, action.payload.groupId, action.payload.cardId, (card) => {
           card.saveStatus = 'saving'
           card.saveError = null
-        }
+        })
         break
       }
 
       case UPLOAD_TEXTURE_SUCCEEDED: {
-        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
-        if (card) {
+        const applied = withCard(draft, action.materialId, action.cardId, (card) => {
           // The upload persisted the member in texture mode — reflect that in the
           // draft: switch to the returned path, drop the (now-cleared) colour, and
           // mark it saved.
@@ -488,17 +633,19 @@ const materialsReducer = (
           // Snapshot AFTER the texture values above land, so the card reads as
           // clean against what the upload actually persisted.
           card.savedValues = { ...card.values }
-        }
-        refreshDetailCache(draft)
+        })
+        // As above: the upload persisted the member, so a dropped outcome must
+        // invalidate rather than leave a cache that predates the texture.
+        if (applied) refreshDetailCache(draft)
+        else invalidateDetailCache(draft, action.materialId)
         break
       }
 
       case UPLOAD_TEXTURE_FAILED: {
-        const card = draft.editDraft?.groups.find((g) => g.id === action.cardId)
-        if (card) {
+        withCard(draft, action.materialId, action.cardId, (card) => {
           card.saveStatus = 'error'
           card.saveError = action.payload
-        }
+        })
         break
       }
     }

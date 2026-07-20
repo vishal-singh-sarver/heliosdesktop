@@ -1,4 +1,4 @@
-import { call, put, select, takeEvery, takeLatest } from 'redux-saga/effects'
+import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
 import * as actions from '../actions'
 import {
   CREATE_MATERIAL_REQUESTED,
@@ -19,6 +19,7 @@ import materialsSaga, {
   openSavedMaterialWorker,
   persistRecentColorsWorker,
   renameMaterialWorker,
+  renameWatcher,
   saveParameterGroupWorker,
   uploadTextureWorker
 } from '../saga'
@@ -83,6 +84,46 @@ describe('renameMaterialWorker', () => {
     expect(gen.throw(new Error('Material name already exists')).value).toEqual(
       put(actions.renameMaterialFailed('11', 'Material name already exists'))
     )
+  })
+})
+
+// Renames are cancelled PER MATERIAL. Two quick renames of the same material used
+// to run to completion under takeEvery, so a slow first response could land after
+// the second and put the older name back on the row. Plain takeLatest would fix
+// that but is global — it would also kill an unrelated material's rename.
+describe('renameWatcher', () => {
+  const first = actions.renameMaterialRequested('11', 'Foo', null)
+  const second = actions.renameMaterialRequested('11', 'Bar', null)
+  const other = actions.renameMaterialRequested('37', 'Baz', null)
+
+  // `cancel()` rejects anything that isn't a real task, so the value fed back for
+  // the fork has to carry redux-saga's task marker. This is what createMockTask
+  // from @redux-saga/testing-utils produces — inlined rather than pulling in a
+  // dev dependency for one assertion.
+  const mockTask = (): never => ({ '@@redux-saga/TASK': true }) as never
+
+  it('cancels the in-flight rename of the SAME material before starting the next', () => {
+    const gen = renameWatcher()
+    expect(gen.next().value).toEqual(take(RENAME_MATERIAL_REQUESTED))
+    // First rename of '11' — nothing to cancel yet.
+    expect(gen.next(first).value).toEqual(fork(renameMaterialWorker, first))
+
+    const task = mockTask()
+    expect(gen.next(task).value).toEqual(take(RENAME_MATERIAL_REQUESTED))
+    // Second rename of '11' — the first is cancelled first, so its stale
+    // SUCCEEDED can never be dispatched.
+    expect(gen.next(second).value).toEqual(cancel(task as never))
+    expect(gen.next().value).toEqual(fork(renameMaterialWorker, second))
+  })
+
+  it('leaves a DIFFERENT material’s rename running', () => {
+    const gen = renameWatcher()
+    gen.next()
+    gen.next(first) // fork for '11'
+    const task = mockTask()
+    gen.next(task) // take
+    // A rename of '37' must not cancel '11' — straight to the fork.
+    expect(gen.next(other).value).toEqual(fork(renameMaterialWorker, other))
   })
 })
 
@@ -153,7 +194,7 @@ describe('saveParameterGroupWorker', () => {
     expect(gen.next().value).toEqual(
       call(service.addGroupMaterial, '12', 2, { radiation_flux: 55 }, 's1')
     )
-    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded(1)))
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
     expect(gen.next().done).toBe(true)
   })
 
@@ -164,7 +205,7 @@ describe('saveParameterGroupWorker', () => {
     expect(gen.next().value).toEqual(
       call(service.updateGroupMaterial, '12', 2, { radiation_flux: 55 }, 's1')
     )
-    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded(1)))
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
     expect(gen.next().done).toBe(true)
   })
 
@@ -174,7 +215,7 @@ describe('saveParameterGroupWorker', () => {
     )
     gen.next()
     expect(gen.throw(new Error('DATATYPE_MISMATCH')).value).toEqual(
-      put(actions.saveParameterGroupFailed(1, 'DATATYPE_MISMATCH'))
+      put(actions.saveParameterGroupFailed('12', 1, 'DATATYPE_MISMATCH'))
     )
   })
 
@@ -187,7 +228,7 @@ describe('saveParameterGroupWorker', () => {
       })
     )
     gen.next() // add call
-    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded(1)))
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
     // A visualisation colour save then feeds the "Used colors" history.
     expect(gen.next().value).toEqual(put(actions.recordRecentColor({ r: 10, g: 20, b: 30 })))
     expect(gen.next().done).toBe(true)
@@ -198,7 +239,7 @@ describe('saveParameterGroupWorker', () => {
       actions.saveParameterGroupRequested({ ...base, saved: false })
     )
     gen.next() // add call
-    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded(1)))
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
     // No color_r/g/b → the worker finishes without a record.
     expect(gen.next().done).toBe(true)
   })
@@ -226,7 +267,7 @@ describe('deleteParameterGroupWorker', () => {
       })
     )
     expect(gen.next().value).toEqual(call(service.removeGroupMaterial, '12', 2, 's1'))
-    expect(gen.next().value).toEqual(put(actions.removeParameterGroup(1)))
+    expect(gen.next().value).toEqual(put(actions.removeParameterGroup('12', 1)))
     expect(gen.next().done).toBe(true)
   })
 
@@ -240,7 +281,7 @@ describe('deleteParameterGroupWorker', () => {
         scenarioId: 's1'
       })
     )
-    expect(gen.next().value).toEqual(put(actions.removeParameterGroup(1)))
+    expect(gen.next().value).toEqual(put(actions.removeParameterGroup('12', 1)))
     expect(gen.next().done).toBe(true)
   })
 
@@ -256,7 +297,7 @@ describe('deleteParameterGroupWorker', () => {
     )
     gen.next()
     expect(gen.throw(new Error('boom')).value).toEqual(
-      put(actions.deleteParameterGroupFailed(1, 'boom'))
+      put(actions.deleteParameterGroupFailed('12', 1, 'boom'))
     )
   })
 })
@@ -266,7 +307,8 @@ describe('materialsSaga', () => {
     const gen = materialsSaga()
     expect(gen.next().value).toEqual(takeLatest(LIST_MATERIALS_REQUESTED, listMaterialsWorker))
     expect(gen.next().value).toEqual(takeLatest(CREATE_MATERIAL_REQUESTED, createMaterialWorker))
-    expect(gen.next().value).toEqual(takeEvery(RENAME_MATERIAL_REQUESTED, renameMaterialWorker))
+    // Renames go through a keyed watcher, not takeEvery — see renameWatcher.
+    expect(gen.next().value).toEqual(fork(renameWatcher))
     expect(gen.next().value).toEqual(takeEvery(DELETE_MATERIAL_REQUESTED, deleteMaterialWorker))
     expect(gen.next().value).toEqual(
       takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
@@ -297,7 +339,7 @@ describe('uploadTextureWorker', () => {
     )
     expect(gen.next().value).toEqual(call(service.uploadTextureFile, '12', 7, file, 's1'))
     expect(gen.next('uploads/materials/12/grass.png').value).toEqual(
-      put(actions.uploadTextureSucceeded(1, 'uploads/materials/12/grass.png'))
+      put(actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png'))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -314,6 +356,8 @@ describe('uploadTextureWorker', () => {
       })
     )
     gen.next()
-    expect(gen.throw(new Error('boom')).value).toEqual(put(actions.uploadTextureFailed(1, 'boom')))
+    expect(gen.throw(new Error('boom')).value).toEqual(
+      put(actions.uploadTextureFailed('12', 1, 'boom'))
+    )
   })
 })

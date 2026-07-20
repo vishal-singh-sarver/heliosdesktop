@@ -11,13 +11,36 @@ import type { Material } from './types'
 const selectMaterialsDomain = (state: RootState): MaterialsState =>
   (state as unknown as { materials?: MaterialsState }).materials ?? initialState
 
+// ── Plain field reads ──────────────────────────────────────────────────────────
+// Not memoised: each returns a value already stored on the slice, so it is stable
+// by identity whenever the slice is. Wrapping these in createSelector only added
+// a cache around an identity function.
+
+export const selectSearchQuery = (state: RootState): string =>
+  selectMaterialsDomain(state).searchQuery
+export const selectSelectedId = (state: RootState): string | null =>
+  selectMaterialsDomain(state).selectedId
+export const selectLoadStatus = (state: RootState): MaterialsState['loadStatus'] =>
+  selectMaterialsDomain(state).loadStatus
+export const selectLoadError = (state: RootState): string | null =>
+  selectMaterialsDomain(state).loadError
+export const selectNameErrors = (state: RootState): MaterialsState['nameErrors'] =>
+  selectMaterialsDomain(state).nameErrors
+export const selectMaterialsById = (state: RootState): MaterialsState['byId'] =>
+  selectMaterialsDomain(state).byId
+
 // ── Memoised selectors ─────────────────────────────────────────────────────────
 
-export const selectAllMaterials = createSelector(selectMaterialsDomain, (s): Material[] =>
-  s.order.map((id) => s.byId[id]).filter(Boolean)
+// Keyed on `byId` and `order` rather than the whole slice: immer hands back a new
+// slice object for EVERY handled action, so a domain-wide input made this recompute
+// on each keystroke in a property field or the search box — producing a fresh array
+// identity that re-rendered every row and rebuilt the name Set below. These two
+// fields change only when the list itself does.
+export const selectAllMaterials = createSelector(
+  (state: RootState) => selectMaterialsDomain(state).byId,
+  (state: RootState) => selectMaterialsDomain(state).order,
+  (byId, order): Material[] => order.map((id) => byId[id]).filter(Boolean)
 )
-
-export const selectSearchQuery = createSelector(selectMaterialsDomain, (s) => s.searchQuery)
 
 // The list the UI renders: all materials filtered by the (case-insensitive)
 // search query against the name.
@@ -30,11 +53,6 @@ export const selectVisibleMaterials = createSelector(
     return materials.filter((m) => m.name.toLowerCase().includes(q))
   }
 )
-
-export const selectSelectedId = createSelector(selectMaterialsDomain, (s) => s.selectedId)
-export const selectLoadStatus = createSelector(selectMaterialsDomain, (s) => s.loadStatus)
-export const selectLoadError = createSelector(selectMaterialsDomain, (s) => s.loadError)
-export const selectNameErrors = createSelector(selectMaterialsDomain, (s) => s.nameErrors)
 
 // Lowercased names of every material — used by the rename editor's uniqueness
 // check (the row excludes its own name).
@@ -53,24 +71,33 @@ export const selectNextMaterialName = createSelector(selectAllMaterials, (materi
 // The material open in the Properties form (null when none). Consumed by
 // MaterialPropertiesForm. `selectMaterialDraftNonce` is the monotonic open
 // counter the RightPanel watches to auto-expand (mirrors Geometry's nonce).
-export const selectMaterialDraft = createSelector(selectMaterialsDomain, (s) => s.editDraft)
-export const selectMaterialDraftNonce = createSelector(
-  selectMaterialsDomain,
-  (s) => s.editDraftNonce
-)
+export const selectMaterialDraft = (state: RootState): MaterialsState['editDraft'] =>
+  selectMaterialsDomain(state).editDraft
+export const selectMaterialDraftNonce = (state: RootState): number =>
+  selectMaterialsDomain(state).editDraftNonce
 
 // Cached group details, by group id. The open-material saga reads this first so a
 // material that was already fetched reopens without a second GET.
-export const selectMaterialDetailsById = createSelector(selectMaterialsDomain, (s) => s.detailsById)
+export const selectMaterialDetailsById = (state: RootState): MaterialsState['detailsById'] =>
+  selectMaterialsDomain(state).detailsById
 
 // +Add Materials (create-empty-group) status + error, consumed by the left panel.
-export const selectCreateStatus = createSelector(selectMaterialsDomain, (s) => s.createStatus)
-export const selectCreateError = createSelector(selectMaterialsDomain, (s) => s.createError)
+export const selectCreateStatus = (state: RootState): MaterialsState['createStatus'] =>
+  selectMaterialsDomain(state).createStatus
+export const selectCreateError = (state: RootState): string | null =>
+  selectMaterialsDomain(state).createError
 // The row +Add Materials just created — drives its transient "just appeared" cue.
-export const selectLastCreatedId = createSelector(selectMaterialsDomain, (s) => s.lastCreatedId)
+export const selectLastCreatedId = (state: RootState): string | null =>
+  selectMaterialsDomain(state).lastCreatedId
+
+// A failed open (row click) or delete — shown as a banner above the list, since
+// neither has a row or field of its own to hang an error off.
+export const selectActionError = (state: RootState): string | null =>
+  selectMaterialsDomain(state).actionError
 
 // The visualisation colour picker's "Used colors" history (most-recent-first).
-export const selectRecentColors = createSelector(selectMaterialsDomain, (s) => s.recentColors)
+export const selectRecentColors = (state: RootState): MaterialsState['recentColors'] =>
+  selectMaterialsDomain(state).recentColors
 
 const makeSelectMaterials = () => createSelector(selectMaterialsDomain, (s) => s)
 

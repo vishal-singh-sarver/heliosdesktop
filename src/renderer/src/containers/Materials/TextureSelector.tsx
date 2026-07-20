@@ -40,22 +40,19 @@ export function TextureSelector({
   selectedPath,
   pendingFileUrl,
   onPickLibrary,
-  onClearLibrary,
   onPickFile,
   uploading,
-  uploadError
 }: {
   // The highlighted library path (transient — the current pick), or null.
   selectedPath: string | null
   // Object URL of a freshly-picked (not-yet-uploaded) file, for the preview.
   pendingFileUrl?: string
   // Toggle a library texture's highlight (parent clears if it's already the pick).
+  // Pressing the highlighted tile again deselects it — that is the only way to
+  // drop a pick, and it works with both pointer and keyboard.
   onPickLibrary: (path: string) => void
-  // Clicking away (blur) drops the highlight — it isn't remembered.
-  onClearLibrary: () => void
   onPickFile: (file: File) => void
   uploading: boolean
-  uploadError?: string
 }): React.JSX.Element {
   const [sub, setSub] = React.useState<SubTab>('library')
   const [textures, setTextures] = React.useState<DefaultTexture[]>([])
@@ -152,11 +149,15 @@ export function TextureSelector({
                   type="button"
                   aria-label={messages.textureSwatch(displayName(t.name))}
                   aria-pressed={selected}
-                  // The blue border is the transient highlight of the current pick.
-                  // Clicking toggles it; blurring (clicking away) drops it — it is
-                  // NOT remembered. Save applies whatever is highlighted at the time.
+                  // The blue border is the highlight of the current pick, and Save
+                  // applies whatever is highlighted. Pressing the tile toggles it.
+                  //
+                  // It deliberately does NOT clear on blur: the pick is the only
+                  // thing that enables Save, and Save sits outside this grid, so
+                  // tabbing from a tile to the Save button dropped the selection
+                  // and disabled the button on the way — making a library texture
+                  // impossible to choose without a pointer.
                   onClick={() => onPickLibrary(path)}
-                  onBlur={onClearLibrary}
                   className={`flex flex-col gap-1.5 rounded border p-2.5 outline-none ${
                     selected ? 'border-blue-500' : 'border-app-border hover:border-neutral-500'
                   }`}
@@ -214,9 +215,9 @@ export function TextureSelector({
             <img src={uploadIcon} alt="" aria-hidden="true" className="h-4 w-4" />
             {uploading ? messages.textureUploading : messages.textureUploadButton}
           </button>
-          {(fileError ?? uploadError) && (
+          {fileError && (
             <p className="form-error-text" style={{ color: '#D92D20' }}>
-              {fileError ?? uploadError}
+              {fileError}
             </p>
           )}
         </div>

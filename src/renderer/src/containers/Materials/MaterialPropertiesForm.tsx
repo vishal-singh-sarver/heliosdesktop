@@ -21,7 +21,6 @@ import {
 } from 'utils/useTransientHighlight'
 import {
   addParameterGroup,
-  closeMaterialDraft,
   deleteMaterialRequested,
   deleteParameterGroupRequested,
   renameMaterialRequested,
@@ -50,8 +49,9 @@ import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
-import { selectMaterialDraft, selectMaterialDraftNonce } from './selectors'
+import { selectMaterialDraft, selectMaterialDraftNonce, selectMaterialsById } from './selectors'
 import type { MaterialDraft, MaterialParameterGroup } from './types'
+import { validateMaterialName } from './validation'
 
 // The right-panel Properties form for a material. The material itself already
 // exists on the backend (+Add Materials created it as an empty group), so this
@@ -89,12 +89,14 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const [newCardId, setNewCardId] = React.useState<number | null>(null)
   const highlightedCardId = useTransientHighlight(newCardId, () => setNewCardId(null))
   const nameInputRef = React.useRef<HTMLInputElement>(null)
-  // The name as it stands on the backend, captured when the pencil unlocks the
-  // field — blur compares against it so an untouched name is not re-sent.
-  const nameBeforeEdit = React.useRef(draft.name)
+  // The name as it stands on the BACKEND — the row's, which only changes when a
+  // rename is accepted. Blur compares against this so an untouched name is not
+  // re-sent. It was previously captured off the draft each time the pencil was
+  // clicked, which meant a rejected name became the baseline: retyping the real
+  // name then looked like a change and fired a rename to the name it already had.
+  const committedName = useSelector(selectMaterialsById)[draft.groupId]?.name ?? draft.name
 
   const startNameEdit = (): void => {
-    nameBeforeEdit.current = draft.name
     setNameEditing(true)
   }
 
@@ -160,6 +162,17 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
       draft.groups.filter((g) => g.id !== cardId && g.typeId != null).map((g) => String(g.typeId))
     )
 
+  // Only the CHEAP rules run per keystroke here (non-empty, ≤20). Uniqueness is
+  // the backend's to enforce on the rename, so this form doesn't pre-empt it — a
+  // duplicate surfaces as `draft.nameError` once the PATCH is refused, not while
+  // the user is still typing. (The left panel's inline row editor does check
+  // locally, against the names it already holds.) Same split as the Geometry
+  // right-panel form, which passes an empty set for exactly this reason.
+  const NO_NAME_CONFLICTS = React.useMemo(() => new Set<string>(), [])
+
+  // Local rules win; a backend rejection is the fallback once they pass.
+  const nameError = validateMaterialName(draft.name, NO_NAME_CONFLICTS) ?? draft.nameError
+
   const handleNameChange = (next: string): void => {
     dispatch(setMaterialDraftName(next))
   }
@@ -171,22 +184,23 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     // only when the name really changed.
     if (!nameEditing) return
     setNameEditing(false)
+    // An invalid name is not sent: the field re-locks but keeps the text, and the
+    // error stays under it, so the user can see what was rejected and why. (The
+    // blank name used to be silently reverted, which said nothing at all.)
+    if (nameError != null) return
     const next = draft.name.trim()
-    // A blank name isn't a rename either — put the old one back rather than
-    // leaving the header empty.
-    if (next === '') {
-      dispatch(setMaterialDraftName(nameBeforeEdit.current))
-      return
-    }
-    if (next === nameBeforeEdit.current) return
+    if (next === committedName) return
     dispatch(renameMaterialRequested(draft.groupId, next, scenarioId))
   }
 
-  // The header trash — deletes the whole material (group + every member).
+  // The header trash — deletes the whole material (group + every member). The
+  // form is NOT closed here: the delete is pessimistic, and closing up front left
+  // a failed delete with the row still in the list and the panel gone, explaining
+  // nothing. REMOVE_MATERIAL (dispatched only on success) closes it — and drops
+  // the material's stashed cards, which an eager CLOSE would have re-saved first.
   const performDelete = (): void => {
     dispatch(deleteMaterialRequested(draft.groupId, scenarioId))
     setConfirmDeleteOpen(false)
-    dispatch(closeMaterialDraft())
   }
 
   const dispatchSave = (
@@ -212,6 +226,19 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     const type = materialTypes.find((t) => t.id === card.typeId)
     if (!type) return
     const isVis = isVisualisationFieldSet(resolveParameterGroups([type]).flatMap((g) => g.fields))
+    if (isVis) {
+      // Clear the texture half in the DRAFT, the mirror of what handleSaveTexture
+      // does to the colour half. The payload already omits texture, but the draft
+      // is what the reducer snapshots into savedValues and the detail cache — so
+      // leaving texture_toggle 'true' here made the card reopen on the Texture tab
+      // showing the old image, with the colour just saved nowhere in sight.
+      if (readVisualisationMode(card.values) === 'texture') {
+        dispatch(setParameterGroupValue(card.id, TEXTURE_TOGGLE_PROPERTY, 'false'))
+      }
+      if ((card.values[TEXTURE_PROPERTY] ?? '') !== '') {
+        dispatch(setParameterGroupValue(card.id, TEXTURE_PROPERTY, ''))
+      }
+    }
     const properties = isVis
       ? toVisualisationProperties(type, card.values, 'custom')
       : toNativeProperties(type, card.values)
@@ -267,11 +294,14 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     // which fills the rest of the space and scrolls its own cards.
     <div className="flex h-full flex-col gap-2.5">
       {/* Header: material name with a + (add a Parameter Group), a pencil (unlock
-          to rename) and a trash (delete the whole material). */}
-      <div className="flex shrink-0 items-center gap-1">
+          to rename) and a trash (delete the whole material). The name and its
+          error stack, so the error pushes nothing sideways. */}
+      <div className="flex shrink-0 flex-col">
+      <div className="flex items-center gap-1">
         <input
           ref={nameInputRef}
           aria-label="Material name"
+          aria-invalid={nameError != null}
           value={draft.name}
           readOnly={!nameEditing}
           onChange={(e) => handleNameChange(e.target.value)}
@@ -279,7 +309,13 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
           onBlur={handleNameBlur}
           className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none ${
             !nameEditing ? 'cursor-default ' : ''
-          }${nameEditing ? 'border-neutral-500' : 'border-transparent hover:border-app-border'}`}
+          }${
+            nameError
+              ? 'border-red-500'
+              : nameEditing
+                ? 'border-neutral-500'
+                : 'border-transparent hover:border-app-border'
+          }`}
         />
         {/* "+ Material Type" adds another Parameter Group card — the same action
             the footer button used to carry, now sitting with the material's other
@@ -317,6 +353,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
         >
           <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
         </button>
+      </div>
+        {/* Below the row, like the left panel's — so the icons don't shift. */}
+        {nameError && <p className="form-error-text mt-1">{nameError}</p>}
       </div>
 
       {/* The numbered "Parameter Group.0N" cards, scrolling as a group so they all
@@ -430,8 +469,8 @@ function ParameterGroupCard({
   const [visualMode, setVisualMode] = React.useState<VisualisationMode>(() =>
     readVisualisationMode(group.values)
   )
-  // The highlighted library texture — transient: clicking toggles it, clicking away
-  // (blur) drops it, and it is only applied on Save. Not written to the value bag.
+  // The highlighted library texture — transient: pressing a tile toggles it, and
+  // it is only applied on Save. Not written to the value bag.
   const [pendingLibrary, setPendingLibrary] = React.useState<string | null>(null)
   const toggleLibrary = (path: string): void =>
     setPendingLibrary((prev) => (prev === path ? null : path))
@@ -467,6 +506,22 @@ function ParameterGroupCard({
     []
   )
 
+  // Changing the card's material type throws away its values (the reducer clears
+  // them), so the card-local appearance state has to go with them. The card is
+  // keyed by `group.id`, which does NOT change with the type, so all three of
+  // these used to survive: a file picked for a Visualiser stayed held — object URL
+  // and all — while the card showed a different type, and switching back showed
+  // that stale preview and would have uploaded it.
+  const prevTypeId = React.useRef(group.typeId)
+  React.useEffect(() => {
+    if (prevTypeId.current === group.typeId) return
+    prevTypeId.current = group.typeId
+    setPending(null) // revokes the object URL
+    setPendingLibrary(null)
+    setVisualMode(readVisualisationMode(group.values))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.typeId])
+
   // Field-validation state, scoped to this card. `touched` gates the errors so
   // they only appear after interaction; `guardErrors` holds the transient
   // per-keystroke rejections (non-numeric / >7 decimals) that never reach the
@@ -478,6 +533,24 @@ function ParameterGroupCard({
   // Bring a freshly added card into view — with the other cards left open, it can
   // be added below the fold of the scrolling list.
   const cardRef = useScrollIntoViewWhen<HTMLDivElement>(highlighted)
+
+  // Clicking away from the card drops the highlighted library texture — it is a
+  // transient pick, not a stored one.
+  //
+  // Detected as a pointer press OUTSIDE the card, not as a blur on the tile. Blur
+  // fires on ANY focus loss, so it also fired on Tab — and since the pick is the
+  // only thing that enables Save, tabbing from a tile towards Save cleared it and
+  // disabled the button on the way, leaving library textures unreachable without a
+  // mouse. Scoping to the card keeps everything inside it (Save, the tabs, the
+  // other tiles) "not away", and a keyboard Tab never fires mousedown at all.
+  React.useEffect(() => {
+    if (pendingLibrary == null) return undefined
+    const onDown = (e: MouseEvent): void => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) setPendingLibrary(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [pendingLibrary, cardRef])
 
   const handleFieldChange = (
     property: string,
@@ -523,6 +596,9 @@ function ParameterGroupCard({
   //  - Visualiser Texture → a texture is chosen (a picked file or a stored path).
   const fieldsValid = isMaterialFormValid(parameterGroups, group.values)
   const saving = group.saveStatus === 'saving'
+  // A backend DELETE for this member is in flight — the trash locks until it
+  // answers, so a second click can't fire a second DELETE.
+  const deleting = group.deleteStatus === 'deleting'
   // Texture mode can save only when a texture is CHOSEN right now — a highlighted
   // library texture or a picked file. An already-stored texture does NOT keep Save
   // enabled (nothing selected ⇒ disabled), mirroring the colour gate.
@@ -559,6 +635,7 @@ function ParameterGroupCard({
   }
 
   const onDeleteClick = (): void => {
+    if (deleting) return
     // A card that was never saved has nothing on the backend — drop it without
     // asking. A saved one is a real member, so confirm first.
     if (!group.saved) {
@@ -587,11 +664,12 @@ function ParameterGroupCard({
           <button
             type="button"
             aria-label={`Remove ${title}`}
+            disabled={deleting}
             onClick={(e) => {
               e.stopPropagation()
               onDeleteClick()
             }}
-            className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-neutral-400 hover:bg-neutral-700/50 hover:text-neutral-100"
+            className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-neutral-400 hover:bg-neutral-700/50 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
@@ -649,17 +727,19 @@ function ParameterGroupCard({
                   fieldError={fieldError}
                   onFieldChange={handleFieldChange}
                   onFieldBlur={handleFieldBlur}
+                  saved={group.saved}
                   mode={visualMode}
                   onModeChange={setVisualMode}
                   selectedPath={pendingLibrary}
                   pendingFileUrl={pendingFile?.url}
                   onPickLibrary={toggleLibrary}
-                  onClearLibrary={() => setPendingLibrary(null)}
                   onPickFile={pickFile}
                   uploading={saving}
-                  uploadError={
-                    visualMode === 'texture' ? (group.saveError ?? undefined) : undefined
-                  }
+                  // `group.saveError` is NOT passed down: the card renders it
+                  // once below Save, for every kind of card. Feeding it here as
+                  // well printed a failed upload's message twice, a few rows
+                  // apart. TextureSelector still shows its own client-side file
+                  // checks (wrong type, too large), which have no other home.
                 />
               ) : (
                 <div key={pg.group} className="flex flex-col gap-2">
@@ -844,7 +924,15 @@ function MaterialTypeSelect({
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setOpen(true)
+      // Opening from closed goes through openList, like every other way in — it
+      // resets the query. Calling setOpen directly left the last search text in
+      // place, so after committing a pick with Enter (or dismissing with Escape),
+      // which both close WITHOUT clearing it, the next ArrowDown replaced the
+      // selected label with that stale text and re-filtered the list to it.
+      if (!open) {
+        openList()
+        return
+      }
       setHighlight((h) => nextSelectable(Math.min(h + 1, filtered.length - 1), 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
