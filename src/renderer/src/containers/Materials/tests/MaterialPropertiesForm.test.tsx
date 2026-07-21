@@ -170,8 +170,7 @@ const liveStoreWith = (
             materialTypeId: 1,
             materialType: '',
             preview: null,
-            createdAt: '',
-            visible: true
+            createdAt: ''
           }
         ])
       ),
@@ -215,6 +214,44 @@ const liveStoreWith = (
   store.createReducer = () => root
   return store
 }
+
+describe('<MaterialPropertiesForm /> opening state', () => {
+  // A row click that misses the cache sets openingId; the panel shows a spinner
+  // instead of leaving the previous material (or nothing) on screen.
+  const openingStore = (openingId: string, draft: unknown): InjectableStore => {
+    const state = {
+      materials: { ...materialsInitialState, openingId, editDraft: draft },
+      projectScreen: projectScreenInitialState
+    }
+    const store = createStore(((s = state) => s) as Reducer<unknown, UnknownAction>) as InjectableStore
+    store.injectedReducers = {}
+    store.injectedSagas = {}
+    store.runSaga = () => ({ toPromise: () => Promise.resolve() }) as any
+    store.createReducer = () => ((s = state) => s) as Reducer<unknown, UnknownAction>
+    return store
+  }
+
+  it('shows a spinner while a material is being opened from nothing', () => {
+    render(
+      <Provider store={openingStore('7', null)}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByText('Opening material…')).toBeInTheDocument()
+  })
+
+  it('does NOT show a spinner when re-opening the material already shown', () => {
+    const draft = { groupId: '7', name: 'A', nameError: null, groups: [card(1)], nextGroupId: 2 }
+    render(
+      <Provider store={openingStore('7', draft)}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    // openingId === the shown draft → keep its form up, no spinner.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+})
 
 describe('<MaterialPropertiesForm /> parameter-group card', () => {
   it('toggles the card open and closed on every arrow click', () => {

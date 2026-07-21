@@ -30,8 +30,6 @@ export const REMOVE_MATERIAL = 'app/Materials/REMOVE_MATERIAL' as const
 export const DELETE_MATERIAL_REQUESTED = 'app/Materials/DELETE_MATERIAL_REQUESTED' as const
 export const DELETE_MATERIAL_FAILED = 'app/Materials/DELETE_MATERIAL_FAILED' as const
 
-// Eye icon — flip the client-side visibility flag.
-export const TOGGLE_MATERIAL_VISIBILITY = 'app/Materials/TOGGLE_MATERIAL_VISIBILITY' as const
 // Row selection + search.
 export const SELECT_MATERIAL = 'app/Materials/SELECT_MATERIAL' as const
 export const SET_SEARCH_QUERY = 'app/Materials/SET_SEARCH_QUERY' as const

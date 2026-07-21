@@ -13,13 +13,13 @@ const material: Material = {
   materialTypeId: 1,
   materialType: 'Radiation',
   preview: null,
-  createdAt: '',
-  visible: true
+  createdAt: ''
 }
 
-const storeWith = (): InjectableStore => {
+const storeWith = (deletingIds: string[] = []): InjectableStore => {
+  const state = { materials: { deletingIds } }
   const store = createStore(
-    ((s = {}) => s) as Reducer<unknown, UnknownAction>
+    ((s = state) => s) as Reducer<unknown, UnknownAction>
   ) as InjectableStore
   store.injectedReducers = {}
   store.injectedSagas = {}
@@ -30,7 +30,7 @@ const storeWith = (): InjectableStore => {
       result: () => {},
       toPromise: () => Promise.resolve()
     }) as any
-  store.createReducer = () => ((s = {}) => s) as Reducer<unknown, UnknownAction>
+  store.createReducer = () => ((s = state) => s) as Reducer<unknown, UnknownAction>
   return store
 }
 
@@ -73,11 +73,33 @@ describe('<MaterialRow /> keyboard', () => {
     expect(openedIds(dispatch)).toEqual([])
   })
 
-  // The eye and trash sit INSIDE the row, so their key events bubble up to it.
-  // Those buttons act on their own; the row must not also open the material.
-  it('does not open the material when a key lands on the eye button inside it', () => {
+  // The trash sits INSIDE the row, so its key events bubble up to it. That button
+  // acts on its own; the row must not also open the material.
+  it('does not open the material when a key lands on the delete button inside it', () => {
     const { dispatch } = renderRow()
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Hide material' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Delete material' }), { key: 'Enter' })
     expect(openedIds(dispatch)).toEqual([])
+  })
+})
+
+// The delete is pessimistic — the row stays until success — so its trash must lock
+// while a DELETE for this id is in flight, or a second confirm 404s.
+describe('<MaterialRow /> delete-in-flight', () => {
+  it('disables the trash while this material is being deleted', () => {
+    render(
+      <Provider store={storeWith(['12'])}>
+        <MaterialRow material={material} selected={false} existingNames={new Set()} />
+      </Provider>
+    )
+    expect(screen.getByRole('button', { name: 'Delete material' })).toBeDisabled()
+  })
+
+  it('leaves the trash enabled for a material that is NOT being deleted', () => {
+    render(
+      <Provider store={storeWith(['99'])}>
+        <MaterialRow material={material} selected={false} existingNames={new Set()} />
+      </Provider>
+    )
+    expect(screen.getByRole('button', { name: 'Delete material' })).toBeEnabled()
   })
 })

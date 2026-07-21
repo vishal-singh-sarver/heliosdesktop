@@ -21,6 +21,8 @@ import materialsSaga, {
   renameMaterialWorker,
   renameWatcher,
   saveParameterGroupWorker,
+  saveWatcher,
+  trackedSave,
   uploadTextureWorker
 } from '../saga'
 import { selectMaterialDetailsById, selectRecentColors } from '../selectors'
@@ -34,8 +36,7 @@ const material: Material = {
   materialTypeId: 1,
   materialType: 'Radiation',
   preview: null,
-  createdAt: '',
-  visible: true
+  createdAt: ''
 }
 
 describe('listMaterialsWorker', () => {
@@ -245,6 +246,53 @@ describe('saveParameterGroupWorker', () => {
   })
 })
 
+// Card saves are de-duped per (groupId, cardId): a first save POSTs and only
+// flips the card to `saved` on success, so two fast clicks both read saved:false
+// and, under takeEvery, both POSTed — the second 409-ing on a card that saved fine.
+describe('saveWatcher', () => {
+  const req = (groupId: string, cardId: number) =>
+    actions.saveParameterGroupRequested({
+      groupId,
+      cardId,
+      materialTypeId: 2,
+      properties: {},
+      saved: false,
+      scenarioId: null
+    })
+  const mockTask = (): never => ({ '@@redux-saga/TASK': true }) as never
+
+  it('drops a second save for the SAME card while the first is in flight', () => {
+    const gen = saveWatcher()
+    expect(gen.next().value).toEqual(take(SAVE_PARAMETER_GROUP_REQUESTED))
+
+    // First save of card 12:1 → forks the tracked worker.
+    const forked = gen.next(req('12', 1)).value as { type: string }
+    expect(forked.type).toBe('FORK')
+
+    // Back to waiting.
+    expect(gen.next(mockTask()).value).toEqual(take(SAVE_PARAMETER_GROUP_REQUESTED))
+
+    // A duplicate for 12:1 while the first is still running → NO fork, straight
+    // back to take.
+    expect(gen.next(req('12', 1)).value).toEqual(take(SAVE_PARAMETER_GROUP_REQUESTED))
+
+    // A different card (12:2) is unaffected — it forks.
+    const forked2 = gen.next(req('12', 2)).value as { type: string }
+    expect(forked2.type).toBe('FORK')
+  })
+
+  it('trackedSave runs the save then frees the key, so a later save can run again', () => {
+    const inFlight = new Set(['12:1'])
+    const action = req('12', 1)
+    const gen = trackedSave(inFlight, '12:1', action)
+    // Delegates to the real worker...
+    expect(gen.next().value).toEqual(call(saveParameterGroupWorker, action))
+    // ...and on completion the finally frees the lock.
+    expect(gen.next().done).toBe(true)
+    expect(inFlight.has('12:1')).toBe(false)
+  })
+})
+
 describe('persistRecentColorsWorker', () => {
   it('mirrors the current recent-colours list to localStorage', () => {
     const gen = persistRecentColorsWorker()
@@ -313,9 +361,8 @@ describe('materialsSaga', () => {
     expect(gen.next().value).toEqual(
       takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
     )
-    expect(gen.next().value).toEqual(
-      takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)
-    )
+    // Saves go through a de-duping watcher, not takeEvery — see saveWatcher.
+    expect(gen.next().value).toEqual(fork(saveWatcher))
     expect(gen.next().value).toEqual(
       takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
     )

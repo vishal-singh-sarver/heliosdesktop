@@ -8,8 +8,7 @@ const make = (id: string, name: string): Material => ({
   materialTypeId: 1,
   materialType: 'Radiation',
   preview: { colorR: 90, colorG: 200, colorB: 90, textureFile: null },
-  createdAt: '2026-06-23T06:41:16Z',
-  visible: true
+  createdAt: '2026-06-23T06:41:16Z'
 })
 
 describe('materialsReducer', () => {
@@ -144,7 +143,11 @@ describe('materialsReducer', () => {
     expect(result.detailsById['7'].members).toEqual([])
   })
 
-  describe('unsaved parameter groups survive a material switch', () => {
+  // A card is only kept once its own Save persists it. Unsaved work — a new card
+  // being filled in, or edits to a saved card — is discarded the moment another
+  // material (or a close) replaces the form; reopening rebuilds purely from what
+  // the backend holds.
+  describe('unsaved parameter groups are discarded on a material switch', () => {
     const detailA: MaterialGroupDetail = {
       id: '7',
       name: 'A',
@@ -161,51 +164,28 @@ describe('materialsReducer', () => {
     const away = materialsReducer(filled, actions.openSavedMaterialLoaded(detailB))
     const back = materialsReducer(away, actions.openSavedMaterialLoaded(detailA))
 
-    it('stashes the unsaved card when another material takes over the form', () => {
-      expect(away.editDraft?.groupId).toBe('8')
-      expect(away.unsavedById['7']).toHaveLength(1)
-      expect(away.unsavedById['7'][0]).toMatchObject({ typeId: 1, values: { emissivity: '0.9' } })
-    })
-
-    it('restores it — with its type and values — after the saved members', () => {
-      expect(back.editDraft?.groups).toHaveLength(2)
+    it('reopens A with ONLY its saved member — the new card is gone', () => {
+      expect(back.editDraft?.groups).toHaveLength(1)
       expect(back.editDraft?.groups[0]).toMatchObject({ typeId: 6, saved: true })
-      expect(back.editDraft?.groups[1]).toMatchObject({
-        number: 2,
-        typeId: 1,
-        values: { emissivity: '0.9' },
-        saved: false
-      })
-      expect(back.editDraft?.nextGroupId).toBe(3)
+      expect(back.editDraft?.nextGroupId).toBe(2)
     })
 
-    it('keeps it out of the cached detail (the backend has no such member)', () => {
-      expect(back.detailsById['7'].members).toEqual(detailA.members)
-    })
-
-    it('CLOSE_MATERIAL_DRAFT stashes rather than discards', () => {
+    it('discards an unsaved card on CLOSE_MATERIAL_DRAFT too', () => {
       const closed = materialsReducer(filled, actions.closeMaterialDraft())
       expect(closed.editDraft).toBeNull()
-      expect(closed.unsavedById['7']).toHaveLength(1)
+      const reopened = materialsReducer(closed, actions.openSavedMaterialLoaded(detailA))
+      expect(reopened.editDraft?.groups).toHaveLength(1)
     })
 
-    it('drops a stashed card whose material type was saved in the meantime', () => {
-      // A came back from the backend with the stashed card's type (1) now a member.
-      const withMember: MaterialGroupDetail = {
-        id: '7',
-        name: 'A',
-        members: [...detailA.members, { materialTypeId: 1, properties: { emissivity: '0.9' } }]
-      }
-      const result = materialsReducer(away, actions.openSavedMaterialLoaded(withMember))
-      // Two saved cards, and no duplicate of type 1 — a type can only be in the
-      // group once.
-      expect(result.editDraft?.groups).toHaveLength(2)
-      expect(result.editDraft?.groups.every((g) => g.saved)).toBe(true)
-    })
-
-    it('REMOVE_MATERIAL discards the stash (there is nothing to come back to)', () => {
-      const result = materialsReducer(away, actions.removeMaterial('7'))
-      expect(result.unsavedById['7']).toBeUndefined()
+    it('discards unsaved EDITS to a saved card on switch', () => {
+      const edited = materialsReducer(
+        opened,
+        actions.setParameterGroupValue(1, 'air_humidity', '0.9')
+      )
+      const switched = materialsReducer(edited, actions.openSavedMaterialLoaded(detailB))
+      const returned = materialsReducer(switched, actions.openSavedMaterialLoaded(detailA))
+      // The stored 0.5 is restored, not the un-saved 0.9.
+      expect(returned.editDraft?.groups[0].values.air_humidity).toBe('0.5')
     })
   })
 
@@ -320,6 +300,73 @@ describe('materialsReducer', () => {
     })
   })
 
+  // A row click that misses the cache sets openingId so the right panel can show a
+  // spinner while the GET is in flight; the terminal states clear it.
+  describe('open-material loading state', () => {
+    it('OPEN_SAVED_MATERIAL_REQUESTED marks the material as opening', () => {
+      const result = materialsReducer(initialState, actions.openSavedMaterialRequested('7'))
+      expect(result.openingId).toBe('7')
+    })
+
+    it('OPEN_SAVED_MATERIAL_LOADED clears it', () => {
+      const opening = materialsReducer(initialState, actions.openSavedMaterialRequested('7'))
+      const result = materialsReducer(
+        opening,
+        actions.openSavedMaterialLoaded({ id: '7', name: 'A', members: [] })
+      )
+      expect(result.openingId).toBeNull()
+    })
+
+    it('OPEN_SAVED_MATERIAL_FAILED clears it and surfaces the error', () => {
+      const opening = materialsReducer(initialState, actions.openSavedMaterialRequested('7'))
+      const result = materialsReducer(opening, actions.openSavedMaterialFailed('7', 'boom'))
+      expect(result.openingId).toBeNull()
+      expect(result.actionError).toBe('boom')
+    })
+
+    it('is abandoned when the material is removed or the list reloads', () => {
+      const opening = materialsReducer(initialState, actions.openSavedMaterialRequested('7'))
+      expect(materialsReducer(opening, actions.removeMaterial('7')).openingId).toBeNull()
+      expect(
+        materialsReducer(opening, actions.listMaterialsSucceeded([make('7', 'A')])).openingId
+      ).toBeNull()
+    })
+  })
+
+  // The whole-material delete is pessimistic (row stays until success), so the
+  // trash must lock while it's in flight or a second confirm fires a duplicate
+  // DELETE that 404s on the already-gone material.
+  describe('whole-material delete in flight', () => {
+    const listed = materialsReducer(
+      initialState,
+      actions.listMaterialsSucceeded([make('11', 'A')])
+    )
+
+    it('DELETE_MATERIAL_REQUESTED marks the id as deleting', () => {
+      const result = materialsReducer(listed, actions.deleteMaterialRequested('11', null))
+      expect(result.deletingIds).toContain('11')
+    })
+
+    it('does not double-add on a repeat request', () => {
+      const once = materialsReducer(listed, actions.deleteMaterialRequested('11', null))
+      const twice = materialsReducer(once, actions.deleteMaterialRequested('11', null))
+      expect(twice.deletingIds).toEqual(['11'])
+    })
+
+    it('REMOVE_MATERIAL clears the deleting mark (delete landed)', () => {
+      const deleting = materialsReducer(listed, actions.deleteMaterialRequested('11', null))
+      const result = materialsReducer(deleting, actions.removeMaterial('11'))
+      expect(result.deletingIds).not.toContain('11')
+    })
+
+    it('DELETE_MATERIAL_FAILED clears the mark and surfaces the error', () => {
+      const deleting = materialsReducer(listed, actions.deleteMaterialRequested('11', null))
+      const result = materialsReducer(deleting, actions.deleteMaterialFailed('11', 'in use'))
+      expect(result.deletingIds).not.toContain('11')
+      expect(result.actionError).toBe('in use')
+    })
+  })
+
   it('REMOVE_MATERIAL drops the material, clears selection and closes its form', () => {
     const start = materialsReducer(
       initialState,
@@ -384,12 +431,6 @@ describe('materialsReducer', () => {
     const start = materialsReducer(initialState, actions.renameMaterialFailed('11', 'boom'))
     const result = materialsReducer(start, actions.setNameError('11', null))
     expect(result.nameErrors['11']).toBeUndefined()
-  })
-
-  it('TOGGLE_MATERIAL_VISIBILITY flips the visible flag', () => {
-    const start = materialsReducer(initialState, actions.listMaterialsSucceeded([make('11', 'A')]))
-    const result = materialsReducer(start, actions.toggleMaterialVisibility('11'))
-    expect(result.byId['11'].visible).toBe(false)
   })
 
   it('SET_SEARCH_QUERY stores the query', () => {

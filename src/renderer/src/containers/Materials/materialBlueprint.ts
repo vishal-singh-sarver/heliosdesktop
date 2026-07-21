@@ -185,7 +185,11 @@ export function toNativeProperties(
 ): Record<string, string | number | boolean> {
   const out: Record<string, string | number | boolean> = {}
   for (const def of type.properties) {
-    const value = values[def.property]
+    // Trim BEFORE the blank test, matching how validation decides "empty". A field
+    // holding only whitespace is not === '' but IS blank — and Number(' ') is 0,
+    // so without the trim a stray space sailed past the blank check and shipped a
+    // real 0 (bypassing the field's min bound) for a value the user left unset.
+    const value = values[def.property]?.trim()
     if (value === undefined || value === '') continue
     if (def.datatype === 'float' || def.datatype === 'integer') {
       const num = Number(value)

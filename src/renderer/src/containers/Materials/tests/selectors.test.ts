@@ -15,8 +15,7 @@ const make = (id: string, name: string): Material => ({
   materialTypeId: 1,
   materialType: 'Radiation',
   preview: null,
-  createdAt: '',
-  visible: true
+  createdAt: ''
 })
 
 const withMaterials = (partial: Partial<typeof initialState>) =>

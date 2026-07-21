@@ -4,6 +4,7 @@ const messages = {
   savedMaterials: 'Saved Materials',
   searchPlaceholder: 'Search...',
   loading: 'Loading materials…',
+  openingMaterial: 'Opening material…',
   empty: 'No saved materials yet.',
   noMatches: 'No materials match your search.',
   loadError: 'Unable to load materials',

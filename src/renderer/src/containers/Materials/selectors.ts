@@ -28,6 +28,10 @@ export const selectNameErrors = (state: RootState): MaterialsState['nameErrors']
   selectMaterialsDomain(state).nameErrors
 export const selectMaterialsById = (state: RootState): MaterialsState['byId'] =>
   selectMaterialsDomain(state).byId
+// Ids whose whole-material delete is in flight — the row disables its trash while
+// its id is here, so a pessimistic delete can't be fired twice.
+export const selectDeletingIds = (state: RootState): string[] =>
+  selectMaterialsDomain(state).deletingIds
 
 // ── Memoised selectors ─────────────────────────────────────────────────────────
 
@@ -75,6 +79,10 @@ export const selectMaterialDraft = (state: RootState): MaterialsState['editDraft
   selectMaterialsDomain(state).editDraft
 export const selectMaterialDraftNonce = (state: RootState): number =>
   selectMaterialsDomain(state).editDraftNonce
+// The material whose detail is being fetched (a row click that missed the cache),
+// or null. Drives the right-panel "opening…" spinner.
+export const selectOpeningMaterialId = (state: RootState): string | null =>
+  selectMaterialsDomain(state).openingId
 
 // Cached group details, by group id. The open-material saga reads this first so a
 // material that was already fetched reopens without a second GET.

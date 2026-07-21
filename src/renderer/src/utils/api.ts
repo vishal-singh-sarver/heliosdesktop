@@ -61,16 +61,39 @@ function parseErrorBody(data: unknown, fallback: string): ParsedError {
   return { message: fallback, fieldErrors: {} }
 }
 
+// ── Timeouts ─────────────────────────────────────────────────────────────────
+// Without a timeout a hung request never settles: the caller's saga stays pending
+// forever and the UI sits in a permanent loading/saving state with no error and no
+// recovery but an app restart. A default caps ordinary JSON calls; uploads get a
+// longer budget because a multi-MB file legitimately takes longer.
+const DEFAULT_TIMEOUT_MS = 30_000
+const UPLOAD_TIMEOUT_MS = 120_000
+
 // ── Axios instance ───────────────────────────────────────────────────────────
 
 const client: AxiosInstance = axios.create({
   baseURL: BASE_URL,
+  timeout: DEFAULT_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
     accept: 'application/json',
     'session-id': getSessionId()
   }
 })
+
+// A request that exceeded its timeout comes back with no `response` and
+// `code === 'ECONNABORTED'`; surface it as a clear, user-facing message rather
+// than axios's raw "timeout of 30000ms exceeded".
+export function toApiError(err: AxiosError): ApiError {
+  if (err.response) {
+    const parsed = parseErrorBody(err.response.data, err.response.statusText || err.message)
+    return new ApiError(err.response.status, parsed.message, parsed.fieldErrors)
+  }
+  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+    return new ApiError(0, 'The request timed out. Please try again.')
+  }
+  return new ApiError(0, err.message || 'Network error')
+}
 
 // ── Core request ─────────────────────────────────────────────────────────────
 
@@ -79,12 +102,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const res = await client.request<T>({ method, url: path, data: body })
     return res.data
   } catch (err) {
-    const axErr = err as AxiosError
-    if (axErr.response) {
-      const parsed = parseErrorBody(axErr.response.data, axErr.response.statusText || axErr.message)
-      throw new ApiError(axErr.response.status, parsed.message, parsed.fieldErrors)
-    }
-    throw new ApiError(0, axErr.message || 'Network error')
+    throw toApiError(err as AxiosError)
   }
 }
 
@@ -99,16 +117,14 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
       method: 'POST',
       url: path,
       data: form,
-      headers: { 'Content-Type': undefined }
+      headers: { 'Content-Type': undefined },
+      // A file upload gets a longer budget than a JSON call, but still a finite
+      // one — so a stalled upload fails and releases the "Uploading…" state.
+      timeout: UPLOAD_TIMEOUT_MS
     })
     return res.data
   } catch (err) {
-    const axErr = err as AxiosError
-    if (axErr.response) {
-      const parsed = parseErrorBody(axErr.response.data, axErr.response.statusText || axErr.message)
-      throw new ApiError(axErr.response.status, parsed.message, parsed.fieldErrors)
-    }
-    throw new ApiError(0, axErr.message || 'Network error')
+    throw toApiError(err as AxiosError)
   }
 }
 

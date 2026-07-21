@@ -146,6 +146,39 @@ export function* saveParameterGroupWorker(action: SaveParameterGroupRequestedAct
   }
 }
 
+// Runs one card's save, then releases its in-flight lock — whether it succeeded or
+// failed. Split out so saveWatcher can guarantee the key is freed for a later,
+// legitimate save (e.g. a PUT after the first POST landed).
+export function* trackedSave(
+  inFlight: Set<string>,
+  key: string,
+  action: SaveParameterGroupRequestedAction
+): Generator {
+  try {
+    yield call(saveParameterGroupWorker, action)
+  } finally {
+    inFlight.delete(key)
+  }
+}
+
+// De-dupes card saves keyed by (groupId, cardId): while one is in flight, further
+// save requests for the SAME card are dropped. A first save POSTs (adds the type)
+// and only flips the card to `saved` on success — so two fast clicks both read
+// `saved: false` and, under a plain takeEvery, both POSTed, the second 409-ing
+// "already added" and showing a spurious error on a card that saved fine. Dropping
+// the duplicate while the first is running closes that window; once it completes
+// the key frees, so a genuine later update still runs.
+export function* saveWatcher(): Generator {
+  const inFlight = new Set<string>()
+  while (true) {
+    const action = (yield take(SAVE_PARAMETER_GROUP_REQUESTED)) as SaveParameterGroupRequestedAction
+    const key = `${action.payload.groupId}:${action.payload.cardId}`
+    if (inFlight.has(key)) continue
+    inFlight.add(key)
+    yield fork(trackedSave, inFlight, key, action)
+  }
+}
+
 // Pull an {r,g,b} out of a save payload when it carries all three colour
 // channels as numbers — otherwise null (nothing to record).
 function colorFromProperties(properties: MaterialPropertyValues): RgbColor | null {
@@ -207,7 +240,7 @@ export default function* materialsSaga(): Generator {
   yield fork(renameWatcher)
   yield takeEvery(DELETE_MATERIAL_REQUESTED, deleteMaterialWorker)
   yield takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
-  yield takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker)
+  yield fork(saveWatcher)
   yield takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
   yield takeEvery(RECORD_RECENT_COLOR, persistRecentColorsWorker)
   yield takeEvery(UPLOAD_TEXTURE_REQUESTED, uploadTextureWorker)

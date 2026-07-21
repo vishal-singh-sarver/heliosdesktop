@@ -8,6 +8,7 @@ import {
   CREATE_MATERIAL_REQUESTED,
   CREATE_MATERIAL_SUCCEEDED,
   DELETE_MATERIAL_FAILED,
+  DELETE_MATERIAL_REQUESTED,
   DELETE_PARAMETER_GROUP_FAILED,
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_FAILED,
@@ -15,6 +16,7 @@ import {
   LIST_MATERIALS_SUCCEEDED,
   OPEN_SAVED_MATERIAL_FAILED,
   OPEN_SAVED_MATERIAL_LOADED,
+  OPEN_SAVED_MATERIAL_REQUESTED,
   RECORD_RECENT_COLOR,
   REMOVE_MATERIAL,
   REMOVE_PARAMETER_GROUP,
@@ -29,7 +31,6 @@ import {
   SET_PARAMETER_GROUP_TYPE,
   SET_PARAMETER_GROUP_VALUE,
   SET_SEARCH_QUERY,
-  TOGGLE_MATERIAL_VISIBILITY,
   UPLOAD_TEXTURE_FAILED,
   UPLOAD_TEXTURE_REQUESTED,
   UPLOAD_TEXTURE_SUCCEEDED
@@ -60,28 +61,6 @@ const emptyCard = (id: number, number: number): MaterialParameterGroup => ({
   saveError: null,
   deleteStatus: 'idle'
 })
-
-// The cards that exist ONLY on the client: a card the user added but never saved
-// (blank, or filled in but not yet Saved). The backend knows nothing about them,
-// so re-opening the material — which rebuilds the form from the fetched members —
-// would silently drop them. Stash them by group id whenever the open draft is
-// replaced or closed; OPEN_SAVED_MATERIAL_LOADED restores them after the saved
-// cards. A card that has since been saved is a real member and is excluded.
-const stashUnsavedCards = (state: Draft<MaterialsState>): void => {
-  const d = state.editDraft
-  if (!d) return
-  const unsaved = d.groups
-    .filter((g) => !g.saved)
-    .map((g) => ({
-      ...g,
-      values: { ...g.values },
-      saveStatus: 'idle' as const,
-      saveError: null,
-      deleteStatus: 'idle' as const
-    }))
-  if (unsaved.length > 0) state.unsavedById[d.groupId] = unsaved
-  else delete state.unsavedById[d.groupId]
-}
 
 // A write the BACKEND accepted, whose outcome could not be applied because the
 // user has since opened a different material. The draft is gone, so there is
@@ -171,15 +150,17 @@ export interface MaterialsState {
   // Geometry's detailsById). A fresh list load, or any mutation to a group,
   // invalidates it so the next click refetches.
   detailsById: Record<string, MaterialGroupDetail>
-  // Client-only parameter-group cards (added but never saved), by group id. The
-  // backend has no record of them, so they are kept here across material switches
-  // and restored when the material is re-opened.
-  unsavedById: Record<string, MaterialParameterGroup[]>
   // The single material open in the right-panel Properties form, or null.
   // `editDraftNonce` is a monotonic open counter the RightPanel watches to
   // auto-expand.
   editDraft: MaterialDraft | null
   editDraftNonce: number
+  // The id of a material whose detail is being FETCHED (a row click that missed
+  // the cache), or null. Drives the right-panel "opening…" state so a slow GET
+  // doesn't just leave the previous material on screen. Cleared when the open
+  // resolves (loaded) or fails. A cached open sets and clears it in the same tick,
+  // so it never flashes.
+  openingId: string | null
   // +Add Materials creates the empty group on the backend; this gates the button
   // and surfaces a create failure.
   createStatus: 'idle' | 'creating' | 'error'
@@ -188,6 +169,11 @@ export interface MaterialsState {
   // appeared" cue. Cleared once the cue has run (the list dispatches it), so a
   // remount can't replay it.
   lastCreatedId: string | null
+  // Ids of materials whose whole-material DELETE is in flight. The delete is
+  // pessimistic (the row stays until success), so without this the trash stayed
+  // live and a second confirm fired a second DELETE — which 404s on the
+  // already-gone material. The row disables its trash while its id is here.
+  deletingIds: string[]
   // The last list-level action that failed and has nowhere else to show: opening a
   // material (the GET) or deleting one. Both used to be announced by the saga and
   // received by nobody, so a failed row-click showed NOTHING — the panel simply
@@ -208,12 +194,13 @@ export const initialState: MaterialsState = {
   loadError: null,
   nameErrors: {},
   detailsById: {},
-  unsavedById: {},
   editDraft: null,
   editDraftNonce: 0,
+  openingId: null,
   createStatus: 'idle',
   createError: null,
   lastCreatedId: null,
+  deletingIds: [],
   actionError: null,
   // Seed the picker history from localStorage at slice creation (guarded — falls
   // back to [] outside a browser). The selector fallback re-uses this object, so
@@ -258,12 +245,8 @@ const materialsReducer = (
         // Close the Properties form if its material no longer exists (e.g. it was
         // deleted elsewhere), so it can't edit a group that's gone.
         if (draft.editDraft && !draft.byId[draft.editDraft.groupId]) draft.editDraft = null
-        // Unlike the detail cache, the client-only cards survive a refresh — the
-        // backend never had them, so a re-list can't tell us anything new about
-        // them. Only drop those whose material is gone.
-        for (const id of Object.keys(draft.unsavedById)) {
-          if (!draft.byId[id]) delete draft.unsavedById[id]
-        }
+        // A fresh list invalidates any in-flight open (its cache is gone too).
+        draft.openingId = null
         draft.loadStatus = 'loaded'
         draft.loadError = null
         break
@@ -282,9 +265,6 @@ const materialsReducer = (
 
       case CREATE_MATERIAL_SUCCEEDED: {
         const { groupId, name } = action
-        // The new material takes over the form — hold on to the previous one's
-        // unsaved cards.
-        stashUnsavedCards(draft)
         // The material now exists on the backend. Insert its row straight from
         // what we know rather than refetching the whole list — a list reload would
         // also wipe the detail cache. (Geometry does the same: it inserts the
@@ -296,8 +276,7 @@ const materialsReducer = (
           materialTypeId: 0,
           materialType: '',
           preview: null,
-          createdAt: '',
-          visible: true
+          createdAt: ''
         }
         if (!draft.order.includes(groupId)) draft.order.push(groupId)
         // A freshly created group is EMPTY by definition, so its detail is already
@@ -363,33 +342,40 @@ const materialsReducer = (
         else draft.nameErrors[action.id] = action.payload
         break
 
-      case DELETE_MATERIAL_FAILED:
       case OPEN_SAVED_MATERIAL_FAILED:
-        // Both were previously dispatched into the void: the reducer handled
-        // neither, so the failure never reached the screen.
+        // The fetch is over — stop the spinner and surface why. (Previously
+        // dispatched into the void, so a failed open showed nothing at all.)
+        draft.openingId = null
+        draft.actionError = action.payload
+        break
+
+      case DELETE_MATERIAL_REQUESTED:
+        // Mark the delete in flight so the row's trash disables — a pessimistic
+        // delete leaves the row visible, and without this a second confirm fired a
+        // second DELETE that 404'd on the already-gone material.
+        if (!draft.deletingIds.includes(action.id)) draft.deletingIds.push(action.id)
+        break
+
+      case DELETE_MATERIAL_FAILED:
+        // The material is still there — release its trash and surface why. (The
+        // failure was previously dispatched into the void: the row silently stayed
+        // with no explanation.)
+        draft.deletingIds = draft.deletingIds.filter((i) => i !== action.id)
         draft.actionError = action.payload
         break
 
       case REMOVE_MATERIAL: {
         // A delete that landed clears the banner from any earlier failed attempt.
         draft.actionError = null
+        draft.deletingIds = draft.deletingIds.filter((i) => i !== action.id)
         delete draft.byId[action.id]
         draft.order = draft.order.filter((i) => i !== action.id)
         delete draft.nameErrors[action.id]
         delete draft.detailsById[action.id]
-        // The material is gone, so its client-only cards have nothing to come back
-        // to (the Properties form dispatches CLOSE before the delete lands, which
-        // would otherwise have just stashed them).
-        delete draft.unsavedById[action.id]
         if (draft.selectedId === action.id) draft.selectedId = null
+        if (draft.openingId === action.id) draft.openingId = null
         // Close the Properties form if it was editing the removed material.
         if (draft.editDraft && draft.editDraft.groupId === action.id) draft.editDraft = null
-        break
-      }
-
-      case TOGGLE_MATERIAL_VISIBILITY: {
-        const material = draft.byId[action.id]
-        if (material) material.visible = !material.visible
         break
       }
 
@@ -402,7 +388,15 @@ const materialsReducer = (
         break
 
       // ── Right-panel material Properties form ───────────────────────────────
+      case OPEN_SAVED_MATERIAL_REQUESTED:
+        // Mark this row as opening so the right panel can show a spinner while the
+        // GET is in flight. A cached open dispatches LOADED in the same tick, which
+        // clears it before any render — so only a real fetch shows the spinner.
+        draft.openingId = action.id
+        break
+
       case OPEN_SAVED_MATERIAL_LOADED: {
+        draft.openingId = null
         // A saved row was fetched — open it with one card per member, each
         // pre-selecting its material type, carrying its own stored values and
         // already marked `saved` (so its Save PATCHes and its Delete removes the
@@ -410,9 +404,6 @@ const materialsReducer = (
         const { detail } = action
         // A material opened successfully — clear any earlier open/delete failure.
         draft.actionError = null
-        // Switching materials replaces the form — keep the outgoing material's
-        // unsaved cards so going back to it shows them again.
-        stashUnsavedCards(draft)
         // Cache it, so re-clicking this material reopens it without a second GET.
         draft.detailsById[detail.id] = detail
 
@@ -430,36 +421,18 @@ const materialsReducer = (
           deleteStatus: 'idle'
         }))
 
-        // Re-attach this material's client-only cards after its saved ones. Their
-        // ids and display numbers are reassigned around the members (a member may
-        // have taken the number since), and one whose material type has since been
-        // saved is dropped — the group can only hold a type once.
-        const savedTypeIds = new Set(cards.map((c) => c.typeId))
-        const usedNumbers = cards.map((c) => c.number)
-        let nextId = cards.length + 1
-        for (const stashed of draft.unsavedById[detail.id] ?? []) {
-          if (stashed.typeId != null && savedTypeIds.has(stashed.typeId)) continue
-          const number = lowestFreeNumber(usedNumbers)
-          usedNumbers.push(number)
-          cards.push({ ...stashed, values: { ...stashed.values }, id: nextId, number })
-          nextId += 1
-        }
-
-        // A group with no members and nothing stashed (created by +Add Materials
-        // but never filled in, then reopened after a refetch) would otherwise open
-        // with NO card at all — no material-type Select to start from. Seed the
-        // same blank card +Add Materials opens with.
-        if (cards.length === 0) {
-          cards.push(emptyCard(1, 1))
-          nextId = 2
-        }
+        // A group with no members (created by +Add Materials but never filled in,
+        // then reopened after a refetch) would otherwise open with NO card at all —
+        // no material-type Select to start from. Seed the same blank card +Add
+        // Materials opens with.
+        if (cards.length === 0) cards.push(emptyCard(1, 1))
 
         draft.editDraft = {
           groupId: detail.id,
           name: detail.name,
           nameError: null,
           groups: cards,
-          nextGroupId: nextId
+          nextGroupId: cards.length + 1
         }
         draft.editDraftNonce += 1
         break
@@ -598,10 +571,10 @@ const materialsReducer = (
       }
 
       case CLOSE_MATERIAL_DRAFT:
-        // Closing the form is not discarding the work — the unsaved cards come
-        // back when the material is opened again.
-        stashUnsavedCards(draft)
+        // Closing the form discards any unsaved work — a card is only kept once its
+        // own Save persists it to the backend.
         draft.editDraft = null
+        draft.openingId = null
         break
 
       case RECORD_RECENT_COLOR:

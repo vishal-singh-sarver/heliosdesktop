@@ -11,8 +11,7 @@ export interface MaterialPreview {
 
 // One material (backend GROUP) in the library. Every row is persisted — a
 // material is created on the backend the moment +Add Materials is clicked, so
-// there are no client-only placeholder rows. `visible` is a client-only viewport
-// flag driving the eye icon (the backend has no material-visibility concept).
+// there are no client-only placeholder rows.
 export interface Material {
   id: string
   name: string
@@ -20,7 +19,6 @@ export interface Material {
   materialType: string
   preview: MaterialPreview | null
   createdAt: string
-  visible: boolean
 }
 
 // Property values in the native JSON types the backend expects — numbers for

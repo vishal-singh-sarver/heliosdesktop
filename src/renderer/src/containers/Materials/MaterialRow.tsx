@@ -1,26 +1,21 @@
 import deleteIcon from '@renderer/assets/delete.svg'
 import dragHandleIcon from '@renderer/assets/DragHandleIco.svg'
-import eyeIcon from '@renderer/assets/EyeIcon.svg'
-import eyeOffIcon from '@renderer/assets/EyeOffIcon.svg'
 import Dialog from '@renderer/components/Dialog'
 import { selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
-import {
-  deleteMaterialRequested,
-  openSavedMaterialRequested,
-  selectMaterial,
-  toggleMaterialVisibility
-} from './actions'
+import { deleteMaterialRequested, openSavedMaterialRequested, selectMaterial } from './actions'
 import MaterialNameEditor from './MaterialNameEditor'
 import messages from './messages'
+import { selectDeletingIds } from './selectors'
 import type { Material } from './types'
 
 interface IconButtonProps {
   label: string
   children: React.ReactNode
   active?: boolean
+  disabled?: boolean
   onClick?: () => void
 }
 
@@ -29,6 +24,7 @@ function IconButton({
   label,
   children,
   active = false,
+  disabled = false,
   onClick
 }: IconButtonProps): React.JSX.Element {
   return (
@@ -36,11 +32,12 @@ function IconButton({
       type="button"
       aria-label={label}
       aria-pressed={active}
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation()
         onClick?.()
       }}
-      className="flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:bg-neutral-600/50 hover:text-neutral-100"
+      className="flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:bg-neutral-600/50 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
@@ -72,6 +69,9 @@ export default function MaterialRow({
   const dispatch = useDispatch()
   const rowRef = useScrollIntoViewWhen<HTMLDivElement>(highlighted)
   const scenarioId = useSelector(selectActiveScenarioId)
+  // This material's whole-material DELETE is in flight — the trash locks so a
+  // second confirm can't fire a duplicate DELETE onto the already-gone material.
+  const deleting = useSelector(selectDeletingIds).includes(material.id)
   const [editing, setEditing] = React.useState(false)
   // Live rename validation error, lifted from MaterialNameEditor so the error
   // can render below (outside) the row box.
@@ -97,10 +97,8 @@ export default function MaterialRow({
     e.preventDefault() // Space would otherwise scroll the list
     onSelect()
   }
-  const onToggleVisibility = (): void => {
-    dispatch(toggleMaterialVisibility(material.id))
-  }
   const confirmDelete = (): void => {
+    if (deleting) return
     dispatch(deleteMaterialRequested(material.id, scenarioId))
     setConfirmDeleteOpen(false)
   }
@@ -170,18 +168,10 @@ export default function MaterialRow({
             className={`ml-auto flex shrink-0 items-center gap-0.5 transition-opacity ${clusterVisibility}`}
           >
             <IconButton
-              label={material.visible ? 'Hide material' : 'Show material'}
-              active={!material.visible}
-              onClick={onToggleVisibility}
+              label="Delete material"
+              disabled={deleting}
+              onClick={() => setConfirmDeleteOpen(true)}
             >
-              <img
-                src={material.visible ? eyeIcon : eyeOffIcon}
-                alt=""
-                aria-hidden="true"
-                className="h-3.5 w-3.5"
-              />
-            </IconButton>
-            <IconButton label="Delete material" onClick={() => setConfirmDeleteOpen(true)}>
               <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
             </IconButton>
             <span

@@ -4,6 +4,7 @@ import {
   isVisualisationComplete,
   isVisualisationFieldSet,
   resolveParameterGroups,
+  toNativeProperties,
   toVisualisationProperties
 } from '../materialBlueprint'
 
@@ -61,6 +62,61 @@ const visualiser: MaterialTypeDef = {
     }
   ]
 }
+
+describe('toNativeProperties', () => {
+  const density: MaterialTypeDef = {
+    id: 3,
+    materialtype: 'Physical',
+    description: '',
+    properties: [
+      {
+        property_type_id: 30,
+        property: 'density',
+        description: '',
+        datatype: 'float',
+        min: 0.5,
+        max: 100,
+        display_order: 1
+      }
+    ]
+  }
+
+  it('sends a real numeric value', () => {
+    expect(toNativeProperties(density, { density: '2.5' })).toEqual({ density: 2.5 })
+  })
+
+  it('omits a genuinely empty field', () => {
+    expect(toNativeProperties(density, { density: '' })).toEqual({})
+  })
+
+  // The bug: a whitespace-only field is not === '' so it slipped past the blank
+  // check, and Number(' ') is 0 — so it shipped a real 0 for a value the user left
+  // unset, bypassing the min: 0.5 bound. Trimming first treats it as empty.
+  it('omits a whitespace-only field instead of sending 0', () => {
+    expect(toNativeProperties(density, { density: ' ' })).toEqual({})
+    expect(toNativeProperties(density, { density: '   ' })).toEqual({})
+  })
+
+  it('still sends a real zero the user actually typed', () => {
+    const flux: MaterialTypeDef = {
+      id: 4,
+      materialtype: 'Flux',
+      description: '',
+      properties: [
+        {
+          property_type_id: 40,
+          property: 'radiation_flux',
+          description: '',
+          datatype: 'float',
+          min: 0,
+          max: 100,
+          display_order: 1
+        }
+      ]
+    }
+    expect(toNativeProperties(flux, { radiation_flux: '0' })).toEqual({ radiation_flux: 0 })
+  })
+})
 
 describe('isVisualisationFieldSet', () => {
   it('recognises the Visualiser by its colour channel', () => {

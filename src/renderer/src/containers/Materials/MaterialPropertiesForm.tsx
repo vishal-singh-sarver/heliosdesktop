@@ -49,7 +49,14 @@ import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
-import { selectMaterialDraft, selectMaterialDraftNonce, selectMaterialsById } from './selectors'
+import {
+  selectDeletingIds,
+  selectMaterialDraft,
+  selectMaterialDraftNonce,
+  selectMaterialsById,
+  selectOpeningMaterialId
+} from './selectors'
+import { Spinner } from '@renderer/components/LoadingScreen/Spinner'
 import type { MaterialDraft, MaterialParameterGroup } from './types'
 import { validateMaterialName } from './validation'
 
@@ -65,6 +72,21 @@ export function MaterialPropertiesForm(): React.JSX.Element | null {
 
   const draft = useSelector(selectMaterialDraft)
   const draftNonce = useSelector(selectMaterialDraftNonce)
+  const openingId = useSelector(selectOpeningMaterialId)
+
+  // A row was clicked and its detail is being fetched (cache miss). Show a spinner
+  // rather than leaving the PREVIOUS material on screen with no sign the click
+  // registered. Only when opening a DIFFERENT material than the one shown — a
+  // re-open of the same one keeps its form up. A cached open never sets openingId
+  // long enough to render this.
+  if (openingId != null && openingId !== draft?.groupId) {
+    return (
+      <div className="flex h-full items-center justify-center" role="status" aria-live="polite">
+        <Spinner className="h-5 w-5 text-neutral-400" />
+        <span className="sr-only">{messages.openingMaterial}</span>
+      </div>
+    )
+  }
   if (!draft) return null
   return <MaterialDraftForm key={draftNonce} draft={draft} />
 }
@@ -95,6 +117,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   // clicked, which meant a rejected name became the baseline: retyping the real
   // name then looked like a change and fired a rename to the name it already had.
   const committedName = useSelector(selectMaterialsById)[draft.groupId]?.name ?? draft.name
+  // This material's whole-material DELETE is in flight — the header trash locks so
+  // a second confirm can't fire a duplicate DELETE.
+  const materialDeleting = useSelector(selectDeletingIds).includes(draft.groupId)
 
   const startNameEdit = (): void => {
     setNameEditing(true)
@@ -199,6 +224,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   // nothing. REMOVE_MATERIAL (dispatched only on success) closes it — and drops
   // the material's stashed cards, which an eager CLOSE would have re-saved first.
   const performDelete = (): void => {
+    if (materialDeleting) return
     dispatch(deleteMaterialRequested(draft.groupId, scenarioId))
     setConfirmDeleteOpen(false)
   }
@@ -348,8 +374,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
         <button
           type="button"
           aria-label="Delete material"
+          disabled={materialDeleting}
           onClick={() => setConfirmDeleteOpen(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -904,8 +931,6 @@ function MaterialTypeSelect({
   const filtered = q === '' ? options : options.filter((o) => o.label.toLowerCase().includes(q))
 
   const isTaken = (opt: { value: string }): boolean => disabledValues?.has(opt.value) ?? false
-  // Every option is spoken for — nothing left to add to this material.
-  const allTaken = filtered.length > 0 && filtered.every(isTaken)
 
   const commit = (opt: { value: string; label: string }): void => {
     if (isTaken(opt)) return
@@ -999,11 +1024,10 @@ function MaterialTypeSelect({
           id={listId}
           className="scrollbar-custom-thin absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded border border-app-border bg-[#121212] py-1 shadow-lg"
         >
-          {/* Every remaining type is already on this material — say so rather than
-              showing a list where nothing can be picked. */}
-          {allTaken && (
-            <p className="px-3 py-2 text-sm text-neutral-500">{messages.allTypesAdded}</p>
-          )}
+          {/* No "all taken" row here: a card can only be added while at least one
+              type is free (the "+ Material Type" button disables at the limit and
+              its tooltip carries messages.allTypesAdded), so a dropdown in which
+              every option is taken is unreachable. */}
           {filtered.map((opt, i) => {
             // Already used by another parameter group: still listed (so the user
             // can see it exists) but greyed out and unselectable.

@@ -42,8 +42,12 @@ function groupToMaterial(g: WireGroupListItem): Material {
   return {
     id: String(g.id),
     name: g.name,
-    materialTypeId: g.material_type_ids[0] ?? 0,
-    materialType: g.material_types[0] ?? '',
+    // Coalesce the ARRAY, not just its first element: a group missing
+    // `material_type_ids` entirely would otherwise throw on `undefined[0]`, and
+    // because groupToMaterial runs inside a .map() over the whole list, one such
+    // row would abort the map and blank EVERY material rather than just itself.
+    materialTypeId: (g.material_type_ids ?? [])[0] ?? 0,
+    materialType: (g.material_types ?? [])[0] ?? '',
     preview: g.preview
       ? {
           colorR: g.preview.color_r,
@@ -52,8 +56,7 @@ function groupToMaterial(g: WireGroupListItem): Material {
           textureFile: g.preview.texture_file ?? null
         }
       : null,
-    createdAt: g.created_at,
-    visible: true
+    createdAt: g.created_at ?? ''
   }
 }
 
@@ -66,7 +69,11 @@ export function listMaterials(): Promise<Material[]> {
   return api
     .get<ListGroupsResponse>(API_ROUTES.materials.groupsList())
     .then((res) =>
-      (res.groups ?? []).map(groupToMaterial).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      // `?? ''` on both sides: a missing timestamp must not throw inside sort and
+      // take the whole list down with it.
+      (res.groups ?? [])
+        .map(groupToMaterial)
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
     )
 }
 

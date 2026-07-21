@@ -30,7 +30,6 @@ import {
   SET_PARAMETER_GROUP_TYPE,
   SET_PARAMETER_GROUP_VALUE,
   SET_SEARCH_QUERY,
-  TOGGLE_MATERIAL_VISIBILITY,
   UPLOAD_TEXTURE_FAILED,
   UPLOAD_TEXTURE_REQUESTED,
   UPLOAD_TEXTURE_SUCCEEDED
@@ -105,10 +104,6 @@ export type DeleteMaterialFailedAction = {
   payload: string
 }
 
-export type ToggleMaterialVisibilityAction = {
-  type: typeof TOGGLE_MATERIAL_VISIBILITY
-  id: string
-}
 export type SelectMaterialAction = { type: typeof SELECT_MATERIAL; id: string }
 export type SetSearchQueryAction = { type: typeof SET_SEARCH_QUERY; payload: string }
 
@@ -247,7 +242,6 @@ export type MaterialsAction =
   | RemoveMaterialAction
   | DeleteMaterialRequestedAction
   | DeleteMaterialFailedAction
-  | ToggleMaterialVisibilityAction
   | SelectMaterialAction
   | SetSearchQueryAction
   | OpenSavedMaterialRequestedAction
@@ -331,10 +325,6 @@ export const deleteMaterialFailed = (id: string, error: string): DeleteMaterialF
   payload: error
 })
 
-export const toggleMaterialVisibility = (id: string): ToggleMaterialVisibilityAction => ({
-  type: TOGGLE_MATERIAL_VISIBILITY,
-  id
-})
 export const selectMaterial = (id: string): SelectMaterialAction => ({ type: SELECT_MATERIAL, id })
 export const setSearchQuery = (query: string): SetSearchQueryAction => ({
   type: SET_SEARCH_QUERY,
