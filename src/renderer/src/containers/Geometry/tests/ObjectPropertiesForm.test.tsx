@@ -181,6 +181,88 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
   }
 
+  it('omits materials already assigned to the ground from the Select popup', () => {
+    render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+          // Cotton (library id m1) is already assigned to this ground.
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Open the Select popup (portaled to document.body). Scope to it via its
+    // header so the assigned 'Cotton' row in the form body doesn't confuse the
+    // query — the popup itself must offer only the unassigned material.
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+
+    expect(within(popup).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+  })
+
+  it('checking a material adds it to the Materials section and marks the box checked', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+
+    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' }))
+
+    // Checked in the popup (blue box)…
+    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    // …and now listed in the form's Materials section.
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+  })
+
+  it('unchecking a material removes it from the Materials section', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+
+    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // check → add
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // uncheck → remove
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+  })
+
+  it('filters the material list by the search query', () => {
+    render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+
+    fireEvent.change(within(popup).getByRole('textbox', { name: 'Search materials' }), {
+      target: { value: 'steel' }
+    })
+
+    expect(within(popup).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+  })
+
   it('opens the read-only properties popup when a picked material is clicked', () => {
     const { container } = render(
       <Provider store={makeStore([material('m1', 'Cotton')])}>

@@ -161,7 +161,7 @@ export function addGroupMaterial(
     .then(() => undefined)
 }
 
-// PATCH /library/groups/{id}/materials/{typeId} — update the properties of a
+// PUT /library/groups/{id}/materials/{typeId} — update the properties of a
 // material type already on the group. Every save after the first.
 export function updateGroupMaterial(
   groupId: string,
@@ -170,7 +170,7 @@ export function updateGroupMaterial(
   scenarioId: string | null
 ): Promise<void> {
   return api
-    .patch(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId), {
+    .put(withScenario(API_ROUTES.materials.groupMaterial(groupId, materialTypeId), scenarioId), {
       properties
     })
     .then(() => undefined)

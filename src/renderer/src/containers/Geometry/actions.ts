@@ -24,6 +24,7 @@ import {
   RENAME_SUCCEEDED,
   SELECT,
   ADD_DRAFT_MATERIAL,
+  REMOVE_DRAFT_MATERIAL,
   SET_DRAFT_NAME,
   SET_DRAFT_VALUE,
   SET_MODEL_ON,
@@ -224,11 +225,18 @@ export type SetDraftNameAction = {
   type: typeof SET_DRAFT_NAME
   payload: string
 }
-// Picking a material in the Select popup appends its GROUP to the draft (deduped
-// by groupId in the reducer). Removal isn't wired (ADD-only).
+// Checking a material in the Select popup appends its GROUP to the draft (deduped
+// by groupId in the reducer).
 export type AddDraftMaterialAction = {
   type: typeof ADD_DRAFT_MATERIAL
   payload: { groupId: string; name: string }
+}
+// Unchecking a material in the Select popup drops its GROUP from the draft. Only
+// session picks are toggleable — baseline (already-saved) groups aren't listed in
+// the popup — so this never tries to un-assign something the add-only backend can't.
+export type RemoveDraftMaterialAction = {
+  type: typeof REMOVE_DRAFT_MATERIAL
+  payload: { groupId: string }
 }
 export type CloseCreateFormAction = {
   type: typeof CLOSE_CREATE_FORM
@@ -332,6 +340,7 @@ export type GeometryAction =
   | SetDraftValueAction
   | SetDraftNameAction
   | AddDraftMaterialAction
+  | RemoveDraftMaterialAction
   | CloseCreateFormAction
   | CreateObjectRequestedAction
   | CreateObjectSucceededAction
@@ -566,6 +575,11 @@ export const setDraftName = (name: string): SetDraftNameAction => ({
 export const addDraftMaterial = (groupId: string, name: string): AddDraftMaterialAction => ({
   type: ADD_DRAFT_MATERIAL,
   payload: { groupId, name }
+})
+
+export const removeDraftMaterial = (groupId: string): RemoveDraftMaterialAction => ({
+  type: REMOVE_DRAFT_MATERIAL,
+  payload: { groupId }
 })
 
 export const closeCreateForm = (): CloseCreateFormAction => ({ type: CLOSE_CREATE_FORM })

@@ -28,7 +28,8 @@ import {
   setDraftName,
   setDraftValue,
   updateObjectRequested,
-  addDraftMaterial
+  addDraftMaterial,
+  removeDraftMaterial
 } from './actions'
 import MaterialPropertiesPopup, { type MaterialDetailSection } from './MaterialPropertiesPopup'
 import messages from './messages'
@@ -197,10 +198,25 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // before the ground is saved.
   const materialDetailsById = useSelector(selectMaterialDetailsById)
 
-  // Picking a material appends its GROUP to the draft (deduped in the reducer),
-  // so Save can PATCH it and the selection survives re-renders and a re-open.
-  const handleSelectMaterial = (m: { id: string; name: string }): void => {
-    dispatch(addDraftMaterial(m.id, m.name))
+  // Materials already SAVED on the ground (the GET baseline). The Select popup
+  // hides these — the add-only backend can't un-assign them, so a toggleable
+  // checkbox for one would mislead. Keyed by the library id (= the group id).
+  const savedMaterialIds = React.useMemo(
+    () => new Set(draft.materialBaseline),
+    [draft.materialBaseline]
+  )
+  // Materials currently in the Materials section (baseline ∪ picked this session).
+  // Drives each popup row's checked state; a session pick stays listed + checked.
+  const checkedMaterialIds = React.useMemo(
+    () => new Set(draft.materials.map((m) => m.groupId)),
+    [draft.materials]
+  )
+
+  // Toggling a material row: checked → append its GROUP to the draft (deduped in
+  // the reducer), unchecked → drop it. Both are client-side draft edits; Save
+  // PATCHes the net-new picks (add-only). The selection survives re-renders.
+  const handleToggleMaterial = (m: { id: string; name: string }, checked: boolean): void => {
+    dispatch(checked ? addDraftMaterial(m.id, m.name) : removeDraftMaterial(m.id))
   }
 
   // Resolve a group's members for the read-only popup. A material is assigned to a
@@ -541,10 +557,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           </div>
         ))}
 
-        {/* Materials row — "Materials" label + a "Select" button that opens the
-            material picker (built next). 320×36 row; 58×25 button; bracketed by
-            1px #424242 divider lines (border-app-border). */}
-        <div className="flex h-9 items-center justify-between border-y border-app-border">
+        {/* Materials row — "Materials" label + a 58×25 "Select" button that opens
+            the material picker. 8px vertical padding keeps the 1px #424242 divider
+            lines (border-y, border-app-border) 8px off the content, above and below. */}
+        <div className="flex items-center justify-between border-y border-app-border py-2">
           <p className="text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">
             Materials
           </p>
@@ -554,7 +570,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             disabled={objectDeleted}
             aria-expanded={materialPopupOpen}
             onClick={() => (materialPopupOpen ? closeMaterialPopup() : openMaterialPopup())}
-            className="rounded-[4px] border border-app-border bg-white px-2.5 py-[5px] text-[13px] font-normal leading-[15px] text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-[25px] w-[58px] shrink-0 items-center justify-center rounded-[4px] border border-app-border bg-white text-[13px] font-normal leading-none text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Select
           </button>
@@ -575,7 +591,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 // currentTarget IS the anchor, measured synchronously here — so a
                 // growing list of rows needs no ref map.
                 onClick={(e) => openDetailPopup(e.currentTarget, m)}
-                className="flex w-full items-center gap-1.5 rounded py-2 text-left text-[13px] leading-[18px] text-white hover:bg-white/5"
+                className="flex w-full items-center gap-[5px] rounded py-2 text-left text-[13px] leading-[15px] text-white hover:bg-white/5"
               >
                 <span className="min-w-0 flex-1 truncate">{m.name}</span>
                 {(m.stale || m.drift) && (
@@ -608,8 +624,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               />
               <div className="fixed z-50" style={{ top: popupCoords.top, left: popupCoords.left }}>
                 <SelectMaterialsPopup
-                  materials={libraryMaterials.map((m) => ({ id: m.id, name: m.name }))}
-                  onSelectMaterial={handleSelectMaterial}
+                  materials={libraryMaterials
+                    .filter((m) => !savedMaterialIds.has(m.id))
+                    .map((m) => ({ id: m.id, name: m.name, checked: checkedMaterialIds.has(m.id) }))}
+                  onToggleMaterial={handleToggleMaterial}
                   onAddNewMaterial={() => {}}
                 />
               </div>

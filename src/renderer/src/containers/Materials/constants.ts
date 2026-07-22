@@ -59,7 +59,7 @@ export const SET_PARAMETER_GROUP_TYPE = 'app/Materials/SET_PARAMETER_GROUP_TYPE'
 export const SET_PARAMETER_GROUP_VALUE = 'app/Materials/SET_PARAMETER_GROUP_VALUE' as const
 
 // A card's own Save button: POST /groups/{id}/materials the first time, then
-// PATCH /groups/{id}/materials/{typeId} on every later save.
+// PUT /groups/{id}/materials/{typeId} on every later save.
 export const SAVE_PARAMETER_GROUP_REQUESTED =
   'app/Materials/SAVE_PARAMETER_GROUP_REQUESTED' as const
 export const SAVE_PARAMETER_GROUP_SUCCEEDED =

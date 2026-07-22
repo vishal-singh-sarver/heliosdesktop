@@ -18,6 +18,7 @@ import {
   RENAME_SUCCEEDED,
   SELECT,
   ADD_DRAFT_MATERIAL,
+  REMOVE_DRAFT_MATERIAL,
   SET_DRAFT_NAME,
   SET_DRAFT_VALUE,
   SET_MODEL_ON,
@@ -500,6 +501,18 @@ const geometryReducer = (
         if (!draft.createDraft.materials.some((m) => m.groupId === groupId)) {
           draft.createDraft.materials.push({ groupId, name })
         }
+        break
+      }
+
+      case REMOVE_DRAFT_MATERIAL: {
+        if (!draft.createDraft) break
+        // Unchecking a material in the Select popup drops it from the Materials
+        // section. Only session picks reach here (baseline groups aren't listed in
+        // the popup), so this never removes an already-saved assignment the
+        // add-only backend couldn't un-assign anyway.
+        draft.createDraft.materials = draft.createDraft.materials.filter(
+          (m) => m.groupId !== action.payload.groupId
+        )
         break
       }
 

@@ -107,7 +107,7 @@ export const API_ROUTES = {
   // route below still backs the inline rename of local rows.
   // Material library — GLOBAL material GROUPS. A material IS a group: +Add
   // creates it empty (groupsCreate), then each "Parameter Group" card adds
-  // (groupMaterials POST), updates (groupMaterial PATCH) or removes
+  // (groupMaterials POST), updates (groupMaterial PUT) or removes
   // (groupMaterial DELETE) exactly one material type on it. `scenario_id` (the
   // active scenario) is appended by the service on the mutating calls so the
   // backend can reconcile + repaint that scenario.
@@ -125,7 +125,7 @@ export const API_ROUTES = {
     groupsDelete: (groupId: string) => `/api/materials/library/groups/${groupId}`,
     // POST — add one material type (with its properties) to the group.
     groupMaterials: (groupId: string) => `/api/materials/library/groups/${groupId}/materials`,
-    // PATCH (update) / DELETE (remove) one material type already on the group.
+    // PUT (update) / DELETE (remove) one material type already on the group.
     groupMaterial: (groupId: string, materialTypeId: number) =>
       `/api/materials/library/groups/${groupId}/materials/${materialTypeId}`
   }
