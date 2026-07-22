@@ -197,32 +197,50 @@ export function removeGroupMaterial(
     .then(() => undefined)
 }
 
-// ── Texture (Visualiser) ──────────────────────────────────────────────────────
+// ── File-property upload (Visualiser texture, …) ─────────────────────────────
 
-// POST (multipart) the Visualiser texture. The backend stores the file, sets the
-// member to texture mode (texture_toggle true, colour nulled), CREATING the member
-// if it doesn't exist yet — so uploading is itself the save for texture mode.
-// Returns the stored relative path (e.g. "uploads/materials/8/grass.png").
-interface UploadFileResponse {
-  success: boolean
-  property: string
-  value: string
+// POST (multipart) a file for one of a member's file properties. The backend
+// stores the file and returns its stored relative path (e.g.
+// "uploads/materials/8/grass.png"), which the caller stages into the draft and
+// later persists via the member save.
+//
+// The response shape varies: some endpoints return the bare path string, others
+// wrap it as { success, property, value }. Tolerate both so the same helper
+// backs texture_file and (later) spectral_data uploads.
+type UploadFileResponse = string | { success?: boolean; property?: string; value: string }
+
+function uploadedPath(res: UploadFileResponse): string {
+  return typeof res === 'string' ? res : res.value
 }
-export function uploadTextureFile(
+
+// Upload a file for one property of a member, keyed by `property` (e.g.
+// 'texture_file'). Creates the member if it doesn't exist yet.
+export function uploadMaterialFile(
   groupId: string,
   materialTypeId: number,
+  property: string,
   file: File,
   scenarioId: string | null
 ): Promise<string> {
   return api
     .uploadFile<UploadFileResponse>(
       withScenario(
-        API_ROUTES.materials.groupMaterialFile(groupId, materialTypeId, 'texture_file'),
+        API_ROUTES.materials.groupMaterialFile(groupId, materialTypeId, property),
         scenarioId
       ),
       file
     )
-    .then((res) => res.value)
+    .then(uploadedPath)
+}
+
+// The Visualiser texture upload — the property is always 'texture_file'.
+export function uploadTextureFile(
+  groupId: string,
+  materialTypeId: number,
+  file: File,
+  scenarioId: string | null
+): Promise<string> {
+  return uploadMaterialFile(groupId, materialTypeId, 'texture_file', file, scenarioId)
 }
 
 // The full URL that renders a stored texture path (upload path or a default's

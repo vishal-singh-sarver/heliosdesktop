@@ -62,6 +62,15 @@ export interface MaterialParameterGroup {
   // "Saving…" through a delete — and so a double-click can't fire two DELETEs,
   // the second of which 404s and shows a spurious error on a vanishing card.
   deleteStatus: 'idle' | 'deleting'
+  // A file upload (Visualiser texture, later spectral_data) for one of this
+  // card's file properties is in flight. Picking a file POSTs it immediately —
+  // and for a texture that upload also persists the member (texture mode). Kept
+  // separate from `saveStatus` so the "uploading" indicator doesn't read as a
+  // member save, and so an upload completing doesn't trip the card's "save
+  // completed" fold. On success the reducer marks the card saved (the member now
+  // exists), so a later Save UPDATES it rather than re-adding it.
+  uploadStatus: 'idle' | 'uploading' | 'error'
+  uploadError: string | null
 }
 
 // One member of a fetched group (GET /library/groups/{id}): a material type and

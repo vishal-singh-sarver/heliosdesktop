@@ -3,7 +3,9 @@ import Dialog from '@renderer/components/Dialog'
 import React from 'react'
 import { useDispatch } from 'react-redux'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
+import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import {
+  assignMaterialRequested,
   deleteNodeRequested,
   groupNodesRequested,
   loadObjectRequested,
@@ -28,6 +30,29 @@ function readDraggedIds(e: React.DragEvent): string[] {
     return Array.isArray(parsed) ? (parsed as string[]) : []
   } catch {
     return []
+  }
+}
+
+// A material row being dragged (from the Saved Materials list) exposes its mime
+// in the drag's type list — readable during dragover, where the payload itself
+// is not. Lets a row light up for an incoming material without reading it yet.
+function isMaterialDrag(e: React.DragEvent): boolean {
+  return Array.from(e.dataTransfer.types).includes(MATERIAL_DND_MIME)
+}
+
+// The dropped material's { groupId, name }, or null when the drag isn't a
+// material / the payload is malformed.
+function readMaterialDrop(e: React.DragEvent): { groupId: string; name: string } | null {
+  const raw = e.dataTransfer.getData(MATERIAL_DND_MIME)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { groupId?: unknown; name?: unknown }
+    if (typeof parsed.groupId === 'string' && typeof parsed.name === 'string') {
+      return { groupId: parsed.groupId, name: parsed.name }
+    }
+    return null
+  } catch {
+    return null
   }
 }
 
@@ -105,6 +130,13 @@ function TreeRow({
 
   const handleDragOver = (e: React.DragEvent): void => {
     e.preventDefault()
+    // A dragged material assigns to the whole row (leaf OR group) — no edge
+    // bands. Light the whole row ('into' ring) and mark it a copy, not a move.
+    if (isMaterialDrag(e)) {
+      e.dataTransfer.dropEffect = 'copy'
+      setDropZone('into')
+      return
+    }
     e.dataTransfer.dropEffect = 'move'
     // Split the row into edge/center bands: hovering the top 30% places the item
     // before this row, the bottom 30% after it (thin blue line), and the
@@ -121,6 +153,31 @@ function TreeRow({
     e.stopPropagation() // don't also trigger the root (ungroup) drop zone
     const zone = dropZone
     setDropZone(null)
+
+    // A dropped material assigns to this row. A leaf takes just itself; a group
+    // fans out over its member objects (groups don't nest, so childIds are all
+    // leaves). Handled before the row-drag logic so a material never reorders.
+    const material = readMaterialDrop(e)
+    if (material) {
+      if (!projectId || !scenarioId) return
+      const targetIds = isGroup
+        ? node.childIds.filter((id) => nodesById[id]?.kind !== 'group')
+        : [node.id]
+      if (targetIds.length) {
+        dispatch(
+          assignMaterialRequested(
+            projectId,
+            scenarioId,
+            targetIds,
+            material.groupId,
+            material.name,
+            node.name
+          )
+        )
+      }
+      return
+    }
+
     const ids = readDraggedIds(e)
     if (!ids.length || !projectId || !scenarioId) return
 

@@ -1,5 +1,7 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
-import { selectLoadStatus } from 'containers/Geometry/selectors'
+import { assignMaterialSucceeded } from 'containers/Geometry/actions'
+import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
+import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { call, delay, put, race, select, take, takeLatest, takeLeading } from 'redux-saga/effects'
 import { fetchObjectGeometryBinary } from '../api/geometry'
@@ -9,6 +11,7 @@ import { LOAD_OBJECT_GEOMETRY_REQUESTED } from '../store/constants'
 import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
+  onMaterialAssigned,
   onNodesListed
 } from '../store/saga'
 import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
@@ -158,6 +161,43 @@ describe('onNodesListed', () => {
     gen.next([]) // select scene load
     // A load is already running → let it finish, don't start another.
     expect(gen.next({ loading: true }).done).toBe(true)
+  })
+})
+
+describe('onMaterialAssigned', () => {
+  const visibleNode = (id: string): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('re-fetches and re-caches the binary geometry of each restyled object', () => {
+    const gen = onMaterialAssigned(assignMaterialSucceeded(['28']))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    // Enter the loop with a visible node → fetch + cache its geometry.
+    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('skips a hidden object so an assignment never un-hides it', () => {
+    const gen = onMaterialAssigned(assignMaterialSucceeded(['28']))
+    gen.next() // select nodesById
+    const hidden = { ...visibleNode('28'), visibleInViewport: false }
+    // Node is hidden → no fetch, generator completes.
+    expect(gen.next({ '28': hidden }).done).toBe(true)
   })
 })
 

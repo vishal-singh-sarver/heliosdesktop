@@ -49,6 +49,7 @@ import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
+import { textureServeUrl } from './service'
 import {
   selectDeletingIds,
   selectMaterialDraft,
@@ -510,7 +511,13 @@ function ParameterGroupCard({
     pendingUrlRef.current = next?.url ?? null
     setPendingFile(next)
   }
-  const pickFile = (file: File): void => setPending({ file, url: URL.createObjectURL(file) })
+  // Picking a file uploads it RIGHT AWAY: show a local object-URL preview for
+  // immediacy, then POST the file so its stored URL lands in the draft. Save
+  // (below) persists the member afterwards.
+  const pickFile = (file: File): void => {
+    setPending({ file, url: URL.createObjectURL(file) })
+    onUploadTexture(file)
+  }
 
   // A save that COMPLETED: saving → idle. (A failure goes saving → error, which
   // leaves the card open with its error showing.) That drops the pending file and
@@ -623,13 +630,17 @@ function ParameterGroupCard({
   //  - Visualiser Texture → a texture is chosen (a picked file or a stored path).
   const fieldsValid = isMaterialFormValid(parameterGroups, group.values)
   const saving = group.saveStatus === 'saving'
+  // A file upload (the picked texture) is in flight — Save waits for its URL.
+  const uploading = group.uploadStatus === 'uploading'
   // A backend DELETE for this member is in flight — the trash locks until it
   // answers, so a second click can't fire a second DELETE.
   const deleting = group.deleteStatus === 'deleting'
-  // Texture mode can save only when a texture is CHOSEN right now — a highlighted
-  // library texture or a picked file. An already-stored texture does NOT keep Save
-  // enabled (nothing selected ⇒ disabled), mirroring the colour gate.
-  const textureReady = pendingLibrary != null || pendingFile != null
+  // The texture that Save would persist: a highlighted library pick wins, else
+  // the path a just-completed upload staged into `values`. A picked FILE no
+  // longer gates Save on its own — it's uploaded first, and it's the returned
+  // URL (now in `values`) that counts.
+  const chosenTexture = pendingLibrary ?? (group.values[TEXTURE_PROPERTY] || null)
+  const textureReady = chosenTexture != null
   const modeComplete = !isVisualiser
     ? fieldsValid
     : visualMode === 'custom'
@@ -641,21 +652,19 @@ function ParameterGroupCard({
   // baseline, so any complete state counts as a change; a saved card can't be
   // re-saved unchanged, and editing back to the stored values closes Save again.
   const valuesDirty = group.savedValues == null || !sameValues(group.values, group.savedValues)
-  // A texture pick lives outside `values` until Save writes it, so the baseline
-  // can't see it: a picked FILE is always a change (a fresh upload), and a library
-  // pick is one only when it isn't the texture already stored.
-  const textureDirty =
-    pendingFile != null || pendingLibrary !== (group.savedValues?.[TEXTURE_PROPERTY] ?? null)
+  // In texture mode the chosen path (uploaded URL or library pick) is dirty when
+  // it differs from the stored one — so a fresh upload opens Save, and a saved
+  // texture re-read from the backend keeps it shut.
+  const textureDirty = chosenTexture !== (group.savedValues?.[TEXTURE_PROPERTY] ?? null)
   const dirty = isVisualiser && visualMode === 'texture' ? textureDirty : valuesDirty
 
-  const canSave = group.typeId != null && modeComplete && dirty && !saving
+  const canSave = group.typeId != null && modeComplete && dirty && !saving && !uploading
 
-  // Route Save by the Visualiser's active mode. In texture mode, a highlighted
-  // library pick wins, then a picked file (upload). The gate guarantees one exists.
+  // Route Save by the Visualiser's active mode. Texture mode persists the chosen
+  // path (uploaded or library) via the member save; the gate guarantees one.
   const onSave = (): void => {
     if (isVisualiser && visualMode === 'texture') {
-      if (pendingLibrary != null) onSaveTexture(pendingLibrary)
-      else if (pendingFile) onUploadTexture(pendingFile.file)
+      if (chosenTexture != null) onSaveTexture(chosenTexture)
     } else {
       onSaveColour()
     }
@@ -758,10 +767,18 @@ function ParameterGroupCard({
                   mode={visualMode}
                   onModeChange={setVisualMode}
                   selectedPath={pendingLibrary}
-                  pendingFileUrl={pendingFile?.url}
+                  // Preview: the just-picked file's object URL for immediacy,
+                  // else the stored/uploaded path served from the backend — so a
+                  // completed upload (or a reopened texture member) still shows.
+                  pendingFileUrl={
+                    pendingFile?.url ??
+                    (group.values[TEXTURE_PROPERTY]
+                      ? textureServeUrl(group.values[TEXTURE_PROPERTY])
+                      : undefined)
+                  }
                   onPickLibrary={toggleLibrary}
                   onPickFile={pickFile}
-                  uploading={saving}
+                  uploading={uploading}
                   // `group.saveError` is NOT passed down: the card renders it
                   // once below Save, for every kind of card. Feeding it here as
                   // well printed a failed upload's message twice, a few rows
@@ -819,9 +836,9 @@ function ParameterGroupCard({
             >
               {saving ? messages.savingParameterGroup : messages.saveParameterGroup}
             </button>
-            {group.saveError && (
+            {(group.saveError || group.uploadError) && (
               <span className="form-error-text" style={{ color: '#D92D20' }}>
-                {group.saveError}
+                {group.saveError ?? group.uploadError}
               </span>
             )}
           </>

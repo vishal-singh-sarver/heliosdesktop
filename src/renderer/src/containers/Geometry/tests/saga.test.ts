@@ -1,7 +1,9 @@
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
-import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import geometrySaga, {
+  assignMaterialWorker,
   createObjectWorker,
   deleteNodeWorker,
   listNodesWorker,
@@ -14,6 +16,7 @@ import geometrySaga, {
   toggleViewportWorker
 } from '../saga'
 import * as actions from '../actions'
+import messages from '../messages'
 import {
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
@@ -553,6 +556,41 @@ describe('moveNodesWorker', () => {
     // Eject the leftover member (c2) to the root, then delete the group.
     expect(gen.next(after).value).toEqual(call(service.moveNodes, P, S, ['c2'], null))
     expect(gen.next().value).toEqual(call(service.deleteGroup, P, S, 'g'))
+    expect(gen.next().done).toBe(true)
+  })
+})
+
+describe('assignMaterialWorker', () => {
+  it('POSTs one assign per object then raises a success toast naming material + target', () => {
+    const action = actions.assignMaterialRequested('p', 's', ['1', '2'], '7', 'Grass', 'Group.001')
+    const gen = assignMaterialWorker(action)
+    expect(gen.next().value).toEqual(
+      all([
+        call(service.assignMaterialGroup, 'p', 's', '1', '7'),
+        call(service.assignMaterialGroup, 'p', 's', '2', '7')
+      ])
+    )
+    // Tells the 3D viewport to re-fetch the restyled objects' binary geometry.
+    expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded(['1', '2'])))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(messages.assignMaterialSuccess('Grass', 'Group.001'), 'success'))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('raises a failure toast naming the material when a call throws', () => {
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    gen.next() // all(...)
+    expect(gen.throw(new Error('boom')).value).toEqual(
+      put(showSnackbar(messages.assignMaterialFailure('Grass'), 'error'))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('does nothing when there are no target objects', () => {
+    const action = actions.assignMaterialRequested('p', 's', [], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
     expect(gen.next().done).toBe(true)
   })
 })

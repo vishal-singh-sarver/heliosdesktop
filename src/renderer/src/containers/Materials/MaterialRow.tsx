@@ -6,6 +6,7 @@ import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
 import { deleteMaterialRequested, openSavedMaterialRequested, selectMaterial } from './actions'
+import { MATERIAL_DND_MIME } from './constants'
 import MaterialNameEditor from './MaterialNameEditor'
 import messages from './messages'
 import { selectDeletingIds } from './selectors'
@@ -103,6 +104,18 @@ export default function MaterialRow({
     setConfirmDeleteOpen(false)
   }
 
+  // Drag this material onto a geometry object/group to assign it. Carries the
+  // group id + name (for the outcome toast); the Geometry tree reads this mime
+  // and ignores everything else. Disabled while renaming so a drag can't start
+  // from the inline editor.
+  const onDragStart = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.dataTransfer.setData(
+      MATERIAL_DND_MIME,
+      JSON.stringify({ groupId: material.id, name: material.name })
+    )
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
   // Names to check a rename against, minus this row's own (so an unchanged name
   // is allowed).
   const otherNames = React.useMemo(() => {
@@ -128,6 +141,8 @@ export default function MaterialRow({
         ref={rowRef}
         role="button"
         tabIndex={0}
+        draggable={!editing}
+        onDragStart={onDragStart}
         onClick={onSelect}
         onKeyDown={onKeyDown}
         // The "just created" cue sits under the error/editing states (both of

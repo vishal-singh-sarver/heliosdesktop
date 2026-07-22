@@ -400,3 +400,22 @@ export function updateObject(
     })
     .then(() => undefined)
 }
+
+
+// POST — assign a material GROUP to one object (drag-and-drop). The backend keys
+// both objects and groups by integer; `sync` asks it to reconcile + repaint the
+// scenario. Returns nothing we consume — feedback is the caller's toast.
+export function assignMaterialGroup(
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string,
+  sync = true
+): Promise<void> {
+  return api
+    .post(API_ROUTES.geometry.assignMaterialGroup(projectId, scenarioId, objectId), {
+      group_id: Number(groupId),
+      sync
+    })
+    .then(() => undefined)
+}

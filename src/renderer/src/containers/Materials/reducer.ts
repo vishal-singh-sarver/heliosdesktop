@@ -59,7 +59,9 @@ const emptyCard = (id: number, number: number): MaterialParameterGroup => ({
   saved: false,
   saveStatus: 'idle',
   saveError: null,
-  deleteStatus: 'idle'
+  deleteStatus: 'idle',
+  uploadStatus: 'idle',
+  uploadError: null
 })
 
 // A write the BACKEND accepted, whose outcome could not be applied because the
@@ -418,7 +420,9 @@ const materialsReducer = (
           saved: true,
           saveStatus: 'idle',
           saveError: null,
-          deleteStatus: 'idle'
+          deleteStatus: 'idle',
+          uploadStatus: 'idle',
+          uploadError: null
         }))
 
         // A group with no members (created by +Add Materials but never filled in,
@@ -584,31 +588,38 @@ const materialsReducer = (
         break
 
       // ── Visualiser texture upload ──────────────────────────────────────────
+      // The upload endpoint (POST …/files/texture_file) both stores the file AND
+      // persists the member in texture mode — CREATING it if missing. So a texture
+      // upload IS the member's save+apply; there is no separate "add" step. These
+      // cases drive `uploadStatus` (a distinct in-flight indicator, so the upload
+      // completing doesn't trip the Save-completed fold) and, on success, reflect
+      // the persisted member: switch to texture mode and mark the card SAVED so a
+      // later Save UPDATES it (PUT) rather than trying to re-ADD it (POST → 409).
       case UPLOAD_TEXTURE_REQUESTED: {
         withCard(draft, action.payload.groupId, action.payload.cardId, (card) => {
-          card.saveStatus = 'saving'
-          card.saveError = null
+          card.uploadStatus = 'uploading'
+          card.uploadError = null
         })
         break
       }
 
       case UPLOAD_TEXTURE_SUCCEEDED: {
         const applied = withCard(draft, action.materialId, action.cardId, (card) => {
-          // The upload persisted the member in texture mode — reflect that in the
-          // draft: switch to the returned path, drop the (now-cleared) colour, and
-          // mark it saved.
-          card.saved = true
-          card.saveStatus = 'idle'
-          card.saveError = null
+          card.uploadStatus = 'idle'
+          card.uploadError = null
+          // Reflect the member the upload persisted: texture mode on, colour
+          // cleared, the returned path stored.
           card.values[TEXTURE_PROPERTY] = action.path
           card.values[TEXTURE_TOGGLE_PROPERTY] = 'true'
           for (const key of VISUALISATION_CUSTOM_PROPERTIES) card.values[key] = ''
-          // Snapshot AFTER the texture values above land, so the card reads as
-          // clean against what the upload actually persisted.
+          // The member now exists on the backend → future saves PATCH, not POST.
+          card.saved = true
+          // Snapshot AFTER the texture values land, so the card reads as clean
+          // against what the upload persisted (Save stays shut until a real edit).
           card.savedValues = { ...card.values }
         })
-        // As above: the upload persisted the member, so a dropped outcome must
-        // invalidate rather than leave a cache that predates the texture.
+        // The upload persisted the member, so a dropped outcome must invalidate
+        // rather than leave a cache that predates the texture.
         if (applied) refreshDetailCache(draft)
         else invalidateDetailCache(draft, action.materialId)
         break
@@ -616,8 +627,8 @@ const materialsReducer = (
 
       case UPLOAD_TEXTURE_FAILED: {
         withCard(draft, action.materialId, action.cardId, (card) => {
-          card.saveStatus = 'error'
-          card.saveError = action.payload
+          card.uploadStatus = 'error'
+          card.uploadError = action.payload
         })
         break
       }

@@ -24,7 +24,12 @@ const messages = {
   deleteHeading: (name: string) => `Delete ${name}`,
   deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteConfirm: 'Delete',
-  deleteCancel: 'Cancel'
+  deleteCancel: 'Cancel',
+  // Material drag-and-drop assignment outcome toasts. Success names both the
+  // material and the geometry/group it landed on; failure names the material.
+  assignMaterialSuccess: (materialName: string, targetName: string) =>
+    `${materialName} is added in ${targetName}`,
+  assignMaterialFailure: (name: string) => `Failed to assign "${name}"`
 } as const
 
 export default messages

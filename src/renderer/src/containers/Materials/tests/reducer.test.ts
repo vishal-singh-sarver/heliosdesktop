@@ -62,7 +62,9 @@ describe('materialsReducer', () => {
           saved: false,
           saveStatus: 'idle',
           saveError: null,
-          deleteStatus: 'idle'
+          deleteStatus: 'idle',
+          uploadStatus: 'idle',
+          uploadError: null
         }
       ],
       nextGroupId: 2
@@ -241,7 +243,7 @@ describe('materialsReducer', () => {
       expect(result.detailsById['12'].members).toEqual([])
     })
 
-    it('UPLOAD_TEXTURE_SUCCEEDED switches the card to texture mode and clears colour', () => {
+    it('UPLOAD_TEXTURE_SUCCEEDED switches to texture mode and marks the card saved', () => {
       const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
       const typed = materialsReducer(opened, actions.setParameterGroupType(1, 7))
       // The card had a colour before the user switched to texture and uploaded.
@@ -252,12 +254,16 @@ describe('materialsReducer', () => {
       )
 
       const card = result.editDraft?.groups[0]
+      // The upload endpoint persists the member, so the card is saved + clean —
+      // a later Save PATCHes it (never re-POSTs → no 409).
       expect(card?.saved).toBe(true)
-      expect(card?.saveStatus).toBe('idle')
+      expect(card?.uploadStatus).toBe('idle')
       expect(card?.values.texture_file).toBe('uploads/materials/12/grass.png')
       expect(card?.values.texture_toggle).toBe('true')
       // Colour is cleared — the member is now texture-only.
       expect(card?.values.color_r).toBe('')
+      // Clean baseline: savedValues mirrors the persisted values.
+      expect(card?.savedValues?.texture_file).toBe('uploads/materials/12/grass.png')
     })
 
     // The cache stands in for a GET (openSavedMaterialWorker serves from it and

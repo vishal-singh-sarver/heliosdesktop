@@ -1,8 +1,11 @@
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
-import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import * as actions from './actions'
+import messages from './messages'
 import type {
+  AssignMaterialRequestedAction,
   CreateObjectRequestedAction,
   DeleteNodeRequestedAction,
   GroupNodesRequestedAction,
@@ -16,6 +19,7 @@ import type {
   ToggleViewportAction
 } from './actions'
 import {
+  ASSIGN_MATERIAL_REQUESTED,
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   GROUP_NODES_REQUESTED,
@@ -344,6 +348,29 @@ export function* setModelOnWorker(action: SetModelOnAction): Generator {
   }
 }
 
+// Assign a material group to the drop target(s). One object for a leaf drop, or
+// every member object for a group drop — all POSTed together. On success a
+// single success toast; if ANY call fails, the failure toast names the material.
+// Fire-and-report: the tree already shows the assignment via the backend repaint
+// (sync), so there's no slice state to reconcile here.
+export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Generator {
+  const { projectId, scenarioId, objectIds, groupId, materialName, targetName } = action
+  if (!objectIds.length) return
+  try {
+    yield all(
+      objectIds.map((objectId) =>
+        call(service.assignMaterialGroup, projectId, scenarioId, objectId, groupId)
+      )
+    )
+    // Tell the 3D viewport which objects were restyled so it re-fetches their
+    // binary geometry — without this the new material only shows after a refresh.
+    yield put(actions.assignMaterialSucceeded(objectIds))
+    yield put(showSnackbar(messages.assignMaterialSuccess(materialName, targetName), 'success'))
+  } catch {
+    yield put(showSnackbar(messages.assignMaterialFailure(materialName), 'error'))
+  }
+}
+
 export default function* geometrySaga(): Generator {
   yield takeLatest(LIST_NODES_REQUESTED, listNodesWorker)
   yield takeEvery(RENAME_REQUESTED, renameWorker)
@@ -356,4 +383,5 @@ export default function* geometrySaga(): Generator {
   yield takeEvery(TOGGLE_VIEWPORT, toggleViewportWorker)
   yield takeEvery(TOGGLE_RENDER, toggleRenderWorker)
   yield takeEvery(SET_MODEL_ON, setModelOnWorker)
+  yield takeEvery(ASSIGN_MATERIAL_REQUESTED, assignMaterialWorker)
 }

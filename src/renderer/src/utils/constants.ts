@@ -98,7 +98,12 @@ export const API_ROUTES = {
     groupVisibility: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/visibility`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
-      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // POST — assign a material GROUP to one object (drag-and-drop a material onto
+    // a geometry row). Body: { group_id, sync }. A group drop fans this out over
+    // the group's member objects, one call each.
+    assignMaterialGroup: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/material-groups`
   },
   // Material library — GLOBAL material GROUPS (migration 022). A group is a named
   // bundle of one-or-more material types + their property values. `groupsList`

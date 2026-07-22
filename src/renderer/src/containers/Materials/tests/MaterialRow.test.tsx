@@ -4,7 +4,7 @@ import { createStore, Reducer, UnknownAction } from 'redux'
 import { InjectableStore } from 'store/configureStore'
 import { vi } from 'vitest'
 import MaterialRow from '../MaterialRow'
-import { OPEN_SAVED_MATERIAL_REQUESTED } from '../constants'
+import { MATERIAL_DND_MIME, OPEN_SAVED_MATERIAL_REQUESTED } from '../constants'
 import type { Material } from '../types'
 
 const material: Material = {
@@ -101,5 +101,26 @@ describe('<MaterialRow /> delete-in-flight', () => {
       </Provider>
     )
     expect(screen.getByRole('button', { name: 'Delete material' })).toBeEnabled()
+  })
+})
+
+// The row is a drag source: dragging it onto a geometry object/group assigns the
+// material. It carries the group id (to assign) + name (for the outcome toast).
+describe('<MaterialRow /> drag source', () => {
+  it('is draggable', () => {
+    renderRow()
+    expect(screen.getByRole('button', { name: /Concrete/ })).toHaveAttribute('draggable', 'true')
+  })
+
+  it('writes { groupId, name } under the material mime on dragstart', () => {
+    renderRow()
+    const setData = vi.fn()
+    fireEvent.dragStart(screen.getByRole('button', { name: /Concrete/ }), {
+      dataTransfer: { setData, effectAllowed: '' }
+    })
+    expect(setData).toHaveBeenCalledWith(
+      MATERIAL_DND_MIME,
+      JSON.stringify({ groupId: '12', name: 'Concrete' })
+    )
   })
 })

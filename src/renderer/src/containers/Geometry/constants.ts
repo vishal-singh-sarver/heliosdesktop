@@ -46,6 +46,16 @@ export const MOVE_NODES_FAILED = 'app/Geometry/MOVE_NODES_FAILED' as const
 // isn't persisted (it resets on reload).
 export const REORDER_NODES = 'app/Geometry/REORDER_NODES' as const
 
+// ── Assign a material (drag-and-drop a material row onto a geometry object or ─
+//    group). The saga POSTs one call per target object, then raises a global
+//    snackbar with the outcome. _SUCCEEDED carries the assigned object ids so
+//    the 3D viewport can re-fetch their binary geometry — the material's
+//    appearance is baked into that binary, so without a re-fetch it only shows
+//    after a full scene reload (refresh). There is no _FAILED (the toast is the
+//    only failure feedback).
+export const ASSIGN_MATERIAL_REQUESTED = 'app/Geometry/ASSIGN_MATERIAL_REQUESTED' as const
+export const ASSIGN_MATERIAL_SUCCEEDED = 'app/Geometry/ASSIGN_MATERIAL_SUCCEEDED' as const
+
 // ── Delete a node. A leaf deletes itself; a group also removes its children. ─
 export const DELETE_NODE_REQUESTED = 'app/Geometry/DELETE_NODE_REQUESTED' as const
 export const DELETE_NODE_SUCCEEDED = 'app/Geometry/DELETE_NODE_SUCCEEDED' as const

@@ -1,4 +1,5 @@
 import {
+  ASSIGN_MATERIAL_SUCCEEDED,
   CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
   LIST_NODES_SUCCEEDED,
@@ -7,6 +8,7 @@ import {
   VISIBILITY_SYNC_FAILED
 } from 'containers/Geometry/constants'
 import type {
+  AssignMaterialSucceededAction,
   CreateObjectSucceededAction,
   DeleteNodeSucceededAction,
   ToggleViewportAction,
@@ -107,6 +109,23 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
     yield* fetchAndCacheObjectGeometry(objectId, false)
   } catch {
     // Non-fatal.
+  }
+}
+
+// A material was assigned to one-or-more objects (drag-and-drop). The material's
+// appearance is baked into each object's binary geometry, so re-fetch every
+// affected object to restyle it in place — mirroring onGeometryUpdated, and
+// skipping hidden objects so an assignment never un-hides one.
+export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Generator {
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  for (const rawId of action.objectIds) {
+    const node = nodesById[rawId]
+    if (node && !node.visibleInViewport) continue
+    try {
+      yield* fetchAndCacheObjectGeometry(Number(rawId), false)
+    } catch {
+      // Non-fatal — the object keeps its previous appearance until reloaded.
+    }
   }
 }
 
@@ -354,4 +373,5 @@ export default function* threeDWindowSaga(): Generator {
   yield takeEvery(DELETE_NODE_SUCCEEDED, onGeometryDeleted)
   yield takeEvery(TOGGLE_VIEWPORT, onViewportToggled)
   yield takeEvery(VISIBILITY_SYNC_FAILED, onVisibilitySyncFailed)
+  yield takeEvery(ASSIGN_MATERIAL_SUCCEEDED, onMaterialAssigned)
 }

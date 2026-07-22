@@ -77,6 +77,14 @@ export const UPLOAD_TEXTURE_FAILED = 'app/Materials/UPLOAD_TEXTURE_FAILED' as co
 export const SET_MATERIAL_DRAFT_NAME = 'app/Materials/SET_MATERIAL_DRAFT_NAME' as const
 export const CLOSE_MATERIAL_DRAFT = 'app/Materials/CLOSE_MATERIAL_DRAFT' as const
 
+// Drag-and-drop: dragging a saved material row onto a geometry object/group to
+// assign it. A private mime (mirrors Geometry's own `application/x-geo` row mime)
+// so the tree tells a material drag apart from a row-reorder drag. The payload
+// is `{ groupId, name }` — the group id to assign + the name for the outcome
+// toast. Shared by the drag source (MaterialRow) and drop target (Geometry
+// TreeRow).
+export const MATERIAL_DND_MIME = 'application/x-material' as const
+
 // ── "Used colors" history (visualisation colour picker) ──────────────────────
 // Record a colour the user just saved onto a material (most-recent-first, capped,
 // de-duped); a saga mirrors the resulting list to localStorage.

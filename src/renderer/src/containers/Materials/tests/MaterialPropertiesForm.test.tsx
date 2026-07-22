@@ -9,9 +9,10 @@ import {
   renameMaterialFailed,
   saveParameterGroupFailed,
   saveParameterGroupSucceeded,
+  uploadTextureSucceeded,
   type MaterialsAction
 } from '../actions'
-import { RENAME_MATERIAL_REQUESTED } from '../constants'
+import { RENAME_MATERIAL_REQUESTED, UPLOAD_TEXTURE_REQUESTED } from '../constants'
 import materialsReducer, {
   initialState as materialsInitialState,
   type MaterialsState
@@ -38,6 +39,8 @@ const card = (id: number, over: Partial<MaterialParameterGroup> = {}): MaterialP
   saveStatus: 'idle',
   saveError: null,
   deleteStatus: 'idle',
+  uploadStatus: 'idle',
+  uploadError: null,
   ...over
 })
 
@@ -876,6 +879,54 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
     expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('')
     // Nothing was written, so the card is still clean and Save stays shut.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  // The upload is a step BEFORE Save: picking a file POSTs it right away, so its
+  // stored URL is in the draft by the time the user presses Save.
+  it('uploads the picked texture immediately, on pick (not on Save)', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    const { container } = render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Custom → Select Texture → Upload File sub-tab.
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+
+    // Picking a file fires the upload right away — no Save click.
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['x'], 'grass.png', { type: 'image/png' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    const uploads = dispatch.mock.calls
+      .map((c) => c[0] as { type?: string })
+      .filter((a) => a.type === UPLOAD_TEXTURE_REQUESTED)
+    expect(uploads).toHaveLength(1)
+  })
+
+  // The texture upload endpoint persists the member itself (creating it in texture
+  // mode), so a successful upload marks the card saved + clean — Save is not
+  // offered as a re-add (a POST there would 409 "already in this group").
+  it('a texture upload marks the card saved, so Save is not offered (no re-POST)', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The upload landed (its endpoint persisted the member) — reflect that.
+    act(() => {
+      store.dispatch(uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png'))
+    })
+
+    // Upload IS the save: the card is clean, so Save stays disabled.
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 

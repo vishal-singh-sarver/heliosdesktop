@@ -1,4 +1,6 @@
 import {
+  ASSIGN_MATERIAL_REQUESTED,
+  ASSIGN_MATERIAL_SUCCEEDED,
   CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
@@ -196,6 +198,25 @@ export type ReorderNodesAction = {
   targetId: string
   position: 'before' | 'after'
 }
+// Assign a material group to one-or-more objects (drag-and-drop). A leaf drop
+// carries just that object; a group drop carries all its member object ids.
+// `materialName` and `targetName` (the dropped-on geometry/group) ride along for
+// the outcome toast.
+export type AssignMaterialRequestedAction = {
+  type: typeof ASSIGN_MATERIAL_REQUESTED
+  projectId: string
+  scenarioId: string
+  objectIds: string[]
+  groupId: string
+  materialName: string
+  targetName: string
+}
+// The assign landed on the backend — carries the affected object ids so the 3D
+// viewport can re-fetch their (now restyled) binary geometry.
+export type AssignMaterialSucceededAction = {
+  type: typeof ASSIGN_MATERIAL_SUCCEEDED
+  objectIds: string[]
+}
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
   projectId: string
@@ -327,6 +348,8 @@ export type GeometryAction =
   | GroupNodesFailedAction
   | MoveNodesRequestedAction
   | ReorderNodesAction
+  | AssignMaterialRequestedAction
+  | AssignMaterialSucceededAction
   | MoveNodesSucceededAction
   | MoveNodesFailedAction
   | DeleteNodeRequestedAction
@@ -499,6 +522,28 @@ export const reorderNodes = (
   nodeIds,
   targetId,
   position
+})
+
+export const assignMaterialRequested = (
+  projectId: string,
+  scenarioId: string,
+  objectIds: string[],
+  groupId: string,
+  materialName: string,
+  targetName: string
+): AssignMaterialRequestedAction => ({
+  type: ASSIGN_MATERIAL_REQUESTED,
+  projectId,
+  scenarioId,
+  objectIds,
+  groupId,
+  materialName,
+  targetName
+})
+
+export const assignMaterialSucceeded = (objectIds: string[]): AssignMaterialSucceededAction => ({
+  type: ASSIGN_MATERIAL_SUCCEEDED,
+  objectIds
 })
 
 export const moveNodesSucceeded = (
