@@ -447,3 +447,17 @@ export function updateObject(
     })
     .then(() => undefined)
 }
+
+// DELETE a saved material-GROUP assignment from an object (§ material-groups).
+// Used by the per-material trash icon when the material is already persisted on
+// the ground (in the baseline); a draft-only pick is dropped client-side instead.
+export function unassignMaterial(
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string
+): Promise<void> {
+  return api
+    .delete(API_ROUTES.geometry.unassignMaterial(projectId, scenarioId, objectId, groupId))
+    .then(() => undefined)
+}

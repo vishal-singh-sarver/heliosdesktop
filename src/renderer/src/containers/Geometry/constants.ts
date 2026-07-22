@@ -70,3 +70,11 @@ export const UPDATE_OBJECT_FAILED = 'app/Geometry/UPDATE_OBJECT_FAILED' as const
 export const LOAD_OBJECT_REQUESTED = 'app/Geometry/LOAD_OBJECT_REQUESTED' as const
 export const LOAD_OBJECT_SUCCEEDED = 'app/Geometry/LOAD_OBJECT_SUCCEEDED' as const
 export const LOAD_OBJECT_FAILED = 'app/Geometry/LOAD_OBJECT_FAILED' as const
+
+// Unassign a SAVED material group from the open object (the per-material trash
+// icon, for a material that's in the backend baseline). DELETE /material-groups;
+// success drops it from the draft + baseline + detail cache. A draft-only pick is
+// removed via REMOVE_DRAFT_MATERIAL instead (no backend call).
+export const UNASSIGN_MATERIAL_REQUESTED = 'app/Geometry/UNASSIGN_MATERIAL_REQUESTED' as const
+export const UNASSIGN_MATERIAL_SUCCEEDED = 'app/Geometry/UNASSIGN_MATERIAL_SUCCEEDED' as const
+export const UNASSIGN_MATERIAL_FAILED = 'app/Geometry/UNASSIGN_MATERIAL_FAILED' as const

@@ -29,7 +29,8 @@ import {
   setDraftValue,
   updateObjectRequested,
   addDraftMaterial,
-  removeDraftMaterial
+  removeDraftMaterial,
+  unassignMaterialRequested
 } from './actions'
 import MaterialPropertiesPopup, { type MaterialDetailSection } from './MaterialPropertiesPopup'
 import messages from './messages'
@@ -217,6 +218,22 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // PATCHes the net-new picks (add-only). The selection survives re-renders.
   const handleToggleMaterial = (m: { id: string; name: string }, checked: boolean): void => {
     dispatch(checked ? addDraftMaterial(m.id, m.name) : removeDraftMaterial(m.id))
+  }
+
+  // The per-material trash icon. A material only in the draft (picked this session,
+  // not in the baseline) is dropped immediately from the data; a material already
+  // saved on the ground opens a confirm dialog, then a backend unassign DELETE.
+  const [unassignTarget, setUnassignTarget] = React.useState<DraftMaterialGroup | null>(null)
+  const handleDeleteMaterial = (m: DraftMaterialGroup): void => {
+    if (draft.materialBaseline.includes(m.groupId)) setUnassignTarget(m)
+    else dispatch(removeDraftMaterial(m.groupId))
+  }
+  const performUnassign = (): void => {
+    if (!projectId || !scenarioId || !unassignTarget) return
+    dispatch(
+      unassignMaterialRequested(projectId, scenarioId, draft.objectId, unassignTarget.groupId)
+    )
+    setUnassignTarget(null)
   }
 
   // Resolve a group's members for the read-only popup. A material is assigned to a
@@ -583,31 +600,44 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         {draft.materials.length > 0 && (
           <div className="flex flex-col border-b border-app-border pb-2">
             {draft.materials.map((m) => (
-              <button
-                key={m.groupId}
-                type="button"
-                aria-haspopup="dialog"
-                aria-expanded={detailPopup?.material.groupId === m.groupId}
-                // currentTarget IS the anchor, measured synchronously here — so a
-                // growing list of rows needs no ref map.
-                onClick={(e) => openDetailPopup(e.currentTarget, m)}
-                className="flex w-full items-center gap-[5px] rounded py-2 text-left text-[13px] leading-[15px] text-white hover:bg-white/5"
-              >
-                <span className="min-w-0 flex-1 truncate">{m.name}</span>
-                {(m.stale || m.drift) && (
-                  <span
-                    aria-hidden="true"
-                    title={
-                      m.stale
-                        ? 'This material group was removed from the library'
-                        : 'Values differ from the material library'
-                    }
-                    className="shrink-0 text-amber-400"
-                  >
-                    •
-                  </span>
-                )}
-              </button>
+              // Borderless row (as before): the name (opens the read-only properties
+              // popup) + a trash icon (removes a draft pick, or unassigns a saved one).
+              // The hover highlight lives on the ROW so the whole row lights up —
+              // name and trash together — not just up to the trash icon.
+              <div key={m.groupId} className="flex items-center gap-1.5 rounded hover:bg-white/5">
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={detailPopup?.material.groupId === m.groupId}
+                  // currentTarget IS the anchor, measured synchronously here — so a
+                  // growing list of rows needs no ref map.
+                  onClick={(e) => openDetailPopup(e.currentTarget, m)}
+                  className="flex min-w-0 flex-1 items-center gap-[5px] py-2 text-left text-[13px] leading-[15px] text-white"
+                >
+                  <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                  {(m.stale || m.drift) && (
+                    <span
+                      aria-hidden="true"
+                      title={
+                        m.stale
+                          ? 'This material group was removed from the library'
+                          : 'Values differ from the material library'
+                      }
+                      className="shrink-0 text-amber-400"
+                    >
+                      •
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Remove ${m.name}`}
+                  onClick={() => handleDeleteMaterial(m)}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-white/10"
+                >
+                  <img src={deleteIcon} alt="" aria-hidden="true" className="h-[18px] w-[18px]" />
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -711,6 +741,36 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.deleteConfirm}
+          </button>
+        </div>
+      </Dialog>
+
+      {/* Unassign confirmation — only shown for a material already saved on the
+          ground (a draft-only pick is removed without this dialog). */}
+      <Dialog
+        isOpen={unassignTarget !== null}
+        title={messages.unassignTitle}
+        onClose={() => setUnassignTarget(null)}
+      >
+        <h3 className="text-base font-medium text-white">
+          {messages.unassignHeading(unassignTarget?.name ?? '')}
+        </h3>
+        <p className="text-sm text-neutral-400">{messages.unassignBody}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setUnassignTarget(null)}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.unassignCancel}
+          </button>
+          <button
+            type="button"
+            onClick={performUnassign}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+          >
+            {messages.unassignConfirm}
           </button>
         </div>
       </Dialog>

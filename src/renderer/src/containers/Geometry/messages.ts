@@ -36,7 +36,15 @@ const messages = {
   deleteHeading: (name: string) => `Delete ${name}`,
   deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteConfirm: 'Delete',
-  deleteCancel: 'Cancel'
+  deleteCancel: 'Cancel',
+  // Unassign-material confirmation — shown by the per-material trash icon ONLY for
+  // a material already saved on the ground (unassigning it deletes backend
+  // progress). A draft-only pick is removed silently.
+  unassignTitle: 'Unassign Material',
+  unassignHeading: (name: string) => `Are you sure you want to unassign "${name}"?`,
+  unassignBody: 'This action will delete any progress made using this material.',
+  unassignConfirm: 'Unassign',
+  unassignCancel: 'Cancel'
 } as const
 
 export default messages

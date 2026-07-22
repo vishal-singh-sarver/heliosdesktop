@@ -12,6 +12,9 @@ import {
   LOAD_OBJECT_FAILED,
   LOAD_OBJECT_REQUESTED,
   LOAD_OBJECT_SUCCEEDED,
+  UNASSIGN_MATERIAL_REQUESTED,
+  UNASSIGN_MATERIAL_SUCCEEDED,
+  UNASSIGN_MATERIAL_FAILED,
   LIST_NODES_REQUESTED,
   MOVE_NODES_REQUESTED,
   REORDER_NODES,
@@ -311,6 +314,28 @@ export type LoadObjectFailedAction = {
   type: typeof LOAD_OBJECT_FAILED
   payload: string
 }
+// Unassign a saved material group from the open object. Requested carries the
+// scope + object + group; Succeeded drops it from the draft/baseline/cache;
+// Failed surfaces the error on the form.
+export type UnassignMaterialRequestedAction = {
+  type: typeof UNASSIGN_MATERIAL_REQUESTED
+  projectId: string
+  scenarioId: string
+  objectId: string
+  groupId: string
+}
+export type UnassignMaterialSucceededAction = {
+  type: typeof UNASSIGN_MATERIAL_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  objectId: string
+  groupId: string
+}
+export type UnassignMaterialFailedAction = {
+  type: typeof UNASSIGN_MATERIAL_FAILED
+  groupId: string
+  payload: string
+}
 
 export type GeometryAction =
   | ListNodesRequestedAction
@@ -351,6 +376,9 @@ export type GeometryAction =
   | LoadObjectRequestedAction
   | LoadObjectSucceededAction
   | LoadObjectFailedAction
+  | UnassignMaterialRequestedAction
+  | UnassignMaterialSucceededAction
+  | UnassignMaterialFailedAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -656,5 +684,40 @@ export const loadObjectSucceeded = (
 
 export const loadObjectFailed = (error: string): LoadObjectFailedAction => ({
   type: LOAD_OBJECT_FAILED,
+  payload: error
+})
+
+export const unassignMaterialRequested = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string
+): UnassignMaterialRequestedAction => ({
+  type: UNASSIGN_MATERIAL_REQUESTED,
+  projectId,
+  scenarioId,
+  objectId,
+  groupId
+})
+
+export const unassignMaterialSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string
+): UnassignMaterialSucceededAction => ({
+  type: UNASSIGN_MATERIAL_SUCCEEDED,
+  projectId,
+  scenarioId,
+  objectId,
+  groupId
+})
+
+export const unassignMaterialFailed = (
+  groupId: string,
+  error: string
+): UnassignMaterialFailedAction => ({
+  type: UNASSIGN_MATERIAL_FAILED,
+  groupId,
   payload: error
 })

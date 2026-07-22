@@ -18,6 +18,17 @@ import geometryReducer, {
 } from '../reducer'
 import type { DraftMaterialGroup, GeoNode } from '../types'
 
+// jsdom doesn't implement <dialog>.showModal()/close(); polyfill them (reflecting
+// the `open` attribute) so the confirm dialogs can actually open in tests.
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
+    this.setAttribute('open', '')
+  }
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement): void {
+    this.removeAttribute('open')
+  }
+})
+
 const PROJECT = 'p'
 const SCENARIO = 's'
 const OBJECT_ID = '27'
@@ -263,6 +274,45 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
   })
 
+  it('trash icon removes a draft-only material immediately, with no confirm dialog', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Pick Cotton this session → it's in the draft but NOT the baseline.
+    pickCotton()
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    // Trash it → dropped from the section right away, no dialog opened.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Cotton' }))
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(document.querySelector('dialog[open]')).toBeNull()
+  })
+
+  it('trash icon on a saved material opens the unassign confirm dialog', () => {
+    render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          // A material seeded here also lands in the baseline (already saved).
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    expect(
+      screen.queryByText('Are you sure you want to unassign "Cotton"?')
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Cotton' }))
+
+    expect(screen.getByText('Are you sure you want to unassign "Cotton"?')).toBeInTheDocument()
+    expect(
+      screen.getByText('This action will delete any progress made using this material.')
+    ).toBeInTheDocument()
+  })
+
   it('opens the read-only properties popup when a picked material is clicked', () => {
     const { container } = render(
       <Provider store={makeStore([material('m1', 'Cotton')])}>
@@ -338,8 +388,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
-    // Expand the type accordion, then the resolved property + value render.
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Parameter Group.01' }))
+    // The type accordion is expanded by default, so the resolved property + value show.
     expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
     expect(within(dialog).getByText('0.3')).toBeInTheDocument()
   })
@@ -381,7 +430,6 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Parameter Group.01' }))
     expect(within(dialog).getByText('0.7')).toBeInTheDocument()
     expect(within(dialog).queryByText('0.3')).not.toBeInTheDocument()
   })
@@ -417,7 +465,6 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Parameter Group.01' }))
     expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
     expect(within(dialog).getByText('0.3')).toBeInTheDocument()
   })

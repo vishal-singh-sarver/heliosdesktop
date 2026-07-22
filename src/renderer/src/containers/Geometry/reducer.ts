@@ -30,6 +30,8 @@ import {
   UPDATE_OBJECT_FAILED,
   UPDATE_OBJECT_REQUESTED,
   UPDATE_OBJECT_SUCCEEDED,
+  UNASSIGN_MATERIAL_SUCCEEDED,
+  UNASSIGN_MATERIAL_FAILED,
   VISIBILITY_SYNC_FAILED
 } from './constants'
 import { anyModelOn, unionVisibility } from './models'
@@ -623,6 +625,34 @@ const geometryReducer = (
         if (!draft.createDraft) break
         draft.createDraft.saving = false
         draft.createDraft.saveError = action.payload
+        break
+      }
+
+      case UNASSIGN_MATERIAL_SUCCEEDED: {
+        // A saved material was unassigned on the backend. Drop it from the open
+        // draft (both the displayed list and the baseline) and from the detail
+        // cache, so it stays gone if the form is closed and reopened.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const { groupId, objectId } = action
+        if (draft.createDraft) {
+          draft.createDraft.materials = draft.createDraft.materials.filter(
+            (m) => m.groupId !== groupId
+          )
+          draft.createDraft.materialBaseline = draft.createDraft.materialBaseline.filter(
+            (id) => id !== groupId
+          )
+        }
+        const detail = s.detailsById[objectId]
+        if (detail) {
+          detail.materialGroups = detail.materialGroups.filter((g) => g.groupId !== groupId)
+        }
+        break
+      }
+
+      case UNASSIGN_MATERIAL_FAILED: {
+        // Pessimistic: the material was NOT removed. Surface the error on the form
+        // (the material stays in the list so the user can retry).
+        if (draft.createDraft) draft.createDraft.saveError = action.payload
         break
       }
     }

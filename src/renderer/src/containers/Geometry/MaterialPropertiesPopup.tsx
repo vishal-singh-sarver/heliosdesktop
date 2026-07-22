@@ -1,5 +1,5 @@
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
-import closeIcon from '@renderer/assets/close.svg'
+import closeIcon from '@renderer/assets/close_button_white.svg'
 import React from 'react'
 import messages from './messages'
 
@@ -74,11 +74,13 @@ export default function MaterialPropertiesPopup({
   height,
   onClose
 }: MaterialPropertiesPopupProps): React.JSX.Element {
-  // Which type sections are expanded, by typeId. Empty = all collapsed (matching
-  // the design's collapsed accordion list); the header toggles each open.
-  const [openTypeIds, setOpenTypeIds] = React.useState<Set<number>>(() => new Set())
+  // Which type sections are COLLAPSED, by typeId. Empty = all expanded, so the
+  // read-only material info opens fully expanded; the header toggles each closed.
+  // Tracking the collapsed set (not the open set) keeps sections open by default
+  // even when they load asynchronously after the popup mounts.
+  const [collapsedTypeIds, setCollapsedTypeIds] = React.useState<Set<number>>(() => new Set())
   const toggle = (typeId: number): void =>
-    setOpenTypeIds((prev) => {
+    setCollapsedTypeIds((prev) => {
       const next = new Set(prev)
       if (next.has(typeId)) next.delete(typeId)
       else next.add(typeId)
@@ -129,7 +131,7 @@ export default function MaterialPropertiesPopup({
         ) : (
           sections.map((section, index) => {
             const title = parameterGroupTitle(index + 1)
-            const open = openTypeIds.has(section.typeId)
+            const open = !collapsedTypeIds.has(section.typeId)
             return (
               <div
                 key={section.typeId}

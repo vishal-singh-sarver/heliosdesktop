@@ -91,6 +91,16 @@ export const API_ROUTES = {
     // different verb). Used by the right-panel Save.
     update: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // DELETE — unassign a saved material GROUP from an object (migration 022).
+    // Used by the per-material trash icon when the material is already persisted
+    // on the ground; a draft-only pick is dropped client-side instead.
+    unassignMaterial: (
+      projectId: string,
+      scenarioId: string,
+      objectId: string,
+      groupId: string
+    ) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/material-groups/${groupId}`,
     renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
     // Group-level visibility (viewport / render / per-model) — the backend
