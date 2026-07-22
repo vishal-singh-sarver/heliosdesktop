@@ -15,6 +15,9 @@ import {
   LOAD_OBJECT_FAILED,
   LOAD_OBJECT_REQUESTED,
   LOAD_OBJECT_SUCCEEDED,
+  UNASSIGN_MATERIAL_REQUESTED,
+  UNASSIGN_MATERIAL_SUCCEEDED,
+  UNASSIGN_MATERIAL_FAILED,
   LIST_NODES_REQUESTED,
   MOVE_NODES_REQUESTED,
   REORDER_NODES,
@@ -26,7 +29,8 @@ import {
   RENAME_REQUESTED,
   RENAME_SUCCEEDED,
   SELECT,
-  SET_DRAFT_MATERIAL,
+  ADD_DRAFT_MATERIAL,
+  REMOVE_DRAFT_MATERIAL,
   SET_DRAFT_NAME,
   SET_DRAFT_VALUE,
   SET_MODEL_ON,
@@ -40,7 +44,7 @@ import {
   UPDATE_OBJECT_SUCCEEDED,
   VISIBILITY_SYNC_FAILED
 } from './constants'
-import type { GeoNode } from './types'
+import type { DraftMaterialGroup, GeoNode } from './types'
 
 // ── Action types ────────────────────────────────────────────────────────────
 //
@@ -212,10 +216,14 @@ export type AssignMaterialRequestedAction = {
   targetName: string
 }
 // The assign landed on the backend — carries the affected object ids so the 3D
-// viewport can re-fetch their (now restyled) binary geometry.
+// viewport can re-fetch their (now restyled) binary geometry, plus the assigned
+// group (id + name) so the open object form can show it in its Materials list
+// without waiting for a refresh.
 export type AssignMaterialSucceededAction = {
   type: typeof ASSIGN_MATERIAL_SUCCEEDED
   objectIds: string[]
+  groupId: string
+  name: string
 }
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
@@ -246,9 +254,18 @@ export type SetDraftNameAction = {
   type: typeof SET_DRAFT_NAME
   payload: string
 }
-export type SetDraftMaterialAction = {
-  type: typeof SET_DRAFT_MATERIAL
-  payload: number | null
+// Checking a material in the Select popup appends its GROUP to the draft (deduped
+// by groupId in the reducer).
+export type AddDraftMaterialAction = {
+  type: typeof ADD_DRAFT_MATERIAL
+  payload: { groupId: string; name: string }
+}
+// Unchecking a material in the Select popup drops its GROUP from the draft. Only
+// session picks are toggleable — baseline (already-saved) groups aren't listed in
+// the popup — so this never tries to un-assign something the add-only backend can't.
+export type RemoveDraftMaterialAction = {
+  type: typeof REMOVE_DRAFT_MATERIAL
+  payload: { groupId: string }
 }
 export type CloseCreateFormAction = {
   type: typeof CLOSE_CREATE_FORM
@@ -321,10 +338,33 @@ export type LoadObjectSucceededAction = {
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 }
 export type LoadObjectFailedAction = {
   type: typeof LOAD_OBJECT_FAILED
+  payload: string
+}
+// Unassign a saved material group from the open object. Requested carries the
+// scope + object + group; Succeeded drops it from the draft/baseline/cache;
+// Failed surfaces the error on the form.
+export type UnassignMaterialRequestedAction = {
+  type: typeof UNASSIGN_MATERIAL_REQUESTED
+  projectId: string
+  scenarioId: string
+  objectId: string
+  groupId: string
+}
+export type UnassignMaterialSucceededAction = {
+  type: typeof UNASSIGN_MATERIAL_SUCCEEDED
+  projectId: string
+  scenarioId: string
+  objectId: string
+  groupId: string
+}
+export type UnassignMaterialFailedAction = {
+  type: typeof UNASSIGN_MATERIAL_FAILED
+  groupId: string
   payload: string
 }
 
@@ -357,7 +397,8 @@ export type GeometryAction =
   | DeleteNodeFailedAction
   | SetDraftValueAction
   | SetDraftNameAction
-  | SetDraftMaterialAction
+  | AddDraftMaterialAction
+  | RemoveDraftMaterialAction
   | CloseCreateFormAction
   | CreateObjectRequestedAction
   | CreateObjectSucceededAction
@@ -369,6 +410,9 @@ export type GeometryAction =
   | LoadObjectRequestedAction
   | LoadObjectSucceededAction
   | LoadObjectFailedAction
+  | UnassignMaterialRequestedAction
+  | UnassignMaterialSucceededAction
+  | UnassignMaterialFailedAction
 
 // ── Action creators ──────────────────────────────────────────────────────────
 
@@ -541,9 +585,15 @@ export const assignMaterialRequested = (
   targetName
 })
 
-export const assignMaterialSucceeded = (objectIds: string[]): AssignMaterialSucceededAction => ({
+export const assignMaterialSucceeded = (
+  objectIds: string[],
+  groupId: string,
+  name: string
+): AssignMaterialSucceededAction => ({
   type: ASSIGN_MATERIAL_SUCCEEDED,
-  objectIds
+  objectIds,
+  groupId,
+  name
 })
 
 export const moveNodesSucceeded = (
@@ -612,9 +662,14 @@ export const setDraftName = (name: string): SetDraftNameAction => ({
   payload: name
 })
 
-export const setDraftMaterial = (materialId: number | null): SetDraftMaterialAction => ({
-  type: SET_DRAFT_MATERIAL,
-  payload: materialId
+export const addDraftMaterial = (groupId: string, name: string): AddDraftMaterialAction => ({
+  type: ADD_DRAFT_MATERIAL,
+  payload: { groupId, name }
+})
+
+export const removeDraftMaterial = (groupId: string): RemoveDraftMaterialAction => ({
+  type: REMOVE_DRAFT_MATERIAL,
+  payload: { groupId }
 })
 
 export const closeCreateForm = (): CloseCreateFormAction => ({ type: CLOSE_CREATE_FORM })
@@ -689,10 +744,46 @@ export const loadObjectSucceeded = (
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 ): LoadObjectSucceededAction => ({ type: LOAD_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
 
 export const loadObjectFailed = (error: string): LoadObjectFailedAction => ({
   type: LOAD_OBJECT_FAILED,
+  payload: error
+})
+
+export const unassignMaterialRequested = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string
+): UnassignMaterialRequestedAction => ({
+  type: UNASSIGN_MATERIAL_REQUESTED,
+  projectId,
+  scenarioId,
+  objectId,
+  groupId
+})
+
+export const unassignMaterialSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string
+): UnassignMaterialSucceededAction => ({
+  type: UNASSIGN_MATERIAL_SUCCEEDED,
+  projectId,
+  scenarioId,
+  objectId,
+  groupId
+})
+
+export const unassignMaterialFailed = (
+  groupId: string,
+  error: string
+): UnassignMaterialFailedAction => ({
+  type: UNASSIGN_MATERIAL_FAILED,
+  groupId,
   payload: error
 })

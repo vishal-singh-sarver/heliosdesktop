@@ -12,6 +12,7 @@ import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
   onMaterialAssigned,
+  onMaterialSaved,
   onNodesListed
 } from '../store/saga'
 import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
@@ -178,7 +179,7 @@ describe('onMaterialAssigned', () => {
   })
 
   it('re-fetches and re-caches the binary geometry of each restyled object', () => {
-    const gen = onMaterialAssigned(assignMaterialSucceeded(['28']))
+    const gen = onMaterialAssigned(assignMaterialSucceeded(['28'], '7', 'Grass'))
     expect(gen.next().value).toEqual(select(selectNodesById))
 
     // Enter the loop with a visible node → fetch + cache its geometry.
@@ -193,11 +194,34 @@ describe('onMaterialAssigned', () => {
   })
 
   it('skips a hidden object so an assignment never un-hides it', () => {
-    const gen = onMaterialAssigned(assignMaterialSucceeded(['28']))
+    const gen = onMaterialAssigned(assignMaterialSucceeded(['28'], '7', 'Grass'))
     gen.next() // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
     // Node is hidden → no fetch, generator completes.
     expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+})
+
+describe('onMaterialSaved', () => {
+  it('re-fetches every shown object so a material edit shows without a refresh', () => {
+    const gen = onMaterialSaved()
+    expect(gen.next().value).toEqual(select(selectSceneObjectIds))
+
+    // One shown object → re-fetch + re-cache its (possibly restyled) geometry.
+    expect(gen.next([28]).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('does nothing when the scene has no shown objects', () => {
+    const gen = onMaterialSaved()
+    gen.next() // select selectSceneObjectIds
+    expect(gen.next([]).done).toBe(true)
   })
 })
 

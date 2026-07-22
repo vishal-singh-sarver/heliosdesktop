@@ -66,15 +66,13 @@ function groupToMaterial(g: WireGroupListItem): Material {
 // BOTTOM — matching Geometry, which sorts its objects by created_at ascending.
 // ISO-8601 timestamps sort correctly as plain strings.
 export function listMaterials(): Promise<Material[]> {
-  return api
-    .get<ListGroupsResponse>(API_ROUTES.materials.groupsList())
-    .then((res) =>
-      // `?? ''` on both sides: a missing timestamp must not throw inside sort and
-      // take the whole list down with it.
-      (res.groups ?? [])
-        .map(groupToMaterial)
-        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
-    )
+  return api.get<ListGroupsResponse>(API_ROUTES.materials.groupsList()).then((res) =>
+    // `?? ''` on both sides: a missing timestamp must not throw inside sort and
+    // take the whole list down with it.
+    (res.groups ?? [])
+      .map(groupToMaterial)
+      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+  )
 }
 
 // ── The material (group) itself ───────────────────────────────────────────────
@@ -172,6 +170,8 @@ export function addGroupMaterial(
 // material type already on the group. Every save after the first. Full-replace
 // (not merge): the backend nulls any property we omit, so the caller sends the
 // member's COMPLETE property set. (The backend switched this from PATCH to PUT.)
+// PUT /library/groups/{id}/materials/{typeId} — update the properties of a
+// material type already on the group. Every save after the first.
 export function updateGroupMaterial(
   groupId: string,
   materialTypeId: number,

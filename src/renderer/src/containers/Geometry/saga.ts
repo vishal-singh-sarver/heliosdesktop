@@ -14,6 +14,7 @@ import type {
   MoveNodesRequestedAction,
   RenameRequestedAction,
   UpdateObjectRequestedAction,
+  UnassignMaterialRequestedAction,
   SetModelOnAction,
   ToggleRenderAction,
   ToggleViewportAction
@@ -28,6 +29,7 @@ import {
   MOVE_NODES_REQUESTED,
   RENAME_REQUESTED,
   UPDATE_OBJECT_REQUESTED,
+  UNASSIGN_MATERIAL_REQUESTED,
   SET_MODEL_ON,
   TOGGLE_RENDER,
   TOGGLE_VIEWPORT
@@ -181,14 +183,22 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     const nextProps = numericProperties(draft.values)
     const propsChanged = !original || !sameProperties(nextProps, numericProperties(original.values))
 
-    if (propsChanged) {
+    // ADD-only: send just the groups picked this session that aren't already
+    // assigned on the backend (baseline seeded from the GET). Empty = no material
+    // change, so a re-Save of an unchanged ground sends nothing and avoids a 409.
+    const newMaterials = draft.materials
+      .filter((m) => !draft.materialBaseline.includes(m.groupId))
+      .map((m) => ({ group_id: Number(m.groupId), sync: true }))
+
+    if (propsChanged || newMaterials.length) {
       yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
         properties: nextProps,
         visibility: {
           viewport: node?.visibleInViewport ?? true,
           render: node?.renderEnabled ?? true
         },
-        groupId: node?.parentId ?? null
+        groupId: node?.parentId ?? null,
+        materials: newMaterials
       })
     }
     yield put(
@@ -363,11 +373,26 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
       )
     )
     // Tell the 3D viewport which objects were restyled so it re-fetches their
-    // binary geometry — without this the new material only shows after a refresh.
-    yield put(actions.assignMaterialSucceeded(objectIds))
+    // binary geometry, and the open object form so it lists the new group —
+    // without this the material only shows after a refresh.
+    yield put(actions.assignMaterialSucceeded(objectIds, groupId, materialName))
     yield put(showSnackbar(messages.assignMaterialSuccess(materialName, targetName), 'success'))
   } catch {
     yield put(showSnackbar(messages.assignMaterialFailure(materialName), 'error'))
+  }
+}
+
+// Unassign a saved material group from the open object (the per-material trash
+// icon, for a backend material). DELETE the assignment; on success the reducer
+// drops it from the draft + baseline + detail cache. Pessimistic: a failed DELETE
+// leaves the material in place and surfaces the error.
+export function* unassignMaterialWorker(action: UnassignMaterialRequestedAction): Generator {
+  const { projectId, scenarioId, objectId, groupId } = action
+  try {
+    yield call(service.unassignMaterial, projectId, scenarioId, objectId, groupId)
+    yield put(actions.unassignMaterialSucceeded(projectId, scenarioId, objectId, groupId))
+  } catch (err) {
+    yield put(actions.unassignMaterialFailed(groupId, (err as Error).message))
   }
 }
 
@@ -378,6 +403,7 @@ export default function* geometrySaga(): Generator {
   yield takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker)
   yield takeLeading(UPDATE_OBJECT_REQUESTED, updateObjectWorker)
   yield takeLatest(LOAD_OBJECT_REQUESTED, loadObjectWorker)
+  yield takeEvery(UNASSIGN_MATERIAL_REQUESTED, unassignMaterialWorker)
   yield takeEvery(GROUP_NODES_REQUESTED, groupNodesWorker)
   yield takeEvery(MOVE_NODES_REQUESTED, moveNodesWorker)
   yield takeEvery(TOGGLE_VIEWPORT, toggleViewportWorker)

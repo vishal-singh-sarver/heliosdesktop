@@ -5,6 +5,7 @@ import {
   DELETE_MATERIAL_REQUESTED,
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_REQUESTED,
+  LOAD_MATERIAL_DETAIL_REQUESTED,
   OPEN_SAVED_MATERIAL_REQUESTED,
   RECORD_RECENT_COLOR,
   RENAME_MATERIAL_REQUESTED,
@@ -16,6 +17,7 @@ import materialsSaga, {
   deleteMaterialWorker,
   deleteParameterGroupWorker,
   listMaterialsWorker,
+  loadMaterialDetailWorker,
   openSavedMaterialWorker,
   persistRecentColorsWorker,
   renameMaterialWorker,
@@ -176,6 +178,38 @@ describe('openSavedMaterialWorker', () => {
     expect(gen.throw(new Error('boom')).value).toEqual(
       put(actions.openSavedMaterialFailed('7', 'boom'))
     )
+  })
+})
+
+describe('loadMaterialDetailWorker', () => {
+  const detail: MaterialGroupDetail = {
+    id: '7',
+    name: 'Grass',
+    members: [{ materialTypeId: 1, properties: { reflectivity: '0.3' } }]
+  }
+
+  it('GETs the group on a cache miss and caches it (no form open)', () => {
+    const gen = loadMaterialDetailWorker(actions.loadMaterialDetailRequested('7'))
+    expect(gen.next().value).toEqual(select(selectMaterialDetailsById))
+    // Cache miss → fetch, then a cache-only load (NOT openSavedMaterialLoaded).
+    expect(gen.next({}).value).toEqual(call(service.getGroup, '7'))
+    expect(gen.next(detail).value).toEqual(put(actions.materialDetailLoaded(detail)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('serves from cache with NO api call and NO dispatch', () => {
+    const gen = loadMaterialDetailWorker(actions.loadMaterialDetailRequested('7'))
+    expect(gen.next().value).toEqual(select(selectMaterialDetailsById))
+    // Already cached → returns immediately, never calling getGroup or dispatching.
+    expect(gen.next({ '7': detail }).done).toBe(true)
+  })
+
+  it('swallows a fetch error (read-only view keeps its empty state)', () => {
+    const gen = loadMaterialDetailWorker(actions.loadMaterialDetailRequested('7'))
+    gen.next() // select cache
+    gen.next({}) // cache miss → getGroup
+    // Caught internally → the generator just finishes, no failure dispatched.
+    expect(gen.throw(new Error('boom')).done).toBe(true)
   })
 })
 
@@ -363,6 +397,11 @@ describe('materialsSaga', () => {
     )
     // Saves go through a de-duping watcher, not takeEvery — see saveWatcher.
     expect(gen.next().value).toEqual(fork(saveWatcher))
+    // The read-only material-detail loader (geometry Materials popup) is its own
+    // takeEvery; it does NOT re-register the save action.
+    expect(gen.next().value).toEqual(
+      takeEvery(LOAD_MATERIAL_DETAIL_REQUESTED, loadMaterialDetailWorker)
+    )
     expect(gen.next().value).toEqual(
       takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
     )

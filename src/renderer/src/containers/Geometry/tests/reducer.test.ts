@@ -493,7 +493,8 @@ describe('geometryReducer', () => {
         objectName: 'Ground',
         name: 'Ground.001',
         values: { length: '10', breadth: '10' },
-        materialId: null,
+        materials: [],
+        materialBaseline: [],
         isNew: true,
         saving: false,
         saveError: null,
@@ -533,13 +534,16 @@ describe('geometryReducer', () => {
           node: ground('27', 'Ground.001'),
           values: { length: '10', breadth: '10' },
           objectTypeId: 1,
-          objectName: 'Ground'
+          objectName: 'Ground',
+          materialGroups: []
         })
       )
       expect(r.createDraft).toMatchObject({
         objectId: '27',
         isNew: false,
-        values: { length: '10', breadth: '10' }
+        values: { length: '10', breadth: '10' },
+        materials: [],
+        materialBaseline: []
       })
       // No duplicate insert from a load.
       expect(r.byScope[KEY].rootOrder).toEqual(['27'])
@@ -548,17 +552,48 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].detailsById['27']).toEqual({
         values: { length: '10', breadth: '10' },
         objectTypeId: 1,
-        objectName: 'Ground'
+        objectName: 'Ground',
+        materialGroups: []
       })
     })
 
-    it('SET_DRAFT_VALUE / MATERIAL update the open draft', () => {
+    it('LOAD_OBJECT_SUCCEEDED seeds the draft materials + baseline from the GET', () => {
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      const materialGroups = [
+        {
+          groupId: '41',
+          name: 'Grass',
+          materials: [{ materialTypeId: 5, materialTypeName: 'Radiation', properties: { rho: 0.2 } }]
+        }
+      ]
+      const r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground',
+          materialGroups
+        })
+      )
+      // Displayed set = the assignments; baseline = their ids (so Save is a no-op
+      // until a NEW material is picked).
+      expect(r.createDraft?.materials).toEqual(materialGroups)
+      expect(r.createDraft?.materialBaseline).toEqual(['41'])
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual(materialGroups)
+    })
+
+    it('SET_DRAFT_VALUE updates a value; ADD_DRAFT_MATERIAL appends a material (deduped)', () => {
       let r = created()
       r = geometryReducer(r, actions.setDraftValue('length', '20'))
-      r = geometryReducer(r, actions.setDraftMaterial(3))
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass')) // dupe → no-op
       expect(r.createDraft).toMatchObject({
         values: { length: '20', breadth: '10' },
-        materialId: 3
+        materials: [{ groupId: '41', name: 'Grass' }]
       })
     })
 
@@ -579,6 +614,43 @@ describe('geometryReducer', () => {
       // The name is owned by the blur/rename path — Save is field-only and leaves
       // the tree row's name untouched (so a rejected rename can't leak into it).
       expect(r.byScope[KEY].nodesById['27'].name).toBe('Ground.001')
+    })
+
+    it('UPDATE_OBJECT_SUCCEEDED folds picked materials into the baseline + cache', () => {
+      let r = created()
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      // Before save: picked but not yet in the baseline (Save would PATCH it).
+      expect(r.createDraft?.materialBaseline).toEqual([])
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false }))
+      // After save: the group is now assigned → baseline covers it (re-Save is a
+      // no-op) and the cache carries it so a re-click still shows the assignment.
+      expect(r.createDraft?.materialBaseline).toEqual(['41'])
+      expect(r.createDraft?.materials).toEqual([{ groupId: '41', name: 'Grass' }])
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
+        { groupId: '41', name: 'Grass' }
+      ])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) lists the group on the open object + baseline', () => {
+      let r = created()
+      r = geometryReducer(r, actions.assignMaterialSucceeded(['27'], '55', 'Concrete'))
+      // The drop already persisted on the backend → shown in the Materials list
+      // AND folded into the baseline so a later Save won't try to re-assign it.
+      expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
+      expect(r.createDraft?.materialBaseline).toEqual(['55'])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED dedupes and ignores assigns to a DIFFERENT object', () => {
+      let r = created()
+      // A drop on some other object must not touch the open form.
+      r = geometryReducer(r, actions.assignMaterialSucceeded(['99'], '55', 'Concrete'))
+      expect(r.createDraft?.materials).toEqual([])
+      // A repeat drop on the open object doesn't duplicate the row.
+      r = geometryReducer(r, actions.assignMaterialSucceeded(['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(['27'], '55', 'Concrete'))
+      expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
+      expect(r.createDraft?.materialBaseline).toEqual(['55'])
     })
 
     it('RENAME_FAILED for the open draft object lands on the draft, not the tree row', () => {

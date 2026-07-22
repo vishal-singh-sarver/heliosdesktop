@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { wireObjectToNode } from '../service'
+import { wireObjectToMaterialGroups, wireObjectToNode } from '../service'
 
 // A backend object mirroring POST/GET /objects (the shape verified on Swagger).
 const wire = (id: number, name: string, overrides: Record<string, unknown> = {}) => ({
@@ -44,5 +44,66 @@ describe('wireObjectToNode', () => {
     expect(wireObjectToNode(wire(1, 'Ground.004', { visibility: undefined })).visibleInViewport).toBe(
       true
     )
+  })
+})
+
+describe('wireObjectToMaterialGroups', () => {
+  it('maps assigned material_groups (group_id → string, members carried through)', () => {
+    const groups = wireObjectToMaterialGroups(
+      wire(27, 'Ground.001', {
+        material_groups: [
+          {
+            object_id: 27,
+            group_id: 41,
+            name: 'Grass',
+            sync: true,
+            source: 'library',
+            materials: [
+              {
+                material_id: 3,
+                material_type_id: 5,
+                material_type: 'Radiation',
+                properties: { reflectivity: 0.3 }
+              }
+            ]
+          }
+        ]
+      })
+    )
+    expect(groups).toEqual([
+      {
+        groupId: '41',
+        name: 'Grass',
+        stale: false,
+        drift: false,
+        materials: [
+          { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+        ]
+      }
+    ])
+  })
+
+  it('defaults absent material_groups to [], and derives stale/drift + empty properties', () => {
+    expect(wireObjectToMaterialGroups(wire(1, 'g'))).toEqual([])
+    const [g] = wireObjectToMaterialGroups(
+      wire(2, 'g', {
+        material_groups: [
+          {
+            object_id: 2,
+            group_id: 7,
+            name: 'Dirt',
+            sync: false,
+            source: 'frozen',
+            stale: true,
+            materials: [
+              { material_id: 1, material_type_id: 5, material_type: 'Radiation', library_drift: true }
+            ]
+          }
+        ]
+      })
+    )
+    expect(g.stale).toBe(true)
+    expect(g.drift).toBe(true) // any member library_drift → drift
+    expect(g.materials?.[0]?.properties).toEqual({}) // absent properties → {}
   })
 })

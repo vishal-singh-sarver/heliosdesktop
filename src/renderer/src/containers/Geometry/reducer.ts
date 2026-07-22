@@ -1,7 +1,9 @@
-import { produce } from 'immer'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
+import { produce } from 'immer'
 import type { GeometryAction } from './actions'
 import {
+  ADD_DRAFT_MATERIAL,
+  ASSIGN_MATERIAL_SUCCEEDED,
   CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
@@ -9,16 +11,16 @@ import {
   CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
   GROUP_NODES_SUCCEEDED,
+  LIST_NODES_FAILED,
   LIST_NODES_REQUESTED,
   LIST_NODES_SUCCEEDED,
-  LIST_NODES_FAILED,
   LOAD_OBJECT_SUCCEEDED,
   MOVE_NODES_SUCCEEDED,
-  REORDER_NODES,
+  REMOVE_DRAFT_MATERIAL,
   RENAME_FAILED,
   RENAME_SUCCEEDED,
+  REORDER_NODES,
   SELECT,
-  SET_DRAFT_MATERIAL,
   SET_DRAFT_NAME,
   SET_DRAFT_VALUE,
   SET_MODEL_ON,
@@ -27,6 +29,8 @@ import {
   TOGGLE_EXPAND,
   TOGGLE_RENDER,
   TOGGLE_VIEWPORT,
+  UNASSIGN_MATERIAL_FAILED,
+  UNASSIGN_MATERIAL_SUCCEEDED,
   UPDATE_OBJECT_FAILED,
   UPDATE_OBJECT_REQUESTED,
   UPDATE_OBJECT_SUCCEEDED,
@@ -499,9 +503,46 @@ const geometryReducer = (
         break
       }
 
-      case SET_DRAFT_MATERIAL: {
+      case ADD_DRAFT_MATERIAL: {
         if (!draft.createDraft) break
-        draft.createDraft.materialId = action.payload
+        // Dedupe against the whole displayed set (baseline rows live here too),
+        // so re-picking an already-assigned material is a no-op — this alone
+        // prevents the "re-add → 409" case from ever reaching the backend.
+        const { groupId, name } = action.payload
+        if (!draft.createDraft.materials.some((m) => m.groupId === groupId)) {
+          draft.createDraft.materials.push({ groupId, name })
+        }
+        break
+      }
+
+      case ASSIGN_MATERIAL_SUCCEEDED: {
+        // A drag-drop assign that landed on the backend. If the dropped-on object
+        // is the one open in the form, show the group in its Materials list right
+        // away instead of waiting for a refresh. It goes into the BASELINE too:
+        // it's already persisted, so the add-only Save must not re-PATCH it (that
+        // would 409). Guard on the open object being among the assigned ones (a
+        // group drop can hit many, but the form shows just one).
+        const cd = draft.createDraft
+        if (cd && action.objectIds.includes(cd.objectId)) {
+          if (!cd.materials.some((m) => m.groupId === action.groupId)) {
+            cd.materials.push({ groupId: action.groupId, name: action.name })
+          }
+          if (!cd.materialBaseline.includes(action.groupId)) {
+            cd.materialBaseline.push(action.groupId)
+          }
+        }
+        break
+      }
+
+      case REMOVE_DRAFT_MATERIAL: {
+        if (!draft.createDraft) break
+        // Unchecking a material in the Select popup drops it from the Materials
+        // section. Only session picks reach here (baseline groups aren't listed in
+        // the popup), so this never removes an already-saved assignment the
+        // add-only backend couldn't un-assign anyway.
+        draft.createDraft.materials = draft.createDraft.materials.filter(
+          (m) => m.groupId !== action.payload.groupId
+        )
         break
       }
 
@@ -523,14 +564,21 @@ const geometryReducer = (
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
         s.lastCreatedId = node.id
-        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
+        // A brand-new object has no assignments yet.
+        s.detailsById[node.id] = {
+          values: { ...values },
+          objectTypeId,
+          objectName,
+          materialGroups: []
+        }
         draft.createDraft = {
           objectId: node.id,
           objectTypeId,
           objectName,
           name: node.name,
           values: { ...values },
-          materialId: null,
+          materials: [],
+          materialBaseline: [],
           isNew: true,
           saving: false,
           saveError: null,
@@ -544,16 +592,22 @@ const geometryReducer = (
         // Clicking a ground GETs its detail; open the form to view/edit it. The
         // node is already in the tree (and selected), so we don't insert it; this
         // is an existing object (isNew: false) so Cancel won't delete it.
-        const { node, values, objectTypeId, objectName } = action.payload
+        const { node, values, objectTypeId, objectName, materialGroups } = action.payload
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        s.detailsById[node.id] = { values: { ...values }, objectTypeId, objectName }
+        s.detailsById[node.id] = {
+          values: { ...values },
+          objectTypeId,
+          objectName,
+          materialGroups: [...materialGroups]
+        }
         draft.createDraft = {
           objectId: node.id,
           objectTypeId,
           objectName,
           name: node.name,
           values: { ...values },
-          materialId: null,
+          materials: [...materialGroups],
+          materialBaseline: materialGroups.map((g) => g.groupId),
           isNew: false,
           saving: false,
           saveError: null,
@@ -574,7 +628,6 @@ const geometryReducer = (
         break
       }
 
-
       case UPDATE_OBJECT_REQUESTED: {
         if (!draft.createDraft) break
         draft.createDraft.saving = true
@@ -592,11 +645,17 @@ const geometryReducer = (
         if (draft.createDraft) {
           draft.createDraft.saving = false
           draft.createDraft.isNew = false
-          // Refresh the cache with the just-saved values.
+          // The just-added materials are now assigned on the backend: fold them
+          // into the baseline so the row is no longer "new" and a re-Save is a
+          // no-op (won't 409). ADD-only, so the displayed set is unchanged.
+          draft.createDraft.materialBaseline = draft.createDraft.materials.map((m) => m.groupId)
+          // Refresh the cache with the just-saved values + materials, so a
+          // re-click of this ground still shows the assignments without a GET.
           s.detailsById[action.payload.objectId] = {
             values: { ...draft.createDraft.values },
             objectTypeId: draft.createDraft.objectTypeId,
-            objectName: draft.createDraft.objectName
+            objectName: draft.createDraft.objectName,
+            materialGroups: [...draft.createDraft.materials]
           }
         }
         break
@@ -606,6 +665,34 @@ const geometryReducer = (
         if (!draft.createDraft) break
         draft.createDraft.saving = false
         draft.createDraft.saveError = action.payload
+        break
+      }
+
+      case UNASSIGN_MATERIAL_SUCCEEDED: {
+        // A saved material was unassigned on the backend. Drop it from the open
+        // draft (both the displayed list and the baseline) and from the detail
+        // cache, so it stays gone if the form is closed and reopened.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const { groupId, objectId } = action
+        if (draft.createDraft) {
+          draft.createDraft.materials = draft.createDraft.materials.filter(
+            (m) => m.groupId !== groupId
+          )
+          draft.createDraft.materialBaseline = draft.createDraft.materialBaseline.filter(
+            (id) => id !== groupId
+          )
+        }
+        const detail = s.detailsById[objectId]
+        if (detail) {
+          detail.materialGroups = detail.materialGroups.filter((g) => g.groupId !== groupId)
+        }
+        break
+      }
+
+      case UNASSIGN_MATERIAL_FAILED: {
+        // Pessimistic: the material was NOT removed. Surface the error on the form
+        // (the material stays in the list so the user can retry).
+        if (draft.createDraft) draft.createDraft.saveError = action.payload
         break
       }
     }

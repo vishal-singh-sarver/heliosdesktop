@@ -41,6 +41,13 @@ export const OPEN_SAVED_MATERIAL_REQUESTED = 'app/Materials/OPEN_SAVED_MATERIAL_
 export const OPEN_SAVED_MATERIAL_LOADED = 'app/Materials/OPEN_SAVED_MATERIAL_LOADED' as const
 export const OPEN_SAVED_MATERIAL_FAILED = 'app/Materials/OPEN_SAVED_MATERIAL_FAILED' as const
 
+// Load a group's member/property detail into the cache WITHOUT opening the
+// editor form — used by the geometry Materials popup to show a picked material's
+// properties. Reuses the same detailsById cache + GET as OPEN_SAVED_MATERIAL,
+// minus the form side effect.
+export const LOAD_MATERIAL_DETAIL_REQUESTED = 'app/Materials/LOAD_MATERIAL_DETAIL_REQUESTED' as const
+export const MATERIAL_DETAIL_LOADED = 'app/Materials/MATERIAL_DETAIL_LOADED' as const
+
 // "+ Add Material Type" — append a new, empty "Parameter Group.0N" card (client
 // -side until its own Save persists it).
 export const ADD_PARAMETER_GROUP = 'app/Materials/ADD_PARAMETER_GROUP' as const
@@ -53,7 +60,7 @@ export const SET_PARAMETER_GROUP_TYPE = 'app/Materials/SET_PARAMETER_GROUP_TYPE'
 export const SET_PARAMETER_GROUP_VALUE = 'app/Materials/SET_PARAMETER_GROUP_VALUE' as const
 
 // A card's own Save button: POST /groups/{id}/materials the first time, then
-// PATCH /groups/{id}/materials/{typeId} on every later save.
+// PUT /groups/{id}/materials/{typeId} on every later save.
 export const SAVE_PARAMETER_GROUP_REQUESTED =
   'app/Materials/SAVE_PARAMETER_GROUP_REQUESTED' as const
 export const SAVE_PARAMETER_GROUP_SUCCEEDED =

@@ -67,7 +67,8 @@ export const DELETE_NODE_FAILED = 'app/Geometry/DELETE_NODE_FAILED' as const
 //    DELETEs it (reuses DELETE_NODE + CLOSE_CREATE_FORM). ─
 export const SET_DRAFT_VALUE = 'app/Geometry/SET_DRAFT_VALUE' as const
 export const SET_DRAFT_NAME = 'app/Geometry/SET_DRAFT_NAME' as const
-export const SET_DRAFT_MATERIAL = 'app/Geometry/SET_DRAFT_MATERIAL' as const
+export const ADD_DRAFT_MATERIAL = 'app/Geometry/ADD_DRAFT_MATERIAL' as const
+export const REMOVE_DRAFT_MATERIAL = 'app/Geometry/REMOVE_DRAFT_MATERIAL' as const
 export const CLOSE_CREATE_FORM = 'app/Geometry/CLOSE_CREATE_FORM' as const
 export const CREATE_OBJECT_REQUESTED = 'app/Geometry/CREATE_OBJECT_REQUESTED' as const
 export const CREATE_OBJECT_SUCCEEDED = 'app/Geometry/CREATE_OBJECT_SUCCEEDED' as const
@@ -82,3 +83,11 @@ export const UPDATE_OBJECT_FAILED = 'app/Geometry/UPDATE_OBJECT_FAILED' as const
 export const LOAD_OBJECT_REQUESTED = 'app/Geometry/LOAD_OBJECT_REQUESTED' as const
 export const LOAD_OBJECT_SUCCEEDED = 'app/Geometry/LOAD_OBJECT_SUCCEEDED' as const
 export const LOAD_OBJECT_FAILED = 'app/Geometry/LOAD_OBJECT_FAILED' as const
+
+// Unassign a SAVED material group from the open object (the per-material trash
+// icon, for a material that's in the backend baseline). DELETE /material-groups;
+// success drops it from the draft + baseline + detail cache. A draft-only pick is
+// removed via REMOVE_DRAFT_MATERIAL instead (no backend call).
+export const UNASSIGN_MATERIAL_REQUESTED = 'app/Geometry/UNASSIGN_MATERIAL_REQUESTED' as const
+export const UNASSIGN_MATERIAL_SUCCEEDED = 'app/Geometry/UNASSIGN_MATERIAL_SUCCEEDED' as const
+export const UNASSIGN_MATERIAL_FAILED = 'app/Geometry/UNASSIGN_MATERIAL_FAILED' as const

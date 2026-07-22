@@ -1,4 +1,5 @@
 import { produce, type Draft } from 'immer'
+import type { RgbColor } from 'utils/color'
 import type { MaterialsAction } from './actions'
 import {
   ADD_PARAMETER_GROUP,
@@ -14,6 +15,7 @@ import {
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
+  MATERIAL_DETAIL_LOADED,
   OPEN_SAVED_MATERIAL_FAILED,
   OPEN_SAVED_MATERIAL_LOADED,
   OPEN_SAVED_MATERIAL_REQUESTED,
@@ -42,7 +44,6 @@ import {
 } from './materialBlueprint'
 import { lowestFreeNumber } from './naming'
 import { loadRecentColors, prependRecentColor } from './recentColors'
-import type { RgbColor } from 'utils/color'
 import type { Material, MaterialDraft, MaterialGroupDetail, MaterialParameterGroup } from './types'
 
 export type { Material }
@@ -388,6 +389,13 @@ const materialsReducer = (
       case SET_SEARCH_QUERY:
         draft.searchQuery = action.payload
         break
+
+      // Cache-only fetch (from the geometry Materials popup) — fill the detail
+      // cache without touching the editor form.
+      case MATERIAL_DETAIL_LOADED: {
+        draft.detailsById[action.detail.id] = action.detail
+        break
+      }
 
       // ── Right-panel material Properties form ───────────────────────────────
       case OPEN_SAVED_MATERIAL_REQUESTED:

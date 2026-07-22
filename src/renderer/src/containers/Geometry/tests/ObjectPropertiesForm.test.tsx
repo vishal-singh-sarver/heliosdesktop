@@ -1,8 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import materialsReducer, {
+  initialState as materialsInitialState
+} from 'containers/Materials/reducer'
+import type { Material, MaterialGroupDetail } from 'containers/Materials/types'
 import projectScreenReducer, {
   initialState as projectScreenInitialState
 } from 'containers/ProjectScreen/reducer'
-import type { CatalogPropertyDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import type { CatalogPropertyDef, MaterialTypeDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
@@ -12,7 +16,18 @@ import geometryReducer, {
   initialState as geometryInitialState,
   scopeKey
 } from '../reducer'
-import type { GeoNode } from '../types'
+import type { DraftMaterialGroup, GeoNode } from '../types'
+
+// jsdom doesn't implement <dialog>.showModal()/close(); polyfill them (reflecting
+// the `open` attribute) so the confirm dialogs can actually open in tests.
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
+    this.setAttribute('open', '')
+  }
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement): void {
+    this.removeAttribute('open')
+  }
+})
 
 const PROJECT = 'p'
 const SCENARIO = 's'
@@ -64,22 +79,50 @@ const node: GeoNode = {
   modelVisibility: {}
 }
 
+// A saved library material, as the left panel's <Materials/> would have loaded
+// it — the Select popup lists these.
+const material = (id: string, name: string): Material => ({
+  id,
+  name,
+  materialTypeId: 1,
+  materialType: 'Radiation',
+  preview: null,
+  createdAt: '2026-01-01T00:00:00Z'
+})
+
 // A real store wired like the app's: combined geometry + projectScreen reducers,
 // preloaded with the active scope, the Ground catalog, the node, and an OPEN
 // draft whose values are empty (so every required field is invalid). detailsById
 // is left empty so `original` is undefined → the form reads as dirty → Save is
 // enabled without a prior edit.
-function makeStore(): InjectableStore {
+//
+// `materials` seeds the library the Select popup lists; the slice is included so
+// selectAllMaterials reads real rows instead of falling back to initialState.
+function makeStore(
+  materials: Material[] = [],
+  opts: {
+    draftMaterials?: DraftMaterialGroup[]
+    materialTypes?: MaterialTypeDef[]
+    materialDetails?: MaterialGroupDetail[]
+  } = {}
+): InjectableStore {
   // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
   // satisfy the bare Reducer the injectable store expects under Redux 5.
   const rootReducer = (injected: Record<string, Reducer> = {}): Reducer =>
     combineReducers({
       geometry: geometryReducer,
       projectScreen: projectScreenReducer,
+      materials: materialsReducer,
       ...injected
     }) as unknown as Reducer
 
   const preloaded = {
+    materials: {
+      ...materialsInitialState,
+      byId: Object.fromEntries(materials.map((m) => [m.id, m])),
+      order: materials.map((m) => m.id),
+      detailsById: Object.fromEntries((opts.materialDetails ?? []).map((d) => [d.id, d]))
+    },
     geometry: {
       ...geometryInitialState,
       byScope: {
@@ -95,7 +138,8 @@ function makeStore(): InjectableStore {
         objectName: 'Ground',
         name: 'Ground.001',
         values: {},
-        materialId: null,
+        materials: opts.draftMaterials ?? [],
+        materialBaseline: (opts.draftMaterials ?? []).map((m) => m.groupId),
         isNew: true,
         saving: false,
         saveError: null,
@@ -109,7 +153,13 @@ function makeStore(): InjectableStore {
       activeScenarioId: SCENARIO,
       catalog: {
         ...projectScreenInitialState.catalog,
-        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null }
+        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null },
+        materialTypes: {
+          byId: Object.fromEntries((opts.materialTypes ?? []).map((t) => [t.id, t])),
+          allIds: (opts.materialTypes ?? []).map((t) => t.id),
+          loadStatus: 'loaded',
+          loadError: null
+        }
       }
     }
   }
@@ -130,6 +180,325 @@ const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
   if (!el) throw new Error(`input[name="${name}"] not rendered`)
   return el as HTMLInputElement
 }
+
+describe('<ObjectPropertiesForm /> — material properties popup', () => {
+  // Pick Cotton from the Select popup, leaving it listed under the Materials row.
+  // The Select popup stays open afterwards (picking doesn't dismiss it), so the
+  // picked row is reached via `within(container)` — the popup is portaled to
+  // document.body and would otherwise make a bare 'Cotton' query ambiguous.
+  const pickCotton = (): void => {
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+  }
+
+  it('omits materials already assigned to the ground from the Select popup', () => {
+    render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+          // Cotton (library id m1) is already assigned to this ground.
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Open the Select popup (portaled to document.body). Scope to it via its
+    // header so the assigned 'Cotton' row in the form body doesn't confuse the
+    // query — the popup itself must offer only the unassigned material.
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+
+    expect(within(popup).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+  })
+
+  it('checking a material adds it to the Materials section and marks the box checked', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+
+    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' }))
+
+    // Checked in the popup (blue box)…
+    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    // …and now listed in the form's Materials section.
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+  })
+
+  it('unchecking a material removes it from the Materials section', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+
+    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // check → add
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // uncheck → remove
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+  })
+
+  it('filters the material list by the search query', () => {
+    render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+
+    fireEvent.change(within(popup).getByRole('textbox', { name: 'Search materials' }), {
+      target: { value: 'steel' }
+    })
+
+    expect(within(popup).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+  })
+
+  it('trash icon removes a draft-only material immediately, with no confirm dialog', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Pick Cotton this session → it's in the draft but NOT the baseline.
+    pickCotton()
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    // Trash it → dropped from the section right away, no dialog opened.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Cotton' }))
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(document.querySelector('dialog[open]')).toBeNull()
+  })
+
+  it('trash icon on a saved material opens the unassign confirm dialog', () => {
+    render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          // A material seeded here also lands in the baseline (already saved).
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    expect(
+      screen.queryByText('Are you sure you want to unassign "Cotton"?')
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Cotton' }))
+
+    expect(screen.getByText('Are you sure you want to unassign "Cotton"?')).toBeInTheDocument()
+    expect(
+      screen.getByText('This action will delete any progress made using this material.')
+    ).toBeInTheDocument()
+  })
+
+  it('opens the read-only properties popup when a picked material is clicked', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+
+    expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    expect(screen.getByRole('dialog', { name: 'Cotton properties' })).toBeInTheDocument()
+  })
+
+  it('sizes the popup to 80% of the 3D-window height and vertically centers it', () => {
+    // openDetailPopup sizes/centers the popup against the surrounding right-panel
+    // <aside> — a flex sibling of the 3D window, so it shares the window's top and
+    // height. jsdom returns a zero rect, so stub the aside's rect: a 600px-tall
+    // panel at top 100 → height round(600*0.8)=480, top 100+(600-480)/2=160.
+    const { container } = render(
+      <aside>
+        <Provider store={makeStore([material('m1', 'Cotton')])}>
+          <ObjectPropertiesForm />
+        </Provider>
+      </aside>
+    )
+    const aside = container.querySelector('aside') as HTMLElement
+    aside.getBoundingClientRect = () =>
+      ({
+        top: 100,
+        left: 400,
+        right: 740,
+        bottom: 700,
+        width: 340,
+        height: 600,
+        x: 400,
+        y: 100,
+        toJSON: () => ({})
+      }) as DOMRect
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    // Fixed height (the body scrolls inside it), not a content-hugging box.
+    const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
+    expect(dialog).toHaveStyle({ height: '480px' })
+    // The portal wrapper carries the computed position — centered in the panel.
+    expect(dialog.parentElement).toHaveStyle({ top: '160px' })
+  })
+
+  it("shows an assigned material's properties (from the GET) in the read-only popup", () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })]
+    }
+    // A material already assigned to the ground (as the object GET returns it):
+    // it renders under the Materials row without needing the Select popup.
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+      ]
+    }
+    const { container } = render(
+      <Provider store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    // The type accordion is expanded by default, so the resolved property + value show.
+    expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
+    expect(within(dialog).getByText('0.3')).toBeInTheDocument()
+  })
+
+  it('shows the freshly-saved library values, not the stale GET baseline, for an assigned material', () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })]
+    }
+    // The ground's GET baked in reflectivity 0.3 when it loaded…
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+      ]
+    }
+    // …but the material was since edited to 0.7 in the Materials editor, which the
+    // library detail cache holds write-through. Because the assignment is synced,
+    // the popup must reflect the current library value, not the stale baseline.
+    const detail: MaterialGroupDetail = {
+      id: '41',
+      name: 'Grass',
+      members: [{ materialTypeId: 5, properties: { reflectivity: '0.7' } }]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([], {
+          draftMaterials: [assigned],
+          materialTypes: [radiationType],
+          materialDetails: [detail]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    expect(within(dialog).getByText('0.7')).toBeInTheDocument()
+    expect(within(dialog).queryByText('0.3')).not.toBeInTheDocument()
+  })
+
+  it("shows a freshly-picked material's properties from the Materials library cache", () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })]
+    }
+    // The library detail is already cached (as if a prior GET filled it), so the
+    // popup resolves properties for a picked-but-unsaved material — no baseline.
+    const detail: MaterialGroupDetail = {
+      id: '41',
+      name: 'Grass',
+      members: [{ materialTypeId: 5, properties: { reflectivity: '0.3' } }]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([material('41', 'Grass')], {
+          materialTypes: [radiationType],
+          materialDetails: [detail]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Pick it from the Select popup (no baseline → freshly picked)…
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Grass' }))
+    // …then open its properties from the row: the cached detail fills the popup.
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
+    expect(within(dialog).getByText('0.3')).toBeInTheDocument()
+  })
+
+  it('closes the Select Materials popup when the properties popup opens', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    // Both popups anchor to the same strip beside the panel and each lays down
+    // its own full-screen overlay — two open at once would stack overlays over
+    // each other's contents.
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+  })
+
+  it('dismisses the properties popup from its close button', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close material properties' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+  })
+})
 
 describe('<ObjectPropertiesForm /> — Save gating', () => {
   const saveButton = (): HTMLButtonElement =>

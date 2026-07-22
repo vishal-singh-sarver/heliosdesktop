@@ -91,6 +91,11 @@ export const API_ROUTES = {
     // different verb). Used by the right-panel Save.
     update: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // DELETE — unassign a saved material GROUP from an object (migration 022).
+    // Used by the per-material trash icon when the material is already persisted
+    // on the ground; a draft-only pick is dropped client-side instead.
+    unassignMaterial: (projectId: string, scenarioId: string, objectId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/material-groups/${groupId}`,
     renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
     // Group-level visibility (viewport / render / per-model) — the backend
@@ -112,7 +117,7 @@ export const API_ROUTES = {
   // route below still backs the inline rename of local rows.
   // Material library — GLOBAL material GROUPS. A material IS a group: +Add
   // creates it empty (groupsCreate), then each "Parameter Group" card adds
-  // (groupMaterials POST), updates (groupMaterial PATCH) or removes
+  // (groupMaterials POST), updates (groupMaterial PUT) or removes
   // (groupMaterial DELETE) exactly one material type on it. `scenario_id` (the
   // active scenario) is appended by the service on the mutating calls so the
   // backend can reconcile + repaint that scenario.
@@ -131,6 +136,7 @@ export const API_ROUTES = {
     // POST — add one material type (with its properties) to the group.
     groupMaterials: (groupId: string) => `/api/materials/library/groups/${groupId}/materials`,
     // PUT (full-replace update) / DELETE (remove) one material type on the group.
+    // PUT (update) / DELETE (remove) one material type already on the group.
     groupMaterial: (groupId: string, materialTypeId: number) =>
       `/api/materials/library/groups/${groupId}/materials/${materialTypeId}`,
     // POST (multipart) — upload a file for one property of a member (the Visualiser

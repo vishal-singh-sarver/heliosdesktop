@@ -1,20 +1,23 @@
-import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
 import type { Task } from 'redux-saga'
-import * as actions from './actions'
+import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
+import type { RgbColor } from 'utils/color'
 import type {
   CreateMaterialRequestedAction,
   DeleteMaterialRequestedAction,
   DeleteParameterGroupRequestedAction,
+  LoadMaterialDetailRequestedAction,
   OpenSavedMaterialRequestedAction,
   RenameMaterialRequestedAction,
   SaveParameterGroupRequestedAction,
   UploadTextureRequestedAction
 } from './actions'
+import * as actions from './actions'
 import {
   CREATE_MATERIAL_REQUESTED,
   DELETE_MATERIAL_REQUESTED,
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_REQUESTED,
+  LOAD_MATERIAL_DETAIL_REQUESTED,
   OPEN_SAVED_MATERIAL_REQUESTED,
   RECORD_RECENT_COLOR,
   RENAME_MATERIAL_REQUESTED,
@@ -24,7 +27,6 @@ import {
 import { saveRecentColors } from './recentColors'
 import { selectMaterialDetailsById, selectRecentColors } from './selectors'
 import * as service from './service'
-import type { RgbColor } from 'utils/color'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
 // Loads the GLOBAL material-group library. takeLatest cancels a stale load if a
@@ -117,6 +119,26 @@ export function* openSavedMaterialWorker(action: OpenSavedMaterialRequestedActio
     yield put(actions.openSavedMaterialLoaded(detail))
   } catch (err) {
     yield put(actions.openSavedMaterialFailed(action.id, (err as Error).message))
+  }
+}
+
+// Same cache-check-then-GET as openSavedMaterialWorker, but it ONLY fills the
+// detail cache — it does not open the editor form. The geometry Materials popup
+// reads detailsById to show a picked material's properties; on a cache miss it
+// dispatches this to fetch them. takeEvery (not takeLatest) so concurrent loads
+// for different groups don't cancel each other. A failed fetch is swallowed —
+// the popup just keeps its empty state (this is a read-only view).
+export function* loadMaterialDetailWorker(action: LoadMaterialDetailRequestedAction): Generator {
+  try {
+    const detailsById = (yield select(selectMaterialDetailsById)) as Record<
+      string,
+      MaterialGroupDetail
+    >
+    if (detailsById[action.id]) return
+    const detail = (yield call(service.getGroup, action.id)) as MaterialGroupDetail
+    yield put(actions.materialDetailLoaded(detail))
+  } catch {
+    // Read-only view — leave the popup's empty state on failure.
   }
 }
 
@@ -240,7 +262,13 @@ export default function* materialsSaga(): Generator {
   yield fork(renameWatcher)
   yield takeEvery(DELETE_MATERIAL_REQUESTED, deleteMaterialWorker)
   yield takeLatest(OPEN_SAVED_MATERIAL_REQUESTED, openSavedMaterialWorker)
+  // saveWatcher owns SAVE_PARAMETER_GROUP_REQUESTED — it de-dupes concurrent card
+  // saves and forks saveParameterGroupWorker internally. A second direct
+  // takeEvery(SAVE_PARAMETER_GROUP_REQUESTED, saveParameterGroupWorker) (from the
+  // material_select_button branch) would run the worker a SECOND time per save →
+  // duplicate POST → 409 "already added". So the watcher is the only registration.
   yield fork(saveWatcher)
+  yield takeEvery(LOAD_MATERIAL_DETAIL_REQUESTED, loadMaterialDetailWorker)
   yield takeEvery(DELETE_PARAMETER_GROUP_REQUESTED, deleteParameterGroupWorker)
   yield takeEvery(RECORD_RECENT_COLOR, persistRecentColorsWorker)
   yield takeEvery(UPLOAD_TEXTURE_REQUESTED, uploadTextureWorker)

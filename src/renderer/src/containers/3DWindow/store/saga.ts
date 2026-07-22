@@ -10,13 +10,13 @@ import {
 import type {
   AssignMaterialSucceededAction,
   CreateObjectSucceededAction,
-  DeleteNodeSucceededAction,
   ToggleViewportAction,
   UpdateObjectSucceededAction,
   VisibilitySyncFailedAction
 } from 'containers/Geometry/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode, LoadStatus } from 'containers/Geometry/types'
+import { SAVE_PARAMETER_GROUP_SUCCEEDED } from 'containers/Materials/constants'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -129,7 +129,25 @@ export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Gene
   }
 }
 
-export function* onGeometryDeleted(_action: DeleteNodeSucceededAction): Generator {
+// A material-library member was saved (e.g. a Visualiser colour/texture edit).
+// The look is baked into the binary geometry of every object using that material,
+// and the backend has already repainted them (the save carries scenario_id) — but
+// a LIBRARY edit doesn't tell us WHICH objects use it. Re-fetch the binary of all
+// currently-shown objects in place: the ones using the material pick up the new
+// look without a full-scene reload/flash; the rest just re-read identical data.
+// takeLatest coalesces a burst of saves into one refresh.
+export function* onMaterialSaved(): Generator {
+  const objectIds = (yield select(selectSceneObjectIds)) as number[]
+  for (const objectId of objectIds) {
+    try {
+      yield* fetchAndCacheObjectGeometry(objectId, false)
+    } catch {
+      // Non-fatal — the object keeps its previous appearance until reloaded.
+    }
+  }
+}
+
+export function* onGeometryDeleted(): Generator {
   // The Geometry reducer has already removed the node (and children if group)
   // from nodesById. Compare our cached objectIds against the current visible
   // objects to find which ones were removed.
@@ -374,4 +392,5 @@ export default function* threeDWindowSaga(): Generator {
   yield takeEvery(TOGGLE_VIEWPORT, onViewportToggled)
   yield takeEvery(VISIBILITY_SYNC_FAILED, onVisibilitySyncFailed)
   yield takeEvery(ASSIGN_MATERIAL_SUCCEEDED, onMaterialAssigned)
+  yield takeLatest(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialSaved)
 }
