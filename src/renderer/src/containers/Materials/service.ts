@@ -262,7 +262,19 @@ export function listDefaultTextures(): Promise<DefaultTexture[]> {
   if (!defaultTexturesCache) {
     defaultTexturesCache = api
       .get<{ textures: DefaultTexture[] }>(API_ROUTES.textures.defaults())
-      .then((res) => res.textures ?? [])
+      .then((res) =>
+        (res.textures ?? []).map((t) => ({
+          ...t,
+          // The backend returns a same-origin RELATIVE url (/api/textures/serve?…).
+          // In dev that resolves against the Vite server (which proxies /api); in
+          // the PACKAGED build the renderer is loaded from file://, so a relative
+          // url resolves to file:///api/… and the <img> can't reach the backend.
+          // Prefix BASE_URL (the resolved backend origin) so it works in both —
+          // matching textureServeUrl. Guard an already-absolute url so we never
+          // double-prefix.
+          url: /^https?:\/\//i.test(t.url) ? t.url : `${BASE_URL}${t.url}`
+        }))
+      )
       .catch((err) => {
         defaultTexturesCache = null
         throw err

@@ -516,19 +516,28 @@ const geometryReducer = (
       }
 
       case ASSIGN_MATERIAL_SUCCEEDED: {
-        // A drag-drop assign that landed on the backend. If the dropped-on object
-        // is the one open in the form, show the group in its Materials list right
-        // away instead of waiting for a refresh. It goes into the BASELINE too:
-        // it's already persisted, so the add-only Save must not re-PATCH it (that
-        // would 409). Guard on the open object being among the assigned ones (a
-        // group drop can hit many, but the form shows just one).
+        // A drag-drop assign that landed on the backend. Reflect it in BOTH:
+        //  - the open form (if the dropped-on object is the one open), and
+        //  - the detail CACHE of every affected object — otherwise a re-click
+        //    serves the stale cached detail and the just-assigned material
+        //    vanishes from the panel (the reported bug).
+        // The group goes into the baseline too: it's already persisted, so the
+        // add-only Save must not re-PATCH it (that would 409).
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const { objectIds, groupId, name } = action
         const cd = draft.createDraft
-        if (cd && action.objectIds.includes(cd.objectId)) {
-          if (!cd.materials.some((m) => m.groupId === action.groupId)) {
-            cd.materials.push({ groupId: action.groupId, name: action.name })
+        if (cd && objectIds.includes(cd.objectId)) {
+          if (!cd.materials.some((m) => m.groupId === groupId)) {
+            cd.materials.push({ groupId, name })
           }
-          if (!cd.materialBaseline.includes(action.groupId)) {
-            cd.materialBaseline.push(action.groupId)
+          if (!cd.materialBaseline.includes(groupId)) {
+            cd.materialBaseline.push(groupId)
+          }
+        }
+        for (const objectId of objectIds) {
+          const detail = s.detailsById[objectId]
+          if (detail && !detail.materialGroups.some((m) => m.groupId === groupId)) {
+            detail.materialGroups.push({ groupId, name })
           }
         }
         break

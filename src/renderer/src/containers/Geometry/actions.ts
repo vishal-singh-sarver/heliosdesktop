@@ -217,10 +217,13 @@ export type AssignMaterialRequestedAction = {
 }
 // The assign landed on the backend — carries the affected object ids so the 3D
 // viewport can re-fetch their (now restyled) binary geometry, plus the assigned
-// group (id + name) so the open object form can show it in its Materials list
-// without waiting for a refresh.
+// group (id + name) so the open object form AND the detail cache of every
+// affected object show it without waiting for a refresh. `projectId/scenarioId`
+// scope the detail-cache update.
 export type AssignMaterialSucceededAction = {
   type: typeof ASSIGN_MATERIAL_SUCCEEDED
+  projectId: string
+  scenarioId: string
   objectIds: string[]
   groupId: string
   name: string
@@ -315,7 +318,11 @@ export type UpdateObjectSucceededAction = {
   scenarioId: string
   // The saved object id, so the reducer can keep the form open showing the saved
   // values. The name is not part of Save — it commits on blur — so it isn't here.
-  payload: { objectId: string; propsChanged: boolean }
+  // `propsChanged` / `materialsChanged` tell the 3D viewport whether to re-fetch
+  // the object's binary geometry — a material assignment restyles the object even
+  // when no property changed, so BOTH must be tracked (else the new look only
+  // shows after a refresh).
+  payload: { objectId: string; propsChanged: boolean; materialsChanged: boolean }
 }
 export type UpdateObjectFailedAction = {
   type: typeof UPDATE_OBJECT_FAILED
@@ -586,11 +593,15 @@ export const assignMaterialRequested = (
 })
 
 export const assignMaterialSucceeded = (
+  projectId: string,
+  scenarioId: string,
   objectIds: string[],
   groupId: string,
   name: string
 ): AssignMaterialSucceededAction => ({
   type: ASSIGN_MATERIAL_SUCCEEDED,
+  projectId,
+  scenarioId,
   objectIds,
   groupId,
   name
@@ -722,7 +733,7 @@ export const updateObjectRequested = (
 export const updateObjectSucceeded = (
   projectId: string,
   scenarioId: string,
-  payload: { objectId: string; propsChanged: boolean }
+  payload: { objectId: string; propsChanged: boolean; materialsChanged: boolean }
 ): UpdateObjectSucceededAction => ({ type: UPDATE_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
 
 export const updateObjectFailed = (error: string): UpdateObjectFailedAction => ({

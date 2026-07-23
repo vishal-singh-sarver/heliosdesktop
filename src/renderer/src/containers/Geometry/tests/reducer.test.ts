@@ -608,7 +608,7 @@ describe('geometryReducer', () => {
     it('UPDATE_OBJECT_SUCCEEDED keeps the form open and clears saving/new, without touching the name', () => {
       let r = created()
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true }))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
       // Form stays open (panel must not blank) showing the saved values.
       expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
       // The name is owned by the blur/rename path — Save is field-only and leaves
@@ -622,7 +622,7 @@ describe('geometryReducer', () => {
       // Before save: picked but not yet in the baseline (Save would PATCH it).
       expect(r.createDraft?.materialBaseline).toEqual([])
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false }))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
       // After save: the group is now assigned → baseline covers it (re-Save is a
       // no-op) and the cache carries it so a re-click still shows the assignment.
       expect(r.createDraft?.materialBaseline).toEqual(['41'])
@@ -632,23 +632,28 @@ describe('geometryReducer', () => {
       ])
     })
 
-    it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) lists the group on the open object + baseline', () => {
+    it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) lists the group on the open object + baseline + cache', () => {
       let r = created()
-      r = geometryReducer(r, actions.assignMaterialSucceeded(['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
       // The drop already persisted on the backend → shown in the Materials list
       // AND folded into the baseline so a later Save won't try to re-assign it.
       expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
       expect(r.createDraft?.materialBaseline).toEqual(['55'])
+      // …AND the detail cache is updated, so closing + re-opening the object still
+      // shows the material instead of serving a stale (material-less) cached detail.
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
+        { groupId: '55', name: 'Concrete' }
+      ])
     })
 
     it('ASSIGN_MATERIAL_SUCCEEDED dedupes and ignores assigns to a DIFFERENT object', () => {
       let r = created()
       // A drop on some other object must not touch the open form.
-      r = geometryReducer(r, actions.assignMaterialSucceeded(['99'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['99'], '55', 'Concrete'))
       expect(r.createDraft?.materials).toEqual([])
       // A repeat drop on the open object doesn't duplicate the row.
-      r = geometryReducer(r, actions.assignMaterialSucceeded(['27'], '55', 'Concrete'))
-      r = geometryReducer(r, actions.assignMaterialSucceeded(['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
       expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
       expect(r.createDraft?.materialBaseline).toEqual(['55'])
     })

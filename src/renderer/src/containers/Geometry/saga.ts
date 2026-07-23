@@ -204,7 +204,10 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     yield put(
       actions.updateObjectSucceeded(projectId, scenarioId, {
         objectId: draft.objectId,
-        propsChanged
+        propsChanged,
+        // A newly-assigned material restyles the object even with props unchanged,
+        // so the 3D viewport must re-fetch its binary in that case too.
+        materialsChanged: newMaterials.length > 0
       })
     )
   } catch (err) {
@@ -375,7 +378,7 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
     // Tell the 3D viewport which objects were restyled so it re-fetches their
     // binary geometry, and the open object form so it lists the new group —
     // without this the material only shows after a refresh.
-    yield put(actions.assignMaterialSucceeded(objectIds, groupId, materialName))
+    yield put(actions.assignMaterialSucceeded(projectId, scenarioId, objectIds, groupId, materialName))
     yield put(showSnackbar(messages.assignMaterialSuccess(materialName, targetName), 'success'))
   } catch {
     yield put(showSnackbar(messages.assignMaterialFailure(materialName), 'error'))

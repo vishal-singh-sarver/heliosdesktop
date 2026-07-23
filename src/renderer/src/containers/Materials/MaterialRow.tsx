@@ -9,7 +9,7 @@ import { deleteMaterialRequested, openSavedMaterialRequested, selectMaterial } f
 import { MATERIAL_DND_MIME } from './constants'
 import MaterialNameEditor from './MaterialNameEditor'
 import messages from './messages'
-import { selectDeletingIds } from './selectors'
+import { selectDeletingIds, selectOpeningMaterialId } from './selectors'
 import type { Material } from './types'
 
 interface IconButtonProps {
@@ -73,6 +73,11 @@ export default function MaterialRow({
   // This material's whole-material DELETE is in flight — the trash locks so a
   // second confirm can't fire a duplicate DELETE onto the already-gone material.
   const deleting = useSelector(selectDeletingIds).includes(material.id)
+  // The material whose properties are currently being FETCHED (GET in flight).
+  // Used to swallow repeat clicks on a slow-loading row so they don't each fire a
+  // fresh GET (takeLatest cancels the stale saga, but the network request already
+  // went out — so the network tab filled with a request per click).
+  const openingId = useSelector(selectOpeningMaterialId)
   const [editing, setEditing] = React.useState(false)
   // Live rename validation error, lifted from MaterialNameEditor so the error
   // can render below (outside) the row box.
@@ -82,6 +87,9 @@ export default function MaterialRow({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
 
   const onSelect = (): void => {
+    // Already fetching THIS material — don't fire the GET again. Impatient repeat
+    // clicks on a slow row otherwise stacked one duplicate request per click.
+    if (openingId === material.id) return
     dispatch(selectMaterial(material.id))
     // Every row is a persisted group — open its properties in the right panel.
     dispatch(openSavedMaterialRequested(material.id))

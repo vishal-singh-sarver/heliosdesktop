@@ -16,8 +16,8 @@ const material: Material = {
   createdAt: ''
 }
 
-const storeWith = (deletingIds: string[] = []): InjectableStore => {
-  const state = { materials: { deletingIds } }
+const storeWith = (deletingIds: string[] = [], openingId: string | null = null): InjectableStore => {
+  const state = { materials: { deletingIds, openingId } }
   const store = createStore(
     ((s = state) => s) as Reducer<unknown, UnknownAction>
   ) as InjectableStore
@@ -122,5 +122,33 @@ describe('<MaterialRow /> drag source', () => {
       MATERIAL_DND_MIME,
       JSON.stringify({ groupId: '12', name: 'Concrete' })
     )
+  })
+})
+
+// Clicking a slow-loading row repeatedly must not fire a fresh GET each time —
+// while THIS material's properties are being fetched, further clicks are swallowed.
+describe('<MaterialRow /> open de-dupe', () => {
+  it('does not re-open while this material is already loading', () => {
+    const store = storeWith([], '12') // '12' is this row's material — GET in flight
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialRow material={material} selected={false} existingNames={new Set()} />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Concrete/ }))
+    expect(openedIds(dispatch)).toEqual([])
+  })
+
+  it('still opens when a DIFFERENT material is loading', () => {
+    const store = storeWith([], '99') // a different material is loading
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialRow material={material} selected={false} existingNames={new Set()} />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Concrete/ }))
+    expect(openedIds(dispatch)).toEqual(['12'])
   })
 })

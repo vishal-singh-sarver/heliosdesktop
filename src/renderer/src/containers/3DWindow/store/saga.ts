@@ -4,6 +4,7 @@ import {
   DELETE_NODE_SUCCEEDED,
   LIST_NODES_SUCCEEDED,
   TOGGLE_VIEWPORT,
+  UNASSIGN_MATERIAL_SUCCEEDED,
   UPDATE_OBJECT_SUCCEEDED,
   VISIBILITY_SYNC_FAILED
 } from 'containers/Geometry/constants'
@@ -11,12 +12,13 @@ import type {
   AssignMaterialSucceededAction,
   CreateObjectSucceededAction,
   ToggleViewportAction,
+  UnassignMaterialSucceededAction,
   UpdateObjectSucceededAction,
   VisibilitySyncFailedAction
 } from 'containers/Geometry/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode, LoadStatus } from 'containers/Geometry/types'
-import { SAVE_PARAMETER_GROUP_SUCCEEDED } from 'containers/Materials/constants'
+import { REMOVE_MATERIAL, SAVE_PARAMETER_GROUP_SUCCEEDED } from 'containers/Materials/constants'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -92,8 +94,10 @@ export function* onGeometryCreated(action: CreateObjectSucceededAction): Generat
 }
 
 export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generator {
-  // Skip rename-only updates — geometry data hasn't changed.
-  if (!action.payload.propsChanged) return
+  // Re-fetch when properties OR materials changed — a material assignment restyles
+  // the object even with no property edit. Skip only a true no-op / name-only save
+  // (neither changed), where the binary is identical.
+  if (!action.payload.propsChanged && !action.payload.materialsChanged) return
 
   const objectId = Number(action.payload.objectId)
 
@@ -129,14 +133,15 @@ export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Gene
   }
 }
 
-// A material-library member was saved (e.g. a Visualiser colour/texture edit).
-// The look is baked into the binary geometry of every object using that material,
-// and the backend has already repainted them (the save carries scenario_id) — but
-// a LIBRARY edit doesn't tell us WHICH objects use it. Re-fetch the binary of all
-// currently-shown objects in place: the ones using the material pick up the new
-// look without a full-scene reload/flash; the rest just re-read identical data.
-// takeLatest coalesces a burst of saves into one refresh.
-export function* onMaterialSaved(): Generator {
+// A material-library change that can restyle geometry: a member SAVE (Visualiser
+// colour/texture edit) or a whole-material DELETE (objects using it revert to
+// their remaining look / the default soil). The backend has already repainted the
+// affected objects (both calls carry scenario_id) — but a LIBRARY change doesn't
+// tell us WHICH objects use the material. Re-fetch the binary of all currently-
+// shown objects in place: the ones using it pick up the change without a
+// full-scene reload/flash; the rest just re-read identical data. takeLatest
+// coalesces a burst into one refresh.
+export function* onMaterialLibraryChanged(): Generator {
   const objectIds = (yield select(selectSceneObjectIds)) as number[]
   for (const objectId of objectIds) {
     try {
@@ -144,6 +149,22 @@ export function* onMaterialSaved(): Generator {
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
+  }
+}
+
+// A material was UNASSIGNED from an object (the per-material trash in the object
+// form). The object reverts to its remaining look — another assigned material, or
+// the default soil — so re-fetch its binary to show that. Skips a hidden object
+// so an unassign never un-hides one, mirroring onGeometryUpdated/onMaterialAssigned.
+export function* onMaterialUnassigned(action: UnassignMaterialSucceededAction): Generator {
+  const objectId = Number(action.objectId)
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  const node = nodesById[String(objectId)]
+  if (node && !node.visibleInViewport) return
+  try {
+    yield* fetchAndCacheObjectGeometry(objectId, false)
+  } catch {
+    // Non-fatal — the object keeps its previous appearance until reloaded.
   }
 }
 
@@ -392,5 +413,7 @@ export default function* threeDWindowSaga(): Generator {
   yield takeEvery(TOGGLE_VIEWPORT, onViewportToggled)
   yield takeEvery(VISIBILITY_SYNC_FAILED, onVisibilitySyncFailed)
   yield takeEvery(ASSIGN_MATERIAL_SUCCEEDED, onMaterialAssigned)
-  yield takeLatest(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialSaved)
+  yield takeEvery(UNASSIGN_MATERIAL_SUCCEEDED, onMaterialUnassigned)
+  yield takeLatest(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialLibraryChanged)
+  yield takeLatest(REMOVE_MATERIAL, onMaterialLibraryChanged)
 }

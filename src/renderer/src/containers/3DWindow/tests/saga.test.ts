@@ -1,5 +1,5 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
-import { assignMaterialSucceeded } from 'containers/Geometry/actions'
+import { assignMaterialSucceeded, unassignMaterialSucceeded } from 'containers/Geometry/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
@@ -12,7 +12,8 @@ import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
   onMaterialAssigned,
-  onMaterialSaved,
+  onMaterialLibraryChanged,
+  onMaterialUnassigned,
   onNodesListed
 } from '../store/saga'
 import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
@@ -179,7 +180,7 @@ describe('onMaterialAssigned', () => {
   })
 
   it('re-fetches and re-caches the binary geometry of each restyled object', () => {
-    const gen = onMaterialAssigned(assignMaterialSucceeded(['28'], '7', 'Grass'))
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
     expect(gen.next().value).toEqual(select(selectNodesById))
 
     // Enter the loop with a visible node → fetch + cache its geometry.
@@ -194,7 +195,7 @@ describe('onMaterialAssigned', () => {
   })
 
   it('skips a hidden object so an assignment never un-hides it', () => {
-    const gen = onMaterialAssigned(assignMaterialSucceeded(['28'], '7', 'Grass'))
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
     gen.next() // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
     // Node is hidden → no fetch, generator completes.
@@ -202,9 +203,9 @@ describe('onMaterialAssigned', () => {
   })
 })
 
-describe('onMaterialSaved', () => {
-  it('re-fetches every shown object so a material edit shows without a refresh', () => {
-    const gen = onMaterialSaved()
+describe('onMaterialLibraryChanged', () => {
+  it('re-fetches every shown object so a material save/delete shows without a refresh', () => {
+    const gen = onMaterialLibraryChanged()
     expect(gen.next().value).toEqual(select(selectSceneObjectIds))
 
     // One shown object → re-fetch + re-cache its (possibly restyled) geometry.
@@ -219,9 +220,44 @@ describe('onMaterialSaved', () => {
   })
 
   it('does nothing when the scene has no shown objects', () => {
-    const gen = onMaterialSaved()
+    const gen = onMaterialLibraryChanged()
     gen.next() // select selectSceneObjectIds
     expect(gen.next([]).done).toBe(true)
+  })
+})
+
+describe('onMaterialUnassigned', () => {
+  const visibleNode = (id: string): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('re-fetches the object binary so it reverts to its remaining look', () => {
+    const gen = onMaterialUnassigned(unassignMaterialSucceeded('p', 's', '28', '7'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('skips a hidden object so an unassign never un-hides it', () => {
+    const gen = onMaterialUnassigned(unassignMaterialSucceeded('p', 's', '28', '7'))
+    gen.next() // select nodesById
+    const hidden = { ...visibleNode('28'), visibleInViewport: false }
+    expect(gen.next({ '28': hidden }).done).toBe(true)
   })
 })
 
