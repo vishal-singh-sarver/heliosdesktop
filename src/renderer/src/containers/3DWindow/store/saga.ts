@@ -19,6 +19,10 @@ import type {
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode, LoadStatus } from 'containers/Geometry/types'
 import { REMOVE_MATERIAL, SAVE_PARAMETER_GROUP_SUCCEEDED } from 'containers/Materials/constants'
+import type {
+  RemoveMaterialAction,
+  SaveParameterGroupSucceededAction
+} from 'containers/Materials/actions'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -133,23 +137,34 @@ export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Gene
   }
 }
 
-// A material-library change that can restyle geometry: a member SAVE (Visualiser
-// colour/texture edit) or a whole-material DELETE (objects using it revert to
-// their remaining look / the default soil). The backend has already repainted the
-// affected objects (both calls carry scenario_id) — but a LIBRARY change doesn't
-// tell us WHICH objects use the material. Re-fetch the binary of all currently-
-// shown objects in place: the ones using it pick up the change without a
-// full-scene reload/flash; the rest just re-read identical data. takeLatest
-// coalesces a burst into one refresh.
-export function* onMaterialLibraryChanged(): Generator {
-  const objectIds = (yield select(selectSceneObjectIds)) as number[]
-  for (const objectId of objectIds) {
+// Re-fetch the binary of every SHOWN object that uses `groupId` — the objects a
+// material-library change (save/delete) actually restyles. The node carries its
+// assigned material-group ids (seeded from the objects list, kept in sync on
+// assign/unassign/save), so a save of a material used by nothing costs 0 fetches
+// and one used by 1 ground costs 1 — instead of one per shown object.
+function* refetchObjectsUsingGroup(groupId: string): Generator {
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  for (const node of Object.values(nodesById)) {
+    if (node.kind === 'group' || !node.visibleInViewport) continue
+    if (!(node.materialGroupIds ?? []).includes(groupId)) continue
     try {
-      yield* fetchAndCacheObjectGeometry(objectId, false)
+      yield* fetchAndCacheObjectGeometry(Number(node.id), false)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
   }
+}
+
+// A material member was SAVED (Visualiser colour/texture edit). Restyle only the
+// objects that use it. `materialId` is the material GROUP id.
+export function* onMaterialSaved(action: SaveParameterGroupSucceededAction): Generator {
+  yield* refetchObjectsUsingGroup(action.materialId)
+}
+
+// A whole material was DELETED. The objects using it revert (to their remaining
+// material or the default soil) — reload just those. `id` is the group id.
+export function* onMaterialDeleted(action: RemoveMaterialAction): Generator {
+  yield* refetchObjectsUsingGroup(action.id)
 }
 
 // A material was UNASSIGNED from an object (the per-material trash in the object
@@ -414,6 +429,6 @@ export default function* threeDWindowSaga(): Generator {
   yield takeEvery(VISIBILITY_SYNC_FAILED, onVisibilitySyncFailed)
   yield takeEvery(ASSIGN_MATERIAL_SUCCEEDED, onMaterialAssigned)
   yield takeEvery(UNASSIGN_MATERIAL_SUCCEEDED, onMaterialUnassigned)
-  yield takeLatest(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialLibraryChanged)
-  yield takeLatest(REMOVE_MATERIAL, onMaterialLibraryChanged)
+  yield takeEvery(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialSaved)
+  yield takeEvery(REMOVE_MATERIAL, onMaterialDeleted)
 }

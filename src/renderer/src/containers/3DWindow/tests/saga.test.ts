@@ -1,5 +1,6 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
 import { assignMaterialSucceeded, unassignMaterialSucceeded } from 'containers/Geometry/actions'
+import { removeMaterial, saveParameterGroupSucceeded } from 'containers/Materials/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
@@ -12,7 +13,8 @@ import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
   onMaterialAssigned,
-  onMaterialLibraryChanged,
+  onMaterialDeleted,
+  onMaterialSaved,
   onMaterialUnassigned,
   onNodesListed
 } from '../store/saga'
@@ -203,26 +205,57 @@ describe('onMaterialAssigned', () => {
   })
 })
 
-describe('onMaterialLibraryChanged', () => {
-  it('re-fetches every shown object so a material save/delete shows without a refresh', () => {
-    const gen = onMaterialLibraryChanged()
-    expect(gen.next().value).toEqual(select(selectSceneObjectIds))
+describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
+  const withGroups = (id: string, materialGroupIds: string[], visible = true): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: visible,
+    renderEnabled: true,
+    modelVisibility: {},
+    materialGroupIds
+  })
 
-    // One shown object → re-fetch + re-cache its (possibly restyled) geometry.
-    expect(gen.next([28]).value).toEqual(select(selectActiveProjectId))
+  // 28 uses group 7 (re-fetch), 29 uses a different group (skip), 30 uses 7 but is
+  // hidden (skip) — so only 28's binary is re-fetched.
+  const mixedNodes = {
+    '28': withGroups('28', ['7']),
+    '29': withGroups('29', ['9']),
+    '30': withGroups('30', ['7'], false)
+  }
+
+  it('onMaterialSaved re-fetches only the shown objects using the saved group', () => {
+    const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1)) // materialId = group id
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    // 29 (other group) and 30 (hidden) are skipped → done, no more fetches.
+    expect(gen.next().done).toBe(true)
+  })
 
+  it('onMaterialSaved does nothing for a material used by no shown object', () => {
+    const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1))
+    gen.next() // select nodesById
+    expect(gen.next({ '29': withGroups('29', ['9']) }).done).toBe(true)
+  })
+
+  it('onMaterialDeleted re-fetches only the shown objects that used the deleted group', () => {
+    const gen = onMaterialDeleted(removeMaterial('7')) // id = group id
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
     expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
     expect(gen.next().done).toBe(true)
-  })
-
-  it('does nothing when the scene has no shown objects', () => {
-    const gen = onMaterialLibraryChanged()
-    gen.next() // select selectSceneObjectIds
-    expect(gen.next([]).done).toBe(true)
   })
 })
 
