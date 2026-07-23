@@ -368,7 +368,8 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
       id: 5,
       materialtype: 'Radiation',
       description: '',
-      properties: [prop('reflectivity', 1, { group: 'model' })]
+      properties: [prop('reflectivity', 1, { group: 'model' })],
+      groups: []
     }
     // A material already assigned to the ground (as the object GET returns it):
     // it renders under the Materials row without needing the Select popup.
@@ -397,7 +398,8 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
       id: 5,
       materialtype: 'Radiation',
       description: '',
-      properties: [prop('reflectivity', 1, { group: 'model' })]
+      properties: [prop('reflectivity', 1, { group: 'model' })],
+      groups: []
     }
     // The ground's GET baked in reflectivity 0.3 when it loaded…
     const assigned: DraftMaterialGroup = {
@@ -438,7 +440,8 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
       id: 5,
       materialtype: 'Radiation',
       description: '',
-      properties: [prop('reflectivity', 1, { group: 'model' })]
+      properties: [prop('reflectivity', 1, { group: 'model' })],
+      groups: []
     }
     // The library detail is already cached (as if a prior GET filled it), so the
     // popup resolves properties for a picked-but-unsaved material — no baseline.

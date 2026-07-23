@@ -124,8 +124,11 @@ export function buildMaterialSections(
     const typeName = member.materialTypeName ?? type?.materialtype ?? String(member.materialTypeId)
     if (type) {
       const groups = resolveParameterGroups([type]).map((pg) => ({
-        group: pg.group,
-        label: pg.label,
+        // The blueprint's top-level fields (name null) map to the header-less
+        // "general" bucket the popup already renders inline; named groups keep
+        // their catalog name as the section heading.
+        group: pg.name ?? 'general',
+        label: pg.name ?? 'General',
         rows: pg.fields.map((f) => ({
           property: f.property,
           label: f.label,

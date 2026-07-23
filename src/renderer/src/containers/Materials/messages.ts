@@ -55,6 +55,17 @@ const messages = {
   textureUploadError: 'Unable to upload texture',
   textureFileTypeError: 'Only JPG, JPEG or PNG files are allowed',
   textureFileSizeError: 'File must be 10 MB or smaller',
+  // Radiation bespoke editor (spectral toggle + per-band optics).
+  applySpectralData: 'Apply spectral data',
+  spectralDataFile: 'Spectral Data File',
+  spectralUploadButton: 'Upload Here',
+  spectralUploading: 'Uploading…',
+  spectralSaveFirst: 'Save the material first to attach a spectral data file',
+  spectralFileTypeError: 'Only XML files are allowed',
+  spectralRemove: 'Remove spectral data file',
+  bandReflectivity: 'Reflectivity',
+  bandTransmissivity: 'Transmissivity',
+  bandEmissivity: 'Emissivity',
   // Each Parameter Group card saves itself: the first save adds its material type
   // to the group, later ones update it.
   saveParameterGroup: 'Save',

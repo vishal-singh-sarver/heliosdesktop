@@ -237,20 +237,26 @@ export function* deleteParameterGroupWorker(
   }
 }
 
-// Upload a Visualiser texture. The upload endpoint stores the file AND persists
-// the member in texture mode (creating it if missing), so on success we just
-// switch the card to the returned path.
+// Upload a member file. For the Visualiser texture the dedicated endpoint stores
+// the file AND persists the member in texture mode (creating it if missing); for
+// any other file property (e.g. Radiation's spectral_data) the generic endpoint
+// stores the file and returns its path, which the card stages for its next Save.
+// Either way, on success we hand the returned path back keyed by its property.
 export function* uploadTextureWorker(action: UploadTextureRequestedAction): Generator {
-  const { groupId, cardId, materialTypeId, file, scenarioId } = action.payload
+  const { groupId, cardId, materialTypeId, file, scenarioId, property = 'texture_file' } =
+    action.payload
   try {
-    const path = (yield call(
-      service.uploadTextureFile,
-      groupId,
-      materialTypeId,
-      file,
-      scenarioId
-    )) as string
-    yield put(actions.uploadTextureSucceeded(groupId, cardId, path))
+    const path = (yield property === 'texture_file'
+      ? call(service.uploadTextureFile, groupId, materialTypeId, file, scenarioId)
+      : call(
+          service.uploadMaterialFile,
+          groupId,
+          materialTypeId,
+          property,
+          file,
+          scenarioId
+        )) as string
+    yield put(actions.uploadTextureSucceeded(groupId, cardId, path, property))
   } catch (err) {
     yield put(actions.uploadTextureFailed(groupId, cardId, (err as Error).message))
   }

@@ -7,15 +7,15 @@ import messages from './messages'
 // ── Material Properties-form blueprint ───────────────────────────────────────
 //
 // The material-types catalog (state.projectScreen.catalog.materialTypes) gives
-// each material type a FLAT list of properties, every one tagged with a `group`
-// (e.g. "model" | "visualisation"). The right-panel Material Properties form
-// renders those as "Parameter Groups": the Select dropdown lists the distinct
-// groups contributed by the material types the user has added, and picking one
-// shows that group's fields.
+// each material type a flat list of TOP-LEVEL `properties` plus a `groups` array
+// of collapsible sub-sections (e.g. "Farquhar model", the stomatal-conductance
+// sub-models). The right-panel Material Properties form renders one card per
+// material type: its top-level fields first, then each group as a collapsible
+// section — a group carrying a `selector_property`/`selector_value` only appears
+// while that top-level enum holds the matching value.
 //
-// This mirrors Geometry's propertyBlueprint (the catalog stays the source of
-// truth; this layer only decides grouping + labels), but material grouping is
-// data-driven from the catalog's own `group` tag rather than a hand-written map.
+// This layer joins the catalog wire shape into render-ready groups; the catalog
+// stays the source of truth (labels, ranges, display order, group membership).
 
 // One editable material field, joined from its catalog property definition.
 export interface ResolvedMaterialField {
@@ -27,19 +27,23 @@ export interface ResolvedMaterialField {
   max: number | null
   // Present only when datatype === 'enum' — drives the field's Select options.
   enumValues?: string[]
+  // For a selector enum (one that drives conditional groups): friendly option
+  // labels keyed by enum value, e.g. "BWB" → "Ball-woodrow-berry". Absent for an
+  // ordinary enum, whose value doubles as its own label.
+  enumLabels?: Record<string, string>
 }
 
-// A Parameter Group: one `group` tag and the fields tagged with it, in catalog
-// display order, across every added material type.
+// A Parameter Group: a `name` (null for the type's top-level fields, which render
+// flat with no header) and the fields it holds, in catalog display order. A group
+// with `selectorProperty` set is conditional — shown only while the top-level enum
+// it names holds `selectorValue`.
 export interface ResolvedParameterGroup {
-  group: string
-  // Display label for the group ("model" → "Model").
-  label: string
+  // null = the type's top-level fields, rendered without a collapsible header.
+  name: string | null
+  selectorProperty: string | null
+  selectorValue: string | null
   fields: ResolvedMaterialField[]
 }
-
-// Properties with no `group` tag fall under this catch-all so they still render.
-const UNGROUPED = 'General'
 
 // The "Visualiser" catalog type (id 7) — its colour/opacity/texture properties
 // carry NO `group` tag in the live catalog, so it's identified by its signature
@@ -81,7 +85,7 @@ export function isVisualisationComplete(
   groups: ResolvedParameterGroup[],
   values: Record<string, string>
 ): boolean {
-  return groups.every((group) => {
+  return visibleParameterGroups(groups, values).every((group) => {
     if (!isVisualisationFieldSet(group.fields)) return true
     return group.fields.every((field) => {
       if (!(VISUALISATION_CUSTOM_PROPERTIES as readonly string[]).includes(field.property)) {
@@ -95,7 +99,9 @@ export function isVisualisationComplete(
 
 const toResolvedField = (def: MaterialTypeDef['properties'][number]): ResolvedMaterialField => ({
   property: def.property,
-  label: humanizeProperty(def.property),
+  // Prefer the catalog's explicit label ("V cmax25"); fall back to humanizing the
+  // property name so an unlabeled property still reads sensibly.
+  label: def.label ?? humanizeProperty(def.property),
   datatype: def.datatype,
   description: def.description,
   min: def.min,
@@ -103,34 +109,81 @@ const toResolvedField = (def: MaterialTypeDef['properties'][number]): ResolvedMa
   enumValues: def.enum_values
 })
 
-// Merge the added material types into ordered Parameter Groups. Groups appear in
-// first-seen order; fields keep the catalog's display order. A property shared by
-// two added types is de-duplicated (first wins), so overlapping types don't
-// render the same field twice.
+const resolveFields = (props: MaterialTypeDef['properties']): ResolvedMaterialField[] =>
+  [...props].sort((a, b) => a.display_order - b.display_order).map(toResolvedField)
+
+// Join the added material types into render-ready Parameter Groups: one leading
+// group of the types' top-level fields (name null, always shown) followed by each
+// catalog group in display order, carrying its selector so the form can show it
+// conditionally. Fields keep the catalog's display order. The form calls this with
+// a single type per card; a property shared across the passed types is de-duplicated
+// (first wins) so overlapping types never render the same field twice.
 export function resolveParameterGroups(types: MaterialTypeDef[]): ResolvedParameterGroup[] {
-  const fieldsByGroup = new Map<string, ResolvedMaterialField[]>()
-  const groupOrder: string[] = []
+  const topFields: ResolvedMaterialField[] = []
+  const groups: ResolvedParameterGroup[] = []
   const seenProperties = new Set<string>()
 
+  const take = (props: MaterialTypeDef['properties']): ResolvedMaterialField[] => {
+    const out: ResolvedMaterialField[] = []
+    for (const field of resolveFields(props)) {
+      if (seenProperties.has(field.property)) continue
+      seenProperties.add(field.property)
+      out.push(field)
+    }
+    return out
+  }
+
   for (const type of types) {
-    const props = [...type.properties].sort((a, b) => a.display_order - b.display_order)
-    for (const def of props) {
-      if (seenProperties.has(def.property)) continue
-      seenProperties.add(def.property)
-      const group = def.group ?? UNGROUPED
-      if (!fieldsByGroup.has(group)) {
-        fieldsByGroup.set(group, [])
-        groupOrder.push(group)
-      }
-      fieldsByGroup.get(group)!.push(toResolvedField(def))
+    // Friendly labels for any selector enum: selector_property → { value → group
+    // name }, so the driving dropdown reads "Ball-woodrow-berry" not "BWB".
+    const selectorLabels = new Map<string, Record<string, string>>()
+    for (const g of type.groups) {
+      if (g.selector_property == null || g.selector_value == null) continue
+      const labels = selectorLabels.get(g.selector_property) ?? {}
+      labels[g.selector_value] = g.name
+      selectorLabels.set(g.selector_property, labels)
+    }
+    for (const field of take(type.properties)) {
+      const labels = selectorLabels.get(field.property)
+      topFields.push(labels ? { ...field, enumLabels: labels } : field)
+    }
+    for (const g of [...type.groups].sort((a, b) => a.display_order - b.display_order)) {
+      const fields = take(g.properties)
+      if (fields.length === 0) continue
+      groups.push({
+        name: g.name,
+        selectorProperty: g.selector_property,
+        selectorValue: g.selector_value,
+        fields
+      })
     }
   }
 
-  return groupOrder.map((group) => ({
-    group,
-    label: humanizeProperty(group),
-    fields: fieldsByGroup.get(group) ?? []
-  }))
+  const result: ResolvedParameterGroup[] = []
+  if (topFields.length > 0) {
+    result.push({ name: null, selectorProperty: null, selectorValue: null, fields: topFields })
+  }
+  return result.concat(groups)
+}
+
+// A conditional group is shown only while its selector property currently holds
+// its selector value; a group with no selector is always shown. Shared by the
+// form (what to render), the Save gate + validation (which fields count) and the
+// payload builder (which fields to send) so they never disagree.
+function groupIsActive(
+  group: Pick<ResolvedParameterGroup, 'selectorProperty' | 'selectorValue'>,
+  values: Record<string, string>
+): boolean {
+  return group.selectorProperty == null || values[group.selectorProperty] === group.selectorValue
+}
+
+// The groups whose fields are live for the current values — the leading top-level
+// group plus every conditional group whose selector currently matches.
+export function visibleParameterGroups(
+  groups: ResolvedParameterGroup[],
+  values: Record<string, string>
+): ResolvedParameterGroup[] {
+  return groups.filter((g) => groupIsActive(g, values))
 }
 
 // Validate one material property's committed value against its catalog metadata,
@@ -166,7 +219,9 @@ export function isMaterialFormValid(
   groups: ResolvedParameterGroup[],
   values: Record<string, string>
 ): boolean {
-  return groups.every((group) =>
+  // Only VISIBLE groups gate Save — a hidden sub-model's fields (e.g. the BWB
+  // coefficients while Medlyn is selected) must not block a valid form.
+  return visibleParameterGroups(groups, values).every((group) =>
     group.fields.every(
       (field) => validateMaterialFieldValue(field, values[field.property] ?? '') === null
     )
@@ -184,7 +239,17 @@ export function toNativeProperties(
   values: Record<string, string>
 ): Record<string, string | number | boolean> {
   const out: Record<string, string | number | boolean> = {}
-  for (const def of type.properties) {
+  // Top-level properties plus the properties of every group whose selector
+  // currently matches — so an inactive sub-model's coefficients are never sent
+  // (e.g. no BWB fields while Medlyn is selected), and active group fields, which
+  // used to live outside `type.properties`, are no longer dropped.
+  const activeDefs = [
+    ...type.properties,
+    ...type.groups
+      .filter((g) => g.selector_property == null || values[g.selector_property] === g.selector_value)
+      .flatMap((g) => g.properties)
+  ]
+  for (const def of activeDefs) {
     // Trim BEFORE the blank test, matching how validation decides "empty". A field
     // holding only whitespace is not === '' but IS blank — and Number(' ') is 0,
     // so without the trim a stray space sailed past the blank check and shipped a
@@ -232,6 +297,87 @@ export function toVisualisationProperties(
   const out: Record<string, string | number | boolean> = { [TEXTURE_TOGGLE_PROPERTY]: false }
   for (const key of VISUALISATION_CUSTOM_PROPERTIES) {
     if (native[key] !== undefined) out[key] = native[key]
+  }
+  return out
+}
+
+// ── Radiation bespoke editor ─────────────────────────────────────────────────
+//
+// The Radiation type gets a custom body (like the Visualiser), recognised by its
+// per-band signature. It curates the catalog: specular exponent/scale + Heat
+// Transfer Flag, an "Apply spectral data" toggle, a spectral-data file, and the
+// PAR/NIR/LW band grid — hiding surface_temperature, the broadband trio, and the
+// raw use_radiation_bands / spectral_data rows the generic grid would show.
+
+// Signature property — enough to recognise a Radiation field set.
+const RADIATION_SIGNATURE_PROPERTY = 'reflectivity_PAR'
+// The mode discriminator: use_radiation_bands true = manual per-band values,
+// false = a spectral-data file supersedes them ("Apply spectral data" ON).
+export const USE_RADIATION_BANDS_PROPERTY = 'use_radiation_bands'
+export const SPECTRAL_DATA_PROPERTY = 'spectral_data'
+
+// The three wavebands and their per-band property names (the catalog contract).
+export const RADIATION_BANDS = ['PAR', 'NIR', 'LW'] as const
+export type RadiationBand = (typeof RADIATION_BANDS)[number]
+export const radiationBandProperties = (band: RadiationBand): [string, string, string] => [
+  `reflectivity_${band}`,
+  `transmissivity_${band}`,
+  `emissivity_${band}`
+]
+const ALL_BAND_PROPERTIES = RADIATION_BANDS.flatMap(radiationBandProperties)
+
+// The Radiation top-level fields NOT shown in the bespoke editor: they are hidden
+// so only the curated set renders. surface_temperature is weather-driven; the
+// broadband trio is replaced by the per-band grid; the toggle + file have their
+// own controls.
+const RADIATION_HIDDEN_PROPERTIES = new Set([
+  'surface_temperature',
+  'reflectivity',
+  'transmissivity',
+  'emissivity',
+  USE_RADIATION_BANDS_PROPERTY,
+  SPECTRAL_DATA_PROPERTY
+])
+
+// The specular / heat-transfer fields that render above the spectral toggle, in
+// catalog order — everything left once the band + hidden props are removed.
+export function radiationHeaderFields(
+  fields: ResolvedMaterialField[]
+): ResolvedMaterialField[] {
+  const bandProps = new Set<string>(ALL_BAND_PROPERTIES)
+  return fields.filter(
+    (f) => !bandProps.has(f.property) && !RADIATION_HIDDEN_PROPERTIES.has(f.property)
+  )
+}
+
+// Whether a resolved field set belongs to the Radiation type — the card renders
+// the bespoke Radiation editor for it instead of the plain field grid.
+export function isRadiationFieldSet(fields: ResolvedMaterialField[]): boolean {
+  return fields.some((f) => f.property === RADIATION_SIGNATURE_PROPERTY)
+}
+
+// The persisted "Apply spectral data" state: ON exactly when use_radiation_bands
+// is explicitly false. A new/unset card defaults to OFF (manual per-band values).
+export function readApplySpectral(values: Record<string, string>): boolean {
+  return values[USE_RADIATION_BANDS_PROPERTY] === 'false'
+}
+
+// Build the Radiation member payload for the active mode. Full-replace, so we send
+// the mode's own side and omit the other:
+//   - manual   → use_radiation_bands: true,  the filled band values, no file
+//   - spectral → use_radiation_bands: false, the spectral_data file, no bands
+// Specular / Heat Transfer fields are carried through in both modes.
+export function toRadiationProperties(
+  type: MaterialTypeDef,
+  values: Record<string, string>,
+  applySpectral: boolean
+): Record<string, string | number | boolean> {
+  const out = toNativeProperties(type, values)
+  out[USE_RADIATION_BANDS_PROPERTY] = !applySpectral
+  if (applySpectral) {
+    for (const p of ALL_BAND_PROPERTIES) delete out[p]
+  } else {
+    delete out[SPECTRAL_DATA_PROPERTY]
   }
   return out
 }

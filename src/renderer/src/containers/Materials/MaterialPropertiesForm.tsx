@@ -32,19 +32,26 @@ import {
 } from './actions'
 import {
   isMaterialFormValid,
+  isRadiationFieldSet,
   isVisualisationComplete,
   isVisualisationFieldSet,
+  readApplySpectral,
   readVisualisationMode,
   resolveParameterGroups,
+  SPECTRAL_DATA_PROPERTY,
   TEXTURE_PROPERTY,
   TEXTURE_TOGGLE_PROPERTY,
   toNativeProperties,
+  toRadiationProperties,
   toVisualisationProperties,
+  USE_RADIATION_BANDS_PROPERTY,
   validateMaterialFieldValue,
+  visibleParameterGroups,
   VISUALISATION_CUSTOM_PROPERTIES,
   type ResolvedMaterialField,
   type VisualisationMode
 } from './materialBlueprint'
+import MaterialRadiationEditor from './MaterialRadiationEditor'
 import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
 import reducer from './reducer'
@@ -272,6 +279,35 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     dispatchSave(card, type.id, properties)
   }
 
+  // The RADIATION save: routes by the "Apply spectral data" toggle (read from the
+  // card's values) — manual mode sends the per-band values + use_radiation_bands
+  // true; spectral mode sends use_radiation_bands false and drops the bands (the
+  // uploaded spectral file, attached separately, supersedes them).
+  const handleSaveRadiation = (card: MaterialParameterGroup): void => {
+    const type = materialTypes.find((t) => t.id === card.typeId)
+    if (!type) return
+    const applySpectral = readApplySpectral(card.values)
+    dispatchSave(card, type.id, toRadiationProperties(type, card.values, applySpectral))
+  }
+
+  // The Radiation spectral-data upload — reuses the shared file-upload path, keyed
+  // by the 'spectral_data' property. Unlike a texture, the endpoint only attaches
+  // to an EXISTING member, so the editor gates this on the card already being saved.
+  const handleUploadSpectral = (card: MaterialParameterGroup, file: File): void => {
+    const type = materialTypes.find((t) => t.id === card.typeId)
+    if (!type) return
+    dispatch(
+      uploadTextureRequested({
+        groupId: draft.groupId,
+        cardId: card.id,
+        materialTypeId: type.id,
+        file,
+        scenarioId,
+        property: SPECTRAL_DATA_PROPERTY
+      })
+    )
+  }
+
   // The TEXTURE save for a chosen texture path (a highlighted library texture, or
   // the already-stored one when re-saving) — texture_toggle true, colour cleared.
   // The path is reflected in the draft so the cache + reopen show it.
@@ -405,7 +441,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             }
             onSaveColour={() => handleSaveColour(group)}
             onSaveTexture={(path) => handleSaveTexture(group, path)}
+            onSaveRadiation={() => handleSaveRadiation(group)}
             onUploadTexture={(file) => handleUploadTexture(group, file)}
+            onUploadSpectral={(file) => handleUploadSpectral(group, file)}
             // A saved card folds itself away — its type still reads from the
             // collapsed header, and the room goes to the cards still being
             // filled in.
@@ -444,6 +482,58 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   )
 }
 
+// A group's editable fields, laid out two per row (matching the mockup). Shared
+// by the type's top-level fields and each named group so both read identically.
+function MaterialFieldGrid({
+  groupId,
+  fields,
+  values,
+  fieldError,
+  onFieldChange,
+  onFieldBlur
+}: {
+  groupId: number
+  fields: ResolvedMaterialField[]
+  values: Record<string, string>
+  fieldError: (field: ResolvedMaterialField) => string | undefined
+  onFieldChange: (
+    property: string,
+    next: string,
+    datatype: ResolvedMaterialField['datatype']
+  ) => void
+  onFieldBlur: (property: string) => void
+}): React.JSX.Element {
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+      {fields.map((field) => {
+        const value = values[field.property] ?? ''
+        const error = fieldError(field)
+        return (
+          <FormField
+            key={field.property}
+            labelProps={{ label: field.label, optional: true, helpText: field.description }}
+            inputProps={{
+              name: `${groupId}-${field.property}`,
+              value,
+              // Enum selects read "Select" when empty (not the field's own name);
+              // text/number fields keep the label as their placeholder.
+              placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : field.label,
+              error,
+              inputClassName: 'bg-[#121212]',
+              options:
+                field.datatype === 'enum' && field.enumValues
+                  ? field.enumValues.map((v) => ({ value: v, label: field.enumLabels?.[v] ?? v }))
+                  : undefined,
+              onChange: (e) => onFieldChange(field.property, e.target.value, field.datatype),
+              onBlur: () => onFieldBlur(field.property)
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 // One "Parameter Group.0N" card: a collapsible box holding ONE material type —
 // its Select, that type's parameters (grouped by their catalog `group` tag), and
 // its own Save + Delete. The card owns its validation state; the type Select
@@ -461,7 +551,9 @@ function ParameterGroupCard({
   onChangeValue,
   onSaveColour,
   onSaveTexture,
+  onSaveRadiation,
   onUploadTexture,
+  onUploadSpectral,
   onSaved,
   onDelete
 }: {
@@ -476,17 +568,24 @@ function ParameterGroupCard({
   onToggle: () => void
   onSelectType: (typeId: number | null) => void
   onChangeValue: (property: string, value: string) => void
-  // Save routes by the Visualiser's mode: colour/plain, a picked library texture,
-  // or a picked file to upload.
+  // Save routes by type: the Visualiser's colour/plain or picked library texture,
+  // the Radiation editor's mode, or a plain type's fields.
   onSaveColour: () => void
   onSaveTexture: (path: string) => void
+  onSaveRadiation: () => void
   onUploadTexture: (file: File) => void
+  onUploadSpectral: (file: File) => void
   // A save landed on the backend — the parent folds this card away.
   onSaved: () => void
   onDelete: () => void
 }): React.JSX.Element {
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
-  const parameterGroups = type ? resolveParameterGroups([type]) : []
+  // Stable across renders so the selector-hygiene effect below (which depends on
+  // it) only re-runs when the chosen type actually changes.
+  const parameterGroups = React.useMemo(
+    () => (type ? resolveParameterGroups([type]) : []),
+    [type]
+  )
   const title = messages.parameterGroupTitle(group.number)
 
   // The Visualiser splits into two mutually-exclusive appearance modes; a
@@ -494,6 +593,11 @@ function ParameterGroupCard({
   // it. Both are card-local: the mode drives which payload Save sends, and the file
   // can't live in the string value bag.
   const isVisualiser = parameterGroups.some((pg) => isVisualisationFieldSet(pg.fields))
+  // The Radiation type gets its own bespoke body; the "Apply spectral data" toggle
+  // is persisted in the value bag (use_radiation_bands), so it's read straight from
+  // there rather than mirrored into local state.
+  const isRadiation = parameterGroups.some((pg) => isRadiationFieldSet(pg.fields))
+  const applySpectral = readApplySpectral(group.values)
   const [visualMode, setVisualMode] = React.useState<VisualisationMode>(() =>
     readVisualisationMode(group.values)
   )
@@ -556,6 +660,26 @@ function ParameterGroupCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.typeId])
 
+  // Switching a selector enum (e.g. Stomatal Conductance BWB → Medlyn) leaves the
+  // old sub-model's typed values in the bag. They're already excluded from the
+  // payload, but clearing them keeps the dirty-check and a reopened card honest.
+  // Idempotent: once the stale values are blanked there is nothing left to clear.
+  React.useEffect(() => {
+    if (!type) return
+    const activeProps = new Set(
+      visibleParameterGroups(parameterGroups, group.values).flatMap((pg) =>
+        pg.fields.map((f) => f.property)
+      )
+    )
+    for (const g of type.groups) {
+      for (const def of g.properties) {
+        if (!activeProps.has(def.property) && (group.values[def.property] ?? '') !== '') {
+          onChangeValue(def.property, '')
+        }
+      }
+    }
+  }, [type, parameterGroups, group.values, onChangeValue])
+
   // Field-validation state, scoped to this card. `touched` gates the errors so
   // they only appear after interaction; `guardErrors` holds the transient
   // per-keystroke rejections (non-numeric / >7 decimals) that never reach the
@@ -563,6 +687,17 @@ function ParameterGroupCard({
   const [touched, setTouched] = React.useState<Record<string, boolean>>({})
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
+  // Collapse state for the named parameter groups (e.g. "Farquhar model"), keyed
+  // by group name. Groups default open (matching the mockup); a name lands here
+  // only once the user collapses it, so the set survives type changes cleanly.
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(new Set())
+  const toggleGroupSection = (name: string): void =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
 
   // Bring a freshly added card into view — with the other cards left open, it can
   // be added below the fold of the scrolling list.
@@ -660,11 +795,14 @@ function ParameterGroupCard({
 
   const canSave = group.typeId != null && modeComplete && dirty && !saving && !uploading
 
-  // Route Save by the Visualiser's active mode. Texture mode persists the chosen
-  // path (uploaded or library) via the member save; the gate guarantees one.
+  // Route Save by type/mode. The Visualiser's texture mode persists the chosen path
+  // (uploaded or library); Radiation builds its banded/spectral payload; every other
+  // type sends its plain fields.
   const onSave = (): void => {
     if (isVisualiser && visualMode === 'texture') {
       if (chosenTexture != null) onSaveTexture(chosenTexture)
+    } else if (isRadiation) {
+      onSaveRadiation()
     } else {
       onSaveColour()
     }
@@ -751,13 +889,14 @@ function ParameterGroupCard({
 
         {open && (
           <>
-            {/* The chosen type's parameters. The Visualiser's fields (recognised
-                by their colour channels — the live catalog has no `group` tag)
-                render the colour editor; every other group is plain FormFields. */}
-            {parameterGroups.map((pg) =>
+            {/* The chosen type's parameters, in catalog order: the top-level fields
+                first (no header), then each conditional group whose selector is
+                currently satisfied. The Visualiser's top-level set (recognised by
+                its colour channels) renders the colour editor instead of a grid. */}
+            {visibleParameterGroups(parameterGroups, group.values).map((pg) =>
               isVisualisationFieldSet(pg.fields) ? (
                 <MaterialVisualisationEditor
-                  key={pg.group}
+                  key="__visualiser"
                   values={group.values}
                   fields={pg.fields}
                   fieldError={fieldError}
@@ -785,39 +924,82 @@ function ParameterGroupCard({
                   // apart. TextureSelector still shows its own client-side file
                   // checks (wrong type, too large), which have no other home.
                 />
+              ) : isRadiationFieldSet(pg.fields) ? (
+                <MaterialRadiationEditor
+                  key="__radiation"
+                  idPrefix={group.id}
+                  values={group.values}
+                  fields={pg.fields}
+                  fieldError={fieldError}
+                  onFieldChange={handleFieldChange}
+                  onFieldBlur={handleFieldBlur}
+                  applySpectral={applySpectral}
+                  onToggleSpectral={() =>
+                    onChangeValue(USE_RADIATION_BANDS_PROPERTY, applySpectral ? 'true' : 'false')
+                  }
+                  saved={group.saved}
+                  uploading={uploading}
+                  uploadError={group.uploadError}
+                  onPickSpectralFile={onUploadSpectral}
+                  onClearSpectral={() => onChangeValue(SPECTRAL_DATA_PROPERTY, '')}
+                />
+              ) : pg.name == null ? (
+                <MaterialFieldGrid
+                  key="__top"
+                  groupId={group.id}
+                  fields={pg.fields}
+                  values={group.values}
+                  fieldError={fieldError}
+                  onFieldChange={handleFieldChange}
+                  onFieldBlur={handleFieldBlur}
+                />
+              ) : pg.selectorProperty != null ? (
+                // A selector-driven group (e.g. a stomatal sub-model): the enum
+                // dropdown above already names it, so its fields render directly
+                // with no header — nothing greyish here.
+                <MaterialFieldGrid
+                  key={pg.name}
+                  groupId={group.id}
+                  fields={pg.fields}
+                  values={group.values}
+                  fieldError={fieldError}
+                  onFieldChange={handleFieldChange}
+                  onFieldBlur={handleFieldBlur}
+                />
               ) : (
-                <div key={pg.group} className="flex flex-col gap-2">
-                  <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">
-                    {pg.label}
-                  </p>
-                  {pg.fields.map((field) => {
-                    const value = group.values[field.property] ?? ''
-                    const error = fieldError(field)
-                    return (
-                      <FormField
-                        key={field.property}
-                        labelProps={{
-                          label: field.label,
-                          optional: true,
-                          helpText: field.description
-                        }}
-                        inputProps={{
-                          name: `${group.id}-${field.property}`,
-                          value,
-                          placeholder: field.label,
-                          error,
-                          inputClassName: 'bg-[#121212]',
-                          options:
-                            field.datatype === 'enum' && field.enumValues
-                              ? field.enumValues.map((v) => ({ value: v, label: v }))
-                              : undefined,
-                          onChange: (e) =>
-                            handleFieldChange(field.property, e.target.value, field.datatype),
-                          onBlur: () => handleFieldBlur(field.property)
-                        }}
-                      />
-                    )
-                  })}
+                // An always-shown titled group (e.g. Farquhar model): only the
+                // HEADER is greyish; its fields sit on the plain card background
+                // below, unwrapped — matching the mockup.
+                <div key={pg.name} className="flex flex-col gap-2.5">
+                  <button
+                    type="button"
+                    aria-expanded={!collapsedGroups.has(pg.name)}
+                    onClick={() => toggleGroupSection(pg.name as string)}
+                    className="flex items-center justify-between rounded bg-[#313131] px-3 py-2 text-left"
+                  >
+                    <span className="text-[13px] font-normal leading-[15px] text-neutral-200">
+                      {pg.name}
+                    </span>
+                    <img
+                      src={chevronDown}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-1.5 w-auto transition-transform duration-150"
+                      style={{
+                        transform: collapsedGroups.has(pg.name) ? 'none' : 'rotate(180deg)'
+                      }}
+                    />
+                  </button>
+                  {!collapsedGroups.has(pg.name) && (
+                    <MaterialFieldGrid
+                      groupId={group.id}
+                      fields={pg.fields}
+                      values={group.values}
+                      fieldError={fieldError}
+                      onFieldChange={handleFieldChange}
+                      onFieldBlur={handleFieldBlur}
+                    />
+                  )}
                 </div>
               )
             )}

@@ -204,15 +204,17 @@ export type DeleteParameterGroupFailedAction = {
   payload: string
 }
 
-// Visualiser texture upload — POST the file, then switch the card to the returned
-// path on success. `cardId` targets the draft card; `materialTypeId` + `groupId`
-// address the backend member.
+// File-property upload — POST the file, then stage the returned path on success.
+// `cardId` targets the draft card; `materialTypeId` + `groupId` address the backend
+// member. `property` names the file property (default 'texture_file' for the
+// Visualiser; 'spectral_data' for the Radiation spectral file).
 export type UploadTextureInput = {
   groupId: string
   cardId: number
   materialTypeId: number
   file: File
   scenarioId: string | null
+  property?: string
 }
 export type UploadTextureRequestedAction = {
   type: typeof UPLOAD_TEXTURE_REQUESTED
@@ -223,6 +225,7 @@ export type UploadTextureSucceededAction = {
   materialId: string
   cardId: number
   path: string
+  property: string
 }
 export type UploadTextureFailedAction = {
   type: typeof UPLOAD_TEXTURE_FAILED
@@ -446,8 +449,16 @@ export const uploadTextureRequested = (
 export const uploadTextureSucceeded = (
   materialId: string,
   cardId: number,
-  path: string
-): UploadTextureSucceededAction => ({ type: UPLOAD_TEXTURE_SUCCEEDED, materialId, cardId, path })
+  path: string,
+  // Defaults to the Visualiser texture property so existing callers are unchanged.
+  property = 'texture_file'
+): UploadTextureSucceededAction => ({
+  type: UPLOAD_TEXTURE_SUCCEEDED,
+  materialId,
+  cardId,
+  path,
+  property
+})
 export const uploadTextureFailed = (
   materialId: string,
   cardId: number,

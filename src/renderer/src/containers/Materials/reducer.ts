@@ -615,15 +615,20 @@ const materialsReducer = (
         const applied = withCard(draft, action.materialId, action.cardId, (card) => {
           card.uploadStatus = 'idle'
           card.uploadError = null
-          // Reflect the member the upload persisted: texture mode on, colour
-          // cleared, the returned path stored.
-          card.values[TEXTURE_PROPERTY] = action.path
-          card.values[TEXTURE_TOGGLE_PROPERTY] = 'true'
-          for (const key of VISUALISATION_CUSTOM_PROPERTIES) card.values[key] = ''
+          // Stage the returned path on its property.
+          card.values[action.property] = action.path
+          // The Visualiser texture endpoint also persisted the member in texture
+          // mode — reflect that (toggle on, colour cleared). Other file properties
+          // (e.g. spectral_data) just stage the path; their member is written by
+          // the card's own Save.
+          if (action.property === TEXTURE_PROPERTY) {
+            card.values[TEXTURE_TOGGLE_PROPERTY] = 'true'
+            for (const key of VISUALISATION_CUSTOM_PROPERTIES) card.values[key] = ''
+          }
           // The member now exists on the backend → future saves PATCH, not POST.
           card.saved = true
-          // Snapshot AFTER the texture values land, so the card reads as clean
-          // against what the upload persisted (Save stays shut until a real edit).
+          // Snapshot AFTER the values land, so the card reads as clean against what
+          // the upload persisted (Save stays shut until a real edit).
           card.savedValues = { ...card.values }
         })
         // The upload persisted the member, so a dropped outcome must invalidate

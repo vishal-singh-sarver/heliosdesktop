@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'react-redux'
 import { createStore, Reducer, UnknownAction } from 'redux'
 import { initialState as projectScreenInitialState } from 'containers/ProjectScreen/reducer'
-import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
+import type { CatalogPropertyDef, MaterialTypeDef } from 'containers/ProjectScreen/types'
 import { InjectableStore } from 'store/configureStore'
 import MaterialPropertiesForm from '../MaterialPropertiesForm'
 import {
@@ -97,7 +97,8 @@ const visualizer: MaterialTypeDef = {
       max: null,
       display_order: 94
     }
-  ]
+  ],
+  groups: []
 }
 const radiation: MaterialTypeDef = {
   id: 1,
@@ -113,7 +114,8 @@ const radiation: MaterialTypeDef = {
       max: 1,
       display_order: 1
     }
-  ]
+  ],
+  groups: []
 }
 
 // A store frozen on one open material draft with a single Parameter Group card.
@@ -325,6 +327,184 @@ describe('<MaterialPropertiesForm /> parameter-group card', () => {
   })
 })
 
+describe('<MaterialPropertiesForm /> conditional parameter groups', () => {
+  // A Stomatal-Conductance-shaped type: a top-level selector enum + one group
+  // gated on it.
+  const stomatal: MaterialTypeDef = {
+    id: 6,
+    materialtype: 'Stomatal Conductance',
+    description: '',
+    properties: [
+      {
+        property_type_id: 74,
+        property: 'stomatal_model',
+        label: 'Stomatal Conductance',
+        description: '',
+        datatype: 'enum',
+        min: null,
+        max: null,
+        enum_values: ['BWB', 'BBL'],
+        display_order: 10
+      }
+    ],
+    groups: [
+      {
+        name: 'Ball-woodrow-berry',
+        selector_property: 'stomatal_model',
+        selector_value: 'BWB',
+        display_order: 11,
+        properties: [
+          {
+            property_type_id: 62,
+            property: 'bwb_gs0',
+            label: 'gs, o',
+            description: '',
+            datatype: 'float',
+            min: 0,
+            max: 1,
+            display_order: 11
+          }
+        ]
+      }
+    ]
+  }
+
+  it('hides a selector group until its enum value is chosen', () => {
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 6 })], [stomatal])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    // The top-level selector always shows; the conditional group's field does not
+    // yet. (The friendly option label lives in the dropdown regardless, so we test
+    // on the group's own field instead.)
+    expect(screen.queryByText('gs, o')).not.toBeInTheDocument()
+  })
+
+  it('reveals the selector group once its value is set', () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [card(1, { typeId: 6, values: { stomatal_model: 'BWB' } })],
+          [stomatal]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByText('gs, o')).toBeInTheDocument()
+  })
+
+  it('labels the selector dropdown with friendly model names, not raw codes', () => {
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 6 })], [stomatal])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    // The option value stays the code; its visible label is the group name.
+    const option = screen.getByRole('option', { name: 'Ball-woodrow-berry' })
+    expect(option).toHaveValue('BWB')
+  })
+})
+
+describe('<MaterialPropertiesForm /> Radiation editor', () => {
+  const bandProp = (property: string, order: number): CatalogPropertyDef => ({
+    property_type_id: order,
+    property,
+    description: '',
+    datatype: 'float',
+    min: 0,
+    max: 1,
+    display_order: order
+  })
+  const radiationType: MaterialTypeDef = {
+    id: 1,
+    materialtype: 'Radiation',
+    description: '',
+    properties: [
+      { ...bandProp('specular_exponent', 5), min: 1, max: 1000, label: 'Specular exponent' },
+      { ...bandProp('specular_scale', 6), min: 0, max: 100, label: 'Specular scale' },
+      {
+        property_type_id: 21,
+        property: 'two_sided_heat_transfer',
+        label: 'Heat Transfer Flag',
+        description: '',
+        datatype: 'enum',
+        min: null,
+        max: null,
+        enum_values: ['One Sided', 'Two Sided'],
+        display_order: 7
+      },
+      {
+        property_type_id: 22,
+        property: 'spectral_data',
+        description: '',
+        datatype: 'file',
+        min: null,
+        max: null,
+        display_order: 8
+      },
+      {
+        property_type_id: 84,
+        property: 'use_radiation_bands',
+        description: '',
+        datatype: 'boolean',
+        min: null,
+        max: null,
+        display_order: 9
+      },
+      bandProp('reflectivity_PAR', 10),
+      bandProp('transmissivity_PAR', 11),
+      bandProp('emissivity_PAR', 12),
+      bandProp('reflectivity_NIR', 13),
+      bandProp('transmissivity_NIR', 14),
+      bandProp('emissivity_NIR', 15),
+      bandProp('reflectivity_LW', 16),
+      bandProp('transmissivity_LW', 17),
+      bandProp('emissivity_LW', 18)
+    ],
+    groups: []
+  }
+
+  it('renders the spectral toggle and per-band inputs, editable in manual mode', () => {
+    const { container } = render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    const parInput = container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')
+    expect(parInput).not.toBeNull()
+    expect(parInput?.disabled).toBe(false)
+  })
+
+  it('applying spectral data disables the per-band inputs', () => {
+    const { container } = render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('switch'))
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    const parInput = container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')
+    expect(parInput?.disabled).toBe(true)
+  })
+
+  it('gates the spectral upload until the material has been saved', () => {
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('switch'))
+    // Unsaved card → Upload disabled, with the save-first hint shown.
+    expect(screen.getByRole('button', { name: 'Upload Here' })).toBeDisabled()
+    expect(
+      screen.getByText('Save the material first to attach a spectral data file')
+    ).toBeInTheDocument()
+  })
+})
+
 describe('<MaterialPropertiesForm /> + Add Material Type', () => {
   it('opens the new card and scrolls to it, leaving the open ones alone', () => {
     const scrollIntoView = vi.fn()
@@ -357,7 +537,8 @@ describe('<MaterialPropertiesForm /> + Add Material Type', () => {
       id: 1,
       materialtype: 'Radiation',
       description: '',
-      properties: []
+      properties: [],
+      groups: []
     }
     render(
       <Provider store={liveStoreWith([card(1)], [radiation])}>

@@ -278,6 +278,23 @@ describe('materialsReducer', () => {
       expect(card?.savedValues?.texture_file).toBe('uploads/materials/12/grass.png')
     })
 
+    it('UPLOAD_TEXTURE_SUCCEEDED for a non-texture property just stages the path', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
+      // The Radiation member was saved first (the spectral endpoint needs it).
+      const saved = materialsReducer(typed, actions.saveParameterGroupSucceeded('12', 1))
+      const result = materialsReducer(
+        saved,
+        actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/leaf.xml', 'spectral_data')
+      )
+      const card = result.editDraft?.groups[0]
+      expect(card?.values.spectral_data).toBe('uploads/materials/12/leaf.xml')
+      // No texture side-effects for a non-texture upload.
+      expect(card?.values.texture_toggle).toBeUndefined()
+      expect(card?.uploadStatus).toBe('idle')
+      expect(card?.savedValues?.spectral_data).toBe('uploads/materials/12/leaf.xml')
+    })
+
     // The cache stands in for a GET (openSavedMaterialWorker serves from it and
     // skips the network), so it must hold what the BACKEND confirmed. Saving one
     // card used to cache every saved card's live draft values — so a sibling card
