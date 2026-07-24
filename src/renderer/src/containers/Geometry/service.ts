@@ -75,7 +75,10 @@ export function wireObjectToNode(obj: WireObject): GeoNode {
     expanded: false,
     visibleInViewport: obj.visibility?.viewport ?? true,
     renderEnabled: obj.visibility?.render ?? true,
-    modelVisibility: parseModels(obj.visibility?.models)
+    modelVisibility: parseModels(obj.visibility?.models),
+    // Seed the assigned material-group ids from the list so the 3D viewport can
+    // reload only the objects a material actually touches.
+    materialGroupIds: (obj.material_groups ?? []).map((g) => String(g.group_id))
   }
 }
 

@@ -644,6 +644,9 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
         { groupId: '55', name: 'Concrete' }
       ])
+      // …AND the node carries the group id, so the 3D viewport reloads only THIS
+      // object when the material is later edited (surgical, not all-objects).
+      expect(r.byScope[KEY].nodesById['27'].materialGroupIds).toEqual(['55'])
     })
 
     it('ASSIGN_MATERIAL_SUCCEEDED dedupes and ignores assigns to a DIFFERENT object', () => {

@@ -21,6 +21,12 @@ export interface GeoNode {
   visibleInViewport: boolean // 👁 eye toggle → visibility.viewport
   renderEnabled: boolean // render icon (row) → visibility.render
   modelVisibility: ModelVisibility // per-model kebab toggles → visibility.models
+  // Material-GROUP ids assigned to this leaf (from the objects-list
+  // `material_groups`), kept in sync on assign/unassign/save. Lets the 3D viewport
+  // re-fetch ONLY the objects that use a saved/deleted material instead of all
+  // shown objects. Optional/absent = none known yet (treated as []). Groups don't
+  // carry materials, so it stays undefined for group nodes.
+  materialGroupIds?: string[]
 }
 
 // Tree load lifecycle for the active scenario.

@@ -539,6 +539,12 @@ const geometryReducer = (
           if (detail && !detail.materialGroups.some((m) => m.groupId === groupId)) {
             detail.materialGroups.push({ groupId, name })
           }
+          // Keep the node's group ids in sync so the 3D viewport reloads this
+          // object when the material is later edited.
+          const node = s.nodesById[objectId]
+          if (node && !(node.materialGroupIds ?? []).includes(groupId)) {
+            node.materialGroupIds = [...(node.materialGroupIds ?? []), groupId]
+          }
         }
         break
       }
@@ -666,6 +672,10 @@ const geometryReducer = (
             objectName: draft.createDraft.objectName,
             materialGroups: [...draft.createDraft.materials]
           }
+          // Mirror the assigned groups onto the node so the 3D viewport reloads
+          // this object when one of its materials is later edited.
+          const node = s.nodesById[action.payload.objectId]
+          if (node) node.materialGroupIds = draft.createDraft.materials.map((m) => m.groupId)
         }
         break
       }
@@ -694,6 +704,10 @@ const geometryReducer = (
         const detail = s.detailsById[objectId]
         if (detail) {
           detail.materialGroups = detail.materialGroups.filter((g) => g.groupId !== groupId)
+        }
+        const node = s.nodesById[objectId]
+        if (node?.materialGroupIds) {
+          node.materialGroupIds = node.materialGroupIds.filter((id) => id !== groupId)
         }
         break
       }

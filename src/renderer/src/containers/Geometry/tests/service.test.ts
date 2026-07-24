@@ -23,8 +23,21 @@ describe('wireObjectToNode', () => {
       expanded: false,
       visibleInViewport: true,
       renderEnabled: true,
-      modelVisibility: { 1: true, 2: true }
+      modelVisibility: { 1: true, 2: true },
+      materialGroupIds: []
     })
+  })
+
+  it('seeds materialGroupIds from the object list material_groups', () => {
+    const node = wireObjectToNode(
+      wire(27, 'Ground.001', {
+        material_groups: [
+          { object_id: 27, group_id: 55, name: 'Concrete', sync: true, source: 'x', materials: [] },
+          { object_id: 27, group_id: 12, name: 'Grass', sync: true, source: 'x', materials: [] }
+        ]
+      })
+    )
+    expect(node.materialGroupIds).toEqual(['55', '12'])
   })
 
   it('maps the viewport and render flags onto the node, models default to empty', () => {
