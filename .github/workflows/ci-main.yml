@@ -248,8 +248,8 @@ jobs:
       - name: Inject Missing Backend Migration Directories
         shell: bash
         run: |
-          mkdir -p backend-api/app/db/migrations
-          touch backend-api/app/db/migrations/.gitkeep
+          mkdir -p helios-desktop-backend/app/db/migrations
+          touch helios-desktop-backend/app/db/migrations/.gitkeep
 
       - name: Package (production artifacts)
         run: npm run package
@@ -271,22 +271,24 @@ jobs:
           done
 
       # ── Add the Ubuntu version suffix to the Linux output ────────────────
+      # AppImage builds are disabled - only .deb is renamed/uploaded.
+      # To re-enable, restore the *.AppImage glob and the branch below.
       - name: Rename Linux output with ubuntu version
         if: matrix.ubuntu_suffix
         shell: bash
         run: |
           set -e
           cd dist
-          for file in *.deb *.AppImage; do
+          for file in *.deb; do            # AppImage disabled: was "*.deb *.AppImage"
             [ -f "$file" ] || continue
-            if [[ "$file" == *.AppImage ]]; then
-              base="${file%.AppImage}"
-              new_name="${base}${{ matrix.ubuntu_suffix }}.AppImage"
-            else
-              ext="${file##*.}"
-              base="${file%.*}"
-              new_name="${base}${{ matrix.ubuntu_suffix }}.${ext}"
-            fi
+            # if [[ "$file" == *.AppImage ]]; then
+            #   base="${file%.AppImage}"
+            #   new_name="${base}${{ matrix.ubuntu_suffix }}.AppImage"
+            # else
+            ext="${file##*.}"
+            base="${file%.*}"
+            new_name="${base}${{ matrix.ubuntu_suffix }}.${ext}"
+            # fi
             mv "$file" "$new_name"
             echo "Renamed: $file -> $new_name"
           done
@@ -303,7 +305,7 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.pkg
-            dist/*.AppImage
+            #dist/*.AppImage
             dist/*.deb
           #dist/*.blockmap
           #dist/*.yml
