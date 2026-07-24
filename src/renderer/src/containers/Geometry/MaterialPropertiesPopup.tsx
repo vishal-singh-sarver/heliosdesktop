@@ -10,6 +10,9 @@ export interface MaterialDetailRow {
   property: string
   label: string
   value: string
+  // When set, the row renders this image instead of its text value — used by the
+  // visualisation-texture section to show the material's texture.
+  image?: { src: string; alt: string }
 }
 
 // One catalog parameter group (the backend's `group` tag) within a material type.
@@ -17,6 +20,9 @@ export interface MaterialDetailGroup {
   group: string
   label: string
   rows: MaterialDetailRow[]
+  // Lay the rows out full-width (one per line) instead of the default two-column
+  // grid — used by the visualisation-texture section so the image + its label stack.
+  singleColumn?: boolean
 }
 
 // One material type held by the material, with its parameter groups. Mirrors the
@@ -178,15 +184,40 @@ export default function MaterialPropertiesPopup({
                             {group.label}
                           </p>
                         )}
-                        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                        <dl
+                          className={`grid gap-x-4 gap-y-3 ${
+                            group.singleColumn ? 'grid-cols-1' : 'grid-cols-2'
+                          }`}
+                        >
                           {group.rows.map((row) => (
                             <div key={row.property} className="min-w-0">
                               <dt className="truncate text-[13px] leading-[18px] text-neutral-400">
                                 {row.label}
                               </dt>
-                              <dd className="mt-0.5 break-words text-[13px] leading-[18px] text-white">
-                                {row.value}
-                              </dd>
+                              {row.image ? (
+                                // The texture itself, served from /api/textures/serve
+                                // (the same source the visualiser editor uses). Fixed
+                                // 54×54 per the design; rotate/opacity are explicit
+                                // no-op seams should a stored value ever exist.
+                                <dd className="mt-0.5">
+                                  <img
+                                    src={row.image.src}
+                                    alt={row.image.alt}
+                                    className="rounded-sm"
+                                    style={{
+                                      width: 54,
+                                      height: 54,
+                                      transform: 'rotate(0deg)',
+                                      opacity: 1,
+                                      objectFit: 'cover'
+                                    }}
+                                  />
+                                </dd>
+                              ) : (
+                                <dd className="mt-0.5 break-words text-[13px] leading-[18px] text-white">
+                                  {row.value}
+                                </dd>
+                              )}
                             </div>
                           ))}
                         </dl>

@@ -4,9 +4,13 @@ import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import { loadMaterialDetailRequested } from 'containers/Materials/actions'
 import {
+  isVisualisationFieldSet,
   resolveParameterGroups,
+  TEXTURE_PROPERTY,
+  TEXTURE_TOGGLE_PROPERTY,
   visibleParameterGroups
 } from 'containers/Materials/materialBlueprint'
+import { textureServeUrl } from 'containers/Materials/service'
 import materialsReducer from 'containers/Materials/reducer'
 import materialsSaga from 'containers/Materials/saga'
 import { selectAllMaterials, selectMaterialDetailsById } from 'containers/Materials/selectors'
@@ -103,6 +107,34 @@ function textureDepErrors(values: Record<string, string>): Record<string, string
 const asDisplay = (v: number | string | boolean | null | undefined): string =>
   v == null ? '' : String(v)
 
+// A texture member's display name, derived from its stored `texture_file` path
+// (there is no separately stored name): basename → URL-decode → drop extension →
+// title-case. e.g. "uploads/materials/7/dirt.jpg" → "Dirt".
+function textureDisplayName(path: string): string {
+  const base = path.split('/').pop() ?? path
+  let name = base
+  try {
+    name = decodeURIComponent(base)
+  } catch {
+    name = base
+  }
+  const dot = name.lastIndexOf('.')
+  if (dot > 0) name = name.slice(0, dot)
+  return name
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
+// The Visualiser's persisted mode discriminator. Tolerates both the string form
+// (the Materials detail cache stores values as strings) and the native boolean
+// (the object GET baseline), so a texture member is recognised from either source.
+function isTextureMode(properties: Record<string, number | string | boolean | null>): boolean {
+  const toggle = properties[TEXTURE_TOGGLE_PROPERTY]
+  return toggle === true || toggle === 1 || toggle === 'true' || toggle === '1'
+}
+
 // One material within a group, as the popup needs it — from the object GET's
 // baseline (carries `materialTypeName`) OR the Materials library detail cache
 // (name absent, resolved from the catalog).
@@ -138,18 +170,43 @@ export function buildMaterialSections(
       const groups = visibleParameterGroups(
         resolveParameterGroups([type]),
         selectorValues
-      ).map((pg) => ({
-        // The blueprint's top-level fields (name null) map to the header-less
-        // "general" bucket the popup already renders inline; named groups keep
-        // their catalog name as the section heading.
-        group: pg.name ?? 'general',
-        label: pg.name ?? 'General',
-        rows: pg.fields.map((f) => ({
-          property: f.property,
-          label: f.label,
-          value: asDisplay(member.properties[f.property])
-        }))
-      }))
+      ).map((pg) => {
+        // The Visualiser in texture mode gets a dedicated section: the texture's
+        // name + the image itself, served from the same /api/textures/serve
+        // endpoint the visualiser editor and 3D scene already use. Every other
+        // group — and the Visualiser in colour mode — keeps the generic text
+        // mapping below.
+        if (isVisualisationFieldSet(pg.fields) && isTextureMode(member.properties)) {
+          const path = asDisplay(member.properties[TEXTURE_PROPERTY])
+          const name = textureDisplayName(path)
+          return {
+            group: 'visualisation',
+            label: 'Visualisation properties (Texture)',
+            singleColumn: true,
+            rows: [
+              { property: 'texture_name', label: 'Texture Name', value: path ? name : '—' },
+              {
+                property: TEXTURE_PROPERTY,
+                label: 'Texture Image',
+                value: '',
+                ...(path ? { image: { src: textureServeUrl(path), alt: name } } : {})
+              }
+            ]
+          }
+        }
+        return {
+          // The blueprint's top-level fields (name null) map to the header-less
+          // "general" bucket the popup already renders inline; named groups keep
+          // their catalog name as the section heading.
+          group: pg.name ?? 'general',
+          label: pg.name ?? 'General',
+          rows: pg.fields.map((f) => ({
+            property: f.property,
+            label: f.label,
+            value: asDisplay(member.properties[f.property])
+          }))
+        }
+      })
       return { typeId: member.materialTypeId, typeName, groups }
     }
     const rows = Object.entries(member.properties).map(([property, value]) => ({

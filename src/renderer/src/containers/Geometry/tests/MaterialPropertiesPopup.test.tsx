@@ -186,4 +186,37 @@ describe('<MaterialPropertiesPopup />', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('renders a texture image row as an <img> at 54×54', () => {
+    const texture: MaterialDetailSection = {
+      typeId: 5,
+      typeName: 'Visualiser',
+      groups: [
+        {
+          group: 'visualisation',
+          label: 'Visualisation properties (Texture)',
+          singleColumn: true,
+          rows: [
+            { property: 'texture_name', label: 'Texture Name', value: 'Dirt' },
+            {
+              property: 'texture_file',
+              label: 'Texture Image',
+              value: '',
+              image: { src: 'http://127.0.0.1:8000/api/textures/serve?path=dirt.jpg', alt: 'Dirt' }
+            }
+          ]
+        }
+      ]
+    }
+    render(<MaterialPropertiesPopup name="Material.001" sections={[texture]} onClose={() => {}} />)
+
+    expect(screen.getByText('Visualisation properties (Texture)')).toBeInTheDocument()
+    expect(screen.getByText('Texture Name')).toBeInTheDocument()
+    expect(screen.getByText('Dirt')).toBeInTheDocument()
+
+    // The image row renders the texture itself, not its (empty) text value.
+    const img = screen.getByRole('img', { name: 'Dirt' })
+    expect(img).toHaveAttribute('src', 'http://127.0.0.1:8000/api/textures/serve?path=dirt.jpg')
+    expect(img).toHaveStyle({ width: '54px', height: '54px' })
+  })
 })
