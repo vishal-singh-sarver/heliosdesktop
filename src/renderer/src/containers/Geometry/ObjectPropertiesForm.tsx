@@ -3,7 +3,10 @@ import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import { loadMaterialDetailRequested } from 'containers/Materials/actions'
-import { resolveParameterGroups } from 'containers/Materials/materialBlueprint'
+import {
+  resolveParameterGroups,
+  visibleParameterGroups
+} from 'containers/Materials/materialBlueprint'
 import materialsReducer from 'containers/Materials/reducer'
 import materialsSaga from 'containers/Materials/saga'
 import { selectAllMaterials, selectMaterialDetailsById } from 'containers/Materials/selectors'
@@ -123,7 +126,19 @@ export function buildMaterialSections(
     const type = materialTypes.find((t) => t.id === member.materialTypeId)
     const typeName = member.materialTypeName ?? type?.materialtype ?? String(member.materialTypeId)
     if (type) {
-      const groups = resolveParameterGroups([type]).map((pg) => ({
+      // The catalog lists EVERY conditional group a type can have (e.g. all four
+      // stomatal sub-models), so rendering it unfiltered showed the three the user
+      // never picked as empty sections — implying settings the material doesn't
+      // have. Filter on the member's own selector value, exactly as the editable
+      // Materials form does, so the two views agree.
+      const selectorValues: Record<string, string> = {}
+      for (const [property, value] of Object.entries(member.properties)) {
+        selectorValues[property] = asDisplay(value)
+      }
+      const groups = visibleParameterGroups(
+        resolveParameterGroups([type]),
+        selectorValues
+      ).map((pg) => ({
         // The blueprint's top-level fields (name null) map to the header-less
         // "general" bucket the popup already renders inline; named groups keep
         // their catalog name as the section heading.

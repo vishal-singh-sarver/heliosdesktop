@@ -142,7 +142,13 @@ export const API_ROUTES = {
     // POST (multipart) — upload a file for one property of a member (the Visualiser
     // texture). Creates the member if it doesn't exist yet, in texture mode.
     groupMaterialFile: (groupId: string, materialTypeId: number, property: string) =>
-      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}/files/${property}`
+      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}/files/${property}`,
+    // POST (multipart) — the Radiation spectral-data file. A dedicated endpoint
+    // that returns just `{ success, path }`; the caller stages that path and the
+    // member's own Save persists it. Unlike the texture upload this does NOT
+    // create the member, so the card must already be saved.
+    groupMaterialSpectral: (groupId: string, materialTypeId: number) =>
+      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}/spectral`
   },
   // Texture assets — serve one by (backend-side) path; `defaults` lists the
   // built-in library textures (name + ready-to-use serve url).

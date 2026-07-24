@@ -490,6 +490,49 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
     expect(parInput?.disabled).toBe(true)
   })
 
+  // Disabling alone is invisible: FormField gives a disabled INPUT no styling, so
+  // the box looked editable while swallowing every keystroke. The band fields carry
+  // their own muted fill/border/text so the state reads on screen.
+  it('greys the per-band inputs so the disabled state is visible', () => {
+    const { container } = render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    const parInput = container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')
+    for (const cls of [
+      'disabled:bg-[#424242]',
+      'disabled:border-[#424242]',
+      'disabled:text-neutral-300',
+      'disabled:cursor-not-allowed'
+    ]) {
+      expect(parInput?.className).toContain(cls)
+    }
+  })
+
+  // XML only, at most 5 MB. The backend enforces the extension but not the size,
+  // so the size guard is the client's — and rejecting here avoids pushing a large
+  // file over the wire only to have it refused.
+  it('rejects a non-XML file and one over 5 MB, without uploading either', () => {
+    const { container } = render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1, saved: true })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('switch'))
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+
+    const wrongType = new File(['x'], 'leaf.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [wrongType] } })
+    expect(screen.getByText('Only XML files are allowed')).toBeInTheDocument()
+
+    const tooBig = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'leaf.xml', {
+      type: 'text/xml'
+    })
+    fireEvent.change(input, { target: { files: [tooBig] } })
+    expect(screen.getByText('File must be 5 MB or smaller')).toBeInTheDocument()
+  })
+
   it('gates the spectral upload until the material has been saved', () => {
     render(
       <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>

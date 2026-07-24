@@ -447,7 +447,9 @@ describe('uploadTextureWorker', () => {
     )
   })
 
-  it('uploads a non-texture property via the generic endpoint, keyed by property', () => {
+  // Radiation's spectral file has its OWN backend endpoint (POST …/spectral),
+  // not the generic per-property one — it returns { success, path }.
+  it('uploads spectral_data via the dedicated spectral endpoint', () => {
     const file = new File(['<xml/>'], 'leaf.xml', { type: 'text/xml' })
     const gen = uploadTextureWorker(
       actions.uploadTextureRequested({
@@ -459,13 +461,28 @@ describe('uploadTextureWorker', () => {
         property: 'spectral_data'
       })
     )
-    // Radiation's spectral file goes through uploadMaterialFile(..., 'spectral_data').
-    expect(gen.next().value).toEqual(
-      call(service.uploadMaterialFile, '12', 1, 'spectral_data', file, 's1')
-    )
+    expect(gen.next().value).toEqual(call(service.uploadSpectralFile, '12', 1, file, 's1'))
     expect(gen.next('uploads/materials/12/leaf.xml').value).toEqual(
       put(actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/leaf.xml', 'spectral_data'))
     )
     expect(gen.next().done).toBe(true)
+  })
+
+  // Any other file property still uses the generic per-property endpoint.
+  it('uploads another file property via the generic endpoint', () => {
+    const file = new File(['x'], 'other.dat')
+    const gen = uploadTextureWorker(
+      actions.uploadTextureRequested({
+        groupId: '12',
+        cardId: 1,
+        materialTypeId: 1,
+        file,
+        scenarioId: null,
+        property: 'other_file'
+      })
+    )
+    expect(gen.next().value).toEqual(
+      call(service.uploadMaterialFile, '12', 1, 'other_file', file, null)
+    )
   })
 })

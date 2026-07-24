@@ -237,25 +237,26 @@ export function* deleteParameterGroupWorker(
   }
 }
 
-// Upload a member file. For the Visualiser texture the dedicated endpoint stores
-// the file AND persists the member in texture mode (creating it if missing); for
-// any other file property (e.g. Radiation's spectral_data) the generic endpoint
-// stores the file and returns its path, which the card stages for its next Save.
-// Either way, on success we hand the returned path back keyed by its property.
+// Upload a member file, routed by which property it belongs to — each has its own
+// backend endpoint:
+//   - texture_file  → stores the file AND persists the member in texture mode
+//                     (creating it if missing), so the upload IS the save.
+//   - spectral_data → the dedicated /spectral endpoint; stores the file and
+//                     returns its path, which the card stages for its next Save.
+//                     It does NOT create the member (the editor gates on `saved`).
+//   - anything else → the generic per-property file endpoint.
+// On success we hand the returned path back keyed by its property.
 export function* uploadTextureWorker(action: UploadTextureRequestedAction): Generator {
   const { groupId, cardId, materialTypeId, file, scenarioId, property = 'texture_file' } =
     action.payload
   try {
-    const path = (yield property === 'texture_file'
-      ? call(service.uploadTextureFile, groupId, materialTypeId, file, scenarioId)
-      : call(
-          service.uploadMaterialFile,
-          groupId,
-          materialTypeId,
-          property,
-          file,
-          scenarioId
-        )) as string
+    const upload =
+      property === 'texture_file'
+        ? call(service.uploadTextureFile, groupId, materialTypeId, file, scenarioId)
+        : property === 'spectral_data'
+          ? call(service.uploadSpectralFile, groupId, materialTypeId, file, scenarioId)
+          : call(service.uploadMaterialFile, groupId, materialTypeId, property, file, scenarioId)
+    const path = (yield upload) as string
     yield put(actions.uploadTextureSucceeded(groupId, cardId, path, property))
   } catch (err) {
     yield put(actions.uploadTextureFailed(groupId, cardId, (err as Error).message))

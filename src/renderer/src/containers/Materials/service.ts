@@ -243,6 +243,30 @@ export function uploadTextureFile(
   return uploadMaterialFile(groupId, materialTypeId, 'texture_file', file, scenarioId)
 }
 
+// The Radiation spectral-data upload — its own endpoint rather than the generic
+// file one, returning `{ success, path }`. The path is staged into the card and
+// written to the member by its next Save. The backend delegates to the shared
+// file handler, so it enforces .xml and still requires the member to already
+// exist (only a Visualiser texture is auto-created).
+interface UploadSpectralResponse {
+  success?: boolean
+  path: string
+}
+
+export function uploadSpectralFile(
+  groupId: string,
+  materialTypeId: number,
+  file: File,
+  scenarioId: string | null
+): Promise<string> {
+  return api
+    .uploadFile<UploadSpectralResponse>(
+      withScenario(API_ROUTES.materials.groupMaterialSpectral(groupId, materialTypeId), scenarioId),
+      file
+    )
+    .then((res) => res.path)
+}
+
 // The full URL that renders a stored texture path (upload path or a default's
 // backend path) as an <img> source.
 export function textureServeUrl(path: string): string {

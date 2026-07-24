@@ -22,7 +22,29 @@ import messages from './messages'
 // Save persists (manual bands vs a spectral file); the band inputs disable while a
 // spectral file supersedes them.
 
+// Spectral upload constraints: XML only, at most 5 MB. The backend enforces the
+// extension but not the size, so the size check is ours — rejecting it here also
+// saves pushing a large file over the wire just to have it refused.
 const ACCEPT_ATTR = '.xml'
+const MAX_SPECTRAL_BYTES = 5 * 1024 * 1024
+
+// A band field greyed out because a spectral file supersedes it. FormField gives a
+// disabled INPUT no styling of its own (only its <select> branch fades), so the
+// box would otherwise read as editable while rejecting every keystroke. Scoped
+// here rather than in FormField so no other form's inputs change appearance.
+//
+// ONLY the input element is restyled — the label, its help icon, the band heading
+// and the card background are all untouched. The enabled fill is #121212 (near
+// black) and the disabled one is #424242, far enough apart to read at a glance
+// (an earlier #1a1a1a sat 8 hex points from #121212 and looked like no change at
+// all). Not opacity either — on this dark theme that washes the box toward the
+// card colour instead of reading as an inert field. The border matches the fill
+// so the disabled box reads as one flat block rather than an outlined input.
+//
+// The `disabled:` variants carry a pseudo-class, so they outrank the base
+// bg/border/text utilities and stay inert while the field is editable.
+const BAND_INPUT_CLASSES =
+  'bg-[#121212] disabled:bg-[#424242] disabled:border-[#424242] disabled:text-neutral-300 disabled:placeholder-neutral-400 disabled:cursor-not-allowed'
 
 // The filename shown for a stored spectral path ("uploads/materials/8/leaf.xml" →
 // "leaf.xml").
@@ -91,7 +113,7 @@ export function MaterialRadiationEditor({
           placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : label,
           error: fieldError(field),
           disabled: opts?.disabled,
-          inputClassName: 'bg-[#121212]',
+          inputClassName: BAND_INPUT_CLASSES,
           options:
             field.datatype === 'enum' && field.enumValues
               ? field.enumValues.map((v) => ({ value: v, label: v }))
@@ -116,6 +138,10 @@ export function MaterialRadiationEditor({
     if (!file) return
     if (!file.name.toLowerCase().endsWith('.xml')) {
       setFileError(messages.spectralFileTypeError)
+      return
+    }
+    if (file.size > MAX_SPECTRAL_BYTES) {
+      setFileError(messages.spectralFileSizeError)
       return
     }
     setFileError(null)

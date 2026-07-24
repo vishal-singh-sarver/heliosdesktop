@@ -62,6 +62,7 @@ const messages = {
   spectralUploading: 'Uploading…',
   spectralSaveFirst: 'Save the material first to attach a spectral data file',
   spectralFileTypeError: 'Only XML files are allowed',
+  spectralFileSizeError: 'File must be 5 MB or smaller',
   spectralRemove: 'Remove spectral data file',
   bandReflectivity: 'Reflectivity',
   bandTransmissivity: 'Transmissivity',
