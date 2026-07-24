@@ -471,9 +471,10 @@ describe('<StepDateTime /> — preview for julian and partial mappings', () => {
     expect(screen.getByText('2024 172')).toBeInTheDocument()
     expect(screen.getByText('2024 173')).toBeInTheDocument()
     // DOY 172 of leap-year 2024 = 20 June; DOY 173 = 21 June. Midnight renders
-    // as "24:00:00" under en-US hour12:false (Intl's midnight quirk).
-    expect(screen.getByText('6/20/2024, 24:00:00')).toBeInTheDocument()
-    expect(screen.getByText('6/21/2024, 24:00:00')).toBeInTheDocument()
+    // as either "00:00:00" or "24:00:00" under en-US hour12:false depending on
+    // the runtime's ICU version (older ICU used the "24:00:00" quirk), so accept both.
+    expect(screen.getByText(/6\/20\/2024, (00|24):00:00/)).toBeInTheDocument()
+    expect(screen.getByText(/6\/21\/2024, (00|24):00:00/)).toBeInTheDocument()
   })
 
   it('parts time mode: preview joins only the mapped Hour column when Minute is unmapped', () => {
