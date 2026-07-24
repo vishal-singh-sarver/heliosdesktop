@@ -6,7 +6,7 @@ installer that bundles two halves:
 
 - **Renderer/shell** — Electron + React + Redux (this repository's `src/`).
 - **Backend** — a FastAPI service that owns the PyHelios 3D context and persists projects to
-  SQLite. It lives in the [`backend-api/`](backend-api/) git submodule and runs as a child
+  SQLite. It lives in the [`helios-desktop-backend/`](helios-desktop-backend/) git submodule and runs as a child
   process launched by the Electron main process.
 
 ## Stack
@@ -31,7 +31,7 @@ installer that bundles two halves:
 - **Node.js ≥ 22** and npm
 - **Git** (the backend is a submodule)
 - To build/run the **backend** locally: Python 3.11+, plus CMake 3.20+ and a C++17 compiler for
-  the PyHelios native build. See [backend-api/README.md](backend-api/README.md).
+  the PyHelios native build. See [helios-desktop-backend/README.md](helios-desktop-backend/README.md).
 
 ## Getting started
 
@@ -43,7 +43,7 @@ cd helios_gui
 # 2. Install frontend dependencies
 npm install
 
-# 3. Set up the backend (Python venv + PyHelios) — see backend-api/README.md
+# 3. Set up the backend (Python venv + PyHelios) — see helios-desktop-backend/README.md
 #    Windows users can run the one-shot setup instead: scripts/setup-windows-dev.ps1
 ```
 
@@ -94,7 +94,7 @@ npm run dev:no-backend   # frontend only (skip spawning the backend)
 
 > `npm run build` runs `scripts/sync-backend.js` first, which copies the packaged backend into
 > `resources/`. Build the backend bundle before packaging — see
-> [backend-api/README.md](backend-api/README.md) (or `scripts/setup-windows-dev.ps1` on Windows).
+> [helios-desktop-backend/README.md](helios-desktop-backend/README.md) (or `scripts/setup-windows-dev.ps1` on Windows).
 
 ## Testing
 
@@ -120,7 +120,7 @@ src/
     containers/    Redux-connected feature screens (one folder per feature)
     components/    Pure presentational components
     utils/         api.ts (HTTP), sse.ts (SSE EventChannel), injectReducer/Saga
-backend-api/       Python FastAPI backend (git submodule — its own repo & lifecycle)
+helios-desktop-backend/       Python FastAPI backend (git submodule — its own repo & lifecycle)
 scripts/           Dev/setup scripts (submodule setup, backend sync, Windows toolchain)
 internals/         Plop generator templates (npm run generate)
 e2e/               WebdriverIO specs
@@ -136,7 +136,7 @@ linux-installer/   Linux installer payload + build scripts
 | [docs/ci-cd-workflow.md](docs/ci-cd-workflow.md) | GitHub Actions pipeline, build policy, release flow |
 | [docs/installer-guide.html](docs/installer-guide.html) | Building & packaging installers per platform |
 | [docs/dev-strategy.html](docs/dev-strategy.html) | Architecture deep-dive (processes, IPC, TypeScript, state) |
-| [backend-api/README.md](backend-api/README.md) | Backend setup, API surface, persistence model |
+| [helios-desktop-backend/README.md](helios-desktop-backend/README.md) | Backend setup, API surface, persistence model |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guide and the authoritative conventions |
 
 ## Architecture notes

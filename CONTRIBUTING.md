@@ -1,6 +1,6 @@
 # Contributing to Helios GUI
 
-Electron desktop app shell for Helios, a FastAPI-backed workspace. Two halves live in this repo: an Electron + React renderer (this repo's `src/`) and a Python FastAPI backend (git submodule at [backend-api/](backend-api/), tracked separately).
+Electron desktop app shell for Helios, a FastAPI-backed workspace. Two halves live in this repo: an Electron + React renderer (this repo's `src/`) and a Python FastAPI backend (git submodule at [helios-desktop-backend/](helios-desktop-backend/), tracked separately).
 
 ## Stack
 
@@ -31,7 +31,7 @@ src/
     containers/   Redux-connected feature screens (one folder per feature)
     components/   Pure presentational components
     utils/        api.ts (fetch wrapper), sse.ts (SSE EventChannel), injectReducer/Saga
-backend-api/      Python FastAPI backend (git submodule — do not edit from this repo)
+helios-desktop-backend/      Python FastAPI backend (git submodule — do not edit from this repo)
 scripts/
   sync-backend.js Copies backend build output into resources/ before packaging
 internals/
@@ -75,7 +75,7 @@ The key style rules are reproduced here — read them before non-trivial changes
 
 ## NEVER
 
-- `backend-api/` is a git submodule with its own repo and its own [backend-api/CONTRIBUTING.md](backend-api/CONTRIBUTING.md). Edits land in that repo's history, not this one — work in `backend-api/` directly for backend-only changes.
+- `helios-desktop-backend/` is a git submodule with its own repo and its own [helios-desktop-backend/CONTRIBUTING.md](helios-desktop-backend/CONTRIBUTING.md). Edits land in that repo's history, not this one — work in `helios-desktop-backend/` directly for backend-only changes.
 - Never commit `package-lock.json` (it is gitignored intentionally — see [.gitignore](.gitignore)).
 - Never `require('electron')` or touch Node APIs from the renderer.
 - Never put non-serializable values in Redux (Dates, Maps, class instances, Errors, File objects).

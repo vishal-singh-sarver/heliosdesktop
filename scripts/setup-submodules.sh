@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Point the `backend-api` submodule at the GitHub account that owns this fork,
+# Point the `helios-desktop-backend` submodule at the GitHub account that owns this fork,
 # then check it out (recursively). `.gitmodules` uses a RELATIVE url
-# (../backend-api.git) so GitHub clones already resolve to the right account on
+# (../helios-desktop-backend.git) so GitHub clones already resolve to the right account on
 # their own — this script is the safety net for clones whose `origin` is NOT the
 # fork's GitHub account (e.g. the internal git server) or when you want to force
 # a specific owner/protocol.
@@ -39,19 +39,19 @@ fi
 owner="${owner:-PlantSimulationLab}"
 
 if [ "${BACKEND_HTTPS:-0}" = "1" ]; then
-  url="https://github.com/${owner}/backend-api.git"
+  url="https://github.com/${owner}/helios-desktop-backend.git"
 else
-  url="git@github.com:${owner}/backend-api.git"
+  url="git@github.com:${owner}/helios-desktop-backend.git"
 fi
 
-echo "==> backend-api submodule owner: ${owner}"
+echo "==> helios-desktop-backend submodule owner: ${owner}"
 echo "==> setting url: ${url}"
 
 # sync copies .gitmodules -> .git/config; then override with the explicit URL so
 # this works regardless of what the relative url would have resolved to.
-git submodule sync -- backend-api
-git config submodule.backend-api.url "$url"
+git submodule sync -- helios-desktop-backend
+git config submodule.helios-desktop-backend.url "$url"
 git submodule update --init --recursive
 
 echo "==> done. current submodule url:"
-git config --get submodule.backend-api.url
+git config --get submodule.helios-desktop-backend.url

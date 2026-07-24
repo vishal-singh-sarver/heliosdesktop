@@ -1,34 +1,34 @@
 # Git Submodule Setup
 
-How the `backend-api` submodule is wired so it **follows the GitHub account automatically** on a
+How the `helios-desktop-backend` submodule is wired so it **follows the GitHub account automatically** on a
 fork — no `.gitmodules` edit required when you fork the project to a different account.
 
 ## Submodules in this repo
 
 | Submodule | Path | URL in `.gitmodules` | Notes |
 |-----------|------|----------------------|-------|
-| Backend API | `backend-api/` | `../backend-api.git` (relative) | The FastAPI backend. Forked alongside the frontend into the same account. |
-| PyHelios | `backend-api/pyhelios/` | `https://github.com/PlantSimulationLab/PyHelios.git` (absolute) | Third-party upstream; **not** account-specific. Lives in the backend's own `.gitmodules` — left absolute, do not change. |
+| Backend API | `helios-desktop-backend/` | `../helios-desktop-backend.git` (relative) | The FastAPI backend. Forked alongside the frontend into the same account. |
+| PyHelios | `helios-desktop-backend/pyhelios/` | `https://github.com/PlantSimulationLab/PyHelios.git` (absolute) | Third-party upstream; **not** account-specific. Lives in the backend's own `.gitmodules` — left absolute, do not change. |
 
 ## Why the URL is relative
 
-`.gitmodules` uses a **relative** URL for `backend-api`:
+`.gitmodules` uses a **relative** URL for `helios-desktop-backend`:
 
 ```ini
-[submodule "backend-api"]
-	path = backend-api
-	url = ../backend-api.git
+[submodule "helios-desktop-backend"]
+	path = helios-desktop-backend
+	url = ../helios-desktop-backend.git
 ```
 
-Git resolves `../backend-api.git` against the superproject's remote, replacing only the repo
+Git resolves `../helios-desktop-backend.git` against the superproject's remote, replacing only the repo
 name and keeping the **account/org**:
 
-- `github.com/<account>/helios_gui` → `github.com/<account>/backend-api.git`
-- A fork under `userB` → `userB/backend-api.git`, automatically.
+- `github.com/<account>/helios_gui` → `github.com/<account>/helios-desktop-backend.git`
+- A fork under `userB` → `userB/helios-desktop-backend.git`, automatically.
 - It inherits the **protocol** too — SSH locally, HTTPS+token in CI.
 
 **Result:** forking to a new account needs **zero** edits to `.gitmodules`, as long as you clone
-from that account's GitHub repo (and have forked `backend-api` into the same account with the
+from that account's GitHub repo (and have forked `helios-desktop-backend` into the same account with the
 same name).
 
 ## Cloning
@@ -48,7 +48,7 @@ nothing else is needed.
 
 The relative URL resolves against whatever `origin` points to. If you clone from a remote that
 is **not** the fork's GitHub account — e.g. the internal git server (`192.168.3.185`), which
-does not host `backend-api` — `../backend-api.git` would resolve to the wrong place. Use the
+does not host `helios-desktop-backend` — `../helios-desktop-backend.git` would resolve to the wrong place. Use the
 setup helper, which **forces the correct GitHub URL** regardless of clone source:
 
 ```bash
@@ -73,8 +73,8 @@ BACKEND_HTTPS=1 bash scripts/setup-submodules.sh myorg
 What it does:
 
 ```bash
-git submodule sync -- backend-api
-git config submodule.backend-api.url "git@github.com:<owner>/backend-api.git"
+git submodule sync -- helios-desktop-backend
+git config submodule.helios-desktop-backend.url "git@github.com:<owner>/helios-desktop-backend.git"
 git submodule update --init --recursive
 ```
 
@@ -86,7 +86,7 @@ can override with `$env:BACKEND_OWNER` before running it.
 
 ## Forking checklist
 
-1. Fork **both** `helios_gui` and `backend-api` into your account (keep the name `backend-api`).
+1. Fork **both** `helios_gui` and `helios-desktop-backend` into your account (keep the name `helios-desktop-backend`).
 2. Clone your `helios_gui` fork from GitHub with `--recurse-submodules`.
 3. If you cloned from a non-GitHub origin (or the submodule points at the wrong account), run
    `npm run setup:submodules` (optionally passing your account name).
@@ -96,10 +96,10 @@ can override with `$env:BACKEND_OWNER` before running it.
 
 | Symptom | Fix |
 |---------|-----|
-| `backend-api` empty after clone | `git submodule update --init --recursive` (or `npm run setup:submodules`). |
+| `helios-desktop-backend` empty after clone | `git submodule update --init --recursive` (or `npm run setup:submodules`). |
 | Submodule fetch points at the wrong account | `npm run setup:submodules <your-account>` to force the URL. |
 | Cloned from the internal server, submodule fails | `npm run setup:submodules` — it forces the GitHub URL. |
-| Want to verify the resolved URL | `git config --get submodule.backend-api.url` |
+| Want to verify the resolved URL | `git config --get submodule.helios-desktop-backend.url` |
 | Changed `.gitmodules` and need to re-apply | `git submodule sync` then `git submodule update --init --recursive`. |
 
 > Note: `git submodule sync` copies `.gitmodules` into `.git/config`, resolving the relative URL
@@ -109,6 +109,6 @@ can override with `$env:BACKEND_OWNER` before running it.
 ## CI
 
 GitHub Actions checks out with `submodules: recursive` + `token: ${{ secrets.PAT }}`. Because
-the URL is relative, each workflow resolves `backend-api` against the repository it is running
+the URL is relative, each workflow resolves `helios-desktop-backend` against the repository it is running
 in — so a fork's CI uses the fork's own backend with the fork owner's `PAT`. No CI change is
 needed when forking. See [ci-cd-workflow.md](ci-cd-workflow.md).

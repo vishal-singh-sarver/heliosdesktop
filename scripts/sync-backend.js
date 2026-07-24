@@ -3,7 +3,7 @@
  * Backend Binary Builder & Sync Script
  *
  * This script:
- *   1. Builds the backend executable from backend-api/ using PyInstaller
+ *   1. Builds the backend executable from helios-desktop-backend/ using PyInstaller
  *   2. Copies the generated binary into resources/backend/<platform>/
  *
  * No machine-specific absolute paths are hardcoded. Everything is built
@@ -19,7 +19,7 @@ const path = require('path')
 const { execSync } = require('child_process')
 
 const REPO_ROOT = path.join(__dirname, '..')
-const BACKEND_API_DIR = path.join(REPO_ROOT, 'backend-api')
+const BACKEND_API_DIR = path.join(REPO_ROOT, 'helios-desktop-backend')
 const BACKEND_BUILD_SCRIPT_UNIX = path.join(BACKEND_API_DIR, 'scripts', 'build_binary.sh')
 const BACKEND_BUILD_SCRIPT_WINDOWS = path.join(BACKEND_API_DIR, 'scripts', 'build_binary.ps1')
 const BACKEND_DIST_DIR = path.join(BACKEND_API_DIR, 'dist')
@@ -74,7 +74,7 @@ function ensureDir(dir) {
 /**
  * Check whether the current platform already has a usable bundled backend.
  * On Windows we prefer reusing the pre-synced binary so packaging does not
- * have to rebuild anything inside backend-api/.
+ * have to rebuild anything inside helios-desktop-backend/.
  */
 function hasUsableBundledBackend(platformConfig) {
   const { binaryName, destPath } = platformConfig
@@ -158,7 +158,7 @@ function verifyBundledMigrations(destPath) {
 }
 
 /**
- * Build the backend executable from backend-api/
+ * Build the backend executable from helios-desktop-backend/
  */
 function buildBackend() {
   console.log('\n========================================')
@@ -173,7 +173,7 @@ function buildBackend() {
     if (!fs.existsSync(BACKEND_BUILD_SCRIPT_WINDOWS)) {
       throw new Error(
         `Backend build script not found: ${BACKEND_BUILD_SCRIPT_WINDOWS}\n` +
-        `Make sure backend-api/scripts/build_binary.ps1 exists.`
+        `Make sure helios-desktop-backend/scripts/build_binary.ps1 exists.`
       )
     }
 
@@ -187,7 +187,7 @@ function buildBackend() {
   if (!fs.existsSync(BACKEND_BUILD_SCRIPT_UNIX)) {
     throw new Error(
       `Backend build script not found: ${BACKEND_BUILD_SCRIPT_UNIX}\n` +
-      `Make sure backend-api/scripts/build_binary.sh exists.`
+      `Make sure helios-desktop-backend/scripts/build_binary.sh exists.`
     )
   }
 
@@ -288,20 +288,20 @@ function main() {
     if (!fs.existsSync(BACKEND_API_DIR)) {
       throw new Error(
         `This script must be run from the repo root.\n` +
-        `Expected backend-api directory at: ${BACKEND_API_DIR}`
+        `Expected helios-desktop-backend directory at: ${BACKEND_API_DIR}`
       )
     }
 
     const platformConfig = getPlatformConfig()
 
-    // Windows installer builds should not require mutating backend-api/ when
+    // Windows installer builds should not require mutating helios-desktop-backend/ when
     // a valid prebuilt backend is already present in resources/backend/win.
     if (process.platform === 'win32' && hasUsableBundledBackend(platformConfig)) {
       console.log('\n========================================')
       console.log('Using Existing Windows Backend Resource')
       console.log('========================================')
       console.log(`[*] Reusing bundled backend at: ${platformConfig.destPath}`)
-      console.log(`[*] Skipping backend-api build on Windows`)
+      console.log(`[*] Skipping helios-desktop-backend build on Windows`)
       console.log('\n========================================')
       console.log('✓ Backend sync complete')
       console.log('========================================\n')
