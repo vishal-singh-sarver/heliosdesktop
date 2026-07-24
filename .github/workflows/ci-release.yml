@@ -184,8 +184,8 @@ jobs:
       - name: Inject Missing Backend Migration Directories
         shell: bash
         run: |
-          mkdir -p backend-api/app/db/migrations
-          touch backend-api/app/db/migrations/.gitkeep
+          mkdir -p helios-desktop-backend/app/db/migrations
+          touch helios-desktop-backend/app/db/migrations/.gitkeep
 
       - name: Package (signed + notarized)
         run: npm run package

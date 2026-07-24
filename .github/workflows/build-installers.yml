@@ -246,10 +246,11 @@ jobs:
       - name: Package Linux Installer
         run: npm run package:linux
 
+      # AppImage builds are disabled - only .deb is tagged/uploaded.
       - name: Tag outputs with ubuntu version
         run: |
           cd dist
-          for f in *.deb *.AppImage; do
+          for f in *.deb; do               # AppImage disabled: was "*.deb *.AppImage"
             [ -e "$f" ] || continue
             base="${f%.*}"
             ext="${f##*.}"
@@ -262,7 +263,7 @@ jobs:
         with:
           name: linux-packages-${{ matrix.label }}
           path: |
-            dist/*.AppImage
+            #dist/*.AppImage
             dist/*.deb
           compression-level: 0
           retention-days: 5
