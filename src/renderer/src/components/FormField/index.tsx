@@ -59,7 +59,7 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
   const paddedClassName = iconLeft ? `${baseClassName} pl-9 pr-3` : `${baseClassName} px-3`
 
   return (
-    <div className="block text-sm text-neutral-300">
+    <div data-testid={`formfield-${restInputProps.name}`} className="block text-sm text-neutral-300">
       <label htmlFor={restInputProps.name} className="flex items-center gap-1">
         {label}
         {!optional && <span className="text-red-400">*</span>}
@@ -72,6 +72,7 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
         <select
           {...restInputProps}
           id={restInputProps.name}
+          data-testid={`input-${restInputProps.name}`}
           disabled={disabled}
           aria-describedby={error ? errorId : undefined}
           aria-invalid={!!error}
@@ -119,6 +120,7 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
             ref={inputRef}
             {...restInputProps}
             id={restInputProps.name}
+            data-testid={`input-${restInputProps.name}`}
             type={type}
             placeholder={placeholder}
             disabled={disabled}
@@ -130,7 +132,12 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
       )}
 
       {error && (
-        <p id={errorId} className="form-error-text mt-1" role="alert">
+        <p
+          id={errorId}
+          data-testid={`error-${restInputProps.name}`}
+          className="form-error-text mt-1"
+          role="alert"
+        >
           {error}
         </p>
       )}

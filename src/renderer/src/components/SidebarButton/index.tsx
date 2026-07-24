@@ -5,16 +5,20 @@ interface SidebarButtonProps {
   icon: string
   isActive?: boolean
   onClick: () => void
+  'data-testid'?: string
 }
 
 function SidebarButton({
   label,
   icon,
   isActive = false,
-  onClick
+  onClick,
+  'data-testid': dataTestId
 }: SidebarButtonProps): React.JSX.Element {
   return (
     <button
+      data-testid={dataTestId}
+      data-active={isActive}
       aria-label={`Sidebar ${label}`}
       onClick={onClick}
       className={`flex items-center gap-3 rounded px-3 py-2 text-sm font-medium transition ${

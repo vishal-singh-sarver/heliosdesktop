@@ -831,4 +831,299 @@ describe('projectScreenReducer', () => {
       expect(result.byScenario[SCN].rowSelection).toEqual({ row_0: false, row_1: false })
     })
   })
+
+  describe('reset + local + confirmation cases', () => {
+    it('ADD_ROW_RESET clears the add-row request status', () => {
+      const seed = { ...initialState, addRow: { loading: true, error: 'bad date' } }
+      const result = projectScreenReducer(seed, actions.addRowReset())
+      expect(result.addRow).toEqual({ loading: false, error: null })
+    })
+
+    it('ADD_COLUMN_RESET clears the add-column request status', () => {
+      const seed = { ...initialState, addColumn: { loading: true, error: 'duplicate name' } }
+      const result = projectScreenReducer(seed, actions.addColumnReset())
+      expect(result.addColumn).toEqual({ loading: false, error: null })
+    })
+
+    it('UPDATE_COLUMN_VALUES_LOCAL overwrites existing rows and materializes missing ones', () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.updateColumnValuesLocal({
+          scenarioId: SCN,
+          colId: '7',
+          valuesByRowId: { row_0: '260.0', row_1: null, row_9: '999' }
+        })
+      )
+      const table = result.byScenario[SCN]
+      expect(table.rows.row_0['7']).toBe('260.0')
+      expect(table.rows.row_1['7']).toBeNull()
+      // A rowId with no prior dict gets one created holding just the new value.
+      expect(table.rows.row_9).toEqual({ '7': '999' })
+    })
+
+    it('UPDATE_COLUMN_VALUES_LOCAL is a no-op on a missing scenario', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.updateColumnValuesLocal({
+          scenarioId: 'missing',
+          colId: '7',
+          valuesByRowId: { row_0: '1' }
+        })
+      )
+      expect(result).toEqual(initialState)
+    })
+
+    it('UPDATE_CELL_REQUESTED is a saga trigger only and leaves state unchanged', () => {
+      const base = loaded()
+      const result = projectScreenReducer(
+        base,
+        actions.updateCellRequested(PROJ, SCN, 'row_0', '7')
+      )
+      expect(result).toEqual(base)
+    })
+
+    it('DELETE_COLUMN_SUCCEEDED confirms the optimistic delete without rolling back', () => {
+      const snapshot = {
+        column: { ...sampleColumns[2] },
+        index: 2,
+        rowValues: { row_0: '293.1', row_1: '294.2' },
+        validationErrors: {},
+        cellSync: {}
+      }
+      const deleted = projectScreenReducer(
+        loaded(),
+        actions.deleteColumnRequested(PROJ, SCN, '7', snapshot)
+      )
+      const result = projectScreenReducer(deleted, actions.deleteColumnSucceeded(PROJ, SCN, '7'))
+      expect(result.byScenario[SCN].columns['7']).toBeUndefined()
+      expect(result.byScenario[SCN].columnOrder).toEqual(['date', 'time'])
+      // SUCCEEDED is a pure confirmation — state matches the optimistic delete.
+      expect(result).toEqual(deleted)
+    })
+
+    it('DELETE_ROW_SUCCEEDED confirms the optimistic row delete without rolling back', () => {
+      const snapshot = {
+        cells: { date: '2026-04-27', time: '10:00:00', '7': '293.1' },
+        index: 0,
+        validationErrors: undefined,
+        cellSync: {},
+        selected: true
+      }
+      const deleted = projectScreenReducer(
+        loaded(),
+        actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshot)
+      )
+      const result = projectScreenReducer(deleted, actions.deleteRowSucceeded(PROJ, SCN, 'row_0'))
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_1'])
+      expect(result).toEqual(deleted)
+    })
+
+    it("UPDATE_ALL_CHECKBOXES_REQUESTED writes the value into every row's check cell", () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.updateAllCheckboxesRequested(PROJ, SCN, 'check', '1')
+      )
+      const table = result.byScenario[SCN]
+      expect(table.rows.row_0['check']).toBe('1')
+      expect(table.rows.row_1['check']).toBe('1')
+    })
+
+    it('UPDATE_ALL_CHECKBOXES_REQUESTED is a no-op on a missing scenario', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.updateAllCheckboxesRequested(PROJ, 'missing', 'check', '0')
+      )
+      expect(result).toEqual(initialState)
+    })
+
+    it('SET_CELL_VALIDATION_ERROR sets the error slot without touching the value or sync', () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.setCellValidationError(SCN, 'row_0', '7', 'Must be a number')
+      )
+      const table = result.byScenario[SCN]
+      expect(table.validationErrors.row_0['7']).toBe('Must be a number')
+      // The value and cellSync are deliberately untouched by this action.
+      expect(table.rows.row_0['7']).toBe('293.1')
+      expect(table.cellSync[cellKey('row_0', '7')]).toBeUndefined()
+    })
+
+    it('SET_CELL_VALIDATION_ERROR reuses an existing row error map for a second column', () => {
+      const first = projectScreenReducer(
+        loaded(),
+        actions.setCellValidationError(SCN, 'row_0', '7', 'too high')
+      )
+      const second = projectScreenReducer(
+        first,
+        actions.setCellValidationError(SCN, 'row_0', 'date', 'bad date')
+      )
+      const errs = second.byScenario[SCN].validationErrors.row_0
+      expect(errs['7']).toBe('too high')
+      expect(errs['date']).toBe('bad date')
+    })
+
+    it('SET_CELL_VALIDATION_ERROR with null clears an existing error', () => {
+      const withErr = projectScreenReducer(
+        loaded(),
+        actions.setCellValidationError(SCN, 'row_0', '7', 'boom')
+      )
+      const cleared = projectScreenReducer(
+        withErr,
+        actions.setCellValidationError(SCN, 'row_0', '7', null)
+      )
+      expect(cleared.byScenario[SCN].validationErrors.row_0?.['7']).toBeUndefined()
+    })
+
+    it('SET_CELL_VALIDATION_ERROR with null on a never-flagged cell is a clean no-op', () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.setCellValidationError(SCN, 'row_0', '7', null)
+      )
+      expect(result.byScenario[SCN].validationErrors.row_0?.['7']).toBeUndefined()
+    })
+
+    it('SET_CELL_VALIDATION_ERROR is a no-op on a missing scenario', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.setCellValidationError('missing', 'row_0', '7', 'x')
+      )
+      expect(result).toEqual(initialState)
+    })
+  })
+
+  describe('missing-scenario guards + rollback edge cases', () => {
+    it('ADD_COLUMN_SUCCEEDED for an unknown scenario clears the status but adds no table', () => {
+      const seed = { ...initialState, addColumn: { loading: true, error: 'prev' } }
+      const result = projectScreenReducer(
+        seed,
+        actions.addColumnSucceeded(PROJ, 'missing', { id: '9', name: 'h', dataTypeId: null, unitId: null }, '')
+      )
+      // Status is cleared before the missing-table guard bails…
+      expect(result.addColumn).toEqual({ loading: false, error: null })
+      // …but no table is materialised for the unknown scenario.
+      expect(result.byScenario['missing']).toBeUndefined()
+    })
+
+    it('UPDATE_COLUMN_FAILED is a no-op on a missing scenario / column', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.updateColumnFailed(PROJ, SCN, '7', { name: 'x' }, 'rejected')
+      )
+      expect(result).toEqual(initialState)
+    })
+
+    it('DELETE_COLUMN_REQUESTED is a no-op when the column is unknown', () => {
+      const snapshot = { column: { ...sampleColumns[2] }, index: 2, rowValues: {}, validationErrors: {}, cellSync: {} }
+      const result = projectScreenReducer(
+        loaded(),
+        actions.deleteColumnRequested(PROJ, SCN, 'nope', snapshot)
+      )
+      expect(result.byScenario[SCN].columnOrder).toEqual(['date', 'time', '7'])
+    })
+
+    it('DELETE_COLUMN_FAILED restores at the end when the snapshot index is negative', () => {
+      const snapshot = {
+        column: { ...sampleColumns[2] },
+        index: -1,
+        rowValues: { row_0: '293.1', row_1: '294.2' },
+        validationErrors: {},
+        cellSync: {}
+      }
+      const deleted = projectScreenReducer(
+        loaded(),
+        actions.deleteColumnRequested(PROJ, SCN, '7', snapshot)
+      )
+      const result = projectScreenReducer(
+        deleted,
+        actions.deleteColumnFailed(PROJ, SCN, '7', snapshot, 'rejected')
+      )
+      // index < 0 → appended at the end of columnOrder rather than spliced in.
+      expect(result.byScenario[SCN].columnOrder).toEqual(['date', 'time', '7'])
+      expect(result.byScenario[SCN].rows.row_0['7']).toBe('293.1')
+    })
+
+    it('DELETE_ROW_FAILED appends the restored row when the snapshot index is negative', () => {
+      const snapshot = {
+        cells: { date: '2026-04-27', time: '10:00:00', '7': '293.1' },
+        index: -1,
+        validationErrors: undefined,
+        cellSync: {},
+        selected: false
+      }
+      const deleted = projectScreenReducer(
+        loaded(),
+        actions.deleteRowRequested(PROJ, SCN, 'row_0', '2026-04-27', '10:00:00', snapshot)
+      )
+      expect(deleted.byScenario[SCN].rowOrder).toEqual(['row_1'])
+
+      const result = projectScreenReducer(
+        deleted,
+        actions.deleteRowFailed(PROJ, SCN, 'row_0', snapshot, 'rejected')
+      )
+      const table = result.byScenario[SCN]
+      // index < 0 → appended after the survivor instead of restored at index 0.
+      expect(table.rowOrder).toEqual(['row_1', 'row_0'])
+      // selected:false → the row is not re-selected on restore…
+      expect(table.rowSelection.row_0).toBeUndefined()
+      // …and an undefined snapshot.validationErrors leaves no error entry.
+      expect(table.validationErrors.row_0).toBeUndefined()
+    })
+
+    it('DELETE_ROW_FAILED is a no-op on a missing scenario', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.deleteRowFailed(PROJ, 'missing', 'row_0', {
+          cells: {},
+          index: 0,
+          validationErrors: undefined,
+          cellSync: {},
+          selected: false
+        }, 'x')
+      )
+      expect(result).toEqual(initialState)
+    })
+
+    it('UPDATE_CELL_LOCAL / SUCCEEDED / FAILED are no-ops on a missing scenario', () => {
+      const local = projectScreenReducer(
+        initialState,
+        actions.updateCellLocal({
+          projectId: PROJ,
+          scenarioId: 'missing',
+          rowId: 'row_0',
+          colId: '7',
+          value: '1',
+          validationError: null
+        })
+      )
+      expect(local).toEqual(initialState)
+
+      const succeeded = projectScreenReducer(
+        initialState,
+        actions.updateCellSucceeded(PROJ, 'missing', 'row_0', '7')
+      )
+      expect(succeeded).toEqual(initialState)
+
+      const failed = projectScreenReducer(
+        initialState,
+        actions.updateCellFailed(PROJ, 'missing', 'row_0', '7', 'boom')
+      )
+      expect(failed).toEqual(initialState)
+    })
+
+    it('SET_COLUMN_NAME_ERROR is a no-op on a missing scenario', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.setColumnNameError('missing', '7', 'dup')
+      )
+      expect(result).toEqual(initialState)
+    })
+
+    it('SET_ALL_ROWS_SELECTION is a no-op on a missing scenario', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.setAllRowsSelection('missing', false)
+      )
+      expect(result).toEqual(initialState)
+    })
+  })
 })

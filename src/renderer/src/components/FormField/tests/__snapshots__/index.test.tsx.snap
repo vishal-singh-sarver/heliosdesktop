@@ -3,6 +3,7 @@
 exports[`<FormField /> > should match the snapshot 1`] = `
 <div
   class="block text-sm text-neutral-300"
+  data-testid="formfield-projectName"
 >
   <label
     class="flex items-center gap-1"
@@ -28,6 +29,7 @@ exports[`<FormField /> > should match the snapshot 1`] = `
     <input
       aria-invalid="false"
       class="mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-neutral-500 outline-none px-3"
+      data-testid="input-projectName"
       id="projectName"
       name="projectName"
       placeholder="Enter"
@@ -41,6 +43,7 @@ exports[`<FormField /> > should match the snapshot 1`] = `
 exports[`<FormField /> > should match the snapshot with error 1`] = `
 <div
   class="block text-sm text-neutral-300"
+  data-testid="formfield-projectName"
 >
   <label
     class="flex items-center gap-1"
@@ -67,6 +70,7 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
       aria-describedby="_r_o_"
       aria-invalid="true"
       class="mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-red-500 outline outline-1 -outline-offset-1 outline-red-500 px-3"
+      data-testid="input-projectName"
       id="projectName"
       name="projectName"
       placeholder="Enter"
@@ -76,6 +80,7 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
   </div>
   <p
     class="form-error-text mt-1"
+    data-testid="error-projectName"
     id="_r_o_"
     role="alert"
   >

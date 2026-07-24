@@ -4,6 +4,7 @@ exports[`<SidebarButton /> > should match the snapshot (active) 1`] = `
 <button
   aria-label="Sidebar Home"
   class="flex items-center gap-3 rounded px-3 py-2 text-sm font-medium transition bg-panel text-white"
+  data-active="true"
 >
   <img
     class="h-5 w-5 opacity-80"
@@ -17,6 +18,7 @@ exports[`<SidebarButton /> > should match the snapshot (inactive) 1`] = `
 <button
   aria-label="Sidebar Home"
   class="flex items-center gap-3 rounded px-3 py-2 text-sm font-medium transition text-neutral-300 hover:bg-panel hover:text-white hover:ring-1 hover:ring-app-border/80"
+  data-active="false"
 >
   <img
     class="h-5 w-5 opacity-80"

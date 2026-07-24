@@ -3,6 +3,7 @@
 exports[`<Sidebar /> > should match the snapshot 1`] = `
 <aside
   class="w-56 border-r border-app-border p-4"
+  data-testid="sidebar"
 >
   <nav
     class="flex flex-col gap-2"

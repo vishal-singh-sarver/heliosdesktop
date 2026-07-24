@@ -72,15 +72,30 @@ vi.mock('@renderer/components/FormField', () => ({
       onChange?: React.ChangeEventHandler<HTMLInputElement>
       onBlur?: React.FocusEventHandler<HTMLInputElement>
       error?: string
+      // The real FormField renders iconLeft as a button wired to onIconLeftClick
+      // and forwards inputRef to the <input>. The dialog uses both (calendar =>
+      // openPicker(startDateRef), clock => toggle the time picker), so the mock
+      // reproduces them to exercise those handlers.
+      onIconLeftClick?: () => void
+      inputRef?: React.Ref<HTMLInputElement>
     }
   }) => {
     const name = inputProps.name ?? labelProps.label
     return (
       <div data-testid={`ff-${name}`}>
         <label>{labelProps.label}</label>
+        {inputProps.onIconLeftClick && (
+          <button
+            type="button"
+            data-testid={`icon-${name}`}
+            aria-label={`Open ${name} picker`}
+            onClick={inputProps.onIconLeftClick}
+          />
+        )}
         <input
           data-testid={`input-${name}`}
           name={name}
+          ref={inputProps.inputRef}
           value={inputProps.value ?? ''}
           onChange={inputProps.onChange}
           onBlur={inputProps.onBlur}
@@ -406,5 +421,99 @@ describe('<AddRowsDialog />', () => {
     render(<AddRowsDialog isOpen onClose={onClose} />)
     fireEvent.click(screen.getByTestId('dialog-close'))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // ── Start-date validation (format + year bounds) ──────────────────────────
+
+  it('shows a format error when the start date is not YYYY-MM-DD with a 4-digit year', async () => {
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    // Single-digit month/day fails the /^(\d{4})-\d{2}-\d{2}$/ guard.
+    fireEvent.change(screen.getByTestId('input-startDate'), { target: { value: '2026-3-1' } })
+    await waitFor(() =>
+      expect(screen.getByTestId('error-startDate')).toHaveTextContent(
+        'Start date must be in YYYY-MM-DD format with a 4-digit year.'
+      )
+    )
+  })
+
+  it('shows a year-range error when the start date year is outside 1900–3000', async () => {
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    const input = screen.getByTestId('input-startDate')
+    fireEvent.change(input, { target: { value: '1899-12-31' } }) // below the lower bound
+    await waitFor(() =>
+      expect(screen.getByTestId('error-startDate')).toHaveTextContent(
+        'Start date year must be between 1900 and 3000.'
+      )
+    )
+    fireEvent.change(input, { target: { value: '3001-01-01' } }) // above the upper bound
+    await waitFor(() =>
+      expect(screen.getByTestId('error-startDate')).toHaveTextContent(
+        'Start date year must be between 1900 and 3000.'
+      )
+    )
+  })
+
+  it('shows a required error when Delta is cleared', async () => {
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    const delta = screen.getByTestId('input-deltaHours')
+    expect(delta).toHaveValue('1') // seeded default
+    fireEvent.change(delta, { target: { value: '' } })
+    fireEvent.blur(delta) // blur marks it touched so the required error renders
+    await waitFor(() =>
+      expect(screen.getByTestId('error-deltaHours')).toHaveTextContent('Delta is required.')
+    )
+  })
+
+  // ── Icon pickers ──────────────────────────────────────────────────────────
+
+  it('opens the native date picker when the calendar icon is clicked', () => {
+    const showPicker = vi.fn()
+    const original = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'showPicker')
+    // jsdom does not implement showPicker; install a stub so openPicker takes
+    // the showPicker() branch instead of the focus()/click() fallback.
+    Object.defineProperty(HTMLInputElement.prototype, 'showPicker', {
+      value: showPicker,
+      configurable: true,
+      writable: true
+    })
+    try {
+      render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+      fireEvent.click(screen.getByTestId('icon-startDate'))
+      expect(showPicker).toHaveBeenCalledTimes(1)
+    } finally {
+      if (original) Object.defineProperty(HTMLInputElement.prototype, 'showPicker', original)
+      else delete (HTMLInputElement.prototype as { showPicker?: () => void }).showPicker
+    }
+  })
+
+  it('opens the time picker from the clock icon and applies the picked value', () => {
+    sel.weatherTable = fiveHourCadence()
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    expect(screen.queryByTestId('time-picker')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('icon-startTime'))
+    const picker = screen.getByTestId('time-picker')
+    expect(picker).toHaveTextContent('pick:10:00') // seeded start time forwarded to the widget
+
+    fireEvent.click(picker) // the mock reports 09:30
+    expect(screen.getByTestId('input-startTime')).toHaveValue('09:30')
+    // Picking a value closes the popup.
+    expect(screen.queryByTestId('time-picker')).not.toBeInTheDocument()
+  })
+
+  it('closes the time picker on an outside mousedown', () => {
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('icon-startTime'))
+    expect(screen.getByTestId('time-picker')).toBeInTheDocument()
+    fireEvent.mouseDown(document.body) // outside the picker container
+    expect(screen.queryByTestId('time-picker')).not.toBeInTheDocument()
+  })
+
+  it('closes the time picker when Escape is pressed', () => {
+    render(<AddRowsDialog isOpen onClose={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('icon-startTime'))
+    expect(screen.getByTestId('time-picker')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('time-picker')).not.toBeInTheDocument()
   })
 })

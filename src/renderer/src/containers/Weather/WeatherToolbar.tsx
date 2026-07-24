@@ -137,6 +137,7 @@ function WeatherToolbar({
       <AddRowsDialog isOpen={isAddRowsOpen} onClose={() => setIsAddRowsOpen(false)} />
       <Dialog
         isOpen={isDeleteDialogOpen}
+        data-testid="delete-import-dialog"
         title={messages.deleteImport.dialogTitle}
         onClose={handleCancelDeleteImportedFile}
       >

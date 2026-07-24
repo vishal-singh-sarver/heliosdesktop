@@ -565,7 +565,11 @@ function* addColumnWorker(action: AddColumnRequestedAction): Generator {
 // camelCase keys to the wire's snake_case, and (c) roll back on failure by
 // dispatching _FAILED with the snapshot the dispatcher captured.
 
-function* updateColumnWorker(action: UpdateColumnRequestedAction): Generator {
+// Exported for unit testing: the unit-only conversion branch (buildConverted-
+// ColumnValues → updateColumnRequest → rollback on failure) is real production
+// wiring that a hand-mirrored test copy cannot exercise, so tests drive the
+// actual worker generator. No runtime behavior change.
+export function* updateColumnWorker(action: UpdateColumnRequestedAction): Generator {
   const { projectId, scenarioId, colId, patch, previous } = action.payload
 
   // Only backend-managed columns have a numeric header id. Reserved date/time

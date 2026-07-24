@@ -4,9 +4,17 @@ interface CollapseButtonProps {
   collapsed: boolean
   side: 'left' | 'right'
   onToggle: () => void
+  /** Optional test-id forwarded to the button — lets callers disambiguate the
+   *  two panels, whose aria-labels ('Expand panel'/'Collapse panel') are identical. */
+  dataTestId?: string
 }
 
-function CollapseButton({ collapsed, side, onToggle }: CollapseButtonProps): React.JSX.Element {
+function CollapseButton({
+  collapsed,
+  side,
+  onToggle,
+  dataTestId
+}: CollapseButtonProps): React.JSX.Element {
   // Chevron points toward the action the click will perform.
   // LeftPanel expanded  -> points left (collapse to the left).
   // LeftPanel collapsed -> points right (expand to the right).
@@ -17,6 +25,7 @@ function CollapseButton({ collapsed, side, onToggle }: CollapseButtonProps): Rea
     <button
       type="button"
       onClick={onToggle}
+      data-testid={dataTestId}
       aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
       className="flex h-6 w-6 items-center justify-center rounded text-neutral-300 hover:bg-neutral-700/60 hover:text-white"
     >

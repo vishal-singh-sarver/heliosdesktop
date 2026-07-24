@@ -325,6 +325,7 @@ export function HomePage(): React.JSX.Element {
       </div>
 
       <Dialog
+        data-testid="create-project-dialog"
         isOpen={showNewProjectDialog}
         title={messages.createProject.dialogTitle}
         onClose={closeNewProjectDialog}
@@ -415,6 +416,7 @@ export function HomePage(): React.JSX.Element {
       </Dialog>
 
       <Dialog
+        data-testid="delete-project-dialog"
         isOpen={pendingDelete !== null}
         title={messages.deleteProject.dialogTitle}
         onClose={handleCancelDelete}
@@ -450,6 +452,7 @@ export function HomePage(): React.JSX.Element {
       </Dialog>
 
       <Dialog
+        data-testid="rename-project-dialog"
         isOpen={pendingRename !== null}
         title={messages.renameProject.dialogTitle}
         onClose={handleCancelRename}
