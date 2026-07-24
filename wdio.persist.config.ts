@@ -1,6 +1,12 @@
 import { join } from 'node:path'
 import { rmSync, mkdirSync } from 'node:fs'
 import type { Options } from '@wdio/types'
+import type { Frameworks } from '@wdio/types'
+import {
+  allureReporter,
+  attachFailureScreenshot,
+  writeAllureEnvironment
+} from './e2e/config/reporting'
 
 // VS Code / Electron hosts set ELECTRON_RUN_AS_NODE=1; clear it so the Electron
 // binary launches the app instead of running as Node.
@@ -47,19 +53,25 @@ export const config: Options.Testrunner = {
   connectionRetryCount: 3,
   services: ['electron'],
   framework: 'mocha',
-  reporters: ['spec'],
+  reporters: ['spec', allureReporter],
   // Generous: a relaunch re-runs the backend health check.
   mochaOpts: { ui: 'bdd', timeout: 120000 },
 
   // Start from a clean profile so the suite is deterministic; tolerate a busy DB
   // file on teardown (the backend may still hold the SQLite handle briefly).
   onPrepare() {
+    writeAllureEnvironment({ Suite: 'persistence (fixed profile)' })
     try {
       rmSync(PERSIST_PROFILE, { recursive: true, force: true })
     } catch {
       /* best effort */
     }
     mkdirSync(PERSIST_PROFILE, { recursive: true })
+  },
+
+  // Attach a screenshot to the Allure result whenever a test fails.
+  afterTest: async function (_test, _context, result: Frameworks.TestResult) {
+    await attachFailureScreenshot(result.passed)
   },
   onComplete() {
     try {

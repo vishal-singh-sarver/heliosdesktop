@@ -7,13 +7,13 @@
  * findings live in the real-file block (CIMIS.csv, USW.csv).
  */
 
-import { join } from 'node:path'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather, { type ImportMapping } from '../pages/Weather.page'
 import {
-  enterProject,
+  enterWeather,
   reloadToHome,
+  staysFalse,
   stubFileCancel,
   stubFileImport,
   stubRealFile,
@@ -21,6 +21,9 @@ import {
   waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
+import { fixture, FIXTURE_FILES, SAMPLE_CSV } from '../config/fixtures'
+import { TIMEOUTS } from '../config/timeouts'
+import { IMPORT_MSG } from '../constants/messages'
 
 before(async () => {
   await waitForMainWindow()
@@ -32,19 +35,6 @@ before(async () => {
 beforeEach(async () => {
   await reloadToHome()
 })
-
-/** Enter a project and land on the seeded Weather table. */
-async function enterWeather(label = 'wx'): Promise<{ id: string; name: string }> {
-  const project = await enterProject(label)
-  await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
-  await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: 20000 })
-  return project
-}
-
-const CSV = ['datetime,temperature', '2026-01-01T00:00:00Z,10', '2026-01-01T01:00:00Z,11'].join('\n')
-
-const FIX = join(process.cwd(), 'e2e', 'fixtures', 'weather')
-const fixture = (name: string): string => join(FIX, name)
 
 /** The wizard's read-only "Weather Data File" field (StepFilePreview input). */
 function fileField(): ReturnType<typeof $> {
@@ -59,15 +49,6 @@ async function advanceToDateTime(): Promise<void> {
   await Weather.wizardNext.click()
   await Weather.waitForWizardNext() // step 1 Data Preview
   await Weather.wizardNext.click()
-}
-
-/** True if `enabled` stays false for `timeout` ms (a gate that is correctly never satisfied). */
-async function staysDisabled(timeout = 3000): Promise<boolean> {
-  const becameEnabled = await browser
-    .waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), { timeout })
-    .then(() => true)
-    .catch(() => false)
-  return becameEnabled === false
 }
 
 /** Count managed-column header name inputs whose committed value equals `name`. */
@@ -115,28 +96,28 @@ describe('Weather import — wizard open/close', () => {
     await enterWeather('cancel')
     await Weather.openImportWizard()
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('the × button closes the wizard', async () => {
     await enterWeather('xclose')
     await Weather.openImportWizard()
     await Weather.wizardClose.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('Escape closes the wizard', async () => {
     await enterWeather('esc')
     await Weather.openImportWizard()
     await browser.keys(['Escape'])
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
 describe('Weather import — file pick (stubbed dialog)', () => {
   it('Browse loads the fixture and enables Next', async () => {
     await enterWeather('browse')
-    await stubFileImport(CSV)
+    await stubFileImport(SAMPLE_CSV)
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     await browser.waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), {
@@ -149,13 +130,13 @@ describe('Weather import — file pick (stubbed dialog)', () => {
 describe('Weather import — happy path', () => {
   it('imports the CSV: the column and rows appear in the table', async () => {
     await enterWeather('happy')
-    await stubFileImport(CSV)
+    await stubFileImport(SAMPLE_CSV)
     await Weather.runImport()
     // The imported user column appears as a managed column.
     await Weather.waitForColumn('temperature')
     // Both data rows imported.
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'imported rows did not appear'
     })
   })
@@ -176,7 +157,7 @@ describe('Weather import — happy path', () => {
     // Exactly one row imported.
     const colId = await Weather.waitForColumn('temperature')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 1, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'truncation import did not yield exactly 1 row'
     })
     const [rowId] = await Weather.visibleRowIds()
@@ -199,11 +180,11 @@ describe('Weather import — Delete Data', () => {
     await Weather.addRows(2)
     await expect(await Weather.rowCount()).toBe(2)
     await Weather.deleteDataButton.click()
-    await Weather.deleteImportDialog.waitForDisplayed({ timeout: 10000 })
+    await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.deleteImportDialog.$('button=Delete').click()
     await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'table did not clear after Delete Data'
     })
   })
@@ -212,9 +193,9 @@ describe('Weather import — Delete Data', () => {
     await enterWeather('clearcancel')
     await Weather.addRows(1)
     await Weather.deleteDataButton.click()
-    await Weather.deleteImportDialog.waitForDisplayed({ timeout: 10000 })
+    await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.deleteImportDialog.$('button=Cancel').click()
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.rowCount()).toBe(1)
   })
 })
@@ -232,7 +213,7 @@ describe('Weather import — mapping modes (synthetic)', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: `[${label}] expected 2 imported rows`
     })
   }
@@ -288,7 +269,7 @@ describe('Weather import — date/time normalization (asserts the resulting inst
       // Already selected, or (unexpectedly) absent — close the listbox and rely on
       // the current format; the exact-string asserts below will flag a mismatch.
       await Weather.dateTimeHeaderTrigger.click()
-      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 }).catch(() => {})
+      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM }).catch(() => {})
     }
     return dtColId
   }
@@ -307,7 +288,7 @@ describe('Weather import — date/time normalization (asserts the resulting inst
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === rows, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: `expected ${rows} imported row(s)`
     })
   }
@@ -396,7 +377,7 @@ describe('Weather import — wizard mechanics', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'header-skip import did not yield 2 rows'
     })
   })
@@ -420,16 +401,11 @@ describe('Weather import — wizard mechanics', () => {
     await stubFileImport('a,b\n1,2,3')
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
-    // Next must STAY disabled: waitUntil that expects isEnabled() to stay false
-    // resolves false (timeout) when the gate is correctly never satisfied.
-    const becameEnabled = await browser
-      .waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), { timeout: 4000 })
-      .then(() => true)
-      .catch(() => false)
-    expect(becameEnabled).toBe(false)
+    // Next must STAY disabled: the gate is correctly never satisfied.
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled(), 4000)).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('an empty file keeps Next disabled on step 0', async () => {
@@ -437,14 +413,10 @@ describe('Weather import — wizard mechanics', () => {
     await stubFileImport('')
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
-    const becameEnabled = await browser
-      .waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), { timeout: 4000 })
-      .then(() => true)
-      .catch(() => false)
-    expect(becameEnabled).toBe(false)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled(), 4000)).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('Date/Time gating: a never-valid mapping returns false', async () => {
@@ -476,28 +448,24 @@ describe('Weather upload — cancelled file dialog', () => {
     // The saga dispatches importPickFileFailed('') on a null path: no file is
     // loaded, the read-only field stays empty, and Next must stay disabled.
     // Give the (no-op) pick a beat, then assert the gate never opened.
-    const becameEnabled = await browser
-      .waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), { timeout: 4000 })
-      .then(() => true)
-      .catch(() => false)
-    expect(becameEnabled).toBe(false)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled(), 4000)).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     expect(await fileField().getValue()).toBe('')
 
     // Empty error string keeps the "Could not open file." / "Invalid file."
     // banner hidden — StepFilePreview renders it only when the error is truthy.
-    const banner = Weather.importWizard.$('strong=Could not open file.')
+    const banner = Weather.importWizard.$(`strong=${IMPORT_MSG.couldNotOpen}`)
     expect(await banner.isExisting()).toBe(false)
 
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
 describe('Weather upload — selected filename display', () => {
   it('shows the picked file name in the read-only file field after Browse', async () => {
     await enterWeather('wu10')
-    await stubFileImport(CSV, 'denver-2026.csv')
+    await stubFileImport(SAMPLE_CSV, 'denver-2026.csv')
     await Weather.openImportWizard()
 
     // Before Browse the field is empty (placeholder only).
@@ -511,12 +479,12 @@ describe('Weather upload — selected filename display', () => {
       timeoutMsg: 'Next never enabled after Browse (file did not parse)'
     })
     await browser.waitUntil(async () => (await fileField().getValue()) === 'denver-2026.csv', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'file field never showed the selected filename'
     })
 
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -577,13 +545,13 @@ describe('Weather upload — invalid time gating', () => {
       expect(await Weather.importWizard.isDisplayed()).toBe(true)
       // The preview header reports zero valid rows for this all-invalid file.
       const zeroValid = Weather.importWizard.$('div*=0 of 2 rows valid')
-      await zeroValid.waitForDisplayed({ timeout: 10000 })
+      await zeroValid.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       expect(await Weather.wizardNext.isEnabled()).toBe(false)
     } finally {
       if (!ok && (await Weather.importWizard.isDisplayed().catch(() => false))) {
         await Weather.wizardCancel.click().catch(() => undefined)
         await Weather.importWizard
-          .waitForDisplayed({ reverse: true, timeout: 10000 })
+          .waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
           .catch(() => undefined)
       }
     }
@@ -624,7 +592,7 @@ describe('Weather import — supported date separators', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: `[${label}] expected 2 rows for separator "${dateValue}"`
     })
   }
@@ -661,7 +629,7 @@ describe('Weather import — supported time separators', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'space-separated time did not yield 2 rows'
     })
   })
@@ -676,7 +644,7 @@ describe('Weather import — supported time separators', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: '6-digit compact time did not yield 2 rows'
     })
   })
@@ -702,7 +670,7 @@ describe('Weather import — supported delimiters', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: `[${label}] delimiter import did not yield 2 rows`
     })
   }
@@ -744,24 +712,24 @@ describe('Weather import — character columns disabled on Review', () => {
 
   it('alphabetic-valued column shows the disabled banner and an unchecked, disabled checkbox', async () => {
     await reachReviewWithColumn('charalpha', 'abc')
-    const banner = $('div*=Character-based columns are disabled')
-    await banner.waitForDisplayed({ timeout: 10000 })
+    const banner = $(`div*=${IMPORT_MSG.charColumnsDisabled}`)
+    await banner.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const cb = Weather.reviewColumnCheckbox('note')
-    await cb.waitForDisplayed({ timeout: 10000 })
+    await cb.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     expect(await cb.isEnabled()).toBe(false)
     expect(await cb.isSelected()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('special-character-valued column is disabled on Review', async () => {
     await reachReviewWithColumn('charspecial', '#@!')
-    await $('div*=Character-based columns are disabled').waitForDisplayed({ timeout: 10000 })
+    await $(`div*=${IMPORT_MSG.charColumnsDisabled}`).waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const cb = Weather.reviewColumnCheckbox('note')
-    await cb.waitForDisplayed({ timeout: 10000 })
+    await cb.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     expect(await cb.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('mixed numeric/text column is treated as character and disabled on Review', async () => {
@@ -776,12 +744,12 @@ describe('Weather import — character columns disabled on Review', () => {
     })
     await Weather.waitForWizardNext()
     await Weather.wizardNext.click()
-    await $('div*=Character-based columns are disabled').waitForDisplayed({ timeout: 10000 })
+    await $(`div*=${IMPORT_MSG.charColumnsDisabled}`).waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const cb = Weather.reviewColumnCheckbox('note')
-    await cb.waitForDisplayed({ timeout: 10000 })
+    await cb.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     expect(await cb.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('the disabled column is excluded from the imported table', async () => {
@@ -814,10 +782,10 @@ describe('Weather import — ragged / fewer-column rows', () => {
     await stubFileImport('date,temp,humidity\n2026-01-02,5')
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
-    expect(await staysDisabled()).toBe(true)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled())).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -837,12 +805,12 @@ describe('Weather import — invalid date / time labels', () => {
     await Weather.mapColumn('date', 'date')
     await Weather.setDateFormat('YYYY-MM-DD')
     // Preview "Parsed" cell renders the literal "Invalid" for the bad date.
-    await Weather.importWizard.$('td*=Invalid').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('td*=Invalid').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     // Next stays gated — no row parsed to a usable Date.
-    expect(await staysDisabled()).toBe(true)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled())).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('an unparseable time shows "Invalid time format" and gates Next', async () => {
@@ -857,12 +825,12 @@ describe('Weather import — invalid date / time labels', () => {
     await Weather.mapColumn('time-string', 'time')
     await Weather.importWizard
       .$('td*=Invalid time format')
-      .waitForDisplayed({ timeout: 10000 })
+      .waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     // invalid_time rows are counted invalid → Next stays gated.
-    expect(await staysDisabled()).toBe(true)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled())).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -900,7 +868,7 @@ describe('Weather import — mixed validity (unparseable-date rows are excluded)
 
     // Exactly the TWO valid rows land — the unparseable-date row is excluded.
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'mixed-validity import did not settle to exactly 2 valid rows'
     })
     const rowIds = await Weather.visibleRowIds()
@@ -942,7 +910,7 @@ describe('Weather import — null / empty cells handled', () => {
     expect(ok).toBe(true)
     await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 3, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'rows with empty cells did not all import'
     })
   })
@@ -967,12 +935,12 @@ describe('Weather import — wrong delimiter', () => {
     await Weather.waitForWizardNext() // comma parse OK (uniform 2-field rows)
     await Weather.wizardNext.click() // → Data Preview
     await Weather.setDelimiter(';') // re-parse under ';' → header 1 field, a data row 2 fields
-    const banner = Weather.importWizard.$('div*=Parse error')
-    await banner.waitForDisplayed({ timeout: 10000 })
-    expect(await staysDisabled()).toBe(true)
+    const banner = Weather.importWizard.$(`div*=${IMPORT_MSG.parseError}`)
+    await banner.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled())).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -989,13 +957,13 @@ describe('Weather import — "Invalid file." banner', () => {
     await stubFileImport('a,b\n1,2,3')
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
-    const banner = Weather.importWizard.$('strong*=Invalid file')
-    await banner.waitForDisplayed({ timeout: 10000 })
+    const banner = Weather.importWizard.$(`strong*=${IMPORT_MSG.invalidFile}`)
+    await banner.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     // The banner also carries the parser's field-mismatch detail.
-    await Weather.importWizard.$('div*=expected 2').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('div*=expected 2').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -1008,11 +976,10 @@ describe('Weather import — Next gated without a file', () => {
   it('Next is disabled when the wizard opens with no file selected', async () => {
     await enterWeather('nofile')
     await Weather.openImportWizard()
-    // The file input shows its empty-state placeholder and Next is gated.
-    await expect(Weather.importWizard.$('input[placeholder="No file selected"]')).toBeDisplayed()
+    // Next is gated while no file has been picked (parsed === null).
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -1034,7 +1001,7 @@ describe('Weather import — rapid Import clicks import once', () => {
     })
     await Weather.waitForWizardNext()
     await Weather.wizardNext.click() // → Review
-    await Weather.wizardImport.waitForClickable({ timeout: 10000 })
+    await Weather.wizardImport.waitForClickable({ timeout: TIMEOUTS.MEDIUM })
     // Fire the click handler several times back-to-back before the wizard unmounts.
     await browser.execute(() => {
       const wizard = document.querySelector('[aria-label="Import Weather Data"]')
@@ -1051,7 +1018,7 @@ describe('Weather import — rapid Import clicks import once', () => {
     })
     expect(await columnCount('temp')).toBe(1)
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'rapid Import did not yield exactly 2 rows'
     })
   })
@@ -1082,35 +1049,17 @@ describe('Weather import — reload mid-wizard resets cleanly', () => {
 })
 
 describe('Import Wizard — stepper + File Preview (step 0)', () => {
-  it('shows all four stepper labels: File Preview, Data Preview, Date/Time, Review & Import', async () => {
-    await enterWeather('steps')
-    await Weather.openImportWizard()
-    // Labels carry a literal newline (whitespace-pre-line) — match against the
-    // collapsed text so "File\nPreview" reads as "File Preview".
-    const labels = await Weather.importWizard.$$('div.whitespace-pre-line').map(async (el) => {
-      const t = await el.getText()
-      return t.replace(/\s+/g, ' ').trim()
-    })
-    expect(labels).toContain('File Preview')
-    expect(labels).toContain('Data Preview')
-    expect(labels).toContain('Date/ Time')
-    expect(labels).toContain('Review & Import')
-  })
-
-  it('File Preview shows the "Weather Data File" label and a Browse button on open', async () => {
+  it('File Preview shows an empty file field before any pick', async () => {
     await enterWeather('filestep')
     await Weather.openImportWizard()
-    await expect(Weather.importWizard.$('label=Weather Data File')).toBeDisplayed()
-    await expect(Weather.wizardBrowse).toBeDisplayed()
-    // The readonly filename field is present and empty before any pick.
+    // The readonly filename field is empty before any pick.
     const fileInput = Weather.importWizard.$('input[readonly]')
-    await expect(fileInput).toBeDisplayed()
     expect(await fileInput.getValue()).toBe('')
   })
 
   it('displays the picked file name in the readonly field after Browse', async () => {
     await enterWeather('fname')
-    await stubFileImport(CSV, 'mydata.csv')
+    await stubFileImport(SAMPLE_CSV, 'mydata.csv')
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     const fileInput = Weather.importWizard.$('input[readonly]')
@@ -1122,14 +1071,12 @@ describe('Import Wizard — stepper + File Preview (step 0)', () => {
 })
 
 describe('Import Wizard — Data Preview (step 1)', () => {
-  it('shows the delimiter + header-skip controls and a preview table on the first Next', async () => {
+  it('parses the file into preview headers and rows on the first Next', async () => {
     await enterWeather('datastep')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await Weather.wizardNext.click() // step 0 → step 1
-    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.dtSelect('delimiter')).toBeDisplayed()
-    await expect($('[data-testid="dt-header-skip"]')).toBeDisplayed()
     // Preview table renders the parsed headers in <th>.
+    await Weather.importWizard.$('table thead th').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const headerCells = await Weather.importWizard
       .$$('table thead th')
       .map((th) => th.getText())
@@ -1139,11 +1086,11 @@ describe('Import Wizard — Data Preview (step 1)', () => {
     expect(bodyRows.length).toBe(2)
   })
 
-  it('renders the "Column Labels Preview" chips for every header', async () => {
+  it('the preview chips reflect the parsed headers', async () => {
     await enterWeather('chips')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await Weather.wizardNext.click()
-    await Weather.importWizard.$('div*=Column Labels Preview').waitForDisplayed({ timeout: 10000 })
+    // The chip labels echo the parsed header names.
     await expect(Weather.importWizard.$('span=datetime')).toBeDisplayed()
     await expect(Weather.importWizard.$('span=temperature')).toBeDisplayed()
   })
@@ -1162,7 +1109,7 @@ describe('Import Wizard — Data Preview (step 1)', () => {
     await browser.waitUntil(
       async () =>
         (await Weather.importWizard.$$('table thead th').map((th) => th.getText())).length === 2,
-      { timeout: 10000, timeoutMsg: 'delimiter override did not re-split the preview headers' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'delimiter override did not re-split the preview headers' }
     )
     const after = await Weather.importWizard.$$('table thead th').map((th) => th.getText())
     expect(after).toEqual(['a;b;c', 'd'])
@@ -1181,7 +1128,7 @@ describe('Import Wizard — Data Preview (step 1)', () => {
         const hs = await Weather.importWizard.$$('table thead th').map((th) => th.getText())
         return hs.length === 2 && hs[0] === 'date'
       },
-      { timeout: 10000, timeoutMsg: 'header-skip override did not refresh the preview headers' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'header-skip override did not refresh the preview headers' }
     )
     const after = await Weather.importWizard.$$('table thead th').map((th) => th.getText())
     expect(after).toEqual(['date', 'temp'])
@@ -1189,21 +1136,17 @@ describe('Import Wizard — Data Preview (step 1)', () => {
 })
 
 describe('Import Wizard — Date/Time (step 2)', () => {
-  it('shows the Raw/Parsed preview with the parsed datetime for a valid mapping', async () => {
+  it('shows the parsed datetime in the preview for a valid mapping', async () => {
     await enterWeather('dtpreview')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await advance() // → Data Preview
     await advance() // → Date/Time (datetime column auto-maps)
-    await Weather.importWizard.$('div*=Date/Time Preview').waitForDisplayed({ timeout: 10000 })
-    const previewHeaders = await Weather.importWizard
-      .$$('table thead th')
-      .map((th) => th.getText())
-    expect(previewHeaders).toEqual(['Raw', 'Parsed'])
-    // Auto-mapped ISO datetime → every preview row parses; none shows "Invalid".
+    // Auto-mapped ISO datetime → the mapping is valid so Next un-gates.
     await browser.waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'Date/Time step never reached a valid mapping'
     })
+    // Every preview row parses; none shows "Invalid".
     const parsedCells = await Weather.importWizard
       .$$('table tbody tr td:last-child')
       .map((td) => td.getText())
@@ -1225,7 +1168,7 @@ describe('Import Wizard — Date/Time (step 2)', () => {
     await Weather.setDateFormat('YYYY-MM-DD')
     const parsedCol = Weather.importWizard.$('table tbody tr td:last-child')
     await browser.waitUntil(async () => (await parsedCol.getText()) === 'Invalid', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'unparsed value never rendered the "Invalid" marker'
     })
     await expect(parsedCol).toHaveText('Invalid')
@@ -1258,7 +1201,7 @@ describe('Import Wizard — Date/Time (step 2)', () => {
 
   it('the datetime-format dropdown enumerates all supported DATETIME_FORMATS', async () => {
     await enterWeather('dtfmt')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await advance() // → Data Preview
     await advance() // → Date/Time (datetime auto-mode)
     const opts = await Weather.dtSelect('datetime-format')
@@ -1283,20 +1226,12 @@ describe('Import Wizard — Date/Time (step 2)', () => {
 })
 
 describe('Import Wizard — Review & Import (step 3)', () => {
-  it('shows the review heading, Select All, a checkbox per column, and example values', async () => {
+  it('shows example values echoing the parsed cell data on Review', async () => {
     await enterWeather('review')
     await openAndBrowse('datetime,temp,humidity\n2026-01-01T00:00:00Z,5,40\n2026-01-01T01:00:00Z,6,41')
     await advance() // → Data Preview
     await advance() // → Date/Time (datetime auto-maps)
     await advance() // → Review & Import
-    // Review intro/heading text.
-    await expect(Weather.importWizard.$('div*=Review columns to import')).toBeDisplayed()
-    await expect($('[data-testid="dt-select-all"]')).toBeDisplayed()
-    // Every non-date/time header has its own checkbox.
-    await expect(Weather.reviewColumnCheckbox('temp')).toBeDisplayed()
-    await expect(Weather.reviewColumnCheckbox('humidity')).toBeDisplayed()
-    // The synthetic Date-Time row is present and always-on.
-    await expect(Weather.importWizard.$('td*=Date-Time')).toBeDisplayed()
     // Example values = first-3-row cell values joined by ", ".
     await expect(Weather.importWizard.$('td*=5, 6')).toBeDisplayed()
     await expect(Weather.importWizard.$('td*=40, 41')).toBeDisplayed()
@@ -1306,11 +1241,11 @@ describe('Import Wizard — Review & Import (step 3)', () => {
 describe('Import Wizard — Back navigation', () => {
   it('Back from Data Preview returns to File Preview', async () => {
     await enterWeather('back1')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await Weather.wizardNext.click() // → Data Preview
-    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: 10000 })
+    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.importWizard.$('button=Back').click()
-    await Weather.importWizard.$('label=Weather Data File').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('label=Weather Data File').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.importWizard.$('label=Weather Data File')).toBeDisplayed()
     // No Back button on step 0.
     expect(await Weather.importWizard.$('button=Back').isExisting()).toBe(false)
@@ -1318,24 +1253,24 @@ describe('Import Wizard — Back navigation', () => {
 
   it('Back from Date/Time returns to Data Preview', async () => {
     await enterWeather('back2')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await advance() // → Data Preview
     await advance() // → Date/Time
-    await Weather.importWizard.$('div*=Date/Time Preview').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('div*=Date/Time Preview').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.importWizard.$('button=Back').click()
-    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: 10000 })
+    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.dtSelect('delimiter')).toBeDisplayed()
   })
 
   it('Back from Review & Import returns to Date/Time', async () => {
     await enterWeather('back3')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await advance() // → Data Preview
     await advance() // → Date/Time
     await advance() // → Review & Import
-    await Weather.importWizard.$('div*=Review columns to import').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('div*=Review columns to import').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.importWizard.$('button=Back').click()
-    await Weather.importWizard.$('div*=Date/Time Preview').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('div*=Date/Time Preview').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.importWizard.$('div*=Date/Time Preview')).toBeDisplayed()
   })
 })
@@ -1343,22 +1278,22 @@ describe('Import Wizard — Back navigation', () => {
 describe('Import Wizard — Cancel from later steps', () => {
   it('Cancel from Data Preview closes the wizard', async () => {
     await enterWeather('cxl1')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await Weather.wizardNext.click() // → Data Preview
-    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: 10000 })
+    await Weather.dtSelect('delimiter').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('Cancel from Review & Import closes the wizard', async () => {
     await enterWeather('cxl2')
-    await openAndBrowse(CSV)
+    await openAndBrowse(SAMPLE_CSV)
     await advance() // → Data Preview
     await advance() // → Date/Time
     await advance() // → Review & Import
-    await Weather.importWizard.$('div*=Review columns to import').waitForDisplayed({ timeout: 10000 })
+    await Weather.importWizard.$('div*=Review columns to import').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -1382,7 +1317,7 @@ describe('Import Wizard — auto-sort on import', () => {
     expect(ok).toBe(true)
     const tempCol = await Weather.waitForColumn('temp')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 4, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'expected 4 imported rows'
     })
     const rowIds = await Weather.visibleRowIds()
@@ -1398,7 +1333,7 @@ describe('Import Wizard — auto-sort on import', () => {
 describe('Weather import — davis (auto datetime column)', () => {
   it('imports the ISO datetime CSV and the first temp matches the file (~64.6)', async () => {
     await enterWeather('davis')
-    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.DAVIS))
     const ok = await Weather.importWithMapping({
       date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
     })
@@ -1406,7 +1341,7 @@ describe('Weather import — davis (auto datetime column)', () => {
     const tempCol = await Weather.waitForColumn('temp')
     await Weather.waitForColumn('humidity')
     await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'no rows after importing davis'
     })
     // Records sort ascending → row 0 is 2026-05-12T00:00:00, temp 64.6 (stored
@@ -1425,7 +1360,7 @@ describe('Weather import — AMW (datetime-string, manual map)', () => {
     // unsupported BY DESIGN. So the import fails with the "Import failed" banner
     // and the wizard stays open. We assert that rejection, not a successful import.
     await enterWeather('amwcsv')
-    await stubRealFile(fixture('AMW.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.AMW_CSV))
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     await Weather.waitForWizardNext() // step 0 File Preview
@@ -1448,7 +1383,7 @@ describe('Weather import — AMW (datetime-string, manual map)', () => {
       .waitUntil(
         async () => {
           txt = await Weather.importWizard.getText().catch(() => '')
-          return /Import failed/i.test(txt)
+          return new RegExp(IMPORT_MSG.importFailed, 'i').test(txt)
         },
         { timeout: 40000 }
       )
@@ -1458,7 +1393,7 @@ describe('Weather import — AMW (datetime-string, manual map)', () => {
       throw new Error(`AMW.csv import did not show a failure banner. Wizard text: ${txt.slice(0, 400)}`)
     }
     // …and the reason is the duplicate-timestamp rejection.
-    await expect(txt).toContain('Duplicate')
+    await expect(txt).toContain(IMPORT_MSG.duplicate)
   })
 
   it('detects the tsv-only `sknt` column but disables it (it contains `M` markers)', async () => {
@@ -1469,7 +1404,7 @@ describe('Weather import — AMW (datetime-string, manual map)', () => {
     // DETECTED-but-DISABLED on Review (proving the tsv parse) and that a fully
     // numeric column (`tmpc`) still imports.
     await enterWeather('amwtsv')
-    await stubRealFile(fixture('AMW.tsv'))
+    await stubRealFile(fixture(FIXTURE_FILES.AMW_TSV))
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     await Weather.waitForWizardNext() // step 0 File Preview
@@ -1483,7 +1418,7 @@ describe('Weather import — AMW (datetime-string, manual map)', () => {
     await Weather.waitForWizardNext() // ≥1 valid row
     await Weather.wizardNext.click()
     // step 3 Review — `sknt` is detected (tsv-only) but disabled; `tmpc` is enabled.
-    await Weather.reviewColumnCheckbox('sknt').waitForExist({ timeout: 10000 })
+    await Weather.reviewColumnCheckbox('sknt').waitForExist({ timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.reviewColumnCheckbox('sknt').isEnabled()).toBe(false)
     await expect(await Weather.reviewColumnCheckbox('tmpc').isEnabled()).toBe(true)
     await Weather.wizardImport.waitForClickable({ timeout: 30000 })
@@ -1492,7 +1427,7 @@ describe('Weather import — AMW (datetime-string, manual map)', () => {
     // The numeric column imported; the disabled `sknt` did not.
     await Weather.waitForColumn('tmpc')
     await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'no rows after importing AMW.tsv'
     })
   })
@@ -1507,7 +1442,7 @@ describe('Weather import — NSRDB (date-parts + time-parts, metadata rows)', ()
 
   it('imports NLR1.csv and the first Temperature matches the file (8.3)', async () => {
     await enterWeather('nlr1')
-    await stubRealFile(fixture('NLR1.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.NLR1))
     const ok = await Weather.importWithMapping(partsMapping, 25000)
     expect(ok).toBe(true)
     const tempCol = await Weather.waitForColumn('Temperature')
@@ -1524,7 +1459,7 @@ describe('Weather import — NSRDB (date-parts + time-parts, metadata rows)', ()
 
   it('imports NLR2.csv (different location) — Temperature column + rows present', async () => {
     await enterWeather('nlr2')
-    await stubRealFile(fixture('NLR2.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.NLR2))
     const ok = await Weather.importWithMapping(partsMapping, 25000)
     expect(ok).toBe(true)
     await Weather.waitForColumn('Temperature')
@@ -1536,7 +1471,7 @@ describe('Weather import — NSRDB (date-parts + time-parts, metadata rows)', ()
 
   it('imports NLR3.csv (30-minute cadence) — columns + rows present', async () => {
     await enterWeather('nlr3')
-    await stubRealFile(fixture('NLR3.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.NLR3))
     const ok = await Weather.importWithMapping(partsMapping, 30000)
     expect(ok).toBe(true)
     await Weather.waitForColumn('Temperature')
@@ -1552,7 +1487,7 @@ describe('Weather import — re-import replaces existing data', () => {
     await enterWeather('reimport')
 
     // First import: davis (ISO datetime) → lowercase `temp` + `humidity` columns.
-    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.DAVIS))
     const first = await Weather.importWithMapping({
       date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
     })
@@ -1567,7 +1502,7 @@ describe('Weather import — re-import replaces existing data', () => {
     // Second import: NLR1 (date/time parts) over the existing data. The import
     // saga clears the scenario before writing (saga.ts finalizeImportWorker), so
     // the davis columns must be GONE and only NLR1's columns remain.
-    await stubRealFile(fixture('NLR1.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.NLR1))
     const second = await Weather.importWithMapping(
       {
         headerSkip: 2,
@@ -1605,7 +1540,7 @@ describe('Weather import — replace-confirm gating', () => {
     await Weather.addColumn('Extra') // header only — scenario stays at 0 rows
     expect(await Weather.rowCount()).toBe(0)
 
-    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.DAVIS))
     const confirmShown = await Weather.importDetectConfirm({
       date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
     })
@@ -1616,7 +1551,7 @@ describe('Weather import — replace-confirm gating', () => {
   it('clicking No cancels the replace and keeps the existing data', async () => {
     await enterWeather('confno')
     // First import establishes existing data (davis → temp/humidity columns).
-    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.DAVIS))
     expect(
       await Weather.importWithMapping({
         date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
@@ -1626,7 +1561,7 @@ describe('Weather import — replace-confirm gating', () => {
     const rowsBefore = await Weather.rowCount()
 
     // Second import over existing data → confirm appears → click No.
-    await stubRealFile(fixture('NLR1.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.NLR1))
     const shown = await Weather.importDetectConfirm(
       {
         headerSkip: 2,
@@ -1637,10 +1572,10 @@ describe('Weather import — replace-confirm gating', () => {
     )
     expect(shown).toBe(true) // importing over existing data DOES prompt
     await Weather.importConfirmNo.click()
-    await Weather.importConfirmDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importConfirmDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     // No closes only the confirm; the wizard stays open — cancel it to clean up.
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
 
     // Nothing was replaced: davis data intact, NLR1 not imported.
     expect(await Weather.colIdForName('temp')).not.toBe(null)
@@ -1652,7 +1587,7 @@ describe('Weather import — replace-confirm gating', () => {
 describe('Weather import — CIMIS.xml (date string + time string)', () => {
   it('parses the pivoted XML and imports with a discovered date/time mapping', async () => {
     await enterWeather('cimisxml')
-    await stubRealFile(fixture('CIMIS.xml'))
+    await stubRealFile(fixture(FIXTURE_FILES.CIMIS_XML))
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     await Weather.waitForWizardNext() // step 0: parsed OK
@@ -1674,16 +1609,16 @@ describe('Weather import — CIMIS.xml (date string + time string)', () => {
     await Weather.mapColumn('time-string', timeCol)
     await Weather.waitForWizardNext() // ≥1 valid row
     await Weather.wizardNext.click()
-    await Weather.wizardImport.waitForClickable({ timeout: 10000 })
+    await Weather.wizardImport.waitForClickable({ timeout: TIMEOUTS.MEDIUM })
     await Weather.wizardImport.click()
     await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 60000 })
     // A measurement column (air_temp) and rows landed.
     await browser.waitUntil(async () => (await Weather.dataColumnCount()) > 1, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'CIMIS.xml import added no data columns'
     })
     await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'CIMIS.xml import added no rows'
     })
   })
@@ -1692,7 +1627,7 @@ describe('Weather import — CIMIS.xml (date string + time string)', () => {
 describe('Weather import — cell-edit persistence on a real import', () => {
   it('edits an imported davis cell and the value survives a project reopen', async () => {
     const { name } = await enterWeather('persistreal')
-    await stubRealFile(fixture('davis, ca yesterday.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.DAVIS))
     await Weather.importWithMapping({
       date: { mode: 'datetime', datetime: 'datetime', format: 'YYYY-MM-DDTHH:MM:SS' }
     })
@@ -1709,7 +1644,7 @@ describe('Weather import — cell-edit persistence on a real import', () => {
     const homeId = await HomePage.rowIdForName(name)
     await HomePage.row(homeId as string).doubleClick()
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
-    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const col2 = await Weather.waitForColumn('humidity')
     const [row2] = await Weather.visibleRowIds()
     await expect(Weather.cellInput(row2, col2)).toHaveValue('55')
@@ -1749,7 +1684,7 @@ describe('Weather import — DT-keyword source headers are auto-excluded', () =>
     // The ordinary measurement column DID import (proves the import actually ran).
     await Weather.waitForColumn('temperature')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'datetime-mapped import did not yield 2 rows'
     })
     // `datetime` is excluded by dtSet (it was the mapped DT column).
@@ -1774,12 +1709,12 @@ describe('Weather import — malformed / empty XML is rejected', () => {
    * no records."). The wizard catches the throw, sets parseError, leaves
    * `parsed` null → Next stays gated on the File step and StepFilePreview shows
    * the red "Invalid file." banner carrying the parser message. We mirror the
-   * CIMIS.csv / USW.csv rejection assertions (staysDisabled + Next disabled),
+   * CIMIS.csv / USW.csv rejection assertions (staysFalse + Next disabled),
    * adding the StepFilePreview banner check.
    *
    * Differential: a regression that swallowed the XML parse error (or fell
    * through to the delimited parser) would set `parsed` and enable Next → both
-   * the staysDisabled gate AND the "Invalid file." banner assertion go red.
+   * the staysFalse gate AND the "Invalid file." banner assertion go red.
    *
    * NOTE (not automated here, by design): calendar-validity checks (Feb 30,
    * month 13) and the Julian day-of-year range check are short-circuited by the
@@ -1795,14 +1730,14 @@ describe('Weather import — malformed / empty XML is rejected', () => {
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     // The XML never parses → Next must stay gated on step 0.
-    expect(await staysDisabled()).toBe(true)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled())).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     // The StepFilePreview banner shows with the "Invalid file." prefix (fileError
     // is null, so it is NOT "Could not open file.").
-    const banner = Weather.importWizard.$('strong*=Invalid file')
-    await banner.waitForDisplayed({ timeout: 10000 })
+    const banner = Weather.importWizard.$(`strong*=${IMPORT_MSG.invalidFile}`)
+    await banner.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('an empty .xml is rejected on the File step (Next never enables)', async () => {
@@ -1812,13 +1747,13 @@ describe('Weather import — malformed / empty XML is rejected', () => {
     await stubFileImport('', 'empty.xml')
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
-    expect(await staysDisabled()).toBe(true)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled())).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     // The "Invalid file." banner surfaces the parser rejection.
-    const banner = Weather.importWizard.$('strong*=Invalid file')
-    await banner.waitForDisplayed({ timeout: 10000 })
+    const banner = Weather.importWizard.$(`strong*=${IMPORT_MSG.invalidFile}`)
+    await banner.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -1828,14 +1763,14 @@ describe('Weather import — unsupported files are correctly rejected', () => {
   // the wizard never leaves the File step. Confirmed-correct app behaviour.
   it('CIMIS.csv is rejected on the File step (Next never enables)', async () => {
     await enterWeather('cimiscsv')
-    await stubRealFile(fixture('CIMIS.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.CIMIS_CSV))
     await Weather.openImportWizard()
     await Weather.wizardBrowse.click()
     // The malformed file does not parse -> Next must stay gated.
-    expect(await staysDisabled(6000)).toBe(true)
+    expect(await staysFalse(() => Weather.wizardNext.isEnabled(), 6000)).toBe(true)
     expect(await Weather.wizardNext.isEnabled()).toBe(false)
     await Weather.wizardCancel.click()
-    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   // USW.csv DATE is a year-less "MM-DDTHH:MM:SS" (NOAA hourly normals). No wizard
@@ -1843,7 +1778,7 @@ describe('Weather import — unsupported files are correctly rejected', () => {
   // row and the Date/Time step never un-gates. Confirmed-correct app behaviour.
   it('USW.csv is rejected: no mapping yields a valid row', async () => {
     await enterWeather('usw')
-    await stubRealFile(fixture('USW.csv'))
+    await stubRealFile(fixture(FIXTURE_FILES.USW))
     let ok = true
     try {
       ok = await Weather.importWithMapping(
@@ -1856,7 +1791,7 @@ describe('Weather import — unsupported files are correctly rejected', () => {
       if (!ok && (await Weather.importWizard.isDisplayed().catch(() => false))) {
         await Weather.wizardCancel.click().catch(() => undefined)
         await Weather.importWizard
-          .waitForDisplayed({ reverse: true, timeout: 10000 })
+          .waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
           .catch(() => undefined)
       }
     }

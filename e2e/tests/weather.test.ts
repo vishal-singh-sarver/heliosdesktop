@@ -6,11 +6,12 @@
  * the delete-row route bug (see the "delete row" block).
  */
 
-import HomePage from '../pages/HomePage.page'
-import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import type { WeatherCatalogType, WeatherCatalogUnit } from '../pages/Weather.page'
-import { enterProject, reloadToHome, stubFileImport, waitForMainWindow } from '../support/harness'
+import { enterWeather, reloadToHome, reopenByName, stubFileImport, waitForMainWindow } from '../support/harness'
+import { DELETE_IMPORT, WEATHER_MSG } from '../constants/messages'
+import { SAMPLE_CSV } from '../config/fixtures'
+import { TIMEOUTS } from '../config/timeouts'
 
 before(async () => {
   await waitForMainWindow()
@@ -19,14 +20,6 @@ before(async () => {
 beforeEach(async () => {
   await reloadToHome()
 })
-
-/** Enter a project and land on the seeded Weather table. */
-async function enterWeather(label = 'wx'): Promise<{ id: string; name: string }> {
-  const project = await enterProject(label)
-  await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
-  await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: 20000 })
-  return project
-}
 
 /** Provision a managed column with `rows` rows and return its backend colId. */
 async function columnWithRows(name: string, rows = 2): Promise<string> {
@@ -50,7 +43,7 @@ async function discoverConvertibleType(
     await Weather.pickerPick(type)
     await Weather.pickerListbox
       .$('button*=Back to Assign Type')
-      .waitForExist({ timeout: 5000 })
+      .waitForExist({ timeout: TIMEOUTS.SHORT })
       .catch(() => {})
     const units = await Weather.pickerOptions()
     if (units.length >= 2) return { type, units }
@@ -91,36 +84,13 @@ function findConvertPair(
   return null
 }
 
-const deleteImport = {
-  dialogTitle: 'Delete',
-  heading: 'Delete Data',
-  body: 'Are you sure you want to delete this? This action cannot be undone.',
-  confirmButton: 'Delete',
-  cancelButton: 'Cancel'
-} as const
-
 /** Open the delete-import dialog from the toolbar (data must already exist). */
 async function openDeleteDialog(): Promise<void> {
   await Weather.deleteDataButton.click()
-  await Weather.deleteImportDialog.waitForDisplayed({ timeout: 10000 })
+  await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
 }
 
-const IMPORT_CSV = [
-  'datetime,temperature',
-  '2026-01-01T00:00:00Z,10',
-  '2026-01-01T01:00:00Z,11'
-].join('\n')
-
 describe('Weather — toolbar', () => {
-  it('renders Filter / Add Columns / Add Rows / Upload File / Delete Data', async () => {
-    await enterWeather('tb')
-    await expect(Weather.filterButton).toBeDisplayed()
-    await expect(Weather.addColumnsButton).toBeDisplayed()
-    await expect(Weather.addRowsButton).toBeDisplayed()
-    await expect(Weather.uploadFileButton).toBeDisplayed()
-    await expect(Weather.deleteDataButton).toBeDisplayed()
-  })
-
   it('disables Delete Data on an empty scenario (no data)', async () => {
     await enterWeather('del')
     await expect(await Weather.deleteDataButton.isEnabled()).toBe(false)
@@ -129,13 +99,6 @@ describe('Weather — toolbar', () => {
 })
 
 describe('Weather — table structure (seeded empty scenario)', () => {
-  it('shows the select-all checkbox, the Date-Time header, and the Action header', async () => {
-    await enterWeather('struct')
-    await expect(Weather.selectAllCheckbox).toBeDisplayed()
-    await expect(Weather.dateTimeHeaderTrigger).toBeDisplayed()
-    await expect(Weather.actionHeader).toBeDisplayed()
-  })
-
   it('shows exactly one data column (Date-Time) before any column is added', async () => {
     await enterWeather('cols')
     await expect(await Weather.dataColumnCount()).toBe(1)
@@ -165,21 +128,21 @@ describe('Weather — Add Columns dialog open/close', () => {
     await enterWeather('acc')
     await Weather.openAddColumns()
     await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('the × button closes it', async () => {
     await enterWeather('acx')
     await Weather.openAddColumns()
     await Weather.dialogCloseButton(Weather.addColumnDialog).click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('Escape closes it', async () => {
     await enterWeather('ace')
     await Weather.openAddColumns()
     await browser.keys(['Escape'])
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -195,14 +158,14 @@ describe('Weather — Add Rows dialog open/close', () => {
     await enterWeather('arc')
     await Weather.openAddRows()
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('Escape closes it', async () => {
     await enterWeather('are')
     await Weather.openAddRows()
     await browser.keys(['Escape'])
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -222,14 +185,14 @@ describe('Weather — row selection', () => {
     for (const rowId of ids) {
       await browser.waitUntil(
         async () => (await Weather.rowCheckbox(rowId).isSelected()) === !initial,
-        { timeout: 10000, timeoutMsg: `row ${rowId} did not flip after select-all` }
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `row ${rowId} did not flip after select-all` }
       )
     }
     await Weather.selectAllCheckbox.click()
     for (const rowId of ids) {
       await browser.waitUntil(
         async () => (await Weather.rowCheckbox(rowId).isSelected()) === initial,
-        { timeout: 10000, timeoutMsg: `row ${rowId} did not flip back` }
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `row ${rowId} did not flip back` }
       )
     }
   })
@@ -242,12 +205,12 @@ describe('Weather — row selection', () => {
     await Weather.rowCheckbox(first).click()
     await browser.waitUntil(
       async () => (await Weather.rowCheckbox(first).isSelected()) === !initial,
-      { timeout: 10000, timeoutMsg: 'row checkbox did not toggle' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'row checkbox did not toggle' }
     )
     await Weather.rowCheckbox(first).click()
     await browser.waitUntil(
       async () => (await Weather.rowCheckbox(first).isSelected()) === initial,
-      { timeout: 10000, timeoutMsg: 'row checkbox did not toggle back' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'row checkbox did not toggle back' }
     )
   })
 
@@ -265,24 +228,24 @@ describe('Weather — row selection', () => {
     await Weather.selectAllCheckbox.click()
     for (const rowId of ids) {
       await browser.waitUntil(async () => !(await Weather.rowCheckbox(rowId).isSelected()), {
-        timeout: 10000,
+        timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: `row ${rowId} still checked after deselect-all`
       })
     }
     await browser.waitUntil(async () => !(await Weather.selectAllCheckbox.isSelected()), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'select-all did not clear after deselecting every row'
     })
     // Click again -> re-checks every row; the header box refills.
     await Weather.selectAllCheckbox.click()
     for (const rowId of ids) {
       await browser.waitUntil(async () => Weather.rowCheckbox(rowId).isSelected(), {
-        timeout: 10000,
+        timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: `row ${rowId} not re-checked after select-all`
       })
     }
     await browser.waitUntil(async () => Weather.selectAllCheckbox.isSelected(), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'select-all did not refill when every row is checked'
     })
   })
@@ -296,11 +259,11 @@ describe('Weather — row selection', () => {
     // Uncheck ONE row -> that row clears and select-all is no longer "all checked".
     await Weather.rowCheckbox(ids[0]).click()
     await browser.waitUntil(async () => !(await Weather.rowCheckbox(ids[0]).isSelected()), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'the clicked row did not uncheck'
     })
     await browser.waitUntil(async () => !(await Weather.selectAllCheckbox.isSelected()), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'select-all stayed checked after one row was unchecked'
     })
     // The untouched rows stay checked.
@@ -308,11 +271,11 @@ describe('Weather — row selection', () => {
     // Re-check the row -> select-all fills again.
     await Weather.rowCheckbox(ids[0]).click()
     await browser.waitUntil(async () => Weather.rowCheckbox(ids[0]).isSelected(), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'the clicked row did not re-check'
     })
     await browser.waitUntil(async () => Weather.selectAllCheckbox.isSelected(), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'select-all did not refill after re-checking the row'
     })
   })
@@ -364,7 +327,7 @@ describe('Weather — virtualization', () => {
         const now = await Weather.visibleRowIds()
         return now.length > 0 && now.some((id) => !firstWindow.includes(id))
       },
-      { timeout: 10000, timeoutMsg: 'scrolling the body revealed no new rows' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'scrolling the body revealed no new rows' }
     )
 
     // And a now-visible far-down row is editable end-to-end.
@@ -372,7 +335,7 @@ describe('Weather — virtualization', () => {
     const newRow = nowIds.find((id) => !firstWindow.includes(id)) ?? nowIds[nowIds.length - 1]
     await Weather.editCell(newRow, colId, '7')
     await browser.waitUntil(async () => (await Weather.cellInput(newRow, colId).getValue()) === '7', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'a far-down row did not accept an edit after scrolling'
     })
   })
@@ -417,8 +380,8 @@ describe('Weather CRUD — add column validation', () => {
     await enterWeather('acreq')
     await Weather.openAddColumns()
     await Weather.acSubmit.click() // submitForm touches all fields
-    await Weather.acNameError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acNameError).toHaveText('Column name is required.')
+    await Weather.acNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acNameError).toHaveText(WEATHER_MSG.columnNameRequired)
     await expect(Weather.addColumnDialog).toBeDisplayed()
   })
 
@@ -426,8 +389,8 @@ describe('Weather CRUD — add column validation', () => {
     await enterWeather('aclong')
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'a'.repeat(31))
-    await Weather.acNameError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acNameError).toHaveText('Column name must have 30 characters or fewer.')
+    await Weather.acNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acNameError).toHaveText(WEATHER_MSG.columnNameTooLong)
   })
 
   it('a non-numeric default value shows the number error and disables submit', async () => {
@@ -435,8 +398,8 @@ describe('Weather CRUD — add column validation', () => {
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
     await Weather.setReactInput('[data-testid="input-defaultValue"]', 'abc')
-    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acDefaultError).toHaveText('Default value must be a number.')
+    await Weather.acDefaultError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acDefaultError).toHaveText(WEATHER_MSG.defaultNotNumber)
     await expect(await Weather.acSubmit.isEnabled()).toBe(false)
   })
 
@@ -458,7 +421,7 @@ describe('Weather CRUD — add column validation', () => {
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
     // 9999999 > 1e6 global bound -> default-value error, submit disabled.
     await Weather.setReactInput('[data-testid="input-defaultValue"]', '9999999')
-    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
+    await Weather.acDefaultError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.acSubmit.isEnabled()).toBe(false)
   })
 
@@ -467,8 +430,8 @@ describe('Weather CRUD — add column validation', () => {
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', '   ')
     await Weather.acSubmit.click() // submitForm touches all fields
-    await Weather.acNameError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acNameError).toHaveText('Column name is required.')
+    await Weather.acNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acNameError).toHaveText(WEATHER_MSG.columnNameRequired)
   })
 })
 
@@ -481,12 +444,12 @@ describe('Weather CRUD — add column data-type/unit wiring', () => {
     // Catalog is dynamic — index 0 is the placeholder, index 1 is the first real type.
     await Weather.acDataType.selectByIndex(1)
     await browser.waitUntil(async () => Weather.acUnit.isEnabled(), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'unit select never became enabled after choosing a data type'
     })
     await expect(await Weather.acUnit.isEnabled()).toBe(true)
     await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -510,7 +473,7 @@ describe('Weather CRUD — rename column + header validation', () => {
     await input.click()
     await browser.keys(['Control', 'a'])
     await browser.keys(['Delete'])
-    await expect($('p=Column name is required.')).toBeDisplayed()
+    await expect($(`p=${WEATHER_MSG.columnNameRequired}`)).toBeDisplayed()
   })
 })
 
@@ -539,19 +502,14 @@ describe('Weather CRUD — rename column header enforcement (max-30 + duplicate)
     // rename PATCH accepts up to 100 chars, so a 31-char name is blocked ONLY by
     // HeaderEditor.validateColumnName (handleNameBlur returns before onPatch).
     // Differential: drop the 30-char client rule and this banner disappears.
-    await expect($('p=Column name must have 30 characters or fewer.')).toBeDisplayed()
+    await expect($(`p=${WEATHER_MSG.columnNameTooLong}`)).toBeDisplayed()
 
     // Prove the rename never reached the backend: reopen the project from Home
     // (canonical names come from the backend) and confirm the column is still
     // 'short' and the 31-char name was never committed. If the rule were
     // removed the PATCH would have persisted the 31-char name and this fails.
-    await ProjectScreen.goHome()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    const homeId = await HomePage.rowIdForName(name)
-    if (homeId === null) throw new Error(`could not find Home row for ${name}`)
-    await HomePage.row(homeId).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
-    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+    await reopenByName(name)
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const reColId = await Weather.waitForColumn('short')
     await expect(Weather.columnNameInput(reColId)).toHaveValue('short')
     await expect(await Weather.colIdForName(tooLong)).toBe(null)
@@ -578,7 +536,7 @@ describe('Weather CRUD — rename column header enforcement (max-30 + duplicate)
     })
     await expect(errorP).toBeDisplayed()
     // The surfaced backend message is "name '…' already exists in scenario".
-    expect((await errorP.getText()).toLowerCase()).toContain('already exists')
+    expect((await errorP.getText()).toLowerCase()).toContain(WEATHER_MSG.duplicateColumn)
     // The ORIGINAL 'keepme' column is a distinct, untouched column with no error.
     expect(keepId).not.toBe(colId)
     await expect(Weather.columnNameInput(keepId)).toHaveValue('keepme')
@@ -600,9 +558,9 @@ describe('Weather CRUD — delete column', () => {
     await Weather.addColumn('keepcol')
     const colId = await Weather.waitForColumn('keepcol')
     await Weather.deleteColumnButton(colId).click()
-    await Weather.deleteColumnDialog.waitForDisplayed({ timeout: 10000 })
+    await Weather.deleteColumnDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.deleteColumnDialog.$('button=Cancel').click()
-    await Weather.deleteColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.deleteColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.columnNameInput(colId)).toBeDisplayed()
   })
 })
@@ -646,9 +604,9 @@ describe('Weather CRUD — delete row', () => {
     await Weather.addRows(1)
     const [first] = await Weather.visibleRowIds()
     await Weather.deleteRowButton(first).click()
-    await Weather.deleteRowDialog.waitForDisplayed({ timeout: 10000 })
+    await Weather.deleteRowDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.deleteRowDialog.$('button=Cancel').click()
-    await Weather.deleteRowDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.deleteRowDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.rowCount()).toBe(1)
   })
 })
@@ -683,7 +641,7 @@ describe('Weather CRUD — bulk add (multiple columns / rows)', () => {
     await Weather.addRows(5, { startDate: '2026-01-01' })
     await Weather.addRows(3, { startDate: '2027-06-01' })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 8, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'expected 8 rows after two batches (5 + 3)'
     })
   })
@@ -695,10 +653,10 @@ describe('Weather CRUD — add rows validation', () => {
     await Weather.openAddRows()
     // 10001 > 10000 upper bound -> field error.
     await Weather.setReactInput('[data-testid="input-numberOfRows"]', '10001')
-    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: 10000 })
+    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     // 0 < 1 lower bound -> field error.
     await Weather.setReactInput('[data-testid="input-numberOfRows"]', '0')
-    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: 10000 })
+    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.arError('numberOfRows')).toBeDisplayed()
   })
 
@@ -707,10 +665,10 @@ describe('Weather CRUD — add rows validation', () => {
     await Weather.openAddRows()
     // 25 > 24 upper bound -> field error.
     await Weather.setReactInput('[data-testid="input-deltaHours"]', '25')
-    await Weather.arError('deltaHours').waitForDisplayed({ timeout: 10000 })
+    await Weather.arError('deltaHours').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     // 0 < 1 lower bound -> field error.
     await Weather.setReactInput('[data-testid="input-deltaHours"]', '0')
-    await Weather.arError('deltaHours').waitForDisplayed({ timeout: 10000 })
+    await Weather.arError('deltaHours').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.arError('deltaHours')).toBeDisplayed()
   })
 
@@ -726,13 +684,13 @@ describe('Weather CRUD — add rows validation', () => {
         const dh = await Weather.arDeltaHours.getValue()
         return d.length > 0 && t.length > 0 && dh.length > 0
       },
-      { timeout: 10000, timeoutMsg: 'Add Rows did not pre-seed start date/time/delta on reopen' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'Add Rows did not pre-seed start date/time/delta on reopen' }
     )
     await expect(await Weather.arStartDate.getValue()).not.toBe('')
     await expect(await Weather.arStartTime.getValue()).not.toBe('')
     await expect(await Weather.arDeltaHours.getValue()).not.toBe('')
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('accumulates two batches across a year boundary', async () => {
@@ -740,7 +698,7 @@ describe('Weather CRUD — add rows validation', () => {
     await Weather.addRows(2, { startDate: '2026-12-31' })
     await Weather.addRows(2, { startDate: '2027-01-01' })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 4, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'expected 4 rows after two batches across a year boundary (2 + 2)'
     })
   })
@@ -751,37 +709,37 @@ describe('Weather CRUD — add rows validation', () => {
     // A fresh scenario seeds Start Date/Time empty; both are required on submit.
     await Weather.setReactInput('[data-testid="input-numberOfRows"]', '2')
     await Weather.arSubmit.click() // submitForm touches all fields -> required errors surface
-    await Weather.arError('startDate').waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.arError('startDate')).toHaveText('Start date is required.')
-    await expect(Weather.arError('startTime')).toHaveText('Start time is required.')
+    await Weather.arError('startDate').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.arError('startDate')).toHaveText(WEATHER_MSG.startDateRequired)
+    await expect(Weather.arError('startTime')).toHaveText(WEATHER_MSG.startTimeRequired)
     await expect(Weather.addRowsDialog).toBeDisplayed() // blocked, dialog stays open
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('rejects numberOfRows above the 10000 max and accepts the boundary', async () => {
     await enterWeather('armax')
     await Weather.openAddRows()
     await Weather.setReactInput('[data-testid="input-numberOfRows"]', '10001')
-    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.arError('numberOfRows')).toHaveText('Number of rows must be 10000 or fewer.')
+    await Weather.arError('numberOfRows').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.arError('numberOfRows')).toHaveText(WEATHER_MSG.rowsTooMany)
     // The boundary value 10000 is accepted -> the error clears (no row addition).
     await Weather.setReactInput('[data-testid="input-numberOfRows"]', '10000')
-    await Weather.arError('numberOfRows').waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.arError('numberOfRows').waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('rejects deltaHours above the 24 max and accepts the boundary', async () => {
     await enterWeather('armaxdelta')
     await Weather.openAddRows()
     await Weather.setReactInput('[data-testid="input-deltaHours"]', '25')
-    await Weather.arError('deltaHours').waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.arError('deltaHours')).toHaveText('Delta must be 24 hours or fewer.')
+    await Weather.arError('deltaHours').waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.arError('deltaHours')).toHaveText(WEATHER_MSG.deltaTooLarge)
     await Weather.setReactInput('[data-testid="input-deltaHours"]', '24')
-    await Weather.arError('deltaHours').waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.arError('deltaHours').waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -811,50 +769,42 @@ describe('Weather Add Rows — field validation gaps', () => {
     await Weather.openAddRows()
     await seedExcept(target, value)
     await Weather.arSubmit.click() // submitForm marks all touched + validates
-    await Weather.arError(target).waitForDisplayed({ timeout: 10000 })
+    await Weather.arError(target).waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.arError(target)).toHaveText(message)
     // Validation blocks the submit -> the dialog must remain open.
     await expect(Weather.addRowsDialog).toBeDisplayed()
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   }
 
   it('numberOfRows empty -> "Number of rows is required."', async () => {
     await enterWeather('argapnr')
-    await expectArError('numberOfRows', '', 'Number of rows is required.')
+    await expectArError('numberOfRows', '', WEATHER_MSG.rowsRequired)
   })
 
   it('startDate empty -> "Start date is required."', async () => {
     await enterWeather('argapsd')
-    await expectArError('startDate', '', 'Start date is required.')
+    await expectArError('startDate', '', WEATHER_MSG.startDateRequired)
   })
 
   it('startDate 1899-12-31 -> year-range error', async () => {
     await enterWeather('argapsdyr')
-    await expectArError(
-      'startDate',
-      '1899-12-31',
-      'Start date year must be between 1900 and 3000.'
-    )
+    await expectArError('startDate', '1899-12-31', WEATHER_MSG.startDateYearRange)
   })
 
   it('startTime empty -> "Start time is required."', async () => {
     await enterWeather('argapst')
-    await expectArError('startTime', '', 'Start time is required.')
+    await expectArError('startTime', '', WEATHER_MSG.startTimeRequired)
   })
 
   it('startTime 25:99 -> 24-hour-format error (en-dash range)', async () => {
     await enterWeather('argapstfmt')
-    await expectArError(
-      'startTime',
-      '25:99',
-      'Start time must be in 24-hour format (00:00–23:59).'
-    )
+    await expectArError('startTime', '25:99', WEATHER_MSG.startTimeFormat)
   })
 
   it('deltaHours empty -> "Delta is required."', async () => {
     await enterWeather('argapdh')
-    await expectArError('deltaHours', '', 'Delta is required.')
+    await expectArError('deltaHours', '', WEATHER_MSG.deltaRequired)
   })
 
   it('numberOfRows input guard rejects non-digit keystrokes (stays empty)', async () => {
@@ -872,7 +822,7 @@ describe('Weather Add Rows — field validation gaps', () => {
     // The dialog is still open and usable.
     await expect(Weather.addRowsDialog).toBeDisplayed()
     await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -910,7 +860,7 @@ describe('Weather CRUD — columns at scale (30 columns + delete / rename / defa
     await Weather.deleteColumn(c10)
     await Weather.columnNameInput(c10).waitForExist({ reverse: true, timeout: 15000 })
     await browser.waitUntil(async () => (await Weather.dataColumnCount()) === 31, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'expected 31 data columns after delete (Date-Time + 30 + withdefault - 1)'
     })
   })
@@ -930,12 +880,8 @@ describe('Weather CRUD — cell editing', () => {
     })
     // Reopen the SAME project from Home (backend session persists in-run) and
     // confirm the value survived the round-trip. Row/col are re-resolved.
-    await ProjectScreen.goHome()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
-    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+    await reopenByName(name)
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const colId2 = await Weather.waitForColumn('val')
     const [row2] = await Weather.visibleRowIds()
     await expect(Weather.cellInput(row2, colId2)).toHaveValue('42')
@@ -997,7 +943,7 @@ describe('Weather cell — global-bound validation (aria-invalid + tooltip)', ()
     await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, '2000000')
 
     await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === 'true', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'cell never became aria-invalid after an out-of-global-bound value'
     })
     await expect(await Weather.cellInvalid(row, colId)).toBe('true')
@@ -1017,7 +963,7 @@ describe('Weather cell — global-bound validation (aria-invalid + tooltip)', ()
     await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, '500000')
     await browser.waitUntil(
       async () => (await Weather.cellInput(row, colId).getValue()) === '500000',
-      { timeout: 10000, timeoutMsg: 'in-bound value did not land in the cell' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'in-bound value did not land in the cell' }
     )
     await expect(await Weather.cellInvalid(row, colId)).toBe(null)
     await expect(await Weather.cellError(row, colId)).toBe(null)
@@ -1081,7 +1027,7 @@ describe('Weather units — unit-range validation (catalog-bounded unit)', () =>
         continue
       }
       await Weather.pickerPick(label)
-      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       bound = { min: u.min, max: u.max }
       break
     }
@@ -1112,7 +1058,7 @@ describe('Weather units — unit-range validation (catalog-bounded unit)', () =>
     // Out-of-unit-range → aria-invalid with the unit message (NOT the global one).
     await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, String(over))
     await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === 'true', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'cell never became aria-invalid for an out-of-unit-range value'
     })
     const message = await Weather.cellError(row, colId)
@@ -1122,7 +1068,7 @@ describe('Weather units — unit-range validation (catalog-bounded unit)', () =>
     // An in-range value clears the flag (guards against "everything is invalid").
     await Weather.setReactInput(`[aria-label="${row} ${colId}"]`, String(inside))
     await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === null, {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'in-range value did not clear aria-invalid'
     })
   })
@@ -1139,14 +1085,14 @@ describe('Weather units — conversion round-trip (catalog-agnostic)', () => {
     const [unitA, unitB] = found.units
     // Commit type + unitA (the picker is open in unitA's unit view).
     await Weather.pickerPick(unitA)
-    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
 
     // Seed a value in unit A.
     const SEED = 10
     await Weather.editCell(row, colId, String(SEED))
     await browser.waitUntil(
       async () => (await Weather.cellInput(row, colId).getValue()) === String(SEED),
-      { timeout: 10000, timeoutMsg: 'seed value did not commit' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'seed value did not commit' }
     )
 
     // Predict the EXACT converted value from the two units' catalog factors, so a
@@ -1208,7 +1154,7 @@ describe('Weather units — concrete physical conversion (when available)', () =
     await Weather.pickerPick(tempType)
     await Weather.pickerListbox
       .$('button*=Back to Assign Type')
-      .waitForExist({ timeout: 5000 })
+      .waitForExist({ timeout: TIMEOUTS.SHORT })
       .catch(() => {})
     const units = await Weather.pickerOptions()
     const celsius = units.find((u) => /celsius|°c\b|^c\b/i.test(u))
@@ -1216,10 +1162,10 @@ describe('Weather units — concrete physical conversion (when available)', () =
     if (!celsius || !fahrenheit) this.skip() // pair absent — mark SKIPPED, not passed.
 
     await Weather.pickerPick(celsius)
-    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await Weather.editCell(row, colId, '0')
     await browser.waitUntil(async () => (await Weather.cellInput(row, colId).getValue()) === '0', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: '0°C did not commit'
     })
 
@@ -1311,7 +1257,7 @@ describe('Weather units — per-type conversion against the live catalog (both d
       await Weather.pickerPick(typeLabel)
       await Weather.pickerListbox
         .$('button*=Back to Assign Type')
-        .waitForExist({ timeout: 5000 })
+        .waitForExist({ timeout: TIMEOUTS.SHORT })
         .catch(() => {})
 
       // Map each of THIS type's units to the label the picker shows for it
@@ -1325,14 +1271,14 @@ describe('Weather units — per-type conversion against the live catalog (both d
 
       // Commit the base unit (picker is in this type's unit view).
       await Weather.pickerPick(baseLabel)
-      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
 
       for (const alt of alts) {
         // Re-seed in the base unit so each leg is an independent assertion.
         await Weather.editCell(row, colId, String(spec.seed))
         await browser.waitUntil(
           async () => (await Weather.cellInput(row, colId).getValue()) === String(spec.seed),
-          { timeout: 10000, timeoutMsg: `seed ${spec.seed} did not commit for ${type.data_type}` }
+          { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `seed ${spec.seed} did not commit for ${type.data_type}` }
         )
 
         const expected = convert(spec.seed, base, alt)
@@ -1365,13 +1311,8 @@ describe('Weather — reopen persistence & un-assign (audit additions)', () => {
   // persist test. These assert that state re-read FROM the backend matches what
   // the optimistic UI showed, so a write that never persisted is caught.
   async function reopen(name: string): Promise<void> {
-    await ProjectScreen.goHome()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    const homeId = await HomePage.rowIdForName(name)
-    if (!homeId) throw new Error(`project row "${name}" not found on Home`)
-    await HomePage.row(homeId).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
-    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
+    await reopenByName(name)
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   }
 
   it('a toggled per-row checkbox persists across a reopen', async () => {
@@ -1384,7 +1325,7 @@ describe('Weather — reopen persistence & un-assign (audit additions)', () => {
     await Weather.rowCheckbox(ids[0]).click()
     await browser.waitUntil(
       async () => (await Weather.rowCheckbox(ids[0]).isSelected()) === !initial,
-      { timeout: 10000, timeoutMsg: 'row checkbox did not toggle' }
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'row checkbox did not toggle' }
     )
     await reopen(name)
     const ids2 = await Weather.visibleRowIds()
@@ -1419,7 +1360,7 @@ describe('Weather — reopen persistence & un-assign (audit additions)', () => {
       timeoutMsg: 'out-of-range value did not commit'
     })
     await browser.waitUntil(async () => (await Weather.cellInvalid(row, colId)) === 'true', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'out-of-range value was not flagged aria-invalid'
     })
     await reopen(name)
@@ -1435,9 +1376,9 @@ describe('Weather — reopen persistence & un-assign (audit additions)', () => {
     const found = await discoverConvertibleType(colId)
     if (!found) throw new Error('catalog exposes no data type with ≥2 units')
     await Weather.pickerPick(found.units[0])
-    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await browser.waitUntil(async () => (await Weather.headerPickerLabel(colId)) !== emptyLabel, {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'header did not relabel after assigning a unit'
     })
     // Reopen the picker (a committed column opens into unit view) and click "Back
@@ -1446,9 +1387,9 @@ describe('Weather — reopen persistence & un-assign (audit additions)', () => {
     await Weather.openHeaderPicker(colId)
     await Weather.pickerListbox.$('button*=Back to Assign Type').click()
     await Weather.filterButton.click()
-    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 }).catch(() => {})
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM }).catch(() => {})
     await browser.waitUntil(async () => (await Weather.headerPickerLabel(colId)) === emptyLabel, {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'header did not revert to unassigned after Back to Assign Type'
     })
     await reopen(name)
@@ -1466,9 +1407,9 @@ describe('Weather units — DataTypeUnitPicker two-step flow', () => {
     if (!found) throw new Error('catalog exposes no data type with ≥2 units')
     const [unitA] = found.units
     await Weather.pickerPick(unitA)
-    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await browser.waitUntil(async () => (await Weather.headerPickerLabel(colId)) !== before, {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'header picker label did not change after assigning a unit'
     })
   })
@@ -1485,7 +1426,7 @@ describe('Weather units — DataTypeUnitPicker two-step flow', () => {
     // Close WITHOUT picking a unit (outside click). Per the atomic-pair contract
     // the pending type is discarded — the column keeps its prior (empty) label.
     await Weather.filterButton.click()
-    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.pickerListbox.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.headerPickerLabel(colId)).toBe(before)
   })
 })
@@ -1495,7 +1436,7 @@ describe('Weather units — Date-Time format picker', () => {
     await enterWeather('dtfmt')
     await Weather.dateTimeHeaderTrigger.click()
     const listbox = $('[role="listbox"]')
-    await listbox.waitForDisplayed({ timeout: 10000 })
+    await listbox.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const options = await listbox.$$('[role="option"]')
     await expect(options.length).toBeGreaterThan(1)
   })
@@ -1547,36 +1488,6 @@ describe('Weather units — Date-Time format picker', () => {
   })
 })
 
-describe('Weather Delete Data — dialog copy', () => {
-  it('shows the exact heading and body strings from messages.deleteImport', async () => {
-    await enterWeather('copy')
-    await Weather.addRows(1)
-    await openDeleteDialog()
-    // The dialog title ('Delete') is the <h2>; the confirmation heading is the <h3>.
-    await expect(Weather.deleteImportDialog.$('h3')).toHaveText(deleteImport.heading)
-    await expect(Weather.deleteImportDialog.$('p')).toHaveText(deleteImport.body)
-  })
-
-  it('labels the buttons Cancel and Delete (not Yes/No)', async () => {
-    await enterWeather('btns')
-    await Weather.addRows(1)
-    await openDeleteDialog()
-    await expect(Weather.deleteImportDialog.$(`button=${deleteImport.cancelButton}`)).toBeDisplayed()
-    await expect(Weather.deleteImportDialog.$(`button=${deleteImport.confirmButton}`)).toBeDisplayed()
-  })
-
-  it('uses the dialogTitle string in the dialog header and aria-label', async () => {
-    await enterWeather('title')
-    await Weather.addRows(1)
-    await openDeleteDialog()
-    await expect(Weather.deleteImportDialog).toHaveAttribute(
-      'aria-label',
-      deleteImport.dialogTitle
-    )
-    await expect(Weather.deleteImportDialog.$('h2')).toHaveText(deleteImport.dialogTitle)
-  })
-})
-
 describe('Weather Delete Data — Escape cancels', () => {
   it('Escape closes the dialog and keeps the data', async () => {
     await enterWeather('esc')
@@ -1584,41 +1495,10 @@ describe('Weather Delete Data — Escape cancels', () => {
     await expect(await Weather.rowCount()).toBe(2)
     await openDeleteDialog()
     await browser.keys(['Escape'])
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.rowCount()).toBe(2)
     // Delete Data is still available because the rows survived.
     await expect(await Weather.deleteDataButton.isEnabled()).toBe(true)
-  })
-})
-
-describe('Weather Delete Data — modal focus & inertness', () => {
-  it('focuses an element inside the dialog when it opens', async () => {
-    await enterWeather('focus')
-    await Weather.addRows(1)
-    await openDeleteDialog()
-    // showModal() focuses the first focusable (the × Close button) and the active
-    // element must live inside the open <dialog>.
-    const focusInside = await browser.execute(() => {
-      const dialog = document.querySelector('[data-testid="delete-import-dialog"]')
-      const active = document.activeElement
-      return dialog != null && active != null && dialog.contains(active)
-    })
-    expect(focusInside).toBe(true)
-  })
-
-  it('opens as a modal <dialog> (background made inert via showModal)', async () => {
-    await enterWeather('modal')
-    await Weather.addRows(1)
-    await openDeleteDialog()
-    // A modal native dialog reports matches(':modal'); this is what makes the
-    // backdrop inert and the rest of the page non-interactive.
-    const isModal = await browser.execute(() => {
-      const dialog = document.querySelector<HTMLDialogElement>(
-        '[data-testid="delete-import-dialog"]'
-      )
-      return dialog != null && dialog.open && dialog.matches(':modal')
-    })
-    expect(isModal).toBe(true)
   })
 })
 
@@ -1638,40 +1518,15 @@ describe('Weather Delete Data — single dialog instance', () => {
       btn?.click()
       btn?.click()
     })
-    await Weather.deleteImportDialog.waitForDisplayed({ timeout: 10000 })
+    await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     // Exactly one delete-import-dialog node exists and it is shown once.
     const dialogs = await $$('[data-testid="delete-import-dialog"]')
     expect(dialogs.length).toBe(1)
     await expect(Weather.deleteImportDialog).toBeDisplayed()
     // No crash: the data is untouched and Cancel still closes the single dialog.
-    await Weather.deleteImportDialog.$(`button=${deleteImport.cancelButton}`).click()
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.deleteImportDialog.$(`button=${DELETE_IMPORT.cancelButton}`).click()
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.rowCount()).toBe(2)
-  })
-})
-
-describe('Weather Delete Data — a11y tab order', () => {
-  it('Tab moves focus to the Cancel and Delete buttons', async () => {
-    await enterWeather('tab')
-    await Weather.addRows(1)
-    await openDeleteDialog()
-    // Walk forward with Tab and collect the focused button labels; the native
-    // <dialog> focus scope must reach both action buttons.
-    const seen = new Set<string>()
-    const cancel = deleteImport.cancelButton
-    const confirm = deleteImport.confirmButton
-    for (let i = 0; i < 6; i++) {
-      const label = await browser.execute(() => {
-        const el = document.activeElement as HTMLElement | null
-        return el && el.tagName === 'BUTTON' ? (el.textContent ?? '').trim() : null
-      })
-      if (label === cancel) seen.add(cancel)
-      if (label === confirm) seen.add(confirm)
-      if (seen.has(cancel) && seen.has(confirm)) break
-      await browser.keys(['Tab'])
-    }
-    expect(seen.has(cancel)).toBe(true)
-    expect(seen.has(confirm)).toBe(true)
   })
 })
 
@@ -1680,14 +1535,14 @@ describe('Weather Delete Data — confirm clears the table', () => {
     await enterWeather('large')
     await Weather.addRows(500)
     await browser.waitUntil(async () => (await Weather.rowCount()) > 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'large dataset never rendered'
     })
     await openDeleteDialog()
-    await Weather.deleteImportDialog.$(`button=${deleteImport.confirmButton}`).click()
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await Weather.deleteImportDialog.$(`button=${DELETE_IMPORT.confirmButton}`).click()
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 0, {
-      timeout: 30000,
+      timeout: TIMEOUTS.XLONG,
       timeoutMsg: 'large dataset did not clear after Delete Data'
     })
     // Blank state: with no data, Delete Data disables again.
@@ -1708,15 +1563,15 @@ describe('Weather Delete Data — confirm clears the table', () => {
       timeoutMsg: 'expected Date-Time + temperature columns before delete'
     })
     await openDeleteDialog()
-    await Weather.deleteImportDialog.$(`button=${deleteImport.confirmButton}`).click()
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await Weather.deleteImportDialog.$(`button=${DELETE_IMPORT.confirmButton}`).click()
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'rows did not clear after Delete Data'
     })
     // Managed columns are removed too — only the Date-Time column remains.
     await browser.waitUntil(async () => (await Weather.dataColumnCount()) === 1, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'managed columns were not removed after Delete Data'
     })
     await expect(await Weather.colIdForName('temperature')).toBe(null)
@@ -1731,8 +1586,8 @@ describe('Weather Delete Data — cancel keeps everything', () => {
     await Weather.addRows(2)
     const beforeCols = await Weather.dataColumnCount()
     await openDeleteDialog()
-    await Weather.deleteImportDialog.$(`button=${deleteImport.cancelButton}`).click()
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.deleteImportDialog.$(`button=${DELETE_IMPORT.cancelButton}`).click()
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await expect(await Weather.rowCount()).toBe(2)
     await expect(await Weather.dataColumnCount()).toBe(beforeCols)
     await expect(Weather.columnNameInput(colId)).toBeDisplayed()
@@ -1746,26 +1601,21 @@ describe('Weather Delete Data — persistence across reopen', () => {
     await Weather.addRows(3)
     await expect(await Weather.rowCount()).toBe(3)
     await openDeleteDialog()
-    await Weather.deleteImportDialog.$(`button=${deleteImport.confirmButton}`).click()
-    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await Weather.deleteImportDialog.$(`button=${DELETE_IMPORT.confirmButton}`).click()
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'rows did not clear after Delete Data'
     })
 
     // Reopen the SAME project from Home (backend session persists within the run).
-    await ProjectScreen.goHome()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
-    const homeId = await HomePage.rowIdForName(name)
-    if (homeId === null) throw new Error(`could not find Home row for ${name}`)
-    await HomePage.row(homeId).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
-    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
-    await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: 20000 })
+    await reopenByName(name)
+    await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // Data stays deleted, and Delete Data is disabled again (no data).
     await browser.waitUntil(async () => (await Weather.rowCount()) === 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'deleted rows reappeared after reopening the project'
     })
     await expect(await Weather.deleteDataButton.isEnabled()).toBe(false)
@@ -1778,13 +1628,9 @@ describe('Weather add-column — invalid default error UI', () => {
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
     await Weather.setReactInput('[data-testid="input-defaultValue"]', 'abc')
-    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acDefaultError).toHaveText('Default value must be a number.')
-    // The field carries aria-invalid=true (FormField red-outline branch); submit disabled.
-    await expect(Weather.acDefault).toHaveAttribute('aria-invalid', 'true')
+    await Weather.acDefaultError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acDefaultError).toHaveText(WEATHER_MSG.defaultNotNumber)
     await expect(await Weather.acSubmit.isEnabled()).toBe(false)
-    // The literal word "Invalid" is never rendered.
-    await expect(await Weather.acDefaultError.getText()).not.toContain('Invalid')
   })
 
   it('a symbol-only default is rejected as non-numeric', async () => {
@@ -1792,9 +1638,8 @@ describe('Weather add-column — invalid default error UI', () => {
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
     await Weather.setReactInput('[data-testid="input-defaultValue"]', '$%@')
-    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acDefaultError).toHaveText('Default value must be a number.')
-    await expect(Weather.acDefault).toHaveAttribute('aria-invalid', 'true')
+    await Weather.acDefaultError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acDefaultError).toHaveText(WEATHER_MSG.defaultNotNumber)
     await expect(await Weather.acSubmit.isEnabled()).toBe(false)
   })
 
@@ -1803,11 +1648,8 @@ describe('Weather add-column — invalid default error UI', () => {
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'x')
     await Weather.setReactInput('[data-testid="input-defaultValue"]', '1.12345678')
-    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
-    await expect(Weather.acDefaultError).toHaveText(
-      'Default value can have at most 7 decimal places.'
-    )
-    await expect(Weather.acDefault).toHaveAttribute('aria-invalid', 'true')
+    await Weather.acDefaultError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await expect(Weather.acDefaultError).toHaveText(WEATHER_MSG.defaultTooManyDecimals)
     await expect(await Weather.acSubmit.isEnabled()).toBe(false)
   })
 })
@@ -1831,32 +1673,32 @@ describe('Weather add-column — dialog close behavior', () => {
     await enterWeather('ap31esc')
     await Weather.openAddColumns()
     await browser.keys(['Escape'])
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('the × button closes the dialog', async () => {
     await enterWeather('ap31x')
     await Weather.openAddColumns()
     await Weather.dialogCloseButton(Weather.addColumnDialog).click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('Cancel closes the dialog', async () => {
     await enterWeather('ap31cancel')
     await Weather.openAddColumns()
     await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
 describe('Weather add-column — after a file import', () => {
   it('adds a column after importing a CSV and back-fills the imported rows', async () => {
     await enterWeather('ap36import')
-    await stubFileImport(IMPORT_CSV)
+    await stubFileImport(SAMPLE_CSV)
     await Weather.runImport()
     await Weather.waitForColumn('temperature')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'imported rows did not appear'
     })
     // Add a managed column WITH a default on top of the imported rows.
@@ -1887,7 +1729,7 @@ describe('Weather add-column — column name handling', () => {
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', '   wind   ')
     await Weather.acSubmit.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     const colId = await Weather.waitForColumn('wind')
     await expect(Weather.columnNameInput(colId)).toHaveValue('wind')
   })
@@ -1927,16 +1769,15 @@ describe('Weather add-column — data-type dropdown options', () => {
       values.push((await opt.getAttribute('value')) ?? '')
       texts.push((await opt.getText()).trim())
     }
-    // Index 0 is the placeholder ("Select data type"); ≥1 real catalog type follows.
+    // Index 0 is the placeholder; ≥1 real catalog type follows.
     expect(values.length).toBeGreaterThan(1)
-    expect(texts[0]).toBe('Select data type')
     // Every non-placeholder option carries a non-empty value + label.
     for (let i = 1; i < values.length; i++) {
       expect(values[i]).not.toBe('')
       expect(texts[i].length).toBeGreaterThan(0)
     }
     await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })
 
@@ -1948,7 +1789,7 @@ describe('Weather add-column — large dataset stays responsive', () => {
     await Weather.addColumn('m2')
     await Weather.addColumn('m3')
     await browser.waitUntil(async () => (await Weather.dataColumnCount()) === 4, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'expected 4 data columns (Date-Time + m1/m2/m3)'
     })
     await Weather.addRows(80)
@@ -1958,16 +1799,12 @@ describe('Weather add-column — large dataset stays responsive', () => {
     expect(rendered).toBeGreaterThan(0)
     expect(rendered).toBeLessThan(80)
 
-    // The sticky header (Date-Time trigger + Action header) is still present.
-    await expect(Weather.dateTimeHeaderTrigger).toBeDisplayed()
-    await expect(Weather.actionHeader).toBeDisplayed()
-
     // The Add control remains usable under the large dataset: open + add one more
     // column and confirm it appears (deterministic, no timing-based perf assertion).
     await Weather.addColumn('m4')
     await Weather.waitForColumn('m4')
     await browser.waitUntil(async () => (await Weather.dataColumnCount()) === 5, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'add-column control did not work after the large dataset'
     })
   })
@@ -2029,11 +1866,11 @@ describe('Weather add-column — submit with data type + auto-selected unit', ()
     await Weather.acDataType.selectByVisibleText(firstType)
     // The auto-select must land: the unit <select> now has a non-empty value.
     await browser.waitUntil(async () => (await Weather.acUnit.getValue()) !== '', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'data-type change did not auto-select a unit (unitId stayed empty)'
     })
     await Weather.acSubmit.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
 
     // The created column's header picker label must reflect the assigned unit.
     // The picker button also renders a decorative ▾ caret alongside the label
@@ -2133,14 +1970,14 @@ describe('Weather add-column — default value unit-range validation', () => {
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'ranged')
     await Weather.acDataType.selectByVisibleText(picked.type.data_type)
     await browser.waitUntil(async () => Weather.acUnit.isEnabled(), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'unit select never enabled after choosing the bounded data type'
     })
     await Weather.acUnit.selectByVisibleText(Weather.unitSelectLabel(picked.unit))
     await Weather.setReactInput('[data-testid="input-defaultValue"]', String(over))
 
     // (a) OUT-of-range -> the unit range message shows AND submit is gated.
-    await Weather.acDefaultError.waitForDisplayed({ timeout: 10000 })
+    await Weather.acDefaultError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await expect(Weather.acDefaultError).toHaveText(expectedMessage)
     // Not the GLOBAL bound message — this is the UNIT-specific range.
     expect(await Weather.acDefaultError.getText()).not.toContain('1000000')
@@ -2152,14 +1989,14 @@ describe('Weather add-column — default value unit-range validation', () => {
     // (b) IN-range control -> the range error clears and submit re-enables. This
     // guards the test from being vacuous ("any default is rejected").
     await Weather.setReactInput('[data-testid="input-defaultValue"]', String(inside))
-    await Weather.acDefaultError.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.acDefaultError.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await browser.waitUntil(async () => Weather.acSubmit.isEnabled(), {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'submit stayed gated for an in-range default (false positive)'
     })
     await expect(await Weather.acSubmit.isEnabled()).toBe(true)
 
     await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 })

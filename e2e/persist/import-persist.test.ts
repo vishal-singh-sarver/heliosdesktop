@@ -16,84 +16,13 @@
  */
 
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
-import { stubFileImport } from '../support/harness'
-
-const ACTIVE_PROJECT_KEY = 'helios:activeProjectId'
-const ACTIVE_SCENARIO_KEY = 'helios:activeScenarioId'
-
-// Must match PERSIST_PROFILE in wdio.persist.config.ts.
-const PERSIST_PROFILE = join(process.cwd(), '.wdio-persist-profile')
-const PERSIST_DB = join(PERSIST_PROFILE, 'backend-data', 'heliosgui.db')
-
-async function waitForMainWindow(): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      try {
-        const handles = await browser.getWindowHandles()
-        if (handles.length === 0) return false
-        await browser.switchToWindow(handles[handles.length - 1])
-        return await browser.execute(() => document.querySelector('#root') !== null)
-      } catch {
-        return false
-      }
-    },
-    { timeout: 30000, timeoutMsg: 'Main window with #root never became available' }
-  )
-}
-
-/**
- * The proven relaunch->reopen sequence (mirrors persistence.test.ts): capture the
- * session-id, clear the active ids so we land on Home, hard-relaunch on the SAME
- * fixed profile, re-inject the session-id (the killed process never flushed
- * localStorage), refresh, then find the project on Home and open it.
- */
-async function relaunchAndReopen(name: string): Promise<void> {
-  const sessionBefore = await browser.execute(
-    (p: string, s: string) => {
-      try {
-        localStorage.removeItem(p)
-        localStorage.removeItem(s)
-        return localStorage.getItem('helios_session_id')
-      } catch {
-        return null
-      }
-    },
-    ACTIVE_PROJECT_KEY,
-    ACTIVE_SCENARIO_KEY
-  )
-  await browser.reloadSession()
-  await waitForMainWindow()
-  await browser.execute((sid: string) => {
-    try {
-      localStorage.setItem('helios_session_id', sid)
-    } catch {
-      /* storage disabled */
-    }
-  }, sessionBefore as string)
-  await browser.refresh()
-  await waitForMainWindow()
-  await HomePage.header.waitForDisplayed({ timeout: 30000 })
-
-  const found = await browser
-    .waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, { timeout: 20000 })
-    .then(() => true)
-    .catch(() => false)
-  if (!found) {
-    throw new Error(
-      `Project "${name}" not found after relaunch. dbExists=${existsSync(PERSIST_DB)} ` +
-        `sessionBefore=${sessionBefore}`
-    )
-  }
-  const homeId = await HomePage.rowIdForName(name)
-  if (homeId === null) throw new Error(`Row id for ${name} not found after relaunch`)
-  await HomePage.row(homeId).doubleClick()
-  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 20000 })
-  await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 20000 })
-}
+import { stubFileImport, waitForMainWindow } from '../support/harness'
+import { PERSIST_DB, relaunchAndReopen } from './persist-helpers'
+import { TIMEOUTS } from '../config/timeouts'
+import { DEFAULT_COORDS } from '../constants/test-data'
 
 /**
  * Type a value into a table cell via WebDriver keystrokes (NOT browser.execute)
@@ -103,7 +32,7 @@ async function relaunchAndReopen(name: string): Promise<void> {
  */
 async function typeCell(rowId: string, colId: string, value: string): Promise<void> {
   const input = Weather.cellInput(rowId, colId)
-  await input.waitForDisplayed({ timeout: 10000 })
+  await input.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
   await input.click()
   await browser.keys(['Control', 'a'])
   await browser.keys(['Delete'])
@@ -123,11 +52,11 @@ describe('Persistence — import + data type/unit + validation across relaunch',
 
     // 1) Create a project on the fixed profile and land on the Weather table.
     const name = `pimp-${Date.now().toString().slice(-6)}`.slice(0, 30)
-    await HomePage.sidebarNewProject.waitForDisplayed({ timeout: 30000 })
+    await HomePage.sidebarNewProject.waitForDisplayed({ timeout: TIMEOUTS.XLONG })
     await HomePage.openCreateDialogViaSidebar()
-    await HomePage.fillAndSubmitCreate(name, '12.34', '56.78')
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 20000 })
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 20000 })
+    await HomePage.fillAndSubmitCreate(name, DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // 2) IMPORT a 2-row CSV (datetime + a numeric column). stubFileImport feeds the
     //    content to the (stubbed) native dialog; runImport drives the wizard to end.
@@ -136,7 +65,7 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     await Weather.runImport()
     const impColId = await Weather.waitForColumn('wxtemp')
     await browser.waitUntil(async () => (await Weather.visibleRowIds()).length === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'imported rows never appeared'
     })
     const [impRow0] = await Weather.visibleRowIds()
@@ -152,11 +81,11 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'trange')
     await Weather.acDataType.selectByVisibleText('air_temperature')
     await browser.waitUntil(async () => (await Weather.acUnit.getValue()) !== '', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'base unit did not auto-select for air_temperature'
     })
     await Weather.acSubmit.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     const trColId = await Weather.waitForColumn('trange')
     await Weather.changeUnit(trColId, 'C')
     const unitLabel = async (colId: string): Promise<string> =>
@@ -170,7 +99,7 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     //    typeCell fires the change event without a backend write).
     await typeCell(impRow0, trColId, '999')
     await browser.waitUntil(async () => (await Weather.cellInvalid(impRow0, trColId)) === 'true', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'out-of-range value did not flag before relaunch'
     })
     expect(await Weather.cellError(impRow0, trColId)).toBe('Value should be between -50.15 and 76.85')
@@ -178,11 +107,14 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     expect(existsSync(PERSIST_DB)).toBe(true)
 
     // 5) FULL relaunch on the SAME fixed profile, then reopen the project.
-    await relaunchAndReopen(name)
+    const homeId = await relaunchAndReopen(name)
+    await HomePage.row(homeId).doubleClick()
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // 6) ROWS survived: the two imported rows are back on the table.
     await browser.waitUntil(async () => (await Weather.visibleRowIds()).length === 2, {
-      timeout: 20000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'imported rows did not survive the relaunch'
     })
     const [reRow0] = await Weather.visibleRowIds()
@@ -204,14 +136,14 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     //     an in-range value clears it (guards against "everything is invalid").
     await typeCell(reRow0, reTrColId, '999')
     await browser.waitUntil(async () => (await Weather.cellInvalid(reRow0, reTrColId)) === 'true', {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'validation did not re-arm after relaunch (out-of-range not flagged)'
     })
     expect(await Weather.cellError(reRow0, reTrColId)).toBe('Value should be between -50.15 and 76.85')
 
     await typeCell(reRow0, reTrColId, '20')
     await browser.waitUntil(async () => (await Weather.cellInvalid(reRow0, reTrColId)) === null, {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'in-range value did not clear aria-invalid after relaunch'
     })
 

@@ -8,5 +8,12 @@
     "skipLibCheck": true,
     "types": ["node", "mocha", "@wdio/globals/types", "@wdio/electron-types"]
   },
-  "include": ["tests/**/*.ts", "pages/**/*.ts", "persist/**/*.ts"]
+  "include": [
+    "tests/**/*.ts",
+    "pages/**/*.ts",
+    "persist/**/*.ts",
+    "support/**/*.ts",
+    "config/**/*.ts",
+    "constants/**/*.ts"
+  ]
 }

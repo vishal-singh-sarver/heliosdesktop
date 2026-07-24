@@ -11,6 +11,8 @@
 import { readFileSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
+import Weather from '../pages/Weather.page'
+import { TIMEOUTS } from '../config/timeouts'
 
 export const ACTIVE_PROJECT_KEY = 'helios:activeProjectId'
 export const ACTIVE_SCENARIO_KEY = 'helios:activeScenarioId'
@@ -204,4 +206,50 @@ export async function stubFileCancel(): Promise<void> {
     ipc.removeHandler('dialog:openFile')
     ipc.handle('dialog:openFile', () => null)
   })
+}
+
+/**
+ * Enter a project and land on the seeded Weather table (its select-all + Date-Time
+ * header displayed). Shared by the weather and upload specs, which previously each
+ * defined their own copy.
+ */
+export async function enterWeather(label = 'wx'): Promise<{ id: string; name: string }> {
+  const project = await enterProject(label)
+  await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+  await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+  return project
+}
+
+/**
+ * Reopen a previously-created project BY NAME from Home in the same session:
+ * go home, locate its row, double-click, and wait for the ProjectScreen to mount.
+ * Consolidates the reopen sequence that was inlined across weather/projectscreen/
+ * journey/persist specs.
+ */
+export async function reopenByName(name: string): Promise<void> {
+  await reloadToHome()
+  await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: `Row for "${name}" never appeared on reopen`
+  })
+  const id = await HomePage.rowIdForName(name)
+  if (id === null) throw new Error(`Could not resolve row id for ${name}`)
+  await HomePage.row(id).doubleClick()
+  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+}
+
+/**
+ * True if `predicate` stays false for the whole NEGATIVE_GATE window — i.e. a gate
+ * that is correctly never satisfied (submit stays disabled, dialog never opens).
+ * Replaces the per-spec `staysDisabled` copies that hard-coded the 3s window.
+ */
+export async function staysFalse(
+  predicate: () => Promise<boolean>,
+  timeout: number = TIMEOUTS.NEGATIVE_GATE
+): Promise<boolean> {
+  const becameTrue = await browser
+    .waitUntil(async () => predicate().catch(() => false), { timeout })
+    .then(() => true)
+    .catch(() => false)
+  return becameTrue === false
 }

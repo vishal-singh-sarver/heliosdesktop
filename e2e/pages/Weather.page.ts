@@ -413,6 +413,53 @@ class WeatherPage {
     await this.deleteRowDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
   }
 
+  /**
+   * Delete every row one by one until the table is empty. Always removes the
+   * FIRST visible row: the top of the list is always inside the virtual window,
+   * so (unlike deleting the last row) no scroll shifts the window mid-operation.
+   * Waits for each row to unmount before the next. A safety cap guards against an
+   * infinite loop if a delete ever silently no-ops.
+   */
+  async deleteAllRows(): Promise<void> {
+    for (let guard = 0; (await this.rowCount()) > 0; guard++) {
+      if (guard > 5000) throw new Error('deleteAllRows: exceeded 5000 iterations')
+      const [first] = await this.visibleRowIds()
+      await this.deleteRow(first)
+      await this.row(first).waitForExist({
+        reverse: true,
+        timeout: 15000,
+        timeoutMsg: `row "${first}" did not disappear after delete`
+      })
+    }
+  }
+
+  /** colIds of every MANAGED column (the reserved Date-Time column has no name input). */
+  async managedColumnIds(): Promise<string[]> {
+    const inputs = await $$('[aria-label^="Column "][aria-label$=" name"]')
+    const ids: string[] = []
+    for (const input of inputs) {
+      const label = await input.getAttribute('aria-label') // "Column {id} name"
+      if (label) ids.push(label.replace(/^Column /, '').replace(/ name$/, ''))
+    }
+    return ids
+  }
+
+  /**
+   * Delete every managed column one by one, waiting for each column's name input
+   * to unmount before the next. The reserved Date-Time column has no delete
+   * control, so it survives; the loop stops when no managed columns remain.
+   */
+  async deleteAllManagedColumns(): Promise<void> {
+    for (let guard = 0; ; guard++) {
+      if (guard > 1000) throw new Error('deleteAllManagedColumns: exceeded 1000 iterations')
+      const ids = await this.managedColumnIds()
+      if (ids.length === 0) return
+      const [colId] = ids
+      await this.deleteColumn(colId)
+      await this.columnNameInput(colId).waitForExist({ reverse: true, timeout: 15000 })
+    }
+  }
+
   /** Resolve the colId of a managed column by its current name (header input). */
   async colIdForName(name: string): Promise<string | null> {
     const inputs = await $$('[aria-label^="Column "][aria-label$=" name"]')

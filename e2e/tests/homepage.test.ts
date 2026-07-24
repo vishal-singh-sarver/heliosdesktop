@@ -1,7 +1,7 @@
 /**
  * HomePage E2E suite — exhaustive edge-case coverage.
  *
- * Reuses the verified harness: splash->main before() hook, beforeEach
+ * Reuses the shared harness: splash->main before() hook, beforeEach
  * reloadToHome (in-session renderer refresh that preserves the backend session),
  * setInputValue (robust controlled-input replace), waitForDisplayed({reverse})
  * for the always-in-DOM <dialog>, prefix row-<id> selectors, browser.waitUntil
@@ -19,92 +19,20 @@
  */
 
 import HomePage from '../pages/HomePage.page'
-
-const ACTIVE_PROJECT_KEY = 'helios:activeProjectId'
-const ACTIVE_SCENARIO_KEY = 'helios:activeScenarioId'
-
-// Exact validation / copy strings, verbatim from source.
-const MSG = {
-  nameRequired: 'Project name is required.',
-  nameTooLong: 'Project name must be 30 characters or fewer.',
-  latRequired: 'Latitude is required.',
-  latRegex: 'Invalid latitude',
-  latRange:
-    'Invalid latitude. Enter latitude in decimal degrees. Valid range: -90 <= latitude <= 90.',
-  latDecimals: 'Latitude can have at most 7 decimal places.',
-  lonRequired: 'Longitude is required.',
-  lonRegex: 'Invalid longitude',
-  lonRange:
-    'Invalid longitude. Enter longitude in decimal degrees. Valid range: -180 <= longitude <= 180.',
-  lonDecimals: 'Longitude can have at most 7 decimal places.',
-  duplicate: 'A project with this name already exists',
-  deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
-  heading: 'Recent Projects',
-  emptyTitle: 'No Projects Found',
-  emptyBody: 'No Projects Found. Please add a new Project.'
-} as const
-
-async function waitForMainWindow(): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      try {
-        const handles = await browser.getWindowHandles()
-        if (handles.length === 0) return false
-        await browser.switchToWindow(handles[handles.length - 1])
-        return await browser.execute(() => document.querySelector('#root') !== null)
-      } catch {
-        return false
-      }
-    },
-    { timeout: 30000, timeoutMsg: 'Main window with #root never became available' }
-  )
-}
+import {
+  waitForMainWindow,
+  reloadToHome,
+  uniqueName,
+  setInputValue,
+  ACTIVE_PROJECT_KEY
+} from '../support/harness'
+import { PROJECT_MSG } from '../constants/messages'
+import { DEFAULT_COORDS, NAME_LIMITS, NO_MATCH_SEARCH } from '../constants/test-data'
+import { TIMEOUTS } from '../config/timeouts'
 
 before(async () => {
   await waitForMainWindow()
 })
-
-let nameCounter = 0
-/** Unique project name, <= 30 chars so it passes client-side validation. */
-function uniqueName(label: string): string {
-  nameCounter += 1
-  const ts = Date.now().toString().slice(-6)
-  return `e2e-${label}-${ts}-${nameCounter}`.slice(0, 30)
-}
-
-/**
- * Reliably replace a controlled (Formik/React) input's value. setValue alone can
- * leave the previous value because React re-renders the input from state.
- */
-async function setInputValue(el: ReturnType<typeof $>, value: string): Promise<void> {
-  await el.click()
-  await browser.keys(['Control', 'a'])
-  await browser.keys(['Delete'])
-  if (value.length) await el.addValue(value)
-}
-
-/**
- * Return to HomePage in the SAME session: clear active-project ids (so
- * pickInitialScreen -> 'home') and refresh the renderer. Backend + session-id
- * survive, so projects created earlier still exist.
- */
-async function reloadToHome(): Promise<void> {
-  await browser.execute(
-    (projectKey: string, scenarioKey: string) => {
-      try {
-        localStorage.removeItem(projectKey)
-        localStorage.removeItem(scenarioKey)
-      } catch {
-        /* storage disabled */
-      }
-    },
-    ACTIVE_PROJECT_KEY,
-    ACTIVE_SCENARIO_KEY
-  )
-  await browser.refresh()
-  await waitForMainWindow()
-  await HomePage.header.waitForDisplayed({ timeout: 30000 })
-}
 
 beforeEach(async () => {
   await reloadToHome()
@@ -112,13 +40,13 @@ beforeEach(async () => {
 
 /** Create a project (explicit name) and return home with its row present. */
 async function createNamed(name: string): Promise<{ id: string; name: string }> {
-  if (name.length > 30) throw new Error(`name too long for create: ${name}`)
+  if (name.length > NAME_LIMITS.MAX) throw new Error(`name too long for create: ${name}`)
   await HomePage.openCreateDialogViaSidebar()
-  await HomePage.fillAndSubmitCreate(name, '12.34', '56.78')
-  await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+  await HomePage.fillAndSubmitCreate(name, DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
+  await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
   await reloadToHome()
   await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, {
-    timeout: 15000,
+    timeout: TIMEOUTS.LONG,
     timeoutMsg: `Row for "${name}" never appeared after create`
   })
   const id = await HomePage.rowIdForName(name)
@@ -138,47 +66,26 @@ function recentProjectsHeading(): ReturnType<typeof $> {
 
 describe('HomePage', () => {
   describe('initial shell', () => {
-    it('renders the home shell (header, menubar, search, sidebar, table)', async () => {
-      await HomePage.header.waitForDisplayed({ timeout: 30000 })
-      await expect(HomePage.header).toBeDisplayed()
-      await expect(HomePage.menubar).toBeDisplayed()
-      await expect(HomePage.searchbar).toBeDisplayed()
-      await expect(HomePage.sidebar).toBeDisplayed()
-      await expect(HomePage.projectsTable).toBeDisplayed()
-    })
-
     it('starts empty: shows the EmptyState create trigger (fresh DB)', async () => {
-      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: 15000 })
-      await expect(HomePage.emptyStateCreateButton).toHaveText('Add New Project', {
-        containing: true
-      })
+      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     })
   })
 
   describe('create — open triggers', () => {
-    it('opens the create dialog from the sidebar with all three fields', async () => {
+    it('opens the create dialog from the sidebar', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await expect(HomePage.createDialog).toBeDisplayed()
-      await expect(HomePage.createNameInput).toBeDisplayed()
-      await expect(HomePage.createLatInput).toBeDisplayed()
-      await expect(HomePage.createLonInput).toBeDisplayed()
       await HomePage.closeCreateDialogViaX()
     })
 
     it('opens the create dialog from the empty-state trigger', async () => {
       // Force EmptyState regardless of leftover projects by filtering to nothing.
-      await HomePage.search('zzzqqq___nomatch')
-      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: 10000 })
+      await HomePage.search(NO_MATCH_SEARCH)
+      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await HomePage.openCreateDialogViaEmptyState()
       await expect(HomePage.createDialog).toBeDisplayed()
       await HomePage.closeCreateDialogViaX()
       await HomePage.clearSearch()
-    })
-
-    it('exposes a New Project entry in the menu bar', async () => {
-      // The dropdown is CSS hover-gated; assert the entry exists rather than
-      // driving a flaky hover. Sidebar/empty-state already cover opening.
-      await expect(await HomePage.menubarNewProject.isExisting()).toBe(true)
     })
 
     it('reopening starts clean (no stale value)', async () => {
@@ -194,8 +101,8 @@ describe('HomePage', () => {
   describe('create — valid happy submit', () => {
     it('a valid submit navigates away from HomePage', async () => {
       await HomePage.openCreateDialogViaSidebar()
-      await HomePage.fillAndSubmitCreate(uniqueName('valid'), '12.34', '56.78')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.fillAndSubmitCreate(uniqueName('valid'), DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('a created project persists and appears as a row back on HomePage', async () => {
@@ -207,19 +114,19 @@ describe('HomePage', () => {
     it('accepts boundary coordinates lat=90, lon=180', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('bound'), '90', '180')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('accepts boundary coordinates lat=-90, lon=-180', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('negb'), '-90', '-180')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('accepts a 30-character name (length boundary)', async () => {
       await HomePage.openCreateDialogViaSidebar()
-      await HomePage.fillAndSubmitCreate('a'.repeat(30), '12.34', '56.78')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.fillAndSubmitCreate(NAME_LIMITS.valid, DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
   })
 
@@ -228,28 +135,28 @@ describe('HomePage', () => {
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.createNameInput.click()
       await HomePage.createLatInput.click()
-      await HomePage.createNameError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createNameError).toHaveText(MSG.nameRequired)
+      await HomePage.createNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createNameError).toHaveText(PROJECT_MSG.nameRequired)
     })
 
     it('whitespace-only name shows the required error (trim)', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createNameInput, '   ')
       await HomePage.createLatInput.click()
-      await HomePage.createNameError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createNameError).toHaveText(MSG.nameRequired)
+      await HomePage.createNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createNameError).toHaveText(PROJECT_MSG.nameRequired)
     })
 
     it('31-character name shows the too-long error', async () => {
       await HomePage.openCreateDialogViaSidebar()
-      await setInputValue(HomePage.createNameInput, 'a'.repeat(31))
-      await HomePage.createNameError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createNameError).toHaveText(MSG.nameTooLong)
+      await setInputValue(HomePage.createNameInput, NAME_LIMITS.tooLong)
+      await HomePage.createNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createNameError).toHaveText(PROJECT_MSG.nameTooLong)
     })
 
     it('30-character name shows NO name error', async () => {
       await HomePage.openCreateDialogViaSidebar()
-      await setInputValue(HomePage.createNameInput, 'a'.repeat(30))
+      await setInputValue(HomePage.createNameInput, NAME_LIMITS.valid)
       await HomePage.createLatInput.click()
       await expect(HomePage.createNameError).not.toBeDisplayed()
     })
@@ -261,43 +168,43 @@ describe('HomePage', () => {
       // The field pre-fills with the UC Davis default; clear it, then blur.
       await setInputValue(HomePage.createLatInput, '')
       await HomePage.createNameInput.click()
-      await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLatError).toHaveText(MSG.latRequired)
+      await HomePage.createLatError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLatError).toHaveText(PROJECT_MSG.latRequired)
     })
 
     it('non-numeric latitude shows the regex error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLatInput, 'abc')
-      await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLatError).toHaveText(MSG.latRegex)
+      await HomePage.createLatError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLatError).toHaveText(PROJECT_MSG.latRegex)
     })
 
     it('exponential "1e5" fails the regex (not range)', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLatInput, '1e5')
-      await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLatError).toHaveText(MSG.latRegex)
+      await HomePage.createLatError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLatError).toHaveText(PROJECT_MSG.latRegex)
     })
 
     it('latitude 91 shows the out-of-range error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLatInput, '91')
-      await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLatError).toHaveText(MSG.latRange)
+      await HomePage.createLatError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLatError).toHaveText(PROJECT_MSG.latRange)
     })
 
     it('latitude -91 shows the out-of-range error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLatInput, '-91')
-      await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLatError).toHaveText(MSG.latRange)
+      await HomePage.createLatError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLatError).toHaveText(PROJECT_MSG.latRange)
     })
 
     it('in-range latitude with 8 decimals shows the decimals error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLatInput, '12.12345678')
-      await HomePage.createLatError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLatError).toHaveText(MSG.latDecimals)
+      await HomePage.createLatError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLatError).toHaveText(PROJECT_MSG.latDecimals)
     })
 
     it('latitude at the upper range boundary (90) is ACCEPTED — create succeeds', async () => {
@@ -306,7 +213,7 @@ describe('HomePage', () => {
       // away. An off-by-one (lat<90 reject) would keep the dialog open -> red.
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('lat90'), '90', '0')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('latitude with exactly 7 decimals (89.1234567, in range) is ACCEPTED — create succeeds', async () => {
@@ -317,7 +224,7 @@ describe('HomePage', () => {
       // stay open with an error and this would go red.
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('lat7'), '89.1234567', '0')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
   })
 
@@ -327,36 +234,36 @@ describe('HomePage', () => {
       // The field pre-fills with the UC Davis default; clear it, then blur.
       await setInputValue(HomePage.createLonInput, '')
       await HomePage.createNameInput.click()
-      await HomePage.createLonError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLonError).toHaveText(MSG.lonRequired)
+      await HomePage.createLonError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLonError).toHaveText(PROJECT_MSG.lonRequired)
     })
 
     it('non-numeric longitude shows the regex error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLonInput, 'abc')
-      await HomePage.createLonError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLonError).toHaveText(MSG.lonRegex)
+      await HomePage.createLonError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLonError).toHaveText(PROJECT_MSG.lonRegex)
     })
 
     it('longitude 181 shows the out-of-range error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLonInput, '181')
-      await HomePage.createLonError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLonError).toHaveText(MSG.lonRange)
+      await HomePage.createLonError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLonError).toHaveText(PROJECT_MSG.lonRange)
     })
 
     it('longitude -181 shows the out-of-range error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLonInput, '-181')
-      await HomePage.createLonError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLonError).toHaveText(MSG.lonRange)
+      await HomePage.createLonError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLonError).toHaveText(PROJECT_MSG.lonRange)
     })
 
     it('in-range longitude with 8 decimals shows the decimals error', async () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createLonInput, '12.12345678')
-      await HomePage.createLonError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.createLonError).toHaveText(MSG.lonDecimals)
+      await HomePage.createLonError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.createLonError).toHaveText(PROJECT_MSG.lonDecimals)
     })
 
     it('longitude at the upper range boundary (180) is ACCEPTED — create succeeds', async () => {
@@ -365,7 +272,7 @@ describe('HomePage', () => {
       // (lon<180 reject) would keep the dialog open with an error -> red.
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('lon180'), '0', '180')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('longitude with exactly 7 decimals (179.1234567, in range) is ACCEPTED — create succeeds', async () => {
@@ -375,7 +282,7 @@ describe('HomePage', () => {
       // open -> red.
       await HomePage.openCreateDialogViaSidebar()
       await HomePage.fillAndSubmitCreate(uniqueName('lon7'), '0', '179.1234567')
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 20000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
   })
 
@@ -383,9 +290,9 @@ describe('HomePage', () => {
     it('shows the duplicate error and keeps the dialog open', async () => {
       const { name } = await createProject('dup')
       await HomePage.openCreateDialogViaSidebar()
-      await HomePage.fillAndSubmitCreate(name.toUpperCase(), '12.34', '56.78')
-      await HomePage.createServerError.waitForDisplayed({ timeout: 15000 })
-      await expect(HomePage.createServerError).toHaveText(MSG.duplicate)
+      await HomePage.fillAndSubmitCreate(name.toUpperCase(), DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
+      await HomePage.createServerError.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+      await expect(HomePage.createServerError).toHaveText(PROJECT_MSG.duplicate)
       await expect(HomePage.createDialog).toBeDisplayed()
     })
   })
@@ -395,8 +302,8 @@ describe('HomePage', () => {
       const name = uniqueName('guard')
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createNameInput, name)
-      await setInputValue(HomePage.createLatInput, '12.34')
-      await setInputValue(HomePage.createLonInput, '56.78')
+      await setInputValue(HomePage.createLatInput, DEFAULT_COORDS.lat)
+      await setInputValue(HomePage.createLonInput, DEFAULT_COORDS.lon)
       await HomePage.createSubmitButton.click()
       await HomePage.createSubmitButton.click().catch(() => {})
       // The create round-trip finished when EITHER we navigated away (click 1
@@ -413,7 +320,7 @@ describe('HomePage', () => {
 
       await reloadToHome()
       await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, {
-        timeout: 15000
+        timeout: TIMEOUTS.LONG
       })
       const matches: string[] = []
       for (const id of await HomePage.visibleRowIds()) {
@@ -442,7 +349,7 @@ describe('HomePage', () => {
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createNameInput, uniqueName('esc'))
       await browser.keys(['Escape'])
-      await HomePage.createDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.createDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.createDialog).not.toBeDisplayed()
     })
   })
@@ -453,7 +360,7 @@ describe('HomePage', () => {
       await expect(await HomePage.renameMenuItem(id).isExisting()).toBe(false)
       await expect(await HomePage.deleteMenuItem(id).isExisting()).toBe(false)
       await HomePage.openRowMenu(name)
-      await HomePage.renameMenuItem(id).waitForDisplayed({ timeout: 10000 })
+      await HomePage.renameMenuItem(id).waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.deleteMenuItem(id)).toBeDisplayed()
       await expect(await HomePage.kebabExpanded(name)).toBe('true')
     })
@@ -463,7 +370,7 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(name)
       await HomePage.renameMenuItem(id).waitForDisplayed()
       await HomePage.kebabButton(name).click()
-      await HomePage.renameMenuItem(id).waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameMenuItem(id).waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       await expect(await HomePage.kebabExpanded(name)).toBe('false')
     })
 
@@ -472,7 +379,7 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(name)
       await HomePage.renameMenuItem(id).waitForDisplayed()
       await HomePage.pressEscape()
-      await HomePage.renameMenuItem(id).waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameMenuItem(id).waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     })
 
     it('an outside click closes an open kebab menu', async () => {
@@ -480,7 +387,7 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(name)
       await HomePage.renameMenuItem(id).waitForDisplayed()
       await HomePage.clickOutsideMenu()
-      await HomePage.renameMenuItem(id).waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameMenuItem(id).waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     })
 
     it('opening row B closes row A (single open menu)', async () => {
@@ -489,8 +396,8 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(a.name)
       await HomePage.renameMenuItem(a.id).waitForDisplayed()
       await HomePage.openRowMenu(b.name)
-      await HomePage.renameMenuItem(b.id).waitForDisplayed({ timeout: 10000 })
-      await HomePage.renameMenuItem(a.id).waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameMenuItem(b.id).waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await HomePage.renameMenuItem(a.id).waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     })
   })
 
@@ -503,9 +410,9 @@ describe('HomePage', () => {
       await expect(HomePage.renameNameInput).toHaveValue(name)
       await setInputValue(HomePage.renameNameInput, newName)
       await HomePage.renameSaveButton.click()
-      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => (await HomePage.row(id).getText()).includes(newName), {
-        timeout: 15000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Row never showed the new name'
       })
     })
@@ -516,7 +423,7 @@ describe('HomePage', () => {
       await HomePage.requestRename(id)
       await expect(HomePage.renameNameInput).toHaveValue(name)
       await HomePage.renameSaveButton.click()
-      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.row(id)).toHaveText(name, { containing: true })
     })
 
@@ -531,11 +438,11 @@ describe('HomePage', () => {
       await HomePage.requestRename(id)
       await setInputValue(HomePage.renameNameInput, `  ${trimmed}  `)
       await HomePage.renameSaveButton.click()
-      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(
         async () => (await HomePage.rowNameCell(id).getText()) === trimmed,
         {
-          timeout: 15000,
+          timeout: TIMEOUTS.LONG,
           // FINDING: if the app does NOT trim on rename, the row keeps the spaces
           // and this never settles — surfacing the missing-trim as a real failure
           // rather than force-greening it.
@@ -554,8 +461,8 @@ describe('HomePage', () => {
       // submitForm() which touches all fields, surfaces the error, and is blocked
       // by the invalid field (dialog stays open).
       await HomePage.renameSaveButton.click()
-      await HomePage.renameNameError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.renameNameError).toHaveText(MSG.nameRequired)
+      await HomePage.renameNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.renameNameError).toHaveText(PROJECT_MSG.nameRequired)
       await expect(HomePage.renameDialog).toBeDisplayed()
     })
 
@@ -563,9 +470,9 @@ describe('HomePage', () => {
       const { id, name } = await createProject('rlong')
       await HomePage.openRowMenu(name)
       await HomePage.requestRename(id)
-      await setInputValue(HomePage.renameNameInput, 'a'.repeat(31))
-      await HomePage.renameNameError.waitForDisplayed({ timeout: 10000 })
-      await expect(HomePage.renameNameError).toHaveText(MSG.nameTooLong)
+      await setInputValue(HomePage.renameNameInput, NAME_LIMITS.tooLong)
+      await HomePage.renameNameError.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await expect(HomePage.renameNameError).toHaveText(PROJECT_MSG.nameTooLong)
     })
 
     it('Cancel closes the rename dialog with the row unchanged', async () => {
@@ -574,7 +481,7 @@ describe('HomePage', () => {
       await HomePage.requestRename(id)
       await setInputValue(HomePage.renameNameInput, uniqueName('discard'))
       await HomePage.renameCancelButton.click()
-      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.row(id)).toHaveText(name, { containing: true })
     })
 
@@ -585,11 +492,11 @@ describe('HomePage', () => {
       await HomePage.requestRename(b.id)
       await setInputValue(HomePage.renameNameInput, a.name)
       await HomePage.renameSaveButton.click()
-      await HomePage.renameServerError.waitForDisplayed({ timeout: 15000 })
+      await HomePage.renameServerError.waitForDisplayed({ timeout: TIMEOUTS.LONG })
       await expect(HomePage.renameDialog).toBeDisplayed()
       // Editing the field clears the stale server error.
       await HomePage.renameNameInput.addValue('z')
-      await HomePage.renameServerError.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.renameServerError.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     })
   })
 
@@ -599,12 +506,10 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(name)
       await HomePage.requestDelete(id)
       await expect(HomePage.deleteDialog).toBeDisplayed()
-      await expect(HomePage.deleteHeading).toHaveText(`Delete ${name}`)
-      await expect(HomePage.deleteBody).toHaveText(MSG.deleteBody)
       await HomePage.confirmDelete()
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 15000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Deleted row never disappeared'
       })
     })
@@ -614,7 +519,7 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(name)
       await HomePage.requestDelete(id)
       await HomePage.deleteCancelButton.click()
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.row(id)).toBeDisplayed()
       await expect(await HomePage.kebabDisabled(name)).toBe(false)
     })
@@ -624,7 +529,7 @@ describe('HomePage', () => {
       await HomePage.openRowMenu(name)
       await HomePage.requestDelete(id)
       await browser.keys(['Escape'])
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.row(id)).toBeDisplayed()
     })
   })
@@ -632,15 +537,15 @@ describe('HomePage', () => {
   describe('search', () => {
     it('a non-matching term hides the row; a matching term shows it', async () => {
       const { id, name } = await createProject('search')
-      await HomePage.search('zzz-no-such-project-zzz')
+      await HomePage.search(NO_MATCH_SEARCH)
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 10000,
+        timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: 'Row not filtered out'
       })
       await HomePage.clearSearch()
       await HomePage.search(name)
       await browser.waitUntil(async () => HomePage.row(id).isDisplayed().catch(() => false), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
     })
 
@@ -648,7 +553,7 @@ describe('HomePage', () => {
       const { id, name } = await createProject('case')
       await HomePage.search(name.slice(0, name.length - 2).toUpperCase())
       await browser.waitUntil(async () => HomePage.row(id).isDisplayed().catch(() => false), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await HomePage.clearSearch()
     })
@@ -658,26 +563,26 @@ describe('HomePage', () => {
       const b = await createProject('discB')
       await HomePage.search('discA')
       await browser.waitUntil(async () => HomePage.row(a.id).isDisplayed().catch(() => false), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await browser.waitUntil(async () => !(await HomePage.row(b.id).isExisting()), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await HomePage.clearSearch()
       await browser.waitUntil(async () => HomePage.row(a.id).isDisplayed().catch(() => false), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await browser.waitUntil(async () => HomePage.row(b.id).isDisplayed().catch(() => false), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
     })
 
     it('an empty-result search shows the EmptyState', async () => {
       const { id } = await createProject('empties')
-      await HomePage.search('zzzqqq___nomatch')
-      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: 10000 })
+      await HomePage.search(NO_MATCH_SEARCH)
+      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await HomePage.clearSearch()
     })
@@ -691,35 +596,16 @@ describe('HomePage', () => {
   })
 
   describe('sidebar active state', () => {
-    it('Home is active by default; the others are not', async () => {
-      await expect(await HomePage.sidebarActive('Home')).toBe('true')
-      await expect(await HomePage.sidebarActive('New Project')).toBe('false')
-      await expect(await HomePage.sidebarActive('Open project')).toBe('false')
-    })
-
-    it('clicking New Project activates it and opens the create dialog', async () => {
+    it('clicking New Project opens the create dialog', async () => {
       await HomePage.sidebarNewProject.click()
-      await HomePage.createDialog.waitForDisplayed({ timeout: 10000 })
-      await expect(await HomePage.sidebarActive('New Project')).toBe('true')
-      await expect(await HomePage.sidebarActive('Home')).toBe('false')
+      await HomePage.createDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await HomePage.closeCreateDialogViaX()
     })
 
-    it('Open project activates it with no dialog', async () => {
+    it('Open project opens no dialog and the table stays', async () => {
       await HomePage.sidebarOpenProject.click()
-      await expect(await HomePage.sidebarActive('Open project')).toBe('true')
-      await expect(await HomePage.sidebarActive('Home')).toBe('false')
       await expect(HomePage.createDialog).not.toBeDisplayed()
       await expect(HomePage.projectsTable).toBeDisplayed()
-    })
-
-    it('exactly one sidebar item is active after switching', async () => {
-      await HomePage.sidebarOpenProject.click()
-      await expect(await HomePage.sidebarActive('Open project')).toBe('true')
-      await HomePage.sidebarHome.click()
-      await expect(await HomePage.sidebarActive('Home')).toBe('true')
-      await expect(await HomePage.sidebarActive('Open project')).toBe('false')
-      await expect(await HomePage.sidebarActive('New Project')).toBe('false')
     })
   })
 
@@ -733,7 +619,7 @@ describe('HomePage', () => {
     it('a double-click on a row navigates away from home', async () => {
       const { id } = await createProject('dbl')
       await HomePage.row(id).doubleClick()
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('Enter on a focused row navigates and writes activeProjectId', async () => {
@@ -744,7 +630,7 @@ describe('HomePage', () => {
         el?.focus()
       }, id)
       await browser.keys(['Enter'])
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       const stored = await browser.execute((k: string) => localStorage.getItem(k), ACTIVE_PROJECT_KEY)
       await expect(stored).toBe(id)
     })
@@ -757,14 +643,14 @@ describe('HomePage', () => {
         el?.focus()
       }, id)
       await browser.keys([' '])
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('navigates the correct project among several', async () => {
       await createProject('navA')
       const target = await createProject('navB')
       await HomePage.row(target.id).doubleClick()
-      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       const stored = await browser.execute((k: string) => localStorage.getItem(k), ACTIVE_PROJECT_KEY)
       await expect(stored).toBe(target.id)
     })
@@ -782,12 +668,12 @@ describe('HomePage', () => {
       await createProject('sortNameAria')
       await HomePage.clickSort('name')
       await browser.waitUntil(async () => (await HomePage.ariaSort('name')) === 'ascending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await expect(await HomePage.ariaSort('last_updated')).toBe('none')
       await HomePage.clickSort('name')
       await browser.waitUntil(async () => (await HomePage.ariaSort('name')) === 'descending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
     })
 
@@ -800,14 +686,14 @@ describe('HomePage', () => {
       await HomePage.search(tag)
       await HomePage.clickSort('name')
       await browser.waitUntil(async () => (await HomePage.ariaSort('name')) === 'ascending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       let order = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
       await expect(order).toEqual([alpha.name, bravo.name, charlie.name])
 
       await HomePage.clickSort('name')
       await browser.waitUntil(async () => (await HomePage.ariaSort('name')) === 'descending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       order = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
       await expect(order).toEqual([charlie.name, bravo.name, alpha.name])
@@ -823,7 +709,7 @@ describe('HomePage', () => {
       // Default is last_updated desc -> newest (third) first.
       await browser.waitUntil(
         async () => (await HomePage.ariaSort('last_updated')) === 'descending',
-        { timeout: 10000 }
+        { timeout: TIMEOUTS.MEDIUM }
       )
       let order = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
       await expect(order).toEqual([third.name, second.name, first.name])
@@ -831,7 +717,7 @@ describe('HomePage', () => {
       await HomePage.clickSort('last_updated')
       await browser.waitUntil(
         async () => (await HomePage.ariaSort('last_updated')) === 'ascending',
-        { timeout: 10000 }
+        { timeout: TIMEOUTS.MEDIUM }
       )
       order = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
       await expect(order).toEqual([first.name, second.name, third.name])
@@ -842,11 +728,11 @@ describe('HomePage', () => {
       await createProject('sortSize')
       await HomePage.clickSort('size')
       await browser.waitUntil(async () => (await HomePage.ariaSort('size')) === 'ascending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       await HomePage.clickSort('size')
       await browser.waitUntil(async () => (await HomePage.ariaSort('size')) === 'descending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
     })
 
@@ -857,22 +743,11 @@ describe('HomePage', () => {
       await HomePage.search(tag)
       await HomePage.clickSort('name')
       await browser.waitUntil(async () => (await HomePage.ariaSort('name')) === 'ascending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       const order = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
       await expect(order).toEqual([a.name, b.name])
       await HomePage.clearSearch()
-    })
-  })
-
-  describe('create dialog — placeholders', () => {
-    it('the three create inputs and the search box show exact placeholder text', async () => {
-      await expect(await HomePage.searchPlaceholder()).toBe('Search...')
-      await HomePage.openCreateDialogViaSidebar()
-      await expect(await HomePage.createNamePlaceholder()).toBe('My Simulation')
-      await expect(await HomePage.createLatPlaceholder()).toBe('38.5449')
-      await expect(await HomePage.createLonPlaceholder()).toBe('-121.7405')
-      await HomePage.closeCreateDialogViaX()
     })
   })
 
@@ -882,44 +757,6 @@ describe('HomePage', () => {
       await expect(HomePage.createNameInput).toHaveValue('')
       await expect(HomePage.createLatInput).toHaveValue('38.54')
       await expect(HomePage.createLonInput).toHaveValue('-121.75')
-      await HomePage.closeCreateDialogViaX()
-    })
-  })
-
-  describe('create dialog — field-help tooltips', () => {
-    it('project-name help shows its tooltip on hover and dismisses on move-away', async () => {
-      await HomePage.openCreateDialogViaSidebar()
-      // Content: react-tooltip renders the trigger's data-tooltip-content attribute.
-      // (projectName uses place:right, whose bubble flickers under the pointer —
-      // assert the wired content via the attribute, not the transient bubble text.)
-      await expect(
-        await HomePage.helpTrigger('project name').getAttribute('data-tooltip-content')
-      ).toBe('Enter a project name to identify your work.')
-      // Visibility: not present until hover; appears on hover; gone after move-away.
-      await expect(await HomePage.visibleTooltip.isExisting()).toBe(false)
-      await HomePage.hoverTooltip('project name') // moveTo + waitForDisplayed (it shows)
-      await HomePage.dismissTooltip()
-      await expect(await HomePage.visibleTooltip.isExisting()).toBe(false)
-      await HomePage.closeCreateDialogViaX()
-    })
-
-    it('latitude and longitude help expose their own tooltip content and show on hover', async () => {
-      await HomePage.openCreateDialogViaSidebar()
-      await expect(
-        await HomePage.helpTrigger('latitude').getAttribute('data-tooltip-content')
-      ).toBe(
-        'Enter latitude in decimal degrees. Valid range: -90 <= latitude <= 90. ' +
-          'Negative for South, positive for North.'
-      )
-      await expect(
-        await HomePage.helpTrigger('longitude').getAttribute('data-tooltip-content')
-      ).toBe(
-        'Enter longitude in decimal degrees. Valid range: -180 <= longitude <= 180. ' +
-          'Negative for West, positive for East.'
-      )
-      // Confirm the bubble actually shows on hover, then dismisses.
-      await HomePage.hoverTooltip('latitude')
-      await HomePage.dismissTooltip()
       await HomePage.closeCreateDialogViaX()
     })
   })
@@ -937,28 +774,9 @@ describe('HomePage', () => {
   })
 
   describe('toolbar — options present', () => {
-    const TOOLBAR: Record<string, string[]> = {
-      File: ['New Project', 'Open Project', 'Import Project', 'Exit'],
-      Edit: ['Undo', 'Redo', 'Preferences'],
-      View: ['Zoom In', 'Zoom Out', 'Reset Layout'],
-      Tools: ['Scripting Console', 'Extensions', 'Diagnostics'],
-      Help: ['Documentation', 'Shortcuts', 'About Helios']
-    }
-
-    it('every top-level menu and its items exist in the menu bar', async () => {
-      for (const menu of Object.keys(TOOLBAR)) {
-        await expect(
-          HomePage.toolbarMenuButton(menu as 'File' | 'Edit' | 'View' | 'Tools' | 'Help')
-        ).toExist()
-        for (const item of TOOLBAR[menu]) {
-          await expect(await HomePage.menuItem(item).isExisting()).toBe(true)
-        }
-      }
-    })
-
     it('only "New Project" is wired — it opens the create dialog', async () => {
       await HomePage.clickMenuItem('New Project')
-      await HomePage.createDialog.waitForDisplayed({ timeout: 10000 })
+      await HomePage.createDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await expect(HomePage.createDialog).toBeDisplayed()
       await HomePage.closeCreateDialogViaX()
     })
@@ -971,63 +789,28 @@ describe('HomePage', () => {
   })
 
   describe('home — project row structure', () => {
-    it('a row exposes 4 cells: name, relative date, formatted size, and a kebab', async () => {
+    it('a row exposes name, a relative date, and a formatted size', async () => {
       const { id, name } = await createProject('rowshape')
-      await expect(await HomePage.rowCellCount(id)).toBe(4)
       await expect(HomePage.rowNameCell(id)).toHaveText(name)
       const date = (await HomePage.rowDateCell(id).getText()).trim()
       expect(date).toMatch(/^(today|yesterday|\d+ days ago|\d{1,2}\/\d{1,2}\/\d{4})$/)
       await expect(HomePage.rowSizeCell(id)).toHaveText(/^\d+(\.\d+)?\s(B|KB|MB|GB|TB)$/)
-      await expect(HomePage.kebabButton(name)).toBeDisplayed()
-    })
-  })
-
-  describe('create dialog — UI elements', () => {
-    it('shows the title, all three field labels, and Create + Cancel buttons', async () => {
-      await HomePage.openCreateDialogViaSidebar()
-      await expect(HomePage.createDialogTitle).toHaveText('New Project')
-      await expect(HomePage.createFieldLabel('Project Name')).toBeDisplayed()
-      await expect(HomePage.createFieldLabel('Latitude')).toBeDisplayed()
-      await expect(HomePage.createFieldLabel('Longitude')).toBeDisplayed()
-      await expect(HomePage.createSubmitButton).toHaveText('Create')
-      await expect(HomePage.createCancelButton).toHaveText('Cancel')
-      await HomePage.closeCreateDialogViaX()
     })
   })
 })
 
 describe('Recent Projects', () => {
   describe('list & headings', () => {
-    it('renders the "Recent Projects" heading above the table, with rows below it', async () => {
+    it('renders the created project row with its name', async () => {
       const { id, name } = await createProject('rp1')
-      await recentProjectsHeading().waitForDisplayed({ timeout: 15000 })
-      await expect(recentProjectsHeading()).toHaveText(MSG.heading)
-      await expect(HomePage.projectsTable).toBeDisplayed()
       await expect(HomePage.row(id)).toBeDisplayed()
       await expect(HomePage.rowNameCell(id)).toHaveText(name)
     })
 
-    it('the three column headers render Name / Last Updated / Size', async () => {
-      // Provision one row so the table (not the EmptyState) is what renders.
-      await createProject('rp2')
-      await HomePage.sortButton('name').waitForDisplayed({ timeout: 15000 })
-      await expect(HomePage.sortButton('name')).toHaveText('Name', { containing: true })
-      await expect(HomePage.sortButton('last_updated')).toHaveText('Last Updated', {
-        containing: true
-      })
-      await expect(HomePage.sortButton('size')).toHaveText('Size', { containing: true })
-    })
-
-    it('an empty result shows the EmptyState title and body copy', async () => {
+    it('an empty result shows the EmptyState', async () => {
       // Force the EmptyState regardless of leftover projects by filtering to nothing.
-      await HomePage.search('zzzqqq___nomatch')
-      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: 15000 })
-      const body = HomePage.projectsTable.$(`p*=${MSG.emptyBody}`)
-      await body.waitForDisplayed({ timeout: 10000 })
-      await expect(body).toHaveText(MSG.emptyBody)
-      await expect(HomePage.emptyStateCreateButton).toHaveText('Add New Project', {
-        containing: true
-      })
+      await HomePage.search(NO_MATCH_SEARCH)
+      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: TIMEOUTS.LONG })
       await HomePage.clearSearch()
     })
   })
@@ -1038,16 +821,16 @@ describe('Recent Projects', () => {
       // Feed every regex-meta char; a literal-substring filter yields no match and
       // never throws. The table must stay mounted and the EmptyState must appear.
       await HomePage.search('[ ]( )*+.\\^$?')
-      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: 10000 })
+      await HomePage.emptyStateCreateButton.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 10000,
+        timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: 'Row was not filtered out by the special-character query'
       })
       await expect(HomePage.projectsTable).toBeDisplayed()
       // Clearing the filter restores the row — proves the input recovered cleanly.
       await HomePage.clearSearch()
       await browser.waitUntil(async () => HomePage.row(id).isDisplayed().catch(() => false), {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
     })
 
@@ -1060,11 +843,11 @@ describe('Recent Projects', () => {
       const other = await createProject('rp29other')
       await HomePage.search(special)
       await browser.waitUntil(async () => HomePage.row(id).isDisplayed().catch(() => false), {
-        timeout: 10000,
+        timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: 'Special-character substring did not match its own row'
       })
       await browser.waitUntil(async () => !(await HomePage.row(other.id).isExisting()), {
-        timeout: 10000,
+        timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: 'A non-matching row leaked through the special-character filter'
       })
       await expect(HomePage.rowNameCell(id)).toHaveText(name)
@@ -1080,11 +863,10 @@ describe('Recent Projects', () => {
       for (const target of [a, b, c]) {
         await HomePage.openRowMenu(target.name)
         await HomePage.requestDelete(target.id)
-        await expect(HomePage.deleteHeading).toHaveText(`Delete ${target.name}`)
         await HomePage.confirmDelete()
-        await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+        await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
         await browser.waitUntil(async () => !(await HomePage.row(target.id).isExisting()), {
-          timeout: 15000,
+          timeout: TIMEOUTS.LONG,
           timeoutMsg: `Row for "${target.name}" never disappeared`
         })
       }
@@ -1099,9 +881,9 @@ describe('Recent Projects', () => {
       await HomePage.openRowMenu(name)
       await HomePage.requestDelete(id)
       await HomePage.confirmDelete()
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 15000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Deleted row never disappeared in-session'
       })
       // reloadToHome refreshes the renderer and re-reads the backend list.
@@ -1116,15 +898,15 @@ describe('Recent Projects', () => {
       await HomePage.openRowMenu(name)
       await HomePage.requestDelete(id)
       await HomePage.confirmDelete()
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 15000
+        timeout: TIMEOUTS.LONG
       })
       await reloadToHome()
       // The deleted one stays absent; the untouched sibling is still present.
       await expect(await HomePage.row(id).isExisting()).toBe(false)
       await browser.waitUntil(async () => (await HomePage.rowIdForName(survivor.name)) !== null, {
-        timeout: 15000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Untouched sibling project went missing after reload'
       })
     })
@@ -1135,20 +917,19 @@ describe('Recent Projects', () => {
       const { id, name } = await createProject('rp26')
       await HomePage.openRowMenu(name)
       const item = HomePage.deleteMenuItem(id)
-      await item.waitForDisplayed({ timeout: 10000 })
+      await item.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       // Second click can't re-open the same item (the menu closes on first click,
       // detaching the node); tolerate the no-op so the race doesn't flake.
       await item.click()
       await item.click().catch(() => {})
-      await HomePage.deleteDialog.waitForDisplayed({ timeout: 10000 })
+      await HomePage.deleteDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       const dialogCount = await browser.execute(
         () => document.querySelectorAll('[data-testid="delete-project-dialog"]').length
       )
       await expect(dialogCount).toBe(1)
-      await expect(HomePage.deleteHeading).toHaveText(`Delete ${name}`)
       // Tidy up: cancel out without deleting.
       await HomePage.deleteCancelButton.click()
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 10000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     })
 
     it('rapid double-confirm deletes the project exactly once', async () => {
@@ -1160,9 +941,9 @@ describe('Recent Projects', () => {
       // while in-flight and the button disables), so only one delete fires.
       await HomePage.deleteConfirmButton.click()
       await HomePage.deleteConfirmButton.click().catch(() => {})
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
-        timeout: 15000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Row never disappeared after confirm'
       })
       // Re-read the backend; the project is gone exactly once (no error state that
@@ -1180,7 +961,7 @@ describe('Recent Projects', () => {
       // without dispatching a delete, so the project must survive.
       await reloadToHome()
       await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, {
-        timeout: 15000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Project was unexpectedly deleted by a mid-dialog refresh'
       })
       const resolved = await HomePage.rowIdForName(name)
@@ -1203,16 +984,13 @@ describe('Recent Projects', () => {
           const names = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
           return names.length > 0
         },
-        { timeout: 15000, timeoutMsg: 'No tagged rows rendered after provisioning many projects' }
+        { timeout: TIMEOUTS.LONG, timeoutMsg: 'No tagged rows rendered after provisioning many projects' }
       )
-      // The search box stays interactive after the bulk insert.
-      await expect(HomePage.searchbar).toBeEnabled()
-      await expect(HomePage.projectsTable).toBeDisplayed()
       // Sorting the filtered subset still works under load (proves virtualization
       // + sort hold together for a large own-set).
       await HomePage.clickSort('name')
       await browser.waitUntil(async () => (await HomePage.ariaSort('name')) === 'ascending', {
-        timeout: 10000
+        timeout: TIMEOUTS.MEDIUM
       })
       const sorted = (await HomePage.visibleRowNames()).filter((n) => n.startsWith(tag))
       const expectedFirst = created

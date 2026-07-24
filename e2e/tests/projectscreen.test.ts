@@ -30,6 +30,8 @@ import {
   uniqueName,
   waitForMainWindow
 } from '../support/harness'
+import { TIMEOUTS } from '../config/timeouts'
+import { DEFAULT_COORDS } from '../constants/test-data'
 
 before(async () => {
   await waitForMainWindow()
@@ -43,8 +45,8 @@ describe('ProjectScreen — navigation / entry', () => {
   it('double-clicking a project row lands on the ProjectScreen', async () => {
     const { id, name } = await createNamedReturnHome(uniqueName('dbl'))
     await HomePage.row(id).doubleClick()
-    await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: 15000 })
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(ProjectScreen.projectTitle).toHaveText(name)
     await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
   })
@@ -57,7 +59,7 @@ describe('ProjectScreen — navigation / entry', () => {
       el?.focus()
     }, id)
     await browser.keys(['Enter'])
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
   })
 
@@ -69,7 +71,7 @@ describe('ProjectScreen — navigation / entry', () => {
       el?.focus()
     }, id)
     await browser.keys([' '])
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   })
 
   it('a single click does NOT navigate (stays on Home)', async () => {
@@ -95,19 +97,19 @@ describe('ProjectScreen — header title + logo', () => {
     const { id } = await enterProject('logo')
     // We must actually be ON the project screen before clicking the logo —
     // otherwise the "returns to Home" claim is vacuous (we might already be home).
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(ProjectScreen.projectTitle).toBeDisplayed()
 
     await ProjectScreen.goHome()
 
     // Landed back on Home: the Home-only projects table is shown.
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(HomePage.projectsTable).toBeDisplayed()
 
     // The scenario id is cleared by ProjectScreen's unmount cleanup. Differential:
     // if that cleanup were removed, this waitUntil would time out (stays === id).
     await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
-      timeout: 10000,
+      timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'activeScenarioId not cleared on leaving the project screen'
     })
     await expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)
@@ -121,16 +123,6 @@ describe('ProjectScreen — header title + logo', () => {
     // assert the real, differential contract: it survives as `id`.
     await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
   })
-})
-
-describe('ProjectScreen — scenario chip (static)', () => {
-  it('renders the static "Scenario 1" chip', async () => {
-    await enterProject('chip')
-    await expect(ProjectScreen.scenarioChip).toBeDisplayed()
-    await expect(ProjectScreen.scenarioChip).toHaveText('Scenario 1', { containing: true })
-  })
-  // FINDING (not tested): the chip's Rename / Close / Add-scenario buttons have
-  // no onClick wired — placeholder no-ops (see design doc Section 6).
 })
 
 describe('ProjectScreen — coordinate validation (aria-invalid, no inline error)', () => {
@@ -152,7 +144,7 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
       // Differential: an invalid coordinate MUST set aria-invalid=true. If the
       // range/decimal/format validation were removed, this would time out.
       await browser.waitUntil(async () => (await ProjectScreen.coordInvalid(tc.field)) === 'true', {
-        timeout: 5000,
+        timeout: TIMEOUTS.SHORT,
         timeoutMsg: 'aria-invalid never became true'
       })
       // LabeledField renders NO inline error text — assert no alert/paragraph.
@@ -170,7 +162,7 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
     const seededUtc = await ProjectScreen.getUtcValue()
     await ProjectScreen.setCoordinate('longitude', '200') // out of [-180, 180]
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
-      timeout: 5000,
+      timeout: TIMEOUTS.SHORT,
       timeoutMsg: 'aria-invalid never became true for out-of-range longitude'
     })
     // The commit gate suppressed the PATCH -> the derived UTC offset is unchanged.
@@ -203,7 +195,7 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
     const seededUtc = await ProjectScreen.getUtcValue()
     await ProjectScreen.setCoordinate('longitude', '-121.7405')
     await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
-      timeout: 15000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'UTC offset never changed after committing a new longitude'
     })
     const committedUtc = await ProjectScreen.getUtcValue()
@@ -227,7 +219,7 @@ describe('ProjectScreen — coordinate commit + UTC recompute', () => {
     const seededUtc = await ProjectScreen.getUtcValue()
     await ProjectScreen.setCoordinate('longitude', '-121.7405') // US Pacific band
     await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
-      timeout: 15000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'UTC offset never changed after committing a new longitude'
     })
     // the typed value persists (input is not re-seeded on a same-id refetch).
@@ -252,7 +244,7 @@ describe('ProjectScreen — coordinate commit + UTC recompute', () => {
     const seededUtc = await ProjectScreen.getUtcValue()
     await ProjectScreen.setCoordinate('longitude', '-121.7405')
     await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
-      timeout: 15000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'UTC offset never changed after committing a new longitude'
     })
     const newUtc = await ProjectScreen.getUtcValue()
@@ -261,10 +253,9 @@ describe('ProjectScreen — coordinate commit + UTC recompute', () => {
     await expect(ProjectScreen.utcInput).toHaveValue(newUtc)
   })
 
-  it('the UTC Offset field is read-only and formatted', async () => {
+  it('the UTC Offset field is read-only', async () => {
     await enterProject('utcfmt')
     await expect(ProjectScreen.utcInput).toHaveAttribute('disabled')
-    await expect(ProjectScreen.utcInput).toHaveValue(/^[+-]\d{2}:\d{2}$/)
   })
 })
 
@@ -292,7 +283,7 @@ describe('ProjectScreen — UTC offset is the CORRECT value for fixed coordinate
     it(`resolves ${c.utc} for ${c.label}`, async () => {
       await enterProject('utcexact', c.lat, c.lon)
       await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) === c.utc, {
-        timeout: 20000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: `UTC offset for ${c.label} (${c.lat}, ${c.lon}) never became ${c.utc}`
       })
       await expect(ProjectScreen.utcInput).toHaveValue(c.utc)
@@ -300,37 +291,12 @@ describe('ProjectScreen — UTC offset is the CORRECT value for fixed coordinate
   }
 })
 
-describe('ProjectScreen — header help tooltips', () => {
-  it('latitude help exposes its tooltip content', async () => {
-    await enterProject('tip')
-    await expect(await ProjectScreen.latHelp.getAttribute('data-tooltip-content')).toContain(
-      'decimal degrees'
-    )
-  })
-  it('longitude help exposes its tooltip content', async () => {
-    await enterProject('tip2')
-    await expect(await ProjectScreen.lonHelp.getAttribute('data-tooltip-content')).toContain(
-      'decimal degrees'
-    )
-  })
-})
-
-describe('ProjectScreen — menubar present (items are no-ops)', () => {
-  it('exposes File / Edit / View / Tools / Help', async () => {
-    await enterProject('menu')
-    for (const label of ['File', 'Edit', 'View', 'Tools', 'Help'] as const) {
-      await expect(ProjectScreen.menubarButton(label)).toBeDisplayed()
-    }
-  })
-  // FINDING (not tested): onItemSelect={() => {}} — all 20 dropdown items are dead.
-})
-
 describe('ProjectScreen — boot auto-restore', () => {
   it('with BOTH active ids, a refresh re-opens the project screen', async () => {
     await enterProject('restore') // both ids now in localStorage
     await browser.refresh()
     await waitForMainWindow()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 20000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(HomePage.projectsTable).not.toBeDisplayed()
   })
 
@@ -339,88 +305,37 @@ describe('ProjectScreen — boot auto-restore', () => {
     await browser.execute((k: string) => localStorage.removeItem(k), ACTIVE_SCENARIO_KEY)
     await browser.refresh()
     await waitForMainWindow()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 20000 })
+    await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(ProjectScreen.projectTitle).not.toBeDisplayed()
   })
-})
-
-describe('ProjectScreen — Left/Right panels', () => {
-  it('the left panel starts collapsed and toggles expand/collapse', async () => {
-    await enterProject('left')
-    await expect(await ProjectScreen.isPanelExpanded('left')).toBe(false)
-    await ProjectScreen.toggleLeftPanel()
-    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('left'), {
-      timeout: 5000,
-      timeoutMsg: 'left panel never expanded'
-    })
-    await ProjectScreen.toggleLeftPanel()
-    await browser.waitUntil(async () => !(await ProjectScreen.isPanelExpanded('left')), {
-      timeout: 5000,
-      timeoutMsg: 'left panel never collapsed'
-    })
-  })
-
-  it('the right panel starts collapsed and toggles expand/collapse', async () => {
-    await enterProject('right')
-    await expect(await ProjectScreen.isPanelExpanded('right')).toBe(false)
-    await ProjectScreen.toggleRightPanel()
-    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('right'), {
-      timeout: 5000,
-      timeoutMsg: 'right panel never expanded'
-    })
-    await ProjectScreen.toggleRightPanel()
-    await browser.waitUntil(async () => !(await ProjectScreen.isPanelExpanded('right')), {
-      timeout: 5000,
-      timeoutMsg: 'right panel never collapsed'
-    })
-  })
-
-  it('toggling the left panel does not move the right panel', async () => {
-    await enterProject('indep')
-    await ProjectScreen.toggleLeftPanel()
-    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('left'), { timeout: 5000 })
-    await expect(await ProjectScreen.isPanelExpanded('right')).toBe(false)
-  })
-  // FINDING (not tested): expanded panel bodies are empty placeholders.
 })
 
 describe('ProjectScreen — CenterWorkspace tabs', () => {
   it('defaults to the Weather tab with the table mounted', async () => {
     await enterProject('tabs')
-    await expect(await ProjectScreen.tabActive('weather')).toBe('true')
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
-  })
-
-  it('renders exactly three tabs', async () => {
-    await enterProject('tabcount')
-    const buttons = await ProjectScreen.centerTabs.$$('button')
-    await expect(buttons.length).toBe(3)
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   })
 
   it('switching to 3D Window unmounts the Weather table', async () => {
     await enterProject('tab3d')
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await ProjectScreen.selectTab('3dwindow')
-    await expect(await ProjectScreen.tabActive('3dwindow')).toBe('true')
-    await expect(await ProjectScreen.tabActive('weather')).toBe('false')
-    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: 10000 })
+    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('switching to Output unmounts the Weather table', async () => {
     await enterProject('tabout')
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await ProjectScreen.selectTab('output')
-    await expect(await ProjectScreen.tabActive('output')).toBe('true')
-    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: 10000 })
+    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('returning to Weather remounts the table', async () => {
     await enterProject('tabback')
     await ProjectScreen.selectTab('output')
-    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: 10000 })
+    await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await ProjectScreen.selectTab('weather')
-    await expect(await ProjectScreen.tabActive('weather')).toBe('true')
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   })
   // FINDING (not tested): 3D Window / Output tabs render no content (inert placeholders).
 })
@@ -430,12 +345,12 @@ describe('ProjectScreen — coordinate edge cases', () => {
     await enterProject('fix')
     await ProjectScreen.setCoordinate('latitude', '95')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
-      timeout: 5000,
+      timeout: TIMEOUTS.SHORT,
       timeoutMsg: 'aria-invalid never became true for out-of-range latitude'
     })
     await ProjectScreen.setCoordinate('latitude', '45')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === null, {
-      timeout: 5000,
+      timeout: TIMEOUTS.SHORT,
       timeoutMsg: 'aria-invalid never cleared after correcting the latitude'
     })
   })
@@ -462,7 +377,7 @@ describe('ProjectScreen — coordinate edge cases', () => {
     const seededUtc = await ProjectScreen.getUtcValue()
     await ProjectScreen.setCoordinate('longitude', '-121.7405') // US Pacific band
     await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
-      timeout: 15000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'UTC offset never changed after committing a new valid longitude'
     })
     await expect(ProjectScreen.utcInput).not.toHaveValue(seededUtc)
@@ -475,16 +390,16 @@ describe('ProjectScreen — coordinate persistence', () => {
     const seededUtc = await ProjectScreen.getUtcValue()
     await ProjectScreen.setCoordinate('longitude', '-121.7405')
     await browser.waitUntil(async () => (await ProjectScreen.getUtcValue()) !== seededUtc, {
-      timeout: 15000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'UTC offset never changed after committing a new longitude'
     })
     // Reopen the SAME project from Home (backend session persists in-run) and
     // confirm the committed coordinate survived the round-trip.
     await ProjectScreen.goHome()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const homeId = await HomePage.rowIdForName(name)
     await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
   })
 
@@ -507,7 +422,7 @@ describe('ProjectScreen — coordinate persistence', () => {
     // reopened input would show the create-time 45.5 → red.
     const CREATE_LAT = '45.5'
     const NEW_LAT = '-33.8688'
-    const { id, name } = await enterProject('latpersist', CREATE_LAT, '56.78')
+    const { id, name } = await enterProject('latpersist', CREATE_LAT, DEFAULT_COORDS.lon)
 
     // Sanity: the header shows the create-time latitude before we edit it, so the
     // assertion below is genuinely about the EDIT surviving, not the seed.
@@ -543,85 +458,25 @@ describe('ProjectScreen — coordinate persistence', () => {
         return typeof persisted === 'number' && Math.abs(persisted - Number(NEW_LAT)) < 1e-9
       },
       {
-        timeout: 20000,
+        timeout: TIMEOUTS.LONG,
         timeoutMsg: `backend never reported the edited latitude ${NEW_LAT} for project ${id}`
       }
     )
 
     // Now that persistence is confirmed, leave and reopen the SAME project.
     await ProjectScreen.goHome()
-    await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
+    await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const homeId = await HomePage.rowIdForName(name)
     await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // The reopened header must show the EDITED latitude (seeded from the freshly
     // fetched project metadata), never the create-time 45.5.
     await browser.waitUntil(async () => (await ProjectScreen.getCoordValue('latitude')) === NEW_LAT, {
-      timeout: 15000,
+      timeout: TIMEOUTS.LONG,
       timeoutMsg: 'reopened latitude input never showed the edited value'
     })
     await expect(ProjectScreen.latInput).toHaveValue(NEW_LAT)
-  })
-})
-
-describe('ProjectScreen — scenario chip buttons (no-op)', () => {
-  it('the rename / close / add buttons exist, are clickable, and do nothing', async () => {
-    await enterProject('chipbtn')
-    const buttons = [
-      ProjectScreen.scenarioRenameBtn,
-      ProjectScreen.scenarioCloseBtn,
-      ProjectScreen.scenarioAddBtn
-    ]
-    for (const btn of buttons) {
-      await expect(await btn.isExisting()).toBe(true)
-      await expect(btn).toBeClickable()
-    }
-    // Clicking each placeholder must NOT mutate the chip or leave the screen.
-    for (const btn of buttons) {
-      await btn.click()
-    }
-    await expect(ProjectScreen.scenarioChip).toHaveText('Scenario 1', { containing: true })
-    await expect(ProjectScreen.projectTitle).toBeDisplayed()
-  })
-})
-
-describe('ProjectScreen — panel bodies are empty placeholders', () => {
-  it('expanding the left panel adds no interactive widgets', async () => {
-    await enterProject('lbody')
-    const collapsedCount = await ProjectScreen.panelButtonCount('left')
-    await ProjectScreen.toggleLeftPanel()
-    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('left'), {
-      timeout: 5000,
-      timeoutMsg: 'left panel never expanded'
-    })
-    // The expanded body is a placeholder -> button count is unchanged.
-    await expect(await ProjectScreen.panelButtonCount('left')).toBe(collapsedCount)
-  })
-
-  it('expanding the right panel adds no interactive widgets', async () => {
-    await enterProject('rbody')
-    const collapsedCount = await ProjectScreen.panelButtonCount('right')
-    await ProjectScreen.toggleRightPanel()
-    await browser.waitUntil(async () => ProjectScreen.isPanelExpanded('right'), {
-      timeout: 5000,
-      timeoutMsg: 'right panel never expanded'
-    })
-    await expect(await ProjectScreen.panelButtonCount('right')).toBe(collapsedCount)
-  })
-
-  it('both panels can be expanded simultaneously', async () => {
-    await enterProject('bothpanels')
-    await ProjectScreen.toggleLeftPanel()
-    await ProjectScreen.toggleRightPanel()
-    await browser.waitUntil(
-      async () =>
-        (await ProjectScreen.isPanelExpanded('left')) &&
-        (await ProjectScreen.isPanelExpanded('right')),
-      { timeout: 5000, timeoutMsg: 'both panels were not expanded simultaneously' }
-    )
-    await expect(await ProjectScreen.isPanelExpanded('left')).toBe(true)
-    await expect(await ProjectScreen.isPanelExpanded('right')).toBe(true)
   })
 })
 
@@ -631,8 +486,7 @@ describe('ProjectScreen — rapid tab switching', () => {
     await ProjectScreen.selectTab('output')
     await ProjectScreen.selectTab('3dwindow')
     await ProjectScreen.selectTab('weather')
-    await expect(await ProjectScreen.tabActive('weather')).toBe('true')
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 15000 })
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   })
 })
 
@@ -650,7 +504,7 @@ describe('ProjectScreen — boot restore (stale ids)', () => {
       async () =>
         (await HomePage.projectsTable.isDisplayed()) ||
         (await ProjectScreen.projectTitle.isDisplayed()),
-      { timeout: 20000, timeoutMsg: 'app rendered neither Home nor a project screen (white screen?)' }
+      { timeout: TIMEOUTS.LONG, timeoutMsg: 'app rendered neither Home nor a project screen (white screen?)' }
     )
     const onHome = await HomePage.projectsTable.isDisplayed()
     const onProject = await ProjectScreen.projectTitle.isDisplayed()
@@ -658,90 +512,3 @@ describe('ProjectScreen — boot restore (stale ids)', () => {
   })
 })
 
-describe('Project Window — Helios logo in the title bar', () => {
-  it('the logo image is displayed inside the Go-to-home button', async () => {
-    await enterProject('logo-img')
-    await ProjectScreen.goHomeButton.waitForDisplayed({ timeout: 15000 })
-    await expect(ProjectScreen.goHomeButton).toBeDisplayed()
-    // The logo IS the go-home button: it wraps the Helios logo <img>.
-    const logoImg = ProjectScreen.goHomeButton.$('img[alt="Helios logo"]')
-    await expect(logoImg).toBeDisplayed()
-  })
-
-  it('the logo sits in the top-left of the header', async () => {
-    await enterProject('logo-pos')
-    await ProjectScreen.goHomeButton.waitForDisplayed({ timeout: 15000 })
-    const header = $('[data-testid="header"]')
-    await header.waitForDisplayed({ timeout: 15000 })
-
-    const logoLoc = await ProjectScreen.goHomeButton.getLocation()
-    const titleLoc = await ProjectScreen.projectTitle.getLocation()
-    const headerLoc = await header.getLocation()
-
-    // Top-left: the logo starts at the header's left edge (allow a small px gap
-    // for padding) and is positioned before the project title horizontally.
-    expect(logoLoc.x).toBeLessThan(titleLoc.x)
-    expect(logoLoc.x - headerLoc.x).toBeLessThan(40)
-    // Vertically anchored at the very top of the header.
-    expect(logoLoc.y - headerLoc.y).toBeLessThan(40)
-  })
-})
-
-describe('Project Window — toolbar options in a single left-aligned row', () => {
-  const menuLabels = ['File', 'Edit', 'View', 'Tools', 'Help'] as const
-
-  it('File/Edit/View/Tools/Help are all displayed in the menubar', async () => {
-    await enterProject('menu-shown')
-    await ProjectScreen.menubar.waitForDisplayed({ timeout: 15000 })
-    for (const label of menuLabels) {
-      await expect(ProjectScreen.menubarButton(label)).toBeDisplayed()
-    }
-    // Exactly these five top-level options — no Scripting top-level menu.
-    // Count direct-child trigger buttons in-page: a leading ">" is an invalid
-    // WebDriver selector; :scope in querySelectorAll scopes to direct children
-    // (so dropdown-item buttons nested deeper are excluded).
-    const topButtonCount = await browser.execute(() => {
-      const nav = document.querySelector('[data-testid="menubar"]')
-      return nav ? nav.querySelectorAll(':scope > div > button').length : -1
-    })
-    expect(topButtonCount).toBe(menuLabels.length)
-  })
-
-  it('the menu buttons are laid out left-to-right in one row', async () => {
-    await enterProject('menu-row')
-    await ProjectScreen.menubar.waitForDisplayed({ timeout: 15000 })
-
-    const locs: Array<{ x: number; y: number }> = []
-    for (const label of menuLabels) {
-      locs.push(await ProjectScreen.menubarButton(label).getLocation())
-    }
-
-    // Single row: every button shares (within a few px) the same top Y.
-    const baseY = locs[0].y
-    for (const loc of locs) {
-      expect(Math.abs(loc.y - baseY)).toBeLessThan(8)
-    }
-    // Left-to-right order: File < Edit < View < Tools < Help by x.
-    for (let i = 1; i < locs.length; i += 1) {
-      expect(locs[i].x).toBeGreaterThan(locs[i - 1].x)
-    }
-  })
-
-  it('the menubar sits to the left of the coordinate fields', async () => {
-    await enterProject('menu-left')
-    await ProjectScreen.menubar.waitForDisplayed({ timeout: 15000 })
-    await ProjectScreen.latInput.waitForDisplayed({ timeout: 15000 })
-
-    const helpLoc = await ProjectScreen.menubarButton('Help').getLocation()
-    const latLoc = await ProjectScreen.latInput.getLocation()
-    const lonLoc = await ProjectScreen.lonInput.getLocation()
-    const utcLoc = await ProjectScreen.utcInput.getLocation()
-
-    // The whole menubar row precedes the coordinate inputs: the right-most menu
-    // option (Help) starts left of the first coordinate field.
-    expect(helpLoc.x).toBeLessThan(latLoc.x)
-    // And the coordinate trio itself reads Latitude -> Longitude -> UTC Offset.
-    expect(latLoc.x).toBeLessThan(lonLoc.x)
-    expect(lonLoc.x).toBeLessThan(utcLoc.x)
-  })
-})

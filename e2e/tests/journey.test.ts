@@ -12,10 +12,10 @@
  * delete column + delete row → multiple projects (coexist + switch) → reopen
  * (everything persisted) → rename → delete cleanup.
  *
- * INTENTIONAL RED (phase 9 delete-row): the frontend POSTs `/deleteRow` but the
- * backend only exposes `/delete` (see weather.test.ts:610) → the row rolls back
- * and reappears, so the "row removed" assertion stays RED until the route is
- * fixed, then flips green. Every other phase is a differential green assertion.
+ * Phase 9 delete-row asserts the deleted row actually disappears. Because the
+ * table is virtualized, it checks that the SPECIFIC deleted row unmounts (not a
+ * rendered-row count, which shifts when the delete-click scrolls the window).
+ * Every phase is a differential green assertion.
  *
  * Run: npm run e2e:smoke  (wdio --spec ./e2e/tests/journey.test.ts)
  */
@@ -62,6 +62,8 @@ async function reopen(name: string): Promise<void> {
   if (!homeId) throw new Error(`project "${name}" not found on Home`)
   await HomePage.row(homeId).doubleClick()
   await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+  // M2 wraps the workspace in tabs (default "3D Window"); activate Weather.
+  await ProjectScreen.selectTab('weather')
   await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 20000 })
   await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
 }
@@ -106,6 +108,8 @@ describe('Helios smoke journey', () => {
     if (!id) throw new Error('no active project id after create')
     A.id = id
     A.name = name
+    // M2 wraps the workspace in tabs (default "3D Window"); activate Weather.
+    await ProjectScreen.selectTab('weather')
     await expect(ProjectScreen.weatherSentinel).toBeDisplayed()
     await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
     await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: 20000 })
@@ -260,29 +264,34 @@ describe('Helios smoke journey', () => {
 
     // Assign a bounded unit so range validation arms.
     await Weather.assignDataTypeUnit(measureCol, 'air_temperature', 'K')
-    // Above the unit's max → the unit range message (setReactInput = change only,
-    // no blur, so the committed value is untouched).
+    // Above the unit's max → the unit range message. IMPORTANT: gate on the error
+    // MESSAGE itself, not aria-invalid. aria-invalid flips on the <input> a beat
+    // before the validation tooltip mounts; gating on aria-invalid and then
+    // reading cellError races the tooltip render under load and reads null
+    // (setReactInput = change only, no blur, so the committed value is untouched).
     await Weather.setReactInput(`[aria-label="${row} ${measureCol}"]`, '500')
-    await browser.waitUntil(async () => (await Weather.cellInvalid(row, measureCol)) === 'true', {
-      timeout: 10000,
-      timeoutMsg: 'out-of-range K value (500) did not flag aria-invalid'
-    })
-    expect(await Weather.cellError(row, measureCol)).toBe('Value should be between 223 and 350')
+    await browser.waitUntil(
+      async () => (await Weather.cellError(row, measureCol)) === 'Value should be between 223 and 350',
+      { timeout: 10000, timeoutMsg: 'unit-range message (223–350) never appeared for 500 K' }
+    )
     // Beyond the global ±1e6 hard bound → the GLOBAL message wins over the unit one.
     await Weather.setReactInput(`[aria-label="${row} ${measureCol}"]`, '2000000')
-    await browser.waitUntil(async () => (await Weather.cellInvalid(row, measureCol)) === 'true', {
-      timeout: 10000,
-      timeoutMsg: 'value beyond ±1e6 did not flag aria-invalid'
-    })
-    expect(await Weather.cellError(row, measureCol)).toBe('Value should be between -1000000 and 1000000.')
-    // Commit a valid in-range value → flag clears; leaves 300 K committed for the
-    // conversion phase.
+    await browser.waitUntil(
+      async () =>
+        (await Weather.cellError(row, measureCol)) === 'Value should be between -1000000 and 1000000.',
+      { timeout: 10000, timeoutMsg: 'global ±1e6 message never appeared for 2000000' }
+    )
+    // Commit a valid in-range value → flag + message clear; leaves 300 K committed
+    // for the conversion phase.
     await Weather.editCell(row, measureCol, '300')
+    await browser.waitUntil(async () => (await Weather.cellError(row, measureCol)) === null, {
+      timeout: 10000,
+      timeoutMsg: 'validation error did not clear for in-range 300 K'
+    })
     await browser.waitUntil(async () => (await Weather.cellInvalid(row, measureCol)) === null, {
       timeout: 10000,
       timeoutMsg: 'in-range value did not clear aria-invalid'
     })
-    expect(await Weather.cellError(row, measureCol)).toBe(null)
   })
 
   it('7. unit conversion round-trip — 300 K → °C → K restores', async function () {
@@ -325,7 +334,7 @@ describe('Helios smoke journey', () => {
     })
   })
 
-  it('9. delete a column and a row (both are removed from the table)', async function () {
+  it('9. delete a column and a row (both are removed)', async function () {
     this.timeout(60000)
     // Delete the measure column → it disappears.
     const measureCol = await Weather.waitForColumn('measure')
@@ -335,23 +344,28 @@ describe('Helios smoke journey', () => {
       timeoutMsg: 'measure column did not disappear after delete'
     })
 
-    // Delete the last visible row (never row0/row1, so phase 11's persisted
-    // note[row0]/note[row1] checks stay unaffected) and assert THAT row is gone.
+    // Delete the LAST (manually-added) row and assert it is actually removed.
+    // We target the last row so phase 11's note[row0]/note[row1] persistence
+    // checks stay on the untouched imported rows.
     //
-    // We assert on the specific row's absence rather than a rowCount() delta:
-    // rowCount() reads the virtualized DOM window, and clicking the last row's
-    // trash icon scrolls the body to the bottom, so after the delete the window
-    // renders one fewer row than the true total (the top row shifts into the
-    // spacer). A deleted row is removed from rowOrder and never re-renders,
-    // whereas a rolled-back delete would re-render it right here at the bottom —
-    // so its continued absence is the reliable, virtualization-proof signal.
+    // The table is VIRTUALIZED, so counting rendered rows (rowCount) is NOT a
+    // reliable signal here: clicking the last row's delete button scrolls the
+    // body to the bottom, which shifts the virtual window — after the delete the
+    // rendered-row count no longer equals countBefore - 1 (that only holds when
+    // every row fits on screen without scrolling, as in the 2-row weather test).
+    // Instead assert the SPECIFIC deleted row disappears from the DOM. The click
+    // leaves us scrolled to the bottom where that row lives, so a genuine removal
+    // unmounts it while an optimistic rollback (row reappears) keeps it — the
+    // assertion stays differential without depending on the windowed count.
     const rowsBefore = await Weather.visibleRowIds()
-    const deletedRowId = rowsBefore[rowsBefore.length - 1]
-    await Weather.deleteRow(deletedRowId)
-    await Weather.row(deletedRowId).waitForExist({
+    const deletedId = rowsBefore[rowsBefore.length - 1]
+    await Weather.deleteRow(deletedId)
+    await Weather.row(deletedId).waitForExist({
       reverse: true,
       timeout: 15000,
-      timeoutMsg: `delete-row did not remove row ${deletedRowId}`
+      timeoutMsg:
+        `delete-row did not remove row "${deletedId}" — it reappeared (optimistic ` +
+        `rollback). Check the /deleteRow route and delete_rows semantics (backend-api).`
     })
   })
 
@@ -405,6 +419,19 @@ describe('Helios smoke journey', () => {
       throw new Error(`create-time latitude did not persist: got ${lat}, expected ~45.5`)
     }
     expect(await ProjectScreen.getUtcValue()).toBe(committedUtc)
+  })
+
+  it('11b. sweep project A empty — delete every managed column, then every row', async function () {
+    this.timeout(180000)
+    // Runs AFTER the phase-11 persistence checks so it can tear the table all the
+    // way down without disturbing the note[row0]/note[row1] assertions. Deleting
+    // ~two dozen rows one by one exercises the delete-row path at volume (the
+    // single-delete in phase 9 only proved it once). We are on project A's Weather
+    // table (reopened in phase 11).
+    await Weather.deleteAllManagedColumns()
+    await expect((await Weather.managedColumnIds()).length).toBe(0)
+    await Weather.deleteAllRows()
+    await expect(await Weather.rowCount()).toBe(0)
   })
 
   it('12. rename project A, then delete A, B, and C from Home', async function () {

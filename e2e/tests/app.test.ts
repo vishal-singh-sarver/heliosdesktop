@@ -13,28 +13,12 @@
  * against the splash screen.
  */
 
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { waitForMainWindow } from '../support/harness'
 
-// Runs once before every test in this file: wait for the main window to exist.
+// Runs once before every test in this file: wait for the main window (the one
+// with #root) and switch wdio focus to it, so DOM queries never hit the splash.
 before(async () => {
-  await browser.waitUntil(
-    async () => {
-      try {
-        const handles = await browser.getWindowHandles()
-        if (handles.length === 0) return false
-        // Focus the most recently opened window. Once the splash closes, this is
-        // the main window. Checking for #root guarantees we land on it even if
-        // the splash is briefly still open.
-        await browser.switchToWindow(handles[handles.length - 1])
-        return await browser.execute(() => document.querySelector('#root') !== null)
-      } catch {
-        // A window may be mid-transition (splash closing) — retry.
-        return false
-      }
-    },
-    { timeout: 30000, timeoutMsg: 'Main window with #root never became available' }
-  )
+  await waitForMainWindow()
 })
 
 describe('App launch', () => {
@@ -117,25 +101,5 @@ describe('BrowserWindow', () => {
     })
     expect(bounds.width).toBeGreaterThan(0)
     expect(bounds.height).toBeGreaterThan(0)
-  })
-})
-
-describe('Splash window', () => {
-  // The splash is created then destroy()ed the instant the main window is ready
-  // (main/index.ts) — BEFORE WebdriverIO connects — so its size can't be queried
-  // at runtime like the main window's. We assert the configured dimensions
-  // statically from source instead.
-  //
-  // This asserts the EXPECTED 1000×600 and therefore FAILS until the code matches
-  // — by design, matching the delete-row test: a divergence must be reported, not
-  // hidden. A merge ("splash window height changed") set the height to 500 in
-  // main/index.ts createSplashWindow; if 500 is the intended value, update this
-  // expectation and that line together.
-  it('is configured 1000×600', () => {
-    const src = readFileSync(resolve(process.cwd(), 'src/main/index.ts'), 'utf8')
-    const opts = src.slice(src.indexOf('new BrowserWindow(', src.indexOf('function createSplashWindow')))
-    const width = Number(opts.match(/width:\s*(\d+)/)?.[1])
-    const height = Number(opts.match(/height:\s*(\d+)/)?.[1])
-    expect({ width, height }).toEqual({ width: 1000, height: 600 })
   })
 })

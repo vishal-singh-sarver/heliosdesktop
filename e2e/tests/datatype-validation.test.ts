@@ -18,6 +18,7 @@
  * value exceeds the global +/-1e6 keystroke bound, so it would surface the global
  * message instead of the unit message.
  */
+import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { enterProject, waitForBackendReady, waitForMainWindow } from '../support/harness'
 
@@ -174,6 +175,8 @@ describe('Weather data types — per-type range validation sweep', () => {
     await waitForMainWindow()
     await waitForBackendReady()
     await enterProject('dtvalid')
+    // M2 wraps the workspace in tabs (default "3D Window"); activate Weather.
+    await ProjectScreen.selectTab('weather')
     await Weather.selectAllCheckbox.waitForDisplayed({ timeout: 20000 })
     await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: 20000 })
     // One shared row set is enough — each type edits row 0 of its own column.

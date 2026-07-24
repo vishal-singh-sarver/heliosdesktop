@@ -1,6 +1,12 @@
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import type { Options } from '@wdio/types'
+import type { Frameworks } from '@wdio/types'
+import {
+  allureReporter,
+  attachFailureScreenshot,
+  writeAllureEnvironment
+} from './e2e/config/reporting'
 
 // VS Code and other Electron-based hosts set ELECTRON_RUN_AS_NODE=1 in their environment.
 // Child processes inherit this, causing the Electron binary to run as Node.js instead of
@@ -90,7 +96,11 @@ export const config: Options.Testrunner = {
     },
   ],
 
-  logLevel: 'debug',
+  // 'warn' keeps the output legible: a failing element wait no longer dumps a
+  // full Chrome stacktrace on every ~poll (which at 'debug' ballooned a single
+  // failing run to ~1M log lines). Override for deep debugging with
+  //   npx wdio run wdio.config.ts --logLevel debug
+  logLevel: 'warn',
 
   // Stop after N failures (0 = never stop early)
   bail: 0,
@@ -102,13 +112,24 @@ export const config: Options.Testrunner = {
   services: ['electron'],
 
   framework: 'mocha',
-  reporters: ['spec'],
+  reporters: ['spec', allureReporter],
 
   mochaOpts: {
     ui: 'bdd',
     // Heavy real-file imports (e.g. NSRDB NLR*.csv at 8784 rows) revalidate every
     // row in the renderer on each mapping interaction; 60s is too tight under load.
     timeout: 120000,
+  },
+
+  // Seed the Allure Environment widget (browser / platform / node details) before
+  // the run starts.
+  onPrepare: function () {
+    writeAllureEnvironment()
+  },
+
+  // Attach a screenshot to the Allure result whenever a test fails.
+  afterTest: async function (_test, _context, result: Frameworks.TestResult) {
+    await attachFailureScreenshot(result.passed)
   },
 
   // After each spec's session ends, kill any orphaned backend the app left behind.

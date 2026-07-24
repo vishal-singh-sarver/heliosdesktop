@@ -25,14 +25,8 @@ class HomePagePage {
   get header(): El {
     return $('[data-testid="header"]')
   }
-  get menubar(): El {
-    return $('[data-testid="menubar"]')
-  }
   get searchbar(): El {
     return $('[data-testid="searchbar"]')
-  }
-  get sidebar(): El {
-    return $('[data-testid="sidebar"]')
   }
   get projectsTable(): El {
     return $('[data-testid="projects-table"]')
@@ -228,10 +222,6 @@ class HomePagePage {
     return null
   }
 
-  // ===========================================================================
-  // Exhaustive-suite additions
-  // ===========================================================================
-
   // ----- Extra create-dialog fields / buttons / errors -----
   get createLonError(): El {
     return this.createDialog.$('[data-testid="error-longitude"]')
@@ -267,31 +257,14 @@ class HomePagePage {
     return this.renameDialog.$('p.form-error-text[role="alert"]:not([data-testid])')
   }
 
-  // ----- Delete-dialog copy / buttons -----
+  // ----- Delete-dialog cancel -----
   get deleteCancelButton(): El {
     return this.deleteDialog.$('button=Cancel')
   }
-  get deleteHeading(): El {
-    return this.deleteDialog.$('h3')
-  }
-  get deleteBody(): El {
-    return this.deleteDialog.$('p')
-  }
 
-  // ----- Sidebar items + active state (data-active is a stringified boolean) -----
-  get sidebarHome(): El {
-    return $('[data-testid="sidebar-Home"]')
-  }
+  // ----- Sidebar "Open project" entry -----
   get sidebarOpenProject(): El {
     return $('[data-testid="sidebar-Open project"]')
-  }
-  async sidebarActive(label: 'Home' | 'New Project' | 'Open project'): Promise<string | null> {
-    return $(`[data-testid="sidebar-${label}"]`).getAttribute('data-active')
-  }
-
-  // ----- Menubar New Project entry (only assert presence; hover-gated to click) -----
-  get menubarNewProject(): El {
-    return $('[data-testid="menu-New Project"]')
   }
 
   // ----- Kebab state reads -----
@@ -339,63 +312,6 @@ class HomePagePage {
     await this.searchbar.click()
   }
 
-  // ===========================================================================
-  // Gap-coverage additions: placeholders, tooltips, toolbar, row cells, dialog copy
-  // ===========================================================================
-
-  // ----- Placeholder reads -----
-  async searchPlaceholder(): Promise<string | null> {
-    return this.searchbar.getAttribute('placeholder')
-  }
-  async createNamePlaceholder(): Promise<string | null> {
-    return this.createNameInput.getAttribute('placeholder')
-  }
-  async createLatPlaceholder(): Promise<string | null> {
-    return this.createLatInput.getAttribute('placeholder')
-  }
-  async createLonPlaceholder(): Promise<string | null> {
-    return this.createLonInput.getAttribute('placeholder')
-  }
-
-  // ----- Field-help tooltips (react-tooltip 5.x; hover-gated, inline, no portal) -----
-  // Trigger is a focusable <span aria-label="Show <field> help"> rendering "?".
-  // The tooltip node is created ON hover, carries role="tooltip" + class
-  // react-tooltip, and gets react-tooltip__show when fully open; it is REMOVED
-  // from the DOM after the fade-out on mouseleave.
-  helpTrigger(field: 'project name' | 'latitude' | 'longitude'): El {
-    return $(`[aria-label="Show ${field} help"]`)
-  }
-  get visibleTooltip(): El {
-    return $('.react-tooltip.react-tooltip__show')
-  }
-  /**
-   * Hover a field-help "?" and wait for its tooltip to open. We assert the bubble
-   * EXISTS with the `react-tooltip__show` class (added on open) rather than
-   * waitForDisplayed — the projectName tooltip uses place:right and can render
-   * clipped off-viewport, which WDIO reports as "not displayed" even though it
-   * is open.
-   */
-  async hoverTooltip(field: 'project name' | 'latitude' | 'longitude'): Promise<El> {
-    const trigger = this.helpTrigger(field)
-    await trigger.waitForDisplayed({ timeout: 10000 })
-    await trigger.moveTo()
-    const tip = this.visibleTooltip
-    await tip.waitForExist({ timeout: 3000 })
-    return tip
-  }
-  /** Move off the trigger to dismiss, then wait for the open tooltip node to detach. */
-  async dismissTooltip(): Promise<void> {
-    await this.createDialogTitle.moveTo()
-    await this.visibleTooltip.waitForExist({ reverse: true, timeout: 3000 })
-  }
-
-  // ----- Toolbar (MenuBar) -----
-  toolbarMenuButton(label: 'File' | 'Edit' | 'View' | 'Tools' | 'Help'): El {
-    return this.menubar.$(`button=${label}`)
-  }
-  menuItem(label: string): El {
-    return $(`[data-testid="menu-${label}"]`)
-  }
   /**
    * Click a menubar dropdown item. The items are CSS `visibility:hidden` until
    * the parent is hovered, so a real .click() is "not interactable" — dispatch
@@ -417,17 +333,6 @@ class HomePagePage {
   }
   rowSizeCell(id: string): El {
     return this.row(id).$('td:nth-child(3)')
-  }
-  async rowCellCount(id: string): Promise<number> {
-    return (await this.row(id).$$('td')).length
-  }
-
-  // ----- Create-dialog copy (title + field labels) -----
-  get createDialogTitle(): El {
-    return this.createDialog.$('h2')
-  }
-  createFieldLabel(text: 'Project Name' | 'Latitude' | 'Longitude'): El {
-    return this.createDialog.$(`label*=${text}`)
   }
 }
 
