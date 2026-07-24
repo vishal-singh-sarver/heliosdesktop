@@ -1,3 +1,4 @@
+import { REMOVE_MATERIAL } from 'containers/Materials/constants'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { produce } from 'immer'
 import type { GeometryAction } from './actions'
@@ -204,6 +205,40 @@ const geometryReducer = (
     // this is ProjectScreen's action, not part of GeometryAction.
     if ((action.type as string) === SET_ACTIVE_SCENARIO) {
       draft.createDraft = null
+      return
+    }
+
+    // A material was DELETED from the library (Materials' REMOVE_MATERIAL, which
+    // is dispatched only once the backend delete succeeded — and that delete
+    // eagerly unassigns the group from the active scenario's objects). Nothing
+    // told the geometry slice, so the object form and the detail cache went on
+    // listing a material that no longer exists, and every node kept it in
+    // materialGroupIds. Purge it from the open draft and from every cached scope.
+    // Scope-wide because REMOVE_MATERIAL carries no project/scenario; a scenario
+    // the backend left frozen re-seeds from its own list fetch on the next switch.
+    // The cast is needed because this is Materials' action, not a GeometryAction.
+    if ((action.type as string) === REMOVE_MATERIAL) {
+      const groupId = (action as unknown as { id: string }).id
+      if (draft.createDraft) {
+        draft.createDraft.materials = draft.createDraft.materials.filter(
+          (m) => m.groupId !== groupId
+        )
+        draft.createDraft.materialBaseline = draft.createDraft.materialBaseline.filter(
+          (id) => id !== groupId
+        )
+      }
+      for (const scope of Object.values(draft.byScope)) {
+        for (const detail of Object.values(scope.detailsById)) {
+          detail.materialGroups = detail.materialGroups.filter((g) => g.groupId !== groupId)
+        }
+      }
+      // `node.materialGroupIds` is deliberately NOT purged here. It is not panel
+      // state — its only reader is the 3D viewport's refetch gate, which uses it
+      // to find the objects a material touches. redux-saga runs reducers BEFORE
+      // it emits to the saga channel, so clearing it here ran first and left
+      // onMaterialDeleted with no object listing the group: the deleted material
+      // stayed painted in the viewport until a reload. The now-dangling id is
+      // harmless (group ids are never reused) and the next list fetch re-seeds it.
       return
     }
 

@@ -70,7 +70,13 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     : 'outline-none'
   const focusBorderClassName = error ? 'focus:border-[#D92D20]' : 'focus:border-neutral-500'
   const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
-  const paddedClassName = iconLeft ? `${baseClassName} pl-9 pr-3` : `${baseClassName} px-3`
+  // A disabled INPUT reads the same as an editable one without this — the <select>
+  // branch below already faded itself, so a disabled text field was the only
+  // control that looked live while rejecting every keystroke (the Radiation band
+  // fields, greyed out while a spectral file supersedes them). Same treatment as
+  // the select, so both kinds of disabled field look alike.
+  const disabledClassName = 'disabled:cursor-not-allowed disabled:opacity-50'
+  const paddedClassName = `${iconLeft ? `${baseClassName} pl-9 pr-3` : `${baseClassName} px-3`} ${disabledClassName}`
 
   return (
     <div className="block text-sm text-neutral-300">

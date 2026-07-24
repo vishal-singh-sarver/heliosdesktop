@@ -1,7 +1,8 @@
+import { removeMaterial } from 'containers/Materials/actions'
 import { setActiveScenario } from 'containers/ProjectScreen/actions'
 import geometryReducer, { initialState, scopeKey } from '../reducer'
 import * as actions from '../actions'
-import type { GeoNode } from '../types'
+import type { GeoNode, ObjectDetail } from '../types'
 
 const P = 'p1'
 const S = 's1'
@@ -730,5 +731,64 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].nodesById['27']).toBeUndefined() // gone from the tree…
       expect(r.createDraft?.objectId).toBe('27') // …but the form stays open
     })
+  })
+})
+
+// Deleting a material from the library eagerly unassigns it on the backend, but
+// nothing used to tell the geometry slice — so the object form and the detail
+// cache kept listing a material that no longer exists, on every geometry it had
+// been assigned to, until a full reload.
+describe('REMOVE_MATERIAL (a library material was deleted)', () => {
+  const seeded = (): ReturnType<typeof geometryReducer> => {
+    const base = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        { ...ground('a', 'Ground.001'), materialGroupIds: ['55', '12'] },
+        { ...ground('b', 'Ground.002'), materialGroupIds: ['55'] }
+      ])
+    )
+    const detail = (name: string): ObjectDetail => ({
+      values: {},
+      objectTypeId: 1,
+      objectName: name,
+      materialGroups: [
+        { groupId: '55', name: 'Grass' },
+        { groupId: '12', name: 'Dirt' }
+      ]
+    })
+    return {
+      ...base,
+      byScope: {
+        ...base.byScope,
+        [KEY]: {
+          ...base.byScope[KEY],
+          detailsById: { a: detail('Ground.001'), b: detail('Ground.002') }
+        }
+      }
+    }
+  }
+
+  // materialGroupIds is the 3D viewport's index, NOT panel state. redux-saga runs
+  // reducers before the saga channel, so purging it here fired FIRST and left
+  // onMaterialDeleted unable to find the objects using the group — the deleted
+  // material stayed painted in the viewport until a reload. It must survive.
+  it('KEEPS materialGroupIds so the viewport can still find and repaint the objects', () => {
+    const r = geometryReducer(seeded(), removeMaterial('55') as never)
+    expect(r.byScope[KEY].nodesById['a'].materialGroupIds).toEqual(['55', '12'])
+    expect(r.byScope[KEY].nodesById['b'].materialGroupIds).toEqual(['55'])
+  })
+
+  it('drops it from every cached object detail, so reopening the form stays clean', () => {
+    const r = geometryReducer(seeded(), removeMaterial('55') as never)
+    expect(r.byScope[KEY].detailsById['a'].materialGroups.map((g) => g.groupId)).toEqual(['12'])
+    expect(r.byScope[KEY].detailsById['b'].materialGroups.map((g) => g.groupId)).toEqual(['12'])
+  })
+
+  it('deleting an unrelated material leaves the assigned ones on screen', () => {
+    const r = geometryReducer(seeded(), removeMaterial('999') as never)
+    expect(r.byScope[KEY].detailsById['a'].materialGroups.map((g) => g.groupId)).toEqual([
+      '55',
+      '12'
+    ])
   })
 })

@@ -151,6 +151,7 @@ describe('<FormField />', () => {
     expect(screen.getByRole('textbox')).toBeDisabled()
   })
 
+
   // ── helpPlace pass-through ──
 
   it('forwards helpPlace to the Tooltip when provided', () => {
@@ -254,5 +255,32 @@ describe('<FormField />', () => {
       <FormField {...defaultProps} inputProps={{ ...defaultProps.inputProps, error: 'Required' }} />
     )
     expect(container.firstChild).toMatchSnapshot()
+  })
+
+  // Kept LAST: these renders advance React's useId counter, and the snapshots
+  // above record generated ids.
+  //
+  // A disabled input used to be styled exactly like an editable one — only the
+  // <select> branch faded itself. So a greyed-out field (e.g. a Radiation band
+  // while a spectral file supersedes it) looked live but swallowed every
+  // keystroke. Both kinds of control must read as disabled.
+  it('styles a disabled input as disabled, matching the select', () => {
+    const { rerender } = render(
+      <FormField {...defaultProps} inputProps={{ ...defaultProps.inputProps, disabled: true }} />
+    )
+    expect(screen.getByRole('textbox').className).toContain('disabled:opacity-50')
+    expect(screen.getByRole('textbox').className).toContain('disabled:cursor-not-allowed')
+
+    rerender(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          disabled: true,
+          options: [{ value: 'a', label: 'A' }]
+        }}
+      />
+    )
+    expect(screen.getByRole('combobox').className).toContain('disabled:opacity-50')
   })
 })

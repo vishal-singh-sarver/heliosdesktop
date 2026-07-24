@@ -132,6 +132,11 @@ interface ApiObject {
   object_type: string
   group_id: number | null
   visibility: { viewport: boolean; render: boolean; models: Record<string, boolean> }
+  // The assigned material-group ids. The LIST sends only `group_id` per entry
+  // (the object GET sends the full WireMaterialGroup); the 3D viewport needs it
+  // to know which objects a material save restyles. Optional so an older backend
+  // that omits it still parses — see mergeTree.
+  material_groups?: Pick<WireMaterialGroup, 'group_id'>[]
   created_at: string
 }
 
@@ -171,7 +176,8 @@ function deriveGroupVisibility(
 // not in the list falls back to the root so it never disappears. Root rows
 // (leaves + groups) are ordered by created_at ascending — oldest first, matching
 // the objects endpoint's own ordering.
-function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
+// Exported for a pure unit test (mirrors wireObjectToNode).
+export function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
   const groupIds = new Set(groups.map((g) => String(g.id)))
   const parentByChild = new Map<string, string>()
   for (const g of groups) {
@@ -226,7 +232,13 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
         visibleInViewport: vis?.visibleInViewport ?? true,
         renderEnabled: vis?.renderEnabled ?? true,
         // Per-model map keyed by catalog model id; absent ids default to on.
-        modelVisibility: vis?.modelVisibility ?? {}
+        modelVisibility: vis?.modelVisibility ?? {},
+        // Seed the assigned material-group ids from the list, exactly as
+        // wireObjectToNode does for a single object. Without this a REFRESH left
+        // every node with no assignments, so a material save found no object
+        // using the group and never re-fetched its binary geometry — the
+        // viewport kept the old colour until a reload or a viewport toggle.
+        materialGroupIds: (o.material_groups ?? []).map((g) => String(g.group_id))
       }
     })
   }

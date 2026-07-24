@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { wireObjectToMaterialGroups, wireObjectToNode } from '../service'
+import { mergeTree, wireObjectToMaterialGroups, wireObjectToNode } from '../service'
 
 // A backend object mirroring POST/GET /objects (the shape verified on Swagger).
 const wire = (id: number, name: string, overrides: Record<string, unknown> = {}) => ({
@@ -118,5 +118,41 @@ describe('wireObjectToMaterialGroups', () => {
     expect(g.stale).toBe(true)
     expect(g.drift).toBe(true) // any member library_drift → drift
     expect(g.materials?.[0]?.properties).toEqual({}) // absent properties → {}
+  })
+})
+
+// The node list on a REFRESH comes from mergeTree (the objects+groups lists),
+// NOT from wireObjectToNode — which only runs for a single-object create/get.
+// mergeTree used to drop material_groups, so after a reload every node had no
+// assignments. The 3D viewport's material-save listener skips objects that don't
+// list the saved group, so it re-fetched nothing and the ground kept its old
+// colour until a reload or a viewport toggle.
+describe('mergeTree', () => {
+  const apiObject = (id: number, overrides: Record<string, unknown> = {}) => ({
+    id,
+    name: `Ground.00${id}`,
+    object_type: 'Ground',
+    group_id: null,
+    visibility: { viewport: true, render: true, models: {} },
+    created_at: `2026-01-0${id}T00:00:00Z`,
+    ...overrides
+  })
+
+  it('seeds materialGroupIds from the objects list so a save can find the object', () => {
+    const [node] = mergeTree([apiObject(1, { material_groups: [{ group_id: 55 }] })], [])
+    expect(node.materialGroupIds).toEqual(['55'])
+  })
+
+  it('keeps every assigned group id, in order', () => {
+    const [node] = mergeTree(
+      [apiObject(1, { material_groups: [{ group_id: 55 }, { group_id: 12 }] })],
+      []
+    )
+    expect(node.materialGroupIds).toEqual(['55', '12'])
+  })
+
+  it('falls back to [] when the backend omits material_groups', () => {
+    const [node] = mergeTree([apiObject(1)], [])
+    expect(node.materialGroupIds).toEqual([])
   })
 })
