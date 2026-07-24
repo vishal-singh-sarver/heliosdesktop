@@ -82,6 +82,7 @@ coverage/
 junit.xml
 test-results/
 .playwright/
+allure-results/
 
 package-lock.json
 linux-installer/payload/Helios/helios
