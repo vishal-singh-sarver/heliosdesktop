@@ -937,7 +937,6 @@ function ParameterGroupCard({
                   onToggleSpectral={() =>
                     onChangeValue(USE_RADIATION_BANDS_PROPERTY, applySpectral ? 'true' : 'false')
                   }
-                  saved={group.saved}
                   uploading={uploading}
                   uploadError={group.uploadError}
                   onPickSpectralFile={onUploadSpectral}

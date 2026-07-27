@@ -57,8 +57,8 @@ const DESIGN_MAX_HEIGHT = 866
 const isUngrouped = (group: MaterialDetailGroup): boolean => group.group.toLowerCase() === 'general'
 
 // Read-only accordion label for a material type, mirroring the editable Material
-// form's "Parameter Group.0N" cards.
-const parameterGroupTitle = (n: number): string => `Parameter Group.${String(n).padStart(2, '0')}`
+// form's "Material Type.0N" cards.
+const parameterGroupTitle = (n: number): string => `Material Type.${String(n).padStart(2, '0')}`
 
 // The read-only material properties popup, opened by clicking an assigned material
 // under the geometry form's Materials row. Presentational only: it takes its data

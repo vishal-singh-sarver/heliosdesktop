@@ -675,7 +675,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               // popup) + a trash icon (removes a draft pick, or unassigns a saved one).
               // The hover highlight lives on the ROW so the whole row lights up —
               // name and trash together — not just up to the trash icon.
-              <div key={m.groupId} className="flex items-center gap-1.5 rounded hover:bg-white/5">
+              <div
+                key={m.groupId}
+                className="flex items-center gap-1.5 rounded px-2 hover:bg-white/5"
+              >
                 <button
                   type="button"
                   aria-haspopup="dialog"

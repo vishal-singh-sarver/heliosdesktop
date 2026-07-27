@@ -26,7 +26,7 @@ const messages = {
   materialDetailClose: 'Close material properties',
   // The read-only label above a section's material type — the stand-in for the
   // editable Material form's "Parameter Group" type Select.
-  materialDetailTypeLabel: 'Parameter Group',
+  materialDetailTypeLabel: 'Material Type',
   // Shown while `sections` is empty. Deliberately NOT "this material has no
   // properties" — the values aren't fetched yet, so claiming the material is
   // empty would be a lie the user can't act on. Says what's true today.

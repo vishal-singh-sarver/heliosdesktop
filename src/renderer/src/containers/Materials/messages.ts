@@ -13,9 +13,9 @@ const messages = {
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Material name already exists',
   // Right-panel material Properties form.
-  parameterGroups: 'Parameter Groups',
-  // A numbered parameter-group header, e.g. "Parameter Group.01".
-  parameterGroupTitle: (n: number): string => `Parameter Group.${String(n).padStart(2, '0')}`,
+  parameterGroups: 'Material Types',
+  // A numbered material-type header, e.g. "Material Type.01".
+  parameterGroupTitle: (n: number): string => `Material Type.${String(n).padStart(2, '0')}`,
   // Property-field validation (mirrors the Geometry right-panel form). A
   // non-numeric or non-whole-number value shows "Invalid Input"; an out-of-range
   // value shows the range; the keystroke guards reuse the shared decimal copy.
@@ -60,7 +60,6 @@ const messages = {
   spectralDataFile: 'Spectral Data File',
   spectralUploadButton: 'Upload Here',
   spectralUploading: 'Uploading…',
-  spectralSaveFirst: 'Save the material first to attach a spectral data file',
   spectralFileTypeError: 'Only XML files are allowed',
   spectralFileSizeError: 'File must be 5 MB or smaller',
   spectralRemove: 'Remove spectral data file',

@@ -118,7 +118,7 @@ const radiation: MaterialTypeDef = {
   groups: []
 }
 
-// A store frozen on one open material draft with a single Parameter Group card.
+// A store frozen on one open material draft with a single Material Type card.
 const storeWith = (groups: MaterialParameterGroup[]): InjectableStore => {
   const state = {
     materials: {
@@ -266,7 +266,7 @@ describe('<MaterialPropertiesForm /> parameter-group card', () => {
       </Provider>
     )
 
-    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
     // Opens expanded.
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
 
@@ -285,12 +285,12 @@ describe('<MaterialPropertiesForm /> parameter-group card', () => {
       </Provider>
     )
 
-    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
     // The title sits on the header row — clicking it collapses the card.
-    fireEvent.click(screen.getByText('Parameter Group.01'))
+    fireEvent.click(screen.getByText('Material Type.01'))
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
-    fireEvent.click(screen.getByText('Parameter Group.01'))
+    fireEvent.click(screen.getByText('Material Type.01'))
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
 
@@ -301,7 +301,7 @@ describe('<MaterialPropertiesForm /> parameter-group card', () => {
       </Provider>
     )
 
-    const combobox = screen.getByRole('combobox', { name: 'Parameter Group.01' })
+    const combobox = screen.getByRole('combobox', { name: 'Material Type.01' })
     // The chevron is the button rendered inside the select's wrapper.
     const arrow = container.querySelector<HTMLButtonElement>('button[tabindex="-1"]')!
     expect(combobox).toHaveAttribute('aria-expanded', 'false')
@@ -321,8 +321,8 @@ describe('<MaterialPropertiesForm /> parameter-group card', () => {
       </Provider>
     )
 
-    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Parameter Group.01' }))
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Material Type.01' }))
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
 })
@@ -533,18 +533,19 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
     expect(screen.getByText('File must be 5 MB or smaller')).toBeInTheDocument()
   })
 
-  it('gates the spectral upload until the material has been saved', () => {
+  it('enables the spectral upload on an unsaved card (upload no longer needs the member)', () => {
     render(
       <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
         <MaterialPropertiesForm />
       </Provider>
     )
     fireEvent.click(screen.getByRole('switch'))
-    // Unsaved card → Upload disabled, with the save-first hint shown.
-    expect(screen.getByRole('button', { name: 'Upload Here' })).toBeDisabled()
+    // The upload only stores a file + returns a path; the member is written on
+    // Save. So Upload is available immediately, with no "save first" hint.
+    expect(screen.getByRole('button', { name: 'Upload Here' })).not.toBeDisabled()
     expect(
-      screen.getByText('Save the material first to attach a spectral data file')
-    ).toBeInTheDocument()
+      screen.queryByText('Save the material first to attach a spectral data file')
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -560,7 +561,7 @@ describe('<MaterialPropertiesForm /> + Add Material Type', () => {
       </Provider>
     )
 
-    const first = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    const first = screen.getByRole('button', { name: 'Toggle Material Type.01' })
     expect(first).toHaveAttribute('aria-expanded', 'true')
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Material Type' }))
@@ -568,7 +569,7 @@ describe('<MaterialPropertiesForm /> + Add Material Type', () => {
     // The card that was already open STAYS open — adding a second one used to
     // collapse it.
     expect(first).toHaveAttribute('aria-expanded', 'true')
-    const second = screen.getByRole('button', { name: 'Toggle Parameter Group.02' })
+    const second = screen.getByRole('button', { name: 'Toggle Material Type.02' })
     expect(second).toHaveAttribute('aria-expanded', 'true')
     // …and the new card is brought into view, since it can land below the fold.
     expect(scrollIntoView).toHaveBeenCalled()
@@ -590,13 +591,13 @@ describe('<MaterialPropertiesForm /> + Add Material Type', () => {
     )
 
     // Collapse the card. Its type Select stays visible even while collapsed.
-    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
     // Pick a type — the parameters render in the (hidden) body, so selecting must
     // re-open the card.
-    fireEvent.click(screen.getByRole('combobox', { name: 'Parameter Group.01' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Material Type.01' }))
     fireEvent.click(screen.getByRole('button', { name: 'Radiation' }))
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
@@ -618,7 +619,7 @@ describe('<MaterialPropertiesForm /> material-type dropdown', () => {
       </Provider>
     )
 
-    const combo = screen.getByRole('combobox', { name: 'Parameter Group.01' })
+    const combo = screen.getByRole('combobox', { name: 'Material Type.01' })
     fireEvent.click(combo)
     fireEvent.change(combo, { target: { value: 'vis' } })
     // Enter commits the single filtered match, keeping focus in the input.
@@ -641,7 +642,7 @@ describe('<MaterialPropertiesForm /> material-type dropdown', () => {
       </Provider>
     )
 
-    const combo = screen.getByRole('combobox', { name: 'Parameter Group.01' })
+    const combo = screen.getByRole('combobox', { name: 'Material Type.01' })
     fireEvent.click(combo)
     fireEvent.change(combo, { target: { value: 'vis' } })
     fireEvent.keyDown(combo, { key: 'Escape' })
@@ -890,7 +891,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       </Provider>
     )
 
-    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
 
     // Fill it in and save: the click puts the card into 'saving', the saga answers.
@@ -903,7 +904,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     // The type still reads from the collapsed header — that's what says WHICH
     // material type this card holds.
-    expect(screen.getByRole('combobox', { name: 'Parameter Group.01' })).toHaveValue('Radiation')
+    expect(screen.getByRole('combobox', { name: 'Material Type.01' })).toHaveValue('Radiation')
   })
 
   it('leaves the card open when the save fails, so the error is visible', () => {
@@ -915,7 +916,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       </Provider>
     )
 
-    const toggle = screen.getByRole('button', { name: 'Toggle Parameter Group.01' })
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
     fireEvent.change(screen.getByLabelText('Surface Albedo'), { target: { value: '0.5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     act(() => {
@@ -1133,10 +1134,10 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(uploads).toHaveLength(1)
   })
 
-  // The texture upload endpoint persists the member itself (creating it in texture
-  // mode), so a successful upload marks the card saved + clean — Save is not
-  // offered as a re-add (a POST there would 409 "already in this group").
-  it('a texture upload marks the card saved, so Save is not offered (no re-POST)', () => {
+  // The upload endpoint now only STORES the file and returns its path — it does
+  // NOT persist the member. So a texture upload stages the path and leaves the
+  // card unsaved + dirty, and Save IS offered (it POSTs the member with the path).
+  it('a texture upload leaves the card unsaved, so Save is offered', () => {
     Element.prototype.scrollIntoView = vi.fn()
     const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
     render(
@@ -1145,13 +1146,18 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       </Provider>
     )
 
-    // The upload landed (its endpoint persisted the member) — reflect that.
+    // Switch to the Texture tab (where a real upload happens), then land the path.
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
     act(() => {
       store.dispatch(uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png'))
     })
 
-    // Upload IS the save: the card is clean, so Save stays disabled.
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    // The member isn't saved yet — Save is enabled and the card is still unsaved.
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+    expect(
+      (store.getState() as unknown as { materials: MaterialsState }).materials.editDraft?.groups[0]
+        .saved
+    ).toBe(false)
   })
 
   // Saving a colour must clear the texture half of the value bag, the mirror of
@@ -1277,7 +1283,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     )
 
     // Pick Visualiser, go to the texture tab, highlight a library texture.
-    const combo = screen.getByRole('combobox', { name: 'Parameter Group.01' })
+    const combo = screen.getByRole('combobox', { name: 'Material Type.01' })
     fireEvent.click(combo)
     fireEvent.click(screen.getByRole('button', { name: 'Visualiser' }))
     fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))

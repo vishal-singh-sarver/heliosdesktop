@@ -59,7 +59,6 @@ export function MaterialRadiationEditor({
   onFieldBlur,
   applySpectral,
   onToggleSpectral,
-  saved,
   uploading,
   uploadError,
   onPickSpectralFile,
@@ -76,9 +75,6 @@ export function MaterialRadiationEditor({
   // "Apply spectral data": ON = a spectral file supersedes the per-band inputs.
   applySpectral: boolean
   onToggleSpectral: () => void
-  // Whether the member exists on the backend yet — the spectral upload needs it,
-  // because the file endpoint only auto-creates a member for a Visualiser texture.
-  saved: boolean
   uploading: boolean
   // A failed upload's message (rendered under the control).
   uploadError?: string | null
@@ -128,9 +124,10 @@ export function MaterialRadiationEditor({
   const [firstHeader, ...restHeader] = radiationHeaderFields(fields)
 
   const spectralPath = values[SPECTRAL_DATA_PROPERTY] ?? ''
-  // The upload endpoint only attaches to an existing member (unlike the texture
-  // one), so the control waits until the material has been saved once.
-  const canUpload = applySpectral && saved && !uploading
+  // The upload only stores the file and returns its path (the member is written
+  // by Save), so it needs nothing but spectral mode being on and no upload already
+  // in flight — no save-first requirement.
+  const canUpload = applySpectral && !uploading
 
   const handlePick = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const file = e.target.files?.[0]
@@ -209,16 +206,19 @@ export function MaterialRadiationEditor({
             <button
               type="button"
               disabled={!canUpload}
-              title={applySpectral && !saved ? messages.spectralSaveFirst : undefined}
               onClick={() => fileInputRef.current?.click()}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-app-border bg-[#121212] text-sm text-neutral-200 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+              // Fixed 123×30 pill. Dark (its original look) while the spectral
+              // toggle is OFF; white with the dark upload glyph once ON — the same
+              // white treatment as the Visualiser's "Upload File" button.
+              className={`flex h-[30px] w-[123px] items-center justify-center gap-1 rounded-[4px] border border-app-border px-[10px] py-[5px] text-sm font-medium disabled:cursor-not-allowed ${
+                applySpectral
+                  ? 'bg-white text-black hover:opacity-90 disabled:opacity-60'
+                  : 'bg-[#121212] text-neutral-200 hover:bg-neutral-800 disabled:opacity-50'
+              }`}
             >
               <img src={uploadIcon} alt="" aria-hidden="true" className="h-4 w-4" />
               {uploading ? messages.spectralUploading : messages.spectralUploadButton}
             </button>
-            {applySpectral && !saved && (
-              <p className="text-xs text-neutral-500">{messages.spectralSaveFirst}</p>
-            )}
           </>
         )}
         {(fileError || uploadError) && (

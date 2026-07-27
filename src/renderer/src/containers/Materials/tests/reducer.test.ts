@@ -255,44 +255,62 @@ describe('materialsReducer', () => {
       expect(result.detailsById['12'].members).toEqual([])
     })
 
-    it('UPLOAD_TEXTURE_SUCCEEDED switches to texture mode and marks the card saved', () => {
+    it('UPLOAD_TEXTURE_SUCCEEDED stages the path + texture mode but leaves the card UNSAVED', () => {
       const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
       const typed = materialsReducer(opened, actions.setParameterGroupType(1, 7))
-      // The card had a colour before the user switched to texture and uploaded.
-      const coloured = materialsReducer(typed, actions.setParameterGroupValue(1, 'color_r', '128'))
       const result = materialsReducer(
-        coloured,
+        typed,
         actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png')
       )
 
       const card = result.editDraft?.groups[0]
-      // The upload endpoint persists the member, so the card is saved + clean —
-      // a later Save PATCHes it (never re-POSTs → no 409).
-      expect(card?.saved).toBe(true)
-      expect(card?.uploadStatus).toBe('idle')
+      // Upload now only STORES the file — the member is written by Save. So the
+      // path + texture mode are staged, but the card stays unsaved and dirty
+      // (no savedValues snapshot) so Save is offered and creates the member.
       expect(card?.values.texture_file).toBe('uploads/materials/12/grass.png')
       expect(card?.values.texture_toggle).toBe('true')
-      // Colour is cleared — the member is now texture-only.
-      expect(card?.values.color_r).toBe('')
-      // Clean baseline: savedValues mirrors the persisted values.
-      expect(card?.savedValues?.texture_file).toBe('uploads/materials/12/grass.png')
+      expect(card?.uploadStatus).toBe('idle')
+      expect(card?.saved).toBe(false)
+      expect(card?.savedValues).toBeNull()
     })
 
     it('UPLOAD_TEXTURE_SUCCEEDED for a non-texture property just stages the path', () => {
       const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
       const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
-      // The Radiation member was saved first (the spectral endpoint needs it).
-      const saved = materialsReducer(typed, actions.saveParameterGroupSucceeded('12', 1))
       const result = materialsReducer(
-        saved,
+        typed,
         actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/leaf.xml', 'spectral_data')
       )
       const card = result.editDraft?.groups[0]
       expect(card?.values.spectral_data).toBe('uploads/materials/12/leaf.xml')
-      // No texture side-effects for a non-texture upload.
+      // No texture side-effects, and — like the texture upload — no save.
       expect(card?.values.texture_toggle).toBeUndefined()
       expect(card?.uploadStatus).toBe('idle')
-      expect(card?.savedValues?.spectral_data).toBe('uploads/materials/12/leaf.xml')
+      expect(card?.saved).toBe(false)
+      expect(card?.savedValues).toBeNull()
+    })
+
+    // A failed upload (e.g. a texture 404) left its error pinned under the card;
+    // switching the card's type or editing a field must clear it, exactly like a
+    // failed save's error does.
+    it('clears a stale upload error when the material type changes', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 7))
+      const failed = materialsReducer(typed, actions.uploadTextureFailed('12', 1, 'boom'))
+      expect(failed.editDraft?.groups[0].uploadError).toBe('boom')
+
+      const switched = materialsReducer(failed, actions.setParameterGroupType(1, 1))
+      expect(switched.editDraft?.groups[0].uploadStatus).toBe('idle')
+      expect(switched.editDraft?.groups[0].uploadError).toBeNull()
+    })
+
+    it('clears a stale upload error when a field is edited', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
+      const failed = materialsReducer(typed, actions.uploadTextureFailed('12', 1, 'boom'))
+      const edited = materialsReducer(failed, actions.setParameterGroupValue(1, 'emissivity', '0.9'))
+      expect(edited.editDraft?.groups[0].uploadStatus).toBe('idle')
+      expect(edited.editDraft?.groups[0].uploadError).toBeNull()
     })
 
     // The cache stands in for a GET (openSavedMaterialWorker serves from it and
@@ -620,12 +638,16 @@ describe('materialsReducer', () => {
         expect(result.detailsById['37']).toBeDefined()
       })
 
-      it('after an upload that landed', () => {
+      // NOT after an upload: it stores a file and returns a path but persists
+      // nothing, so the cache still matches the backend and must be left alone.
+      it('but NOT after an upload — it persists nothing, so the cache still holds', () => {
+        const before = switched()
+        expect(before.detailsById['12']).toBeDefined()
         const result = materialsReducer(
-          switched(),
+          before,
           actions.uploadTextureSucceeded('12', 1, 'uploads/materials/12/grass.png')
         )
-        expect(result.detailsById['12']).toBeUndefined()
+        expect(result.detailsById['12']).toBeDefined()
       })
 
       it('after a member delete that landed', () => {
