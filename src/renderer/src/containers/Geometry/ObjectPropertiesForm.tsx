@@ -1,7 +1,9 @@
 import deleteIcon from '@renderer/assets/delete.svg'
+import infoIcon from '@renderer/assets/info.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
+import Tooltip from '@renderer/components/Tooltip'
 import { loadMaterialDetailRequested } from 'containers/Materials/actions'
 import {
   isVisualisationFieldSet,
@@ -10,10 +12,10 @@ import {
   TEXTURE_TOGGLE_PROPERTY,
   visibleParameterGroups
 } from 'containers/Materials/materialBlueprint'
-import { textureServeUrl } from 'containers/Materials/service'
 import materialsReducer from 'containers/Materials/reducer'
 import materialsSaga from 'containers/Materials/saga'
 import { selectAllMaterials, selectMaterialDetailsById } from 'containers/Materials/selectors'
+import { textureServeUrl } from 'containers/Materials/service'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
@@ -167,46 +169,45 @@ export function buildMaterialSections(
       for (const [property, value] of Object.entries(member.properties)) {
         selectorValues[property] = asDisplay(value)
       }
-      const groups = visibleParameterGroups(
-        resolveParameterGroups([type]),
-        selectorValues
-      ).map((pg) => {
-        // The Visualiser in texture mode gets a dedicated section: the texture's
-        // name + the image itself, served from the same /api/textures/serve
-        // endpoint the visualiser editor and 3D scene already use. Every other
-        // group — and the Visualiser in colour mode — keeps the generic text
-        // mapping below.
-        if (isVisualisationFieldSet(pg.fields) && isTextureMode(member.properties)) {
-          const path = asDisplay(member.properties[TEXTURE_PROPERTY])
-          const name = textureDisplayName(path)
+      const groups = visibleParameterGroups(resolveParameterGroups([type]), selectorValues).map(
+        (pg) => {
+          // The Visualiser in texture mode gets a dedicated section: the texture's
+          // name + the image itself, served from the same /api/textures/serve
+          // endpoint the visualiser editor and 3D scene already use. Every other
+          // group — and the Visualiser in colour mode — keeps the generic text
+          // mapping below.
+          if (isVisualisationFieldSet(pg.fields) && isTextureMode(member.properties)) {
+            const path = asDisplay(member.properties[TEXTURE_PROPERTY])
+            const name = textureDisplayName(path)
+            return {
+              group: 'visualisation',
+              label: 'Visualisation properties (Texture)',
+              singleColumn: true,
+              rows: [
+                { property: 'texture_name', label: 'Texture Name', value: path ? name : '—' },
+                {
+                  property: TEXTURE_PROPERTY,
+                  label: 'Texture Image',
+                  value: '',
+                  ...(path ? { image: { src: textureServeUrl(path), alt: name } } : {})
+                }
+              ]
+            }
+          }
           return {
-            group: 'visualisation',
-            label: 'Visualisation properties (Texture)',
-            singleColumn: true,
-            rows: [
-              { property: 'texture_name', label: 'Texture Name', value: path ? name : '—' },
-              {
-                property: TEXTURE_PROPERTY,
-                label: 'Texture Image',
-                value: '',
-                ...(path ? { image: { src: textureServeUrl(path), alt: name } } : {})
-              }
-            ]
+            // The blueprint's top-level fields (name null) map to the header-less
+            // "general" bucket the popup already renders inline; named groups keep
+            // their catalog name as the section heading.
+            group: pg.name ?? 'general',
+            label: pg.name ?? 'General',
+            rows: pg.fields.map((f) => ({
+              property: f.property,
+              label: f.label,
+              value: asDisplay(member.properties[f.property])
+            }))
           }
         }
-        return {
-          // The blueprint's top-level fields (name null) map to the header-less
-          // "general" bucket the popup already renders inline; named groups keep
-          // their catalog name as the section heading.
-          group: pg.name ?? 'general',
-          label: pg.name ?? 'General',
-          rows: pg.fields.map((f) => ({
-            property: f.property,
-            label: f.label,
-            value: asDisplay(member.properties[f.property])
-          }))
-        }
-      })
+      )
       return { typeId: member.materialTypeId, typeName, groups }
     }
     const rows = Object.entries(member.properties).map(([property, value]) => ({
@@ -534,28 +535,42 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           (discard/delete). The name is read-only until the pencil is tapped. */}
       <div>
         <div className="flex items-center gap-1">
-          <input
-            ref={nameInputRef}
-            aria-label="Object name"
-            aria-invalid={nameError != null}
-            value={draft.name}
-            readOnly={!nameEditing}
-            disabled={objectDeleted}
-            onChange={(e) => handleNameChange(e.target.value)}
-            onDoubleClick={() => {
-              if (!objectDeleted) setNameEditing(true)
-            }}
-            onBlur={handleNameBlur}
-            className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-              !nameEditing ? 'cursor-default ' : ''
-            }${
-              nameError
-                ? 'border-red-500'
-                : nameEditing
-                  ? 'border-neutral-500'
-                  : 'border-transparent hover:border-app-border'
-            }`}
-          />
+          <div className="relative min-w-0 flex-1">
+            <input
+              ref={nameInputRef}
+              aria-label="Object name"
+              aria-invalid={nameError != null}
+              value={draft.name}
+              readOnly={!nameEditing}
+              disabled={objectDeleted}
+              onChange={(e) => handleNameChange(e.target.value)}
+              onDoubleClick={() => {
+                if (!objectDeleted) setNameEditing(true)
+              }}
+              onBlur={handleNameBlur}
+              className={`w-full rounded border bg-transparent py-0.5 ${
+                nameError && !objectDeleted ? 'pl-1 pr-7' : 'px-1'
+              } text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+                !nameEditing ? 'cursor-default ' : ''
+              }${
+                nameError
+                  ? 'border-red-500'
+                  : nameEditing
+                    ? 'border-neutral-500'
+                    : 'border-transparent hover:border-app-border'
+              }`}
+            />
+            {nameError && !objectDeleted && (
+              <Tooltip
+                text={nameError}
+                ariaLabel={`Validation error: ${nameError}`}
+                place="top"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2"
+              >
+                <img src={infoIcon} alt="" className="h-4 w-4" />
+              </Tooltip>
+            )}
+          </div>
           <button
             type="button"
             aria-label="Edit name"
@@ -575,7 +590,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
           </button>
         </div>
-        {nameError && !objectDeleted && <p className="form-error-text mt-1">{nameError}</p>}
       </div>
 
       {/* The object was deleted from the tree while this form was open. */}
@@ -628,6 +642,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                       value,
                       placeholder: field.label,
                       error: error ?? undefined,
+                      // Surface validation as an in-cell info-icon tooltip
+                      // (Weather's CellInput pattern) instead of a text line.
+                      errorAsTooltip: true,
                       disabled: objectDeleted,
                       inputClassName: 'bg-[#121212]',
                       onChange: (e) =>

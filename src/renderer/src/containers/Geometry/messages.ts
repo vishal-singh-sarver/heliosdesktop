@@ -9,6 +9,15 @@ const messages = {
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Geometry name already exists',
   renameFailed: 'Unable to rename group. Please try again',
+  createFailed: 'Unable to create geometry. Please try again',
+  // Field-value validation copy. A value that fails the catalog range shows the
+  // range message; any other invalid input (non-numeric, or a decimal in an
+  // integer field) shows the generic "Invalid Input". Built from each field's
+  // catalog min/max so the message always reflects the real bounds.
+  invalidInput: 'Invalid Input',
+  valuesBetween: (min: number, max: number) => `Values should be between (${min} - ${max})`,
+  valuesAtLeast: (min: number) => `Values should be greater than or equal to ${min}`,
+  valuesAtMost: (max: number) => `Values should be less than or equal to ${max}`,
   // Per-keystroke input guards (story copy). Geometry-specific so they don't
   // change the shared decimalValidation copy used elsewhere (e.g. Weather).
   decimalLimit: 'Only 7 Decimal places are supported',

@@ -45,6 +45,9 @@ function Tooltip({
       <ReactTooltip
         id={id}
         place={place}
+        // Fixed positioning anchors the tooltip to the viewport so it isn't
+        // clipped by an overflow:hidden / scroll ancestor (e.g. the right panel).
+        positionStrategy="fixed"
         border="1px solid #2a2d35"
         style={{
           backgroundColor: '#2b2d33',

@@ -155,10 +155,22 @@ describe('validateFieldValue', () => {
     expect(validateFieldValue(field({ required: false }), '')).toBeNull()
   })
 
-  it('rejects non-numeric and out-of-range values (generic fallback copy)', () => {
-    expect(validateFieldValue(field(), 'abc')).toBe('Must be a number')
-    expect(validateFieldValue(field({ min: 0 }), '-1')).toBe('Min 0')
-    expect(validateFieldValue(field({ max: 360 }), '400')).toBe('Max 360')
+  it('rejects non-numeric input with the generic "Invalid Input" copy', () => {
+    expect(validateFieldValue(field(), 'abc')).toBe('Invalid Input')
+  })
+
+  it('shows the catalog range message for out-of-range values', () => {
+    // One-sided bounds get the matching variant…
+    expect(validateFieldValue(field({ min: 0 }), '-1')).toBe(
+      'Values should be greater than or equal to 0'
+    )
+    expect(validateFieldValue(field({ max: 360 }), '400')).toBe(
+      'Values should be less than or equal to 360'
+    )
+    // …and a two-sided range gets the "between" copy (negatives read cleanly).
+    expect(validateFieldValue(field({ min: -1000000, max: 1000000 }), '2000000')).toBe(
+      'Values should be between (-1000000 - 1000000)'
+    )
   })
 
   it('enforces integer datatype with the standard Invalid Input copy', () => {
@@ -166,30 +178,25 @@ describe('validateFieldValue', () => {
     expect(validateFieldValue(field({ datatype: 'integer', min: 1 }), '100')).toBeNull()
   })
 
-  it('collapses every non-empty failure to the field’s invalidMessage when present', () => {
-    const positive = field({ min: 0, invalidMessage: 'Invalid Input' })
+  it('uses range copy for out-of-range, generic copy for non-numeric, required copy for empty', () => {
+    const positive = field({ min: 0 })
     expect(validateFieldValue(positive, 'abc')).toBe('Invalid Input')
-    expect(validateFieldValue(positive, '-5')).toBe('Invalid Input')
-    // Empty still uses the uniform required copy, not the invalidMessage.
+    expect(validateFieldValue(positive, '-5')).toBe('Values should be greater than or equal to 0')
+    // Empty still uses the uniform required copy.
     expect(validateFieldValue(positive, '')).toBe('Required Field')
     // Valid value passes.
     expect(validateFieldValue(positive, '3')).toBeNull()
   })
 
   it('shows "Invalid Input" (not the range copy) for an in-range decimal in an integer field', () => {
-    // resolution_x: integer, 1–25000, carrying a range-style invalidMessage.
-    const resolution = field({
-      datatype: 'integer',
-      min: 1,
-      max: 25000,
-      invalidMessage: 'Values should be between 1-25000'
-    })
+    // resolution_x: integer, 1–25000.
+    const resolution = field({ datatype: 'integer', min: 1, max: 25000 })
     // 5.5 IS within 1–25000, so the range copy would be misleading; a decimal in
     // an integer field is an invalid input, not an out-of-range value.
     expect(validateFieldValue(resolution, '5.5')).toBe('Invalid Input')
     // Genuinely out-of-range values (whole or not) still get the range copy.
-    expect(validateFieldValue(resolution, '30000')).toBe('Values should be between 1-25000')
-    expect(validateFieldValue(resolution, '0.5')).toBe('Values should be between 1-25000')
+    expect(validateFieldValue(resolution, '30000')).toBe('Values should be between (1 - 25000)')
+    expect(validateFieldValue(resolution, '0.5')).toBe('Values should be between (1 - 25000)')
     // A valid whole number passes.
     expect(validateFieldValue(resolution, '100')).toBeNull()
   })
@@ -222,16 +229,32 @@ describe('defaultValuesForObject (Ground)', () => {
   })
 })
 
-describe('resolveObjectForm invalidMessage', () => {
-  const resolved = resolveObjectFormByType(groundType)
+describe('validateFieldValue against the real Ground catalog', () => {
+  const groups = resolveObjectFormByType(groundType).groups
+  const fieldByProperty = (property: string): ResolvedFormField => {
+    for (const group of groups) {
+      const found = group.fields.find((f) => f.property === property)
+      if (found) return found
+    }
+    throw new Error(`field ${property} not resolved`)
+  }
 
-  it('carries the group message onto each field with {min}/{max} interpolated', () => {
-    // Ground Size: generic invalid copy (no range tokens).
-    expect(resolved.groups[0].fields[0].invalidMessage).toBe('Invalid Input')
-    // Ground Resolution: range tokens filled from catalog (min 1, max 25000).
-    expect(resolved.groups[1].fields[0].invalidMessage).toBe('Values should be between 1-25000')
-    // Rotation: range tokens filled from catalog (min 0, max 360).
-    expect(resolved.groups[3].fields[0].invalidMessage).toBe('Values should be between 0-360')
+  it('shows the two-sided range for Ground Resolution (1–25000)', () => {
+    expect(validateFieldValue(fieldByProperty('resolution_x'), '30000')).toBe(
+      'Values should be between (1 - 25000)'
+    )
+  })
+
+  it('shows the one-sided minimum for Ground Size length (min 0, no max)', () => {
+    expect(validateFieldValue(fieldByProperty('length'), '-1')).toBe(
+      'Values should be greater than or equal to 0'
+    )
+  })
+
+  it('shows the one-sided minimum for a Texture field (min 1, no max)', () => {
+    expect(validateFieldValue(fieldByProperty('texture_x'), '0')).toBe(
+      'Values should be greater than or equal to 1'
+    )
   })
 })
 

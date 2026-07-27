@@ -1,3 +1,4 @@
+import infoIcon from '@renderer/assets/info.svg'
 import React, { useId } from 'react'
 import type { PlacesType } from 'react-tooltip'
 import Tooltip from '../Tooltip'
@@ -39,6 +40,10 @@ export interface FormFieldInputProps {
   // Extra classes appended to the <input>/<select> (e.g. a custom background).
   // Appended last so they override the defaults.
   inputClassName?: string
+  // Show the validation error as a hover tooltip on an in-cell info icon
+  // (matching Weather's CellInput) instead of as a text line below the field.
+  // Applies to text inputs only; selects keep the inline message.
+  errorAsTooltip?: boolean
 }
 
 interface FormFieldProps {
@@ -58,9 +63,16 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     onIconLeftClick,
     inputRef,
     inputClassName = '',
+    errorAsTooltip = false,
     ...restInputProps
   } = inputProps
   const errorId = useId()
+
+  // Tooltip errors apply to text inputs only; selects keep the inline message
+  // (no room beside the native dropdown arrow). The inline <p> shows whenever
+  // the error isn't surfaced as a tooltip.
+  const errorAsIcon = !!error && errorAsTooltip && !options
+  const inlineError = !!error && !errorAsIcon
 
   // All error cues use the app error color (#D92D20 = --color-text-error-primary),
   // matching the helper text in .form-error-text. index.css keeps this red on the
@@ -70,7 +82,16 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     : 'outline-none'
   const focusBorderClassName = error ? 'focus:border-[#D92D20]' : 'focus:border-neutral-500'
   const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
-  const paddedClassName = iconLeft ? `${baseClassName} pl-9 pr-3` : `${baseClassName} px-3`
+  // When the error icon is shown, reserve right padding so the value doesn't run
+  // under it (matches Weather's `pr-8`). Otherwise keep the original padding so
+  // existing layouts stay byte-identical.
+  const paddedClassName = errorAsIcon
+    ? iconLeft
+      ? `${baseClassName} pl-9 pr-8`
+      : `${baseClassName} pl-3 pr-8`
+    : iconLeft
+      ? `${baseClassName} pl-9 pr-3`
+      : `${baseClassName} px-3`
 
   return (
     <div className="block text-sm text-neutral-300">
@@ -139,14 +160,24 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
             type={type}
             placeholder={placeholder}
             disabled={disabled}
-            aria-describedby={error ? errorId : undefined}
+            aria-describedby={inlineError ? errorId : undefined}
             aria-invalid={!!error}
             className={paddedClassName}
           />
+          {errorAsIcon && (
+            <Tooltip
+              text={error}
+              ariaLabel={`Validation error: ${error}`}
+              place="top"
+              className="absolute right-2 top-1/2 -translate-y-1/2"
+            >
+              <img src={infoIcon} alt="" className="h-4 w-4" />
+            </Tooltip>
+          )}
         </div>
       )}
 
-      {error && (
+      {inlineError && (
         <p id={errorId} className="form-error-text mt-1" role="alert">
           {error}
         </p>

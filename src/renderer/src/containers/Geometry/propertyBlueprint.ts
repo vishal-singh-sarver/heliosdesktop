@@ -3,6 +3,7 @@ import type {
   CatalogPropertyDef,
   ObjectTypeDef
 } from 'containers/ProjectScreen/types'
+import messages from './messages'
 
 // ── Properties-form blueprint ────────────────────────────────────────────────
 //
@@ -35,16 +36,12 @@ export interface FormFieldBlueprint {
 // Size), 3 (Position), and 4+ for future object types. `heading` is the group
 // label; omit for an unlabeled group.
 //
-// `invalidMessage` is the single error string shown for ANY invalid (non-empty)
-// value in the group's fields — non-numeric, out-of-range, or negative all map
-// to this one message, matching the spec's per-field copy. `{min}` / `{max}`
-// tokens are interpolated from each field's catalog range at resolve time (so
-// "between {min}-{max}" becomes "between 1-25000"). Omit it to fall back to the
-// generic per-reason messages (Must be a number / Min N / Max N).
+// The blueprint is layout-only: validation copy is derived from each field's
+// catalog range at validation time (see validateFieldValue), so a group carries
+// no error strings.
 export interface FormGroupBlueprint {
   heading?: string
   columns: number
-  invalidMessage?: string
   fields: FormFieldBlueprint[]
 }
 
@@ -63,7 +60,6 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Ground Size',
     columns: 2,
-    invalidMessage: 'Invalid Input',
     fields: [
       { property: 'length', label: 'Length', defaultValue: '10' },
       { property: 'breadth', label: 'Breadth', defaultValue: '10' }
@@ -72,7 +68,6 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Ground Resolution',
     columns: 2,
-    invalidMessage: 'Values should be between {min}-{max}',
     fields: [
       { property: 'resolution_x', label: 'Width', defaultValue: '1' },
       { property: 'resolution_y', label: 'Height', defaultValue: '1' }
@@ -81,7 +76,6 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Position',
     columns: 3,
-    invalidMessage: 'Invalid Input',
     fields: [
       { property: 'position_x', label: 'X', defaultValue: '0' },
       { property: 'position_y', label: 'Y', defaultValue: '0' },
@@ -91,13 +85,11 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Rotation',
     columns: 1,
-    invalidMessage: 'Values should be between {min}-{max}',
     fields: [{ property: 'rotation_z', label: 'degree', defaultValue: '0' }]
   },
   {
     heading: 'Number of Textures',
     columns: 2,
-    invalidMessage: 'Invalid Input',
     fields: [
       { property: 'texture_x', label: 'R', defaultValue: '1' },
       { property: 'texture_y', label: 'C', defaultValue: '1' }
@@ -125,10 +117,6 @@ export interface ResolvedFormField {
   min: number | null
   max: number | null
   required: boolean
-  // Group-level error copy with `{min}`/`{max}` already interpolated for this
-  // field's range. Shown for any invalid non-empty value; undefined falls back
-  // to the generic per-reason messages.
-  invalidMessage?: string
   // Seed value the form opens with (from the blueprint); undefined = blank.
   defaultValue?: string
 }
@@ -157,17 +145,9 @@ export function humanizeProperty(property: string): string {
     .join(' ')
 }
 
-// Fill `{min}` / `{max}` tokens in a group message from this field's range.
-function interpolateRange(template: string, min: number | null, max: number | null): string {
-  return template
-    .replace(/\{min\}/g, min == null ? '' : String(min))
-    .replace(/\{max\}/g, max == null ? '' : String(max))
-}
-
 const toResolvedField = (
   label: string,
   def: CatalogPropertyDef,
-  invalidMessage?: string,
   defaultValue?: string
 ): ResolvedFormField => ({
   property: def.property,
@@ -178,7 +158,6 @@ const toResolvedField = (
   min: def.min,
   max: def.max,
   required: def.required ?? false,
-  invalidMessage: invalidMessage ? interpolateRange(invalidMessage, def.min, def.max) : undefined,
   defaultValue
 })
 
@@ -208,12 +187,7 @@ export function resolveObjectForm(
       if (!def) continue // blueprint references a property the catalog doesn't have
       used.add(field.property)
       fields.push(
-        toResolvedField(
-          field.label ?? humanizeProperty(field.property),
-          def,
-          group.invalidMessage,
-          field.defaultValue
-        )
+        toResolvedField(field.label ?? humanizeProperty(field.property), def, field.defaultValue)
       )
     }
     // Drop a group that ended up with no resolvable fields.
@@ -262,30 +236,38 @@ export function defaultValuesForObject(
 // Uniform empty-required copy across the app's forms (matches the spec image).
 export const REQUIRED_MESSAGE = 'Required Field'
 
+// Build the out-of-range message from a field's catalog bounds: "between X and Y"
+// when both exist, otherwise the relevant one-sided variant. Callers only reach
+// this when at least one bound is set, so the final fallback is unreachable.
+function rangeMessage(min: number | null, max: number | null): string {
+  if (min != null && max != null) return messages.valuesBetween(min, max)
+  if (min != null) return messages.valuesAtLeast(min)
+  if (max != null) return messages.valuesAtMost(max)
+  return messages.invalidInput
+}
+
 // Validate one field's raw input against its catalog metadata. Returns an error
 // message, or null when valid. Empty is an error only for required fields.
 //
-// When the field carries a group `invalidMessage`, non-numeric and out-of-range
-// failures collapse to that single message — the spec shows one error string per
-// field. A wrong-datatype failure (a decimal in an integer field) is the
-// exception: it shows the standard "Invalid Input" copy, because a range-style
-// invalidMessage would misdescribe an in-range non-integer.
+// A value outside the catalog range gets the range message ("Values should be
+// between …"); any other invalid input — non-numeric, or a decimal in an integer
+// field — gets the generic "Invalid Input". The range check runs before the
+// datatype check so an out-of-range non-integer keeps the range copy; only an
+// IN-range non-integer (e.g. "5.5" for resolution_x, which is inside 1–25000)
+// falls through to "Invalid Input", where a range message would be misleading.
 export function validateFieldValue(field: ResolvedFormField, raw: string): string | null {
   const trimmed = raw.trim()
   if (trimmed === '') return field.required ? REQUIRED_MESSAGE : null
 
-  const invalid = field.invalidMessage
   const num = Number(trimmed)
-  if (!Number.isFinite(num)) return invalid ?? 'Must be a number'
-  // Range before datatype: an out-of-range value (whole or not) keeps the range
-  // copy. Only an IN-range non-integer falls through to the datatype error.
-  if (field.min != null && num < field.min) return invalid ?? `Min ${field.min}`
-  if (field.max != null && num > field.max) return invalid ?? `Max ${field.max}`
-  // A non-integer is a DATATYPE error, not a range error — it must never inherit a
-  // range-style invalidMessage (e.g. "5.5" for resolution_x is inside 1-25000, so
-  // "Values should be between 1-25000" would be plainly wrong). Reuse the standard
-  // "Invalid Input" copy the other fields show.
-  if (field.datatype === 'integer' && !Number.isInteger(num)) return 'Invalid Input'
+  if (!Number.isFinite(num)) return messages.invalidInput
+  if (
+    (field.min != null && num < field.min) ||
+    (field.max != null && num > field.max)
+  ) {
+    return rangeMessage(field.min, field.max)
+  }
+  if (field.datatype === 'integer' && !Number.isInteger(num)) return messages.invalidInput
   return null
 }
 
