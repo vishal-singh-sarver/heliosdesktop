@@ -205,12 +205,13 @@ export function removeGroupMaterial(
 // later persists via the member save.
 //
 // The response shape varies: some endpoints return the bare path string, others
-// wrap it as { success, property, value }. Tolerate both so the same helper
-// backs texture_file and (later) spectral_data uploads.
-type UploadFileResponse = string | { success?: boolean; property?: string; value: string }
+// wrap it as { success, property, path } (the backend's upload_file_property
+// answers with `path`). Tolerate both so the same helper backs texture_file and
+// (later) spectral_data uploads.
+type UploadFileResponse = string | { success?: boolean; property?: string; path: string }
 
 function uploadedPath(res: UploadFileResponse): string {
-  return typeof res === 'string' ? res : res.value
+  return typeof res === 'string' ? res : res.path
 }
 
 // Upload a file for one property of a member, keyed by `property` (e.g.

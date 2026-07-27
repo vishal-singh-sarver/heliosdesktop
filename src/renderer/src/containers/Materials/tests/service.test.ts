@@ -11,7 +11,7 @@ vi.mock('utils/api', () => ({
   }
 }))
 
-import { listMaterials, uploadSpectralFile } from '../service'
+import { listMaterials, uploadSpectralFile, uploadTextureFile } from '../service'
 
 beforeEach(() => {
   get.mockReset()
@@ -75,6 +75,28 @@ describe('listMaterials — one malformed group must not blank the whole list', 
 // Radiation's spectral file uses its OWN endpoint (POST …/spectral) rather than
 // the generic per-property file one, and answers { success, path } — the caller
 // stages that path and the member's next Save writes it.
+// The generic file upload (Visualiser texture) answers { success, property,
+// path } — the caller must read `path`, NOT `value`. Reading the wrong field
+// dropped the URL to `undefined`, so the card never staged a texture and its
+// Save stayed disabled.
+describe('uploadTextureFile', () => {
+  const file = new File(['png'], 'grass.png', { type: 'image/png' })
+
+  it('returns the stored path from the backend { path } response', async () => {
+    uploadFile.mockResolvedValue({
+      success: true,
+      property: 'texture_file',
+      path: 'uploads/groups/50/grass.png'
+    })
+    await expect(uploadTextureFile('50', 7, file, null)).resolves.toBe(
+      'uploads/groups/50/grass.png'
+    )
+    const [path, sent] = uploadFile.mock.calls[0]
+    expect(path).toBe('/api/materials/library/groups/50/files/texture_file')
+    expect(sent).toBe(file)
+  })
+})
+
 describe('uploadSpectralFile', () => {
   const file = new File(['<xml/>'], 'leaf.xml', { type: 'text/xml' })
 
@@ -84,7 +106,7 @@ describe('uploadSpectralFile', () => {
       'uploads/materials/12/leaf.xml'
     )
     const [path, sent] = uploadFile.mock.calls[0]
-    expect(path).toBe('/api/materials/library/groups/12/materials/1/spectral')
+    expect(path).toBe('/api/materials/library/groups/12/spectral')
     expect(sent).toBe(file)
   })
 
@@ -92,7 +114,7 @@ describe('uploadSpectralFile', () => {
     uploadFile.mockResolvedValue({ path: 'p' })
     await uploadSpectralFile('12', 1, file, 's1')
     expect(uploadFile.mock.calls[0][0]).toBe(
-      '/api/materials/library/groups/12/materials/1/spectral?scenario_id=s1'
+      '/api/materials/library/groups/12/spectral?scenario_id=s1'
     )
   })
 })
