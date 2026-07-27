@@ -66,9 +66,25 @@ nsis:
   # App bundle: /Applications/Helios.app
   #
 mac:
-  identity: null
-  sign: null
+  # Code signing + notarization.
+  #
+  # `identity` is intentionally NOT set: electron-builder then picks the
+  # "Developer ID Application" identity out of the keychain on its own (in CI
+  # that is the temporary build.keychain created by the workflow). Setting
+  # `identity: null` / `sign: null` DISABLES signing entirely - that is what
+  # this project did before notarization was configured, and restoring either
+  # of those lines will silently ship an unsigned, un-notarizable app.
+  #
+  # `notarize: false` is also deliberate and is NOT the same as "do not
+  # notarize": it turns off electron-builder's own built-in notarization so it
+  # does not run twice. Notarization is driven by our hooks instead -
+  # scripts/notarize.cjs for the .app and scripts/notarize-pkg.cjs for the
+  # .pkg - because the built-in path cannot reach the .pkg installer.
   notarize: false
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   icon: build/icon.icns
   minimumSystemVersion: "12.0"
   target:
@@ -79,6 +95,11 @@ mac:
 #   artifactName: ${name}-${version}-setup.${ext}
 
 pkg:
+  # The .pkg is signed by productbuild with a "Developer ID Installer"
+  # certificate - a DIFFERENT cert from the "Developer ID Application" one that
+  # signs the .app. electron-builder finds it in the keychain automatically, so
+  # no `identity` key is needed here; it is only listed in the CI workflow as
+  # the APPLE_INSTALLER_IDENTITY secret for the verification step.
   artifactName: ${name}-${version}-setup.${ext}
   license: build/license.txt
   installLocation: /Applications
@@ -103,6 +124,13 @@ linux:
   icon: build/icons
 
 afterPack: build/afterPack.js
+# Notarization hooks. Two are needed because they run at different times:
+#   afterSign             -> the .app bundle (fires during app packaging)
+#   afterAllArtifactBuild -> the .pkg installer (fires once targets are built)
+# Both no-op without APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID, or with
+# SKIP_NOTARIZATION=1 - so local unsigned builds still work.
+afterSign: scripts/notarize.cjs
+afterAllArtifactBuild: scripts/notarize-pkg.cjs
 
 npmRebuild: false
 
