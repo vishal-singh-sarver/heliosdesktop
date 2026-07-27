@@ -1,7 +1,9 @@
 import deleteIcon from '@renderer/assets/delete.svg'
+import infoIcon from '@renderer/assets/info.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
+import Tooltip from '@renderer/components/Tooltip'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
@@ -246,28 +248,42 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           (discard/delete). The name is read-only until the pencil is tapped. */}
       <div>
         <div className="flex items-center gap-1">
-          <input
-            ref={nameInputRef}
-            aria-label="Object name"
-            aria-invalid={nameError != null}
-            value={draft.name}
-            readOnly={!nameEditing}
-            disabled={objectDeleted}
-            onChange={(e) => handleNameChange(e.target.value)}
-            onDoubleClick={() => {
-              if (!objectDeleted) setNameEditing(true)
-            }}
-            onBlur={handleNameBlur}
-            className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-              !nameEditing ? 'cursor-default ' : ''
-            }${
-              nameError
-                ? 'border-red-500'
-                : nameEditing
-                  ? 'border-neutral-500'
-                  : 'border-transparent hover:border-app-border'
-            }`}
-          />
+          <div className="relative min-w-0 flex-1">
+            <input
+              ref={nameInputRef}
+              aria-label="Object name"
+              aria-invalid={nameError != null}
+              value={draft.name}
+              readOnly={!nameEditing}
+              disabled={objectDeleted}
+              onChange={(e) => handleNameChange(e.target.value)}
+              onDoubleClick={() => {
+                if (!objectDeleted) setNameEditing(true)
+              }}
+              onBlur={handleNameBlur}
+              className={`w-full rounded border bg-transparent py-0.5 ${
+                nameError && !objectDeleted ? 'pl-1 pr-7' : 'px-1'
+              } text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+                !nameEditing ? 'cursor-default ' : ''
+              }${
+                nameError
+                  ? 'border-red-500'
+                  : nameEditing
+                    ? 'border-neutral-500'
+                    : 'border-transparent hover:border-app-border'
+              }`}
+            />
+            {nameError && !objectDeleted && (
+              <Tooltip
+                text={nameError}
+                ariaLabel={`Validation error: ${nameError}`}
+                place="top"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2"
+              >
+                <img src={infoIcon} alt="" className="h-4 w-4" />
+              </Tooltip>
+            )}
+          </div>
           <button
             type="button"
             aria-label="Edit name"
@@ -287,7 +303,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
           </button>
         </div>
-        {nameError && !objectDeleted && <p className="form-error-text mt-1">{nameError}</p>}
       </div>
 
       {/* The object was deleted from the tree while this form was open. */}
@@ -338,6 +353,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                       value,
                       placeholder: field.label,
                       error: error ?? undefined,
+                      // Surface validation as an in-cell info-icon tooltip
+                      // (Weather's CellInput pattern) instead of a text line.
+                      errorAsTooltip: true,
                       disabled: objectDeleted,
                       inputClassName: 'bg-[#121212]',
                       onChange: (e) =>
