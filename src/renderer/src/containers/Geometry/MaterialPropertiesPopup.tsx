@@ -56,19 +56,16 @@ const DESIGN_MAX_HEIGHT = 866
 // directly under the material type — so we suppress the label for it.
 const isUngrouped = (group: MaterialDetailGroup): boolean => group.group.toLowerCase() === 'general'
 
-// Read-only accordion label for a material type, mirroring the editable Material
-// form's "Material Type.0N" cards.
-const parameterGroupTitle = (n: number): string => `Material Type.${String(n).padStart(2, '0')}`
-
 // The read-only material properties popup, opened by clicking an assigned material
 // under the geometry form's Materials row. Presentational only: it takes its data
 // and knows nothing about where it sits, so the caller owns the coords and the
 // portal (the same split as SelectMaterialsPopup).
 //
-// Each material type is a collapsible "Parameter Group.0N" accordion, mirroring
-// the editable Material form: collapsed by default (the header alone), expanding
-// to show that type's name and its property values (grouped by the catalog's
-// `group` tag) in a two-column read-only grid.
+// Each material type is a collapsible section headed by the type's OWN name (e.g.
+// "Stomatal Conductance") — the name IS the heading, so there is no separate
+// "Material Type" row repeating it underneath. Expanded by default, collapsing to
+// the header alone; open, it shows that type's property values (grouped by the
+// catalog's `group` tag) in a two-column read-only grid.
 //
 // Read-only by construction: every value is a <dd>, never an input. Reusing the
 // editable form's bordered input would say "type in me", and disabling it would
@@ -135,8 +132,10 @@ export default function MaterialPropertiesPopup({
             {messages.materialDetailEmpty}
           </p>
         ) : (
-          sections.map((section, index) => {
-            const title = parameterGroupTitle(index + 1)
+          sections.map((section) => {
+            // The section's heading is the material type's own name — the popup
+            // says WHICH type you're reading, not which slot it occupies.
+            const title = section.typeName
             const open = !collapsedTypeIds.has(section.typeId)
             return (
               <div
@@ -164,17 +163,6 @@ export default function MaterialPropertiesPopup({
 
                 {open && (
                   <div className="flex flex-col gap-3 px-3 pb-3 pt-1">
-                    {/* The material type — the read-only stand-in for the editable
-                        form's "Parameter Group" type Select. */}
-                    <div>
-                      <dt className="text-[13px] leading-[18px] text-neutral-400">
-                        {messages.materialDetailTypeLabel}
-                      </dt>
-                      <dd className="mt-0.5 break-words text-[13px] leading-[18px] text-white">
-                        {section.typeName}
-                      </dd>
-                    </div>
-
                     {/* The type's parameters, grouped by their catalog `group`
                         tag; two columns, label over value, each value read-only. */}
                     {section.groups.map((group) => (

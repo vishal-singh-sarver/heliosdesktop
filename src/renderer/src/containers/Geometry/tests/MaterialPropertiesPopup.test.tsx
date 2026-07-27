@@ -39,7 +39,7 @@ const energyBalance: MaterialDetailSection = {
 }
 
 describe('<MaterialPropertiesPopup />', () => {
-  it('renders a "Material Type.0N" accordion per material type, expanded by default', () => {
+  it('heads each accordion with the material type name, expanded by default', () => {
     render(
       <MaterialPropertiesPopup
         name="Material.001"
@@ -49,11 +49,11 @@ describe('<MaterialPropertiesPopup />', () => {
     )
 
     expect(screen.getByText('Material.001')).toBeInTheDocument()
-    // One numbered accordion header per type.
-    expect(screen.getByRole('button', { name: 'Material Type.01' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Material Type.02' })).toBeInTheDocument()
-    // Expanded by default → the type names and property rows are shown.
-    expect(screen.getByText('Radiation')).toBeInTheDocument()
+    // The accordion header IS the type's own name — no "Material Type.0N" slot
+    // number, and no separate label repeating the name inside the body.
+    expect(screen.getByRole('button', { name: 'Radiation' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Energy Balance' })).toBeInTheDocument()
+    // Expanded by default → the property rows are shown.
     expect(screen.getByText('Emissivity')).toBeInTheDocument()
   })
 
@@ -62,8 +62,7 @@ describe('<MaterialPropertiesPopup />', () => {
       <MaterialPropertiesPopup name="Material.001" sections={[radiation]} onClose={() => {}} />
     )
 
-    // The "Material Type" label + the material type as its read-only value.
-    expect(screen.getByText('Material Type')).toBeInTheDocument()
+    // The type name appears ONCE, as the section heading.
     expect(screen.getByText('Radiation')).toBeInTheDocument()
     // Group labels and the rows within them.
     expect(screen.getByText('Model')).toBeInTheDocument()
@@ -76,7 +75,7 @@ describe('<MaterialPropertiesPopup />', () => {
     render(
       <MaterialPropertiesPopup name="Material.001" sections={[radiation]} onClose={() => {}} />
     )
-    const header = screen.getByRole('button', { name: 'Material Type.01' })
+    const header = screen.getByRole('button', { name: 'Radiation' })
 
     // Expanded by default; clicking collapses, clicking again re-expands.
     expect(screen.getByText('Emissivity')).toBeInTheDocument()
