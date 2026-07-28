@@ -240,7 +240,10 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const dispatchSave = (
     card: MaterialParameterGroup,
     materialTypeId: number,
-    properties: ReturnType<typeof toNativeProperties>
+    properties: ReturnType<typeof toNativeProperties>,
+    // A previously-saved uploaded file this save replaces/removes — deleted from
+    // disk after the save succeeds (see the saga). Undefined when nothing changed.
+    obsoleteFilePath?: string
   ): void => {
     dispatch(
       saveParameterGroupRequested({
@@ -249,7 +252,8 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
         materialTypeId,
         properties,
         saved: card.saved,
-        scenarioId
+        scenarioId,
+        obsoleteFilePath
       })
     )
   }
@@ -287,7 +291,14 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     const type = materialTypes.find((t) => t.id === card.typeId)
     if (!type) return
     const applySpectral = readApplySpectral(card.values)
-    dispatchSave(card, type.id, toRadiationProperties(type, card.values, applySpectral))
+    // The spectral file being removed (🗑) or replaced (new upload): the last-saved
+    // path differs from the one about to be saved. The save drops its reference, so
+    // the saga can then delete it. Undefined when the file is unchanged or absent.
+    const savedSpectral = card.savedValues?.[SPECTRAL_DATA_PROPERTY]
+    const nextSpectral = card.values[SPECTRAL_DATA_PROPERTY] ?? ''
+    const obsoleteFilePath =
+      savedSpectral && savedSpectral !== nextSpectral ? savedSpectral : undefined
+    dispatchSave(card, type.id, toRadiationProperties(type, card.values, applySpectral), obsoleteFilePath)
   }
 
   // The Radiation spectral-data upload — reuses the shared file-upload path, keyed

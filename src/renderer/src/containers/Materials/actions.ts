@@ -169,6 +169,10 @@ export type SaveParameterGroupInput = {
   properties: MaterialPropertyValues
   saved: boolean
   scenarioId: string | null
+  // An uploaded file (e.g. the spectral data file) the save is replacing/removing.
+  // Deleted from disk after the save succeeds — the save drops the reference so the
+  // delete no longer 409s in the active scenario. Best-effort (see the saga).
+  obsoleteFilePath?: string
 }
 export type SaveParameterGroupRequestedAction = {
   type: typeof SAVE_PARAMETER_GROUP_REQUESTED

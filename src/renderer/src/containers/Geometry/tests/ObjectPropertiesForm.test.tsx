@@ -562,8 +562,11 @@ describe('<ObjectPropertiesForm /> — Save gating', () => {
     expect(saveButton()).toBeDisabled()
     expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'true')
     // The message describes the rule + the ceiling (not a bare "Invalid Input").
+    // It surfaces as the info-icon tooltip (aria-label), not an inline text node.
     expect(
-      screen.getByText("Texture repeat can't exceed the ground resolution (10)")
+      screen.getByLabelText(
+        "Validation error: Texture repeat can't exceed the ground resolution (10)"
+      )
     ).toBeInTheDocument()
 
     // Bringing it back within the resolution clears the violation → Save enabled.

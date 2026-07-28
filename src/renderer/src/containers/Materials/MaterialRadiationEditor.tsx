@@ -158,16 +158,17 @@ export function MaterialRadiationEditor({
         </div>
       )}
 
-      {/* Apply spectral data toggle. */}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={applySpectral}
-        onClick={onToggleSpectral}
-        className="flex items-center gap-2 text-left"
-      >
-        <span
-          className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+      {/* Apply spectral data toggle. Only the switch itself toggles — the row was
+          a full-width <button> (a flex-col child stretches), so clicking anywhere
+          in the row flipped it. The label is now a plain, non-clickable span. */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={applySpectral}
+          aria-label={messages.applySpectralData}
+          onClick={onToggleSpectral}
+          className={`relative h-4 w-7 shrink-0 rounded-full border-0 p-0 transition-colors ${
             applySpectral ? 'bg-blue-500' : 'bg-neutral-600'
           }`}
         >
@@ -176,9 +177,9 @@ export function MaterialRadiationEditor({
               applySpectral ? 'left-3.5' : 'left-0.5'
             }`}
           />
-        </span>
+        </button>
         <span className="text-sm text-neutral-200">{messages.applySpectralData}</span>
-      </button>
+      </div>
 
       {/* Spectral data file: a stored file shows its name + remove; otherwise the
           Upload control, enabled only once the material exists on the backend. */}

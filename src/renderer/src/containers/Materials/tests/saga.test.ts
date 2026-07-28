@@ -278,6 +278,43 @@ describe('saveParameterGroupWorker', () => {
     // No color_r/g/b → the worker finishes without a record.
     expect(gen.next().done).toBe(true)
   })
+
+  it('deletes the obsolete file AFTER the save drops its reference', () => {
+    const gen = saveParameterGroupWorker(
+      actions.saveParameterGroupRequested({
+        ...base,
+        saved: true,
+        obsoleteFilePath: 'uploads/groups/12/old.xml'
+      })
+    )
+    expect(gen.next().value).toEqual(
+      call(service.updateGroupMaterial, '12', 2, { radiation_flux: 55 }, 's1')
+    )
+    // The delete runs only after the save, so the reference is already gone.
+    expect(gen.next().value).toEqual(
+      call(service.deleteMaterialFile, '12', 'uploads/groups/12/old.xml')
+    )
+    expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('still succeeds when the obsolete-file delete is refused (409) or errors', () => {
+    const gen = saveParameterGroupWorker(
+      actions.saveParameterGroupRequested({
+        ...base,
+        saved: true,
+        obsoleteFilePath: 'uploads/groups/12/old.xml'
+      })
+    )
+    gen.next() // update call
+    gen.next() // delete call
+    // A 409 (still referenced by another scenario) or any error is swallowed —
+    // the save still completes successfully.
+    expect(gen.throw(new Error('CONFLICT')).value).toEqual(
+      put(actions.saveParameterGroupSucceeded('12', 1))
+    )
+    expect(gen.next().done).toBe(true)
+  })
 })
 
 // Card saves are de-duped per (groupId, cardId): a first save POSTs and only

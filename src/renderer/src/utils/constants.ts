@@ -147,8 +147,14 @@ export const API_ROUTES = {
     // that returns just `{ success, path }`; the caller stages that path and the
     // member's own Save persists it. Unlike the texture upload this does NOT
     // create the member, so the card must already be saved.
-    groupMaterialSpectral: (groupId: string, materialTypeId: number) =>
-      `/api/materials/library/groups/${groupId}/spectral`
+    groupMaterialSpectral: (groupId: string) =>
+      `/api/materials/library/groups/${groupId}/spectral`,
+    // DELETE — remove an uploaded file from the group by its stored `path` (added
+    // as a query param by the caller). The backend 409s while any material or
+    // frozen geometry snapshot still references it, so callers fire it only after
+    // a save has dropped the reference.
+    groupMaterialFileDelete: (groupId: string) =>
+      `/api/materials/library/groups/${groupId}/files`
   },
   // Texture assets — serve one by (backend-side) path; `defaults` lists the
   // built-in library textures (name + ready-to-use serve url).

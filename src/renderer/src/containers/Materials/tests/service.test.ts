@@ -4,18 +4,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // backend payloads without a network.
 const get = vi.fn()
 const uploadFile = vi.fn()
+const del = vi.fn()
 vi.mock('utils/api', () => ({
   api: {
     get: (...a: unknown[]) => get(...a),
-    uploadFile: (...a: unknown[]) => uploadFile(...a)
+    uploadFile: (...a: unknown[]) => uploadFile(...a),
+    delete: (...a: unknown[]) => del(...a)
   }
 }))
 
-import { listMaterials, uploadSpectralFile, uploadTextureFile } from '../service'
+import {
+  deleteMaterialFile,
+  listMaterials,
+  uploadSpectralFile,
+  uploadTextureFile
+} from '../service'
 
 beforeEach(() => {
   get.mockReset()
   uploadFile.mockReset()
+  del.mockReset()
 })
 
 describe('listMaterials — one malformed group must not blank the whole list', () => {
@@ -115,6 +123,20 @@ describe('uploadSpectralFile', () => {
     await uploadSpectralFile('12', 1, file, 's1')
     expect(uploadFile.mock.calls[0][0]).toBe(
       '/api/materials/library/groups/12/spectral?scenario_id=s1'
+    )
+  })
+})
+
+// Deleting an uploaded file (e.g. a replaced/removed spectral file) — the group
+// files endpoint with the stored path as an ENCODED query param.
+describe('deleteMaterialFile', () => {
+  it('DELETEs the group files endpoint with the path url-encoded', async () => {
+    del.mockResolvedValue(undefined)
+    await deleteMaterialFile('50', 'uploads/groups/50/leaf surface.xml')
+    expect(del.mock.calls[0][0]).toBe(
+      `/api/materials/library/groups/50/files?path=${encodeURIComponent(
+        'uploads/groups/50/leaf surface.xml'
+      )}`
     )
   })
 })

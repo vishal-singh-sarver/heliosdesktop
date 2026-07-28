@@ -146,12 +146,25 @@ export function* loadMaterialDetailWorker(action: LoadMaterialDetailRequestedAct
 // first save ADDS the material type to the group (POST), every later one UPDATES
 // it (PATCH). Only on success is the card marked saved.
 export function* saveParameterGroupWorker(action: SaveParameterGroupRequestedAction): Generator {
-  const { groupId, cardId, materialTypeId, properties, saved, scenarioId } = action.payload
+  const { groupId, cardId, materialTypeId, properties, saved, scenarioId, obsoleteFilePath } =
+    action.payload
   try {
     if (saved) {
       yield call(service.updateGroupMaterial, groupId, materialTypeId, properties, scenarioId)
     } else {
       yield call(service.addGroupMaterial, groupId, materialTypeId, properties, scenarioId)
+    }
+    // The save has just dropped this material's reference to the replaced/removed
+    // file (and re-synced the active scenario's geometry), so the file can now be
+    // deleted. Best-effort and AFTER the save landed: a 409 (still referenced by
+    // another scenario's frozen snapshot) or any other error must never fail the
+    // save — the orphan is reclaimed when that scenario next syncs.
+    if (obsoleteFilePath) {
+      try {
+        yield call(service.deleteMaterialFile, groupId, obsoleteFilePath)
+      } catch {
+        // Intentionally ignored — see above.
+      }
     }
     // The outcome carries `groupId` as well as `cardId`: this request may land
     // after the user has opened a DIFFERENT material, and card ids restart at 1

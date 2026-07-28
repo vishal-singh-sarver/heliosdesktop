@@ -256,16 +256,28 @@ interface UploadSpectralResponse {
 
 export function uploadSpectralFile(
   groupId: string,
-  materialTypeId: number,
+  _materialTypeId: number,
   file: File,
   scenarioId: string | null
 ): Promise<string> {
   return api
     .uploadFile<UploadSpectralResponse>(
-      withScenario(API_ROUTES.materials.groupMaterialSpectral(groupId, materialTypeId), scenarioId),
+      withScenario(API_ROUTES.materials.groupMaterialSpectral(groupId), scenarioId),
       file
     )
     .then((res) => res.path)
+}
+
+// DELETE /library/groups/{id}/files?path=… — remove an uploaded file from disk by
+// its stored path. Fired after a save drops the reference; the backend 409s while
+// the file is still referenced (e.g. another scenario's frozen snapshot), so the
+// caller treats a rejection as a no-op rather than an error.
+export function deleteMaterialFile(groupId: string, path: string): Promise<void> {
+  return api
+    .delete(
+      `${API_ROUTES.materials.groupMaterialFileDelete(groupId)}?path=${encodeURIComponent(path)}`
+    )
+    .then(() => undefined)
 }
 
 // The full URL that renders a stored texture path (upload path or a default's
