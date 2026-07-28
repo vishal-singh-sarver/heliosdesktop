@@ -20,15 +20,26 @@ interface SelectMaterialsPopupProps {
   onToggleMaterial: (material: { id: string; name: string }, checked: boolean) => void
   // "+ Add New Material" — dummy for now.
   onAddNewMaterial: () => void
+  // Cap from the surrounding AnchoredPopup: the room left beside the panel. A
+  // short window shrinks the popup instead of pushing it past the viewport edge;
+  // the list below scrolls to absorb the difference. Standalone (or whenever
+  // there's room), the popup keeps its designed DEFAULT_HEIGHT.
+  maxHeight?: number
 }
 
-// The "Select Materials" popup. 240×343, 8px radius, #313131. A search field
-// filters the list by name; each material is a checkbox row (blue when checked).
-// When the library has no selectable materials it shows the empty state.
+// The Figma height. Also the cap — `maxHeight` only ever shrinks the popup, so a
+// tall window doesn't stretch it past its designed size.
+const DEFAULT_HEIGHT = 343
+
+// The "Select Materials" popup. 240 wide × DEFAULT_HEIGHT (shrinking to fit a
+// short window), 8px radius, #313131. A search field filters the list by name;
+// each material is a checkbox row (blue when checked). When the library has no
+// selectable materials it shows the empty state.
 export default function SelectMaterialsPopup({
   materials,
   onToggleMaterial,
-  onAddNewMaterial
+  onAddNewMaterial,
+  maxHeight
 }: SelectMaterialsPopupProps): React.JSX.Element {
   const [query, setQuery] = React.useState('')
 
@@ -38,7 +49,10 @@ export default function SelectMaterialsPopup({
   const visible = q ? materials.filter((m) => m.name.toLowerCase().includes(q)) : materials
 
   return (
-    <div className="flex h-[343px] w-[240px] flex-col overflow-hidden rounded-[8px] bg-[#313131]">
+    <div
+      style={{ height: Math.min(DEFAULT_HEIGHT, maxHeight ?? DEFAULT_HEIGHT) }}
+      className="flex w-[240px] flex-col overflow-hidden rounded-[8px] bg-[#313131]"
+    >
       {/* Header */}
       <div className="shrink-0 border-b border-app-border px-4 py-3">
         <p className="text-[13px] font-normal leading-[15px] text-neutral-300">Select Materials</p>
@@ -81,15 +95,21 @@ export default function SelectMaterialsPopup({
           </div>
 
           {/* Checkbox list — click a row to toggle. aria-pressed carries the
-              checked state; the blue box + tick is the checked visual. */}
-          <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto py-1">
+              checked state; the blue box + tick is the checked visual. The
+              horizontal padding is what gives each row's focus outline room to
+              sit inside the popup instead of running flush to its edges. */}
+          <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto px-2 py-1">
             {visible.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 aria-pressed={m.checked}
                 onClick={() => onToggleMaterial({ id: m.id, name: m.name }, !m.checked)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5"
+                // Keyboard focus reads as a rounded, inset, blue-bordered row —
+                // the same cue a selected row gets in the left-hand geometry tree
+                // (see TreeRow). The border is always present and transparent when
+                // unfocused, so focusing never shifts the row's contents.
+                className="flex w-full items-center justify-between gap-3 rounded border border-transparent px-2 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5 focus:outline-none focus-visible:border-[#245AC5] focus-visible:bg-[#2a2a2a]"
               >
                 <span className="min-w-0 truncate">{m.name}</span>
                 {m.checked ? (

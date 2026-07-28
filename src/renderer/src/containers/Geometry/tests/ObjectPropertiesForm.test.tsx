@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import materialsReducer, {
   initialState as materialsInitialState
 } from 'containers/Materials/reducer'
@@ -6,7 +6,11 @@ import type { Material, MaterialGroupDetail } from 'containers/Materials/types'
 import projectScreenReducer, {
   initialState as projectScreenInitialState
 } from 'containers/ProjectScreen/reducer'
-import type { CatalogPropertyDef, MaterialTypeDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import type {
+  CatalogPropertyDef,
+  MaterialTypeDef,
+  ObjectTypeDef
+} from 'containers/ProjectScreen/types'
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
@@ -153,7 +157,12 @@ function makeStore(
       activeScenarioId: SCENARIO,
       catalog: {
         ...projectScreenInitialState.catalog,
-        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null },
+        objectTypes: {
+          byId: { 1: groundType },
+          allIds: [1],
+          loadStatus: 'loaded',
+          loadError: null
+        },
         materialTypes: {
           byId: Object.fromEntries((opts.materialTypes ?? []).map((t) => [t.id, t])),
           allIds: (opts.materialTypes ?? []).map((t) => t.id),
@@ -181,11 +190,88 @@ const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
   return el as HTMLInputElement
 }
 
+// ── Anchored-popup test rig ───────────────────────────────────────────────────
+// AnchoredPopup places a popup by measuring it against its anchor, and jsdom has
+// no layout — every element reports a zero rect. These helpers supply the two
+// measurements it needs: a right-panel <aside> whose rect the test controls, and
+// a popup that reports the size it actually rendered at.
+
+const PANEL_WIDTH = 340
+
+const domRect = (top: number, left: number, width: number, height: number): DOMRect =>
+  ({
+    top,
+    left,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({})
+  }) as DOMRect
+
+/** A panel rect the test can move mid-run, to stand in for a window resize. */
+function panelRect(init: { top: number; left: number; height: number }): {
+  set: (next: { top: number; left: number; height: number }) => void
+  read: () => DOMRect
+} {
+  let r = { ...init }
+  return {
+    set: (next) => {
+      r = { ...next }
+    },
+    read: () => domRect(r.top, r.left, PANEL_WIDTH, r.height)
+  }
+}
+
+const realGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = realGetBoundingClientRect
+})
+
+/**
+ * Render the form inside a right panel whose rect the test drives, with popups
+ * reporting a real size so AnchoredPopup can place them. Width comes from the
+ * popup component's Tailwind class (which jsdom won't compute), height from the
+ * inline style it renders — so a popup that resizes itself is measured as such.
+ */
+function renderInPanel(rect: ReturnType<typeof panelRect>): ReturnType<typeof render> {
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): DOMRect {
+    // AnchoredPopup's positioned wrapper — the element it measures.
+    if (this.classList.contains('z-50')) {
+      const popup = this.firstElementChild as HTMLElement | null
+      if (!popup) return domRect(0, 0, 0, 0)
+      const width = popup.className.includes('w-[240px]') ? 240 : 370
+      return domRect(0, 0, width, parseFloat(popup.style.height || '0'))
+    }
+    return realGetBoundingClientRect.call(this)
+  }
+
+  const result = render(
+    <aside>
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    </aside>
+  )
+  const aside = result.container.querySelector('aside') as HTMLElement
+  aside.getBoundingClientRect = rect.read
+  return result
+}
+
+/** Fire the window resize AnchoredPopup listens for, and let it re-measure. */
+const resizeWindow = (): void => {
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+}
+
 describe('<ObjectPropertiesForm /> — material properties popup', () => {
   // Pick Cotton from the Select popup, leaving it listed under the Materials row.
-  // The Select popup stays open afterwards (picking doesn't dismiss it), so the
-  // picked row is reached via `within(container)` — the popup is portaled to
-  // document.body and would otherwise make a bare 'Cotton' query ambiguous.
+  // Picking dismisses the popup, so afterwards the only 'Cotton' button on the
+  // page is the picked row in the form body.
   const pickCotton = (): void => {
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
@@ -227,13 +313,21 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
 
     fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' }))
 
-    // Checked in the popup (blue box)…
-    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+    // Picking dismisses the popup — the pick is done and the new row is visible
+    // behind it.
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+    // …and it's now listed in the form's Materials section.
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    // Reopening shows the pick remembered as a checked box (blue), so the popup
+    // reflects the draft rather than resetting.
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const reopened = screen.getByText('Select Materials').parentElement!
+      .parentElement as HTMLElement
+    expect(within(reopened).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
       'aria-pressed',
       'true'
     )
-    // …and now listed in the form's Materials section.
-    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
   })
 
   it('unchecking a material removes it from the Materials section', () => {
@@ -248,9 +342,17 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // check → add
     expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
 
-    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // uncheck → remove
+    // Checking dismissed the popup, so reopen to undo the pick.
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const reopened = screen.getByText('Select Materials').parentElement!
+      .parentElement as HTMLElement
+
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Cotton' })) // uncheck → remove
+    // Unchecking is undoing a mis-click, so the popup deliberately STAYS open —
+    // correcting it shouldn't cost a reopen.
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
     expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
-    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+    expect(within(reopened).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
       'aria-pressed',
       'false'
     )
@@ -327,30 +429,12 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   })
 
   it('sizes the popup to 80% of the 3D-window height and vertically centers it', () => {
-    // openDetailPopup sizes/centers the popup against the surrounding right-panel
-    // <aside> — a flex sibling of the 3D window, so it shares the window's top and
-    // height. jsdom returns a zero rect, so stub the aside's rect: a 600px-tall
-    // panel at top 100 → height round(600*0.8)=480, top 100+(600-480)/2=160.
-    const { container } = render(
-      <aside>
-        <Provider store={makeStore([material('m1', 'Cotton')])}>
-          <ObjectPropertiesForm />
-        </Provider>
-      </aside>
-    )
-    const aside = container.querySelector('aside') as HTMLElement
-    aside.getBoundingClientRect = () =>
-      ({
-        top: 100,
-        left: 400,
-        right: 740,
-        bottom: 700,
-        width: 340,
-        height: 600,
-        x: 400,
-        y: 100,
-        toJSON: () => ({})
-      }) as DOMRect
+    // The popup is sized/centered against the surrounding right-panel <aside> —
+    // a flex sibling of the 3D window, so it shares the window's top and height.
+    // A 600px-tall panel at top 100 → height round(600*0.8)=480, and centering a
+    // 480-tall popup in it → top 100+(600-480)/2=160. Its left edge sits 8px
+    // clear of the panel → 400-370-8=22.
+    const { container } = renderInPanel(panelRect({ top: 100, left: 400, height: 600 }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
@@ -360,7 +444,32 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
     expect(dialog).toHaveStyle({ height: '480px' })
     // The portal wrapper carries the computed position — centered in the panel.
-    expect(dialog.parentElement).toHaveStyle({ top: '160px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '160px', left: '22px' })
+  })
+
+  it('follows the panel when the window is resized', async () => {
+    // The regression this replaced: the popup measured once on open and froze
+    // there, so resizing moved the trigger out from under it. AnchoredPopup
+    // re-measures on the resize instead. Shrinking the panel from 700 to 500 tall
+    // re-derives the height (round(500*0.8)=400) and the centred top
+    // (30+(500-400)/2=80); narrowing it pulls the popup left until it would go
+    // negative (300-370-8=-78) and clamps to the 8px viewport padding.
+    const rect = panelRect({ top: 30, left: 400, height: 700 })
+    const { container } = renderInPanel(rect)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
+    expect(dialog).toHaveStyle({ height: '560px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '100px', left: '22px' })
+
+    rect.set({ top: 30, left: 300, height: 500 })
+    resizeWindow()
+
+    expect(dialog).toHaveStyle({ height: '400px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '80px', left: '8px' })
   })
 
   it("shows an assigned material's properties (from the GET) in the read-only popup", () => {
@@ -381,7 +490,9 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
       ]
     }
     const { container } = render(
-      <Provider store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}>
+      <Provider
+        store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}
+      >
         <ObjectPropertiesForm />
       </Provider>
     )
@@ -472,19 +583,27 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   })
 
   it('closes the Select Materials popup when the properties popup opens', () => {
+    // A material already assigned to the ground gives us a form row to click while
+    // the Select popup is still open — since picking now dismisses the popup, an
+    // already-assigned row is the remaining way both could end up open together.
     const { container } = render(
-      <Provider store={makeStore([material('m1', 'Cotton')])}>
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          draftMaterials: [{ groupId: 'g1', name: 'Grass' }]
+        })}
+      >
         <ObjectPropertiesForm />
       </Provider>
     )
-    pickCotton()
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     expect(screen.getByText('Select Materials')).toBeInTheDocument()
 
-    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     // Both popups anchor to the same strip beside the panel and each lays down
     // its own full-screen overlay — two open at once would stack overlays over
     // each other's contents.
+    expect(screen.getByRole('dialog', { name: 'Grass properties' })).toBeInTheDocument()
     expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
   })
 
