@@ -26,6 +26,8 @@ export interface FormFieldInputProps {
   value: string
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void
   onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => void
+  // Optional focus hook, forwarded to the underlying input/select (via the spread).
+  onFocus?: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => void
   error?: string
   type?: string
   placeholder?: string

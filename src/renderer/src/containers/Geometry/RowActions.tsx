@@ -275,7 +275,7 @@ export default function RowActions({
         <TrashIcon />
       </IconButton>
       <span
-        className="flex h-5 w-4 cursor-grab items-center justify-center text-neutral-500"
+        className="flex h-5 w-5 cursor-grab items-center justify-center text-neutral-500"
         aria-hidden="true"
       >
         <DragHandleIcon />

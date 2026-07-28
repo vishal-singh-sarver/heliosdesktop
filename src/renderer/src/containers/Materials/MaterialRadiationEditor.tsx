@@ -1,5 +1,5 @@
 import deleteIcon from '@renderer/assets/delete.svg'
-import uploadIcon from '@renderer/assets/Upload.svg'
+import fileIcon from '@renderer/assets/file.svg'
 import FormField from '@renderer/components/FormField'
 import React from 'react'
 import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
@@ -92,8 +92,11 @@ export function MaterialRadiationEditor({
 
   // Band fields whose reflectivity + transmissivity + emissivity exceed 1 — every
   // field of an offending band shows the same tooltip (Save is gated on this too,
-  // in the parent card).
-  const bandSumViolations = radiationBandSumViolations(values)
+  // in the parent card). Only in MANUAL mode: spectral mode disables the bands and
+  // erases their values on save, so the sum rule doesn't apply there.
+  const bandSumViolations = applySpectral
+    ? new Set<string>()
+    : radiationBandSumViolations(values)
 
   // One catalog field as a FormField wired to the card pipeline. `label` overrides
   // the catalog label (e.g. the band grid shows "Reflectivity", not "Reflectivity
@@ -197,7 +200,18 @@ export function MaterialRadiationEditor({
         <p className="text-sm text-neutral-300">{messages.spectralDataFile}</p>
         {spectralPath !== '' ? (
           <div className="flex items-center justify-between rounded border border-app-border bg-[#121212] px-3 py-2">
-            <span className="truncate text-sm text-neutral-200">{basename(spectralPath)}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <img
+                src={fileIcon}
+                alt=""
+                aria-hidden="true"
+                // file.svg ships dark (#344054); this row sits on a dark fill, so
+                // render it white to stay visible.
+                style={{ filter: 'brightness(0) invert(1)' }}
+                className="h-4 w-4 shrink-0"
+              />
+              <span className="truncate text-sm text-neutral-200">{basename(spectralPath)}</span>
+            </span>
             <button
               type="button"
               aria-label={messages.spectralRemove}
@@ -230,7 +244,15 @@ export function MaterialRadiationEditor({
                   : 'bg-[#121212] text-neutral-200 hover:bg-neutral-800 disabled:opacity-50'
               }`}
             >
-              <img src={uploadIcon} alt="" aria-hidden="true" className="h-4 w-4" />
+              <img
+                src={fileIcon}
+                alt=""
+                aria-hidden="true"
+                // White on the dark (toggle-OFF) pill; left dark on the white
+                // (toggle-ON) pill, where file.svg's own #344054 already reads.
+                style={applySpectral ? undefined : { filter: 'brightness(0) invert(1)' }}
+                className="h-4 w-4"
+              />
               {uploading ? messages.spectralUploading : messages.spectralUploadButton}
             </button>
           </>

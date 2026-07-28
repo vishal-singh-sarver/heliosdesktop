@@ -12,7 +12,11 @@ import {
   uploadTextureSucceeded,
   type MaterialsAction
 } from '../actions'
-import { RENAME_MATERIAL_REQUESTED, UPLOAD_TEXTURE_REQUESTED } from '../constants'
+import {
+  RENAME_MATERIAL_REQUESTED,
+  SAVE_PARAMETER_GROUP_REQUESTED,
+  UPLOAD_TEXTURE_REQUESTED
+} from '../constants'
 import materialsReducer, {
   initialState as materialsInitialState,
   type MaterialsState
@@ -535,6 +539,61 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
     setBand('transmissivity_PAR', '0.2') // 0.6 + 0.2 = 0.8 ≤ 1
     expect(screen.queryByLabelText(sumMsg)).toBeNull()
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('ignores the band-sum rule while spectral mode is ON (bands are superseded)', () => {
+    const { container } = render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    const setBand = (prop: string, val: string): void => {
+      fireEvent.change(container.querySelector<HTMLInputElement>(`[id="1-${prop}"]`)!, {
+        target: { value: val }
+      })
+    }
+    const sumMsg = /The sum of reflectivity, transmissivity and emissivity can't exceed 1/
+
+    // Over-1 bands in manual mode → flagged + Save blocked.
+    setBand('reflectivity_PAR', '0.6')
+    setBand('transmissivity_PAR', '0.6') // 1.2 > 1
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Toggle spectral ON: the bands are now disabled and will be dropped on save,
+    // so the sum rule no longer applies — no flag, and Save is not blocked by it.
+    fireEvent.click(screen.getByRole('switch'))
+    expect(screen.queryByLabelText(sumMsg)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('deletes the spectral file on a toggle-OFF (manual) save', () => {
+    // A card saved in spectral mode (savedValues holds the file), now toggled to
+    // manual — the draft still carries the path until the post-save reducer clears
+    // it. Manual mode keeps no file, so the save must mark it for deletion.
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { use_radiation_bands: 'true', spectral_data: 'uploads/groups/12/leaf.xml' },
+          savedValues: { use_radiation_bands: 'false', spectral_data: 'uploads/groups/12/leaf.xml' }
+        })
+      ],
+      [radiationType]
+    )
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const saveAction = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { obsoleteFilePath?: string } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saveAction?.payload?.obsoleteFilePath).toBe('uploads/groups/12/leaf.xml')
   })
 
   // XML only, at most 5 MB. The backend enforces the extension but not the size,

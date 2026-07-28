@@ -491,6 +491,25 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     setTouched((t) => ({ ...t, [property]: true }))
   }
 
+  // Chromium selects the whole value when you TAB into a text input; collapse that
+  // to a caret-at-end so tabbing focuses the field without highlighting its value.
+  // A click sets its own caret (not a full selection), so it's left untouched.
+  const caretToEndOnTabFocus = (
+    e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>
+  ): void => {
+    const el = e.currentTarget
+    if (!(el instanceof HTMLInputElement)) return
+    requestAnimationFrame(() => {
+      if (el.selectionStart === 0 && el.selectionEnd === el.value.length && el.value.length > 0) {
+        try {
+          el.setSelectionRange(el.value.length, el.value.length)
+        } catch {
+          // Input type doesn't support selection ranges — nothing to collapse.
+        }
+      }
+    })
+  }
+
   const handleNameChange = (next: string): void => {
     // setDraftName also clears the draft's stale rename error in the reducer, so
     // a prior duplicate rejection doesn't linger as the user types a fresh name.
@@ -660,7 +679,8 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                           e.target.value,
                           field.datatype === 'integer'
                         ),
-                      onBlur: () => handleFieldBlur(field.property)
+                      onBlur: () => handleFieldBlur(field.property),
+                      onFocus: caretToEndOnTabFocus
                     }}
                   />
                 )
@@ -701,7 +721,13 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               // name and trash together — not just up to the trash icon.
               <div
                 key={m.groupId}
-                className="flex items-center gap-1.5 rounded px-2 hover:bg-white/5"
+                // The focus ring lives on the ROW (focus-within), not the inner
+                // name button — so tabbing shows ONE blue box around the full width
+                // (name + trash). The inner buttons kill their own :focus-visible
+                // ring inline (the global one in index.css is unlayered, so a
+                // Tailwind outline-none utility can't override it). gap-2 == px-2 so
+                // the trash sits with equal spacing on both sides.
+                className="flex items-center gap-2 rounded px-2 hover:bg-white/5 focus-within:outline focus-within:outline-2 focus-within:-outline-offset-1 focus-within:outline-[#245AC5]"
               >
                 <button
                   type="button"
@@ -710,6 +736,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   // currentTarget IS the anchor, measured synchronously here — so a
                   // growing list of rows needs no ref map.
                   onClick={(e) => openDetailPopup(e.currentTarget, m)}
+                  style={{ outline: 'none' }}
                   className="flex min-w-0 flex-1 items-center gap-[5px] py-2 text-left text-[13px] leading-[15px] text-white"
                 >
                   <span className="min-w-0 flex-1 truncate">{m.name}</span>
@@ -731,6 +758,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   type="button"
                   aria-label={`Remove ${m.name}`}
                   onClick={() => handleDeleteMaterial(m)}
+                  style={{ outline: 'none' }}
                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-white/10"
                 >
                   <img src={deleteIcon} alt="" aria-hidden="true" className="h-[18px] w-[18px]" />

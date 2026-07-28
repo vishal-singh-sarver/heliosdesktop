@@ -292,11 +292,14 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     const type = materialTypes.find((t) => t.id === card.typeId)
     if (!type) return
     const applySpectral = readApplySpectral(card.values)
-    // The spectral file being removed (🗑) or replaced (new upload): the last-saved
-    // path differs from the one about to be saved. The save drops its reference, so
-    // the saga can then delete it. Undefined when the file is unchanged or absent.
+    // The spectral file being removed (🗑), replaced (new upload) or dropped by
+    // switching to manual mode: the last-saved path differs from what this save
+    // keeps. Manual mode keeps NO file, so its effective next path is '' — this is
+    // what makes a toggle-OFF save delete the file too (the draft still holds the
+    // path at this point; the reducer clears it only after success). The save drops
+    // the reference, so the saga can then delete it. Undefined when nothing changed.
     const savedSpectral = card.savedValues?.[SPECTRAL_DATA_PROPERTY]
-    const nextSpectral = card.values[SPECTRAL_DATA_PROPERTY] ?? ''
+    const nextSpectral = applySpectral ? (card.values[SPECTRAL_DATA_PROPERTY] ?? '') : ''
     const obsoleteFilePath =
       savedSpectral && savedSpectral !== nextSpectral ? savedSpectral : undefined
     dispatchSave(card, type.id, toRadiationProperties(type, card.values, applySpectral), obsoleteFilePath)
@@ -809,8 +812,11 @@ function ParameterGroupCard({
   const dirty = isVisualiser && visualMode === 'texture' ? textureDirty : valuesDirty
 
   // Radiation cross-field rule: a band's reflectivity + transmissivity + emissivity
-  // must not exceed 1. Blocks Save (the editor also flags the three fields).
-  const bandSumInvalid = isRadiation && radiationBandSumViolations(group.values).size > 0
+  // must not exceed 1. Blocks Save (the editor also flags the three fields). Only
+  // in MANUAL mode — spectral mode disables the bands and drops their values on
+  // save, so stale band values must never gate Save there.
+  const bandSumInvalid =
+    isRadiation && !applySpectral && radiationBandSumViolations(group.values).size > 0
 
   const canSave =
     group.typeId != null && modeComplete && dirty && !saving && !uploading && !bandSumInvalid
