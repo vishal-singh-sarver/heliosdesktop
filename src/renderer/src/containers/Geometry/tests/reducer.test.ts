@@ -587,15 +587,49 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual(materialGroups)
     })
 
-    it('SET_DRAFT_VALUE updates a value; ADD_DRAFT_MATERIAL appends a material (deduped)', () => {
+    it('SET_DRAFT_VALUE updates a value; ADD_DRAFT_MATERIAL sets the material (idempotent)', () => {
       let r = created()
       r = geometryReducer(r, actions.setDraftValue('length', '20'))
       r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
-      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass')) // dupe → no-op
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass')) // re-pick → no-op
       expect(r.createDraft).toMatchObject({
         values: { length: '20', breadth: '10' },
         materials: [{ groupId: '41', name: 'Grass' }]
       })
+    })
+
+    it('ADD_DRAFT_MATERIAL REPLACES the current material — a ground carries only one', () => {
+      let r = created()
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      r = geometryReducer(r, actions.addDraftMaterial('42', 'Cotton'))
+      // Not appended — the second pick displaces the first.
+      expect(r.createDraft?.materials).toEqual([{ groupId: '42', name: 'Cotton' }])
+      // The baseline is untouched: the swap is client-side until Save, which is
+      // what unassigns the displaced group. So an abandoned form still reverts to
+      // whatever was saved.
+      expect(r.createDraft?.materialBaseline).toEqual([])
+    })
+
+    it('ADD_DRAFT_MATERIAL keeps the richer existing row when the same group is re-picked', () => {
+      // The GET baseline row carries members/stale/drift that a bare
+      // {groupId, name} would drop — re-picking it must not flatten the row.
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      const group = { groupId: '41', name: 'Grass', stale: true }
+      let r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground',
+          materialGroups: [group]
+        })
+      )
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      expect(r.createDraft?.materials).toEqual([group])
     })
 
     it('UPDATE_OBJECT_REQUESTED marks the draft saving; FAILED records the error', () => {
@@ -660,6 +694,21 @@ describe('geometryReducer', () => {
       r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
       expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
       expect(r.createDraft?.materialBaseline).toEqual(['55'])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) REPLACES the material already on the object', () => {
+      // Single-material rule holds for drops too: the saga has already DELETEd the
+      // displaced assignment, so every list here is overwritten, not appended to.
+      let r = created()
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '56', 'Sand'))
+
+      expect(r.createDraft?.materials).toEqual([{ groupId: '56', name: 'Sand' }])
+      expect(r.createDraft?.materialBaseline).toEqual(['56'])
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
+        { groupId: '56', name: 'Sand' }
+      ])
+      expect(r.byScope[KEY].nodesById['27'].materialGroupIds).toEqual(['56'])
     })
 
     it('RENAME_FAILED for the open draft object lands on the draft, not the tree row', () => {

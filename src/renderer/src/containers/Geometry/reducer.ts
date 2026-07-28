@@ -540,13 +540,16 @@ const geometryReducer = (
 
       case ADD_DRAFT_MATERIAL: {
         if (!draft.createDraft) break
-        // Dedupe against the whole displayed set (baseline rows live here too),
-        // so re-picking an already-assigned material is a no-op — this alone
-        // prevents the "re-add → 409" case from ever reaching the backend.
+        // Single-select: a ground carries ONE material, so the pick REPLACES the
+        // list rather than appending to it. Client-side only — Save is what
+        // unassigns the group this displaced, so an abandoned form leaves the
+        // saved assignment alone.
         const { groupId, name } = action.payload
-        if (!draft.createDraft.materials.some((m) => m.groupId === groupId)) {
-          draft.createDraft.materials.push({ groupId, name })
-        }
+        // Re-picking what's already listed keeps the existing row: it may carry
+        // the members / stale / drift the GET baked in, which {groupId, name}
+        // alone would drop.
+        const existing = draft.createDraft.materials.find((m) => m.groupId === groupId)
+        draft.createDraft.materials = [existing ?? { groupId, name }]
         break
       }
 
@@ -558,28 +561,27 @@ const geometryReducer = (
         //    vanishes from the panel (the reported bug).
         // The group goes into the baseline too: it's already persisted, so the
         // add-only Save must not re-PATCH it (that would 409).
+        // Single-material rule: a drop REPLACES whatever each target carried, and
+        // the saga has already DELETEd those older assignments — so every list
+        // here is overwritten with the incoming group rather than appended to.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const { objectIds, groupId, name } = action
         const cd = draft.createDraft
         if (cd && objectIds.includes(cd.objectId)) {
-          if (!cd.materials.some((m) => m.groupId === groupId)) {
-            cd.materials.push({ groupId, name })
-          }
-          if (!cd.materialBaseline.includes(groupId)) {
-            cd.materialBaseline.push(groupId)
-          }
+          const existing = cd.materials.find((m) => m.groupId === groupId)
+          cd.materials = [existing ?? { groupId, name }]
+          cd.materialBaseline = [groupId]
         }
         for (const objectId of objectIds) {
           const detail = s.detailsById[objectId]
-          if (detail && !detail.materialGroups.some((m) => m.groupId === groupId)) {
-            detail.materialGroups.push({ groupId, name })
+          if (detail) {
+            const existing = detail.materialGroups.find((m) => m.groupId === groupId)
+            detail.materialGroups = [existing ?? { groupId, name }]
           }
           // Keep the node's group ids in sync so the 3D viewport reloads this
           // object when the material is later edited.
           const node = s.nodesById[objectId]
-          if (node && !(node.materialGroupIds ?? []).includes(groupId)) {
-            node.materialGroupIds = [...(node.materialGroupIds ?? []), groupId]
-          }
+          if (node) node.materialGroupIds = [groupId]
         }
         break
       }

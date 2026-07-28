@@ -274,10 +274,16 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   // page is the picked row in the form body.
   const pickCotton = (): void => {
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cotton' }))
   }
 
-  it('omits materials already assigned to the ground from the Select popup', () => {
+  /** The Select popup, portaled to document.body. */
+  const openPopup = (): HTMLElement => {
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    return screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+  }
+
+  it('lists the material already assigned to the ground, ticked', () => {
     render(
       <Provider
         store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
@@ -288,30 +294,33 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
         <ObjectPropertiesForm />
       </Provider>
     )
-    // Open the Select popup (portaled to document.body). Scope to it via its
-    // header so the assigned 'Cotton' row in the form body doesn't confuse the
-    // query — the popup itself must offer only the unassigned material.
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+    // The assigned material is NOT filtered out any more — it's the row carrying
+    // the tick, so hiding it would leave the current selection invisible.
+    const popup = openPopup()
 
-    expect(within(popup).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
-    expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(within(popup).getByRole('radio', { name: 'Steel' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
   })
 
-  it('checking a material adds it to the Materials section and marks the box checked', () => {
+  it('picking a material lists it in the Materials section and ticks it', () => {
     const { container } = render(
       <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
         <ObjectPropertiesForm />
       </Provider>
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
-    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
-      'aria-pressed',
+    const popup = openPopup()
+    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
       'false'
     )
 
-    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
 
     // Picking dismisses the popup — the pick is done and the new row is visible
     // behind it.
@@ -319,43 +328,64 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     // …and it's now listed in the form's Materials section.
     expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
 
-    // Reopening shows the pick remembered as a checked box (blue), so the popup
+    // Reopening shows the pick remembered as the ticked row, so the popup
     // reflects the draft rather than resetting.
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    const reopened = screen.getByText('Select Materials').parentElement!
-      .parentElement as HTMLElement
-    expect(within(reopened).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
-      'aria-pressed',
+    expect(within(openPopup()).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
       'true'
     )
   })
 
-  it('unchecking a material removes it from the Materials section', () => {
+  it('picking a different material REPLACES the previous one', () => {
+    // A ground carries exactly one material: choosing Steel drops Cotton from the
+    // Materials section rather than listing both.
     const { container } = render(
-      <Provider store={makeStore([material('m1', 'Cotton')])}>
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
         <ObjectPropertiesForm />
       </Provider>
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
-
-    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // check → add
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Cotton' }))
     expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
 
-    // Checking dismissed the popup, so reopen to undo the pick.
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    const reopened = screen.getByText('Select Materials').parentElement!
-      .parentElement as HTMLElement
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Steel' }))
 
-    fireEvent.click(within(reopened).getByRole('button', { name: 'Cotton' })) // uncheck → remove
-    // Unchecking is undoing a mis-click, so the popup deliberately STAYS open —
-    // correcting it shouldn't cost a reopen.
-    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+    expect(within(container).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
     expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
-    expect(within(reopened).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
-      'aria-pressed',
+
+    // The tick moved with it — Steel is now the selected row, Cotton is not.
+    const reopened = openPopup()
+    expect(within(reopened).getByRole('radio', { name: 'Steel' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(within(reopened).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
       'false'
     )
+  })
+
+  it('re-clicking the ticked material is a no-op and leaves the popup open', () => {
+    // There is nothing to toggle off — clearing the material is the trash icon's
+    // job — so the row must not dismiss the picker or change the selection.
+    const { container } = render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const popup = openPopup()
+
+    fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
+
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
   })
 
   it('filters the material list by the search query', () => {
@@ -364,15 +394,14 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
         <ObjectPropertiesForm />
       </Provider>
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    const popup = screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+    const popup = openPopup()
 
     fireEvent.change(within(popup).getByRole('textbox', { name: 'Search materials' }), {
       target: { value: 'steel' }
     })
 
-    expect(within(popup).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
-    expect(within(popup).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(within(popup).getByRole('radio', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(popup).queryByRole('radio', { name: 'Cotton' })).not.toBeInTheDocument()
   })
 
   it('trash icon removes a draft-only material immediately, with no confirm dialog', () => {
@@ -437,7 +466,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     const { container } = renderInPanel(panelRect({ top: 100, left: 400, height: 600 }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cotton' }))
     fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
 
     // Fixed height (the body scrolls inside it), not a content-hugging box.
@@ -458,7 +487,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     const { container } = renderInPanel(rect)
 
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cotton' }))
     fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
 
     const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
@@ -573,7 +602,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     )
     // Pick it from the Select popup (no baseline → freshly picked)…
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Grass' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Grass' }))
     // …then open its properties from the row: the cached detail fills the popup.
     fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 

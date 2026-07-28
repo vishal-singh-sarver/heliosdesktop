@@ -262,31 +262,25 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // before the ground is saved.
   const materialDetailsById = useSelector(selectMaterialDetailsById)
 
-  // Materials already SAVED on the ground (the GET baseline). The Select popup
-  // hides these — the add-only backend can't un-assign them, so a toggleable
-  // checkbox for one would mislead. Keyed by the library id (= the group id).
-  const savedMaterialIds = React.useMemo(
-    () => new Set(draft.materialBaseline),
-    [draft.materialBaseline]
-  )
-  // Materials currently in the Materials section (baseline ∪ picked this session).
-  // Drives each popup row's checked state; a session pick stays listed + checked.
-  const checkedMaterialIds = React.useMemo(
+  // The material currently in the Materials section — the GET baseline, or the
+  // one picked this session that replaced it. A ground carries at most one, so
+  // this drives which popup row shows the tick. Kept as a Set because the draft
+  // list is still modelled as an array (drag-drop and the GET both write it).
+  const selectedMaterialIds = React.useMemo(
     () => new Set(draft.materials.map((m) => m.groupId)),
     [draft.materials]
   )
 
-  // Toggling a material row: checked → append its GROUP to the draft (deduped in
-  // the reducer), unchecked → drop it. Both are client-side draft edits; Save
-  // PATCHes the net-new picks (add-only). The selection survives re-renders.
-  const handleToggleMaterial = (m: { id: string; name: string }, checked: boolean): void => {
-    dispatch(checked ? addDraftMaterial(m.id, m.name) : removeDraftMaterial(m.id))
-    // Picking a material dismisses the picker — the pick is done, and the new row
-    // appears under the Materials heading behind it. Unchecking deliberately does
-    // NOT close: that's undoing a mis-click, and closing would make the correction
-    // cost a reopen. Lives here rather than in the popup so the popup stays a dumb
-    // list and the open/closed state has a single owner.
-    if (checked) closeMaterialPopup()
+  // Picking a material row REPLACES whatever the draft held (the reducer swaps
+  // the list rather than appending). Client-side only: Save is what unassigns the
+  // material this one displaced and PATCHes the new pick, so abandoning the form
+  // leaves the previously saved material untouched.
+  const handleSelectMaterial = (m: { id: string; name: string }): void => {
+    dispatch(addDraftMaterial(m.id, m.name))
+    // The pick is done, so dismiss the picker — the new row is already showing
+    // under the Materials heading behind it. Lives here rather than in the popup
+    // so the popup stays a dumb list and the open/closed state has a single owner.
+    closeMaterialPopup()
   }
 
   // The per-material trash icon. A material only in the draft (picked this session,
@@ -779,14 +773,16 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         >
           {({ available }) => (
             <SelectMaterialsPopup
-              materials={libraryMaterials
-                .filter((m) => !savedMaterialIds.has(m.id))
-                .map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  checked: checkedMaterialIds.has(m.id)
-                }))}
-              onToggleMaterial={handleToggleMaterial}
+              // The WHOLE library, including the material already saved on the
+              // ground — that row is the one carrying the tick, so filtering it
+              // out (as the old add-only checkbox list did) would leave the
+              // current selection invisible.
+              materials={libraryMaterials.map((m) => ({
+                id: m.id,
+                name: m.name,
+                selected: selectedMaterialIds.has(m.id)
+              }))}
+              onSelectMaterial={handleSelectMaterial}
               onAddNewMaterial={() => {}}
               // Shrink rather than overflow when the window is too short for the
               // popup's designed height; its list scrolls to absorb it.

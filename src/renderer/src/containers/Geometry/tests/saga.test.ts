@@ -354,6 +354,65 @@ describe('updateObjectWorker', () => {
     expect(gen.next().done).toBe(true)
   })
 
+  it('replacing the saved material → DELETEs the displaced group, then PATCHes the new one', () => {
+    // Single-select: the form swapped group 41 for 42. The PATCH is add-only, so
+    // Save has to unassign 41 itself — and it must do that BEFORE the PATCH so the
+    // ground is never momentarily carrying both.
+    const replaced: CreateDraft = {
+      ...draft,
+      materials: [{ groupId: '42', name: 'Cotton' }],
+      materialBaseline: ['41']
+    }
+    const original = {
+      values: { length: '20', breadth: '10' },
+      objectTypeId: 1,
+      objectName: 'Ground',
+      materialGroups: []
+    }
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
+    gen.next() // select draft
+    gen.next(replaced) // select nodesById
+    gen.next({ '27': groundNode('27') }) // select detailsById
+    expect(gen.next({ '27': original }).value).toEqual(
+      all([call(service.unassignMaterial, P, S, '27', '41')])
+    )
+    expect(gen.next().value).toEqual(
+      call(service.updateObject, P, S, '27', {
+        properties: { length: 20, breadth: 10 },
+        visibility: { viewport: true, render: true },
+        groupId: null,
+        materials: [{ group_id: 42, sync: true }]
+      })
+    )
+    expect(gen.next().value).toEqual(
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('clearing the material → DELETEs it and reports the restyle, with no PATCH', () => {
+    // Nothing left to add, so the add-only PATCH is skipped entirely — but losing
+    // a material restyles the object, so the viewport still has to re-fetch it.
+    const cleared: CreateDraft = { ...draft, materials: [], materialBaseline: ['41'] }
+    const original = {
+      values: { length: '20', breadth: '10' },
+      objectTypeId: 1,
+      objectName: 'Ground',
+      materialGroups: []
+    }
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
+    gen.next() // select draft
+    gen.next(cleared) // select nodesById
+    gen.next({ '27': groundNode('27') }) // select detailsById
+    expect(gen.next({ '27': original }).value).toEqual(
+      all([call(service.unassignMaterial, P, S, '27', '41')])
+    )
+    expect(gen.next().value).toEqual(
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
   it('no-ops when there is no draft', () => {
     const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
     gen.next() // select draft
@@ -627,7 +686,11 @@ describe('assignMaterialWorker', () => {
   it('POSTs one assign per object then raises a success toast naming material + target', () => {
     const action = actions.assignMaterialRequested('p', 's', ['1', '2'], '7', 'Grass', 'Group.001')
     const gen = assignMaterialWorker(action)
-    expect(gen.next().value).toEqual(
+    // Neither target carries a material yet, so nothing is displaced.
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(
+      gen.next({ '1': { materialGroupIds: [] }, '2': { materialGroupIds: [] } }).value
+    ).toEqual(
       all([
         call(service.assignMaterialGroup, 'p', 's', '1', '7'),
         call(service.assignMaterialGroup, 'p', 's', '2', '7')
@@ -641,10 +704,43 @@ describe('assignMaterialWorker', () => {
     expect(gen.next().done).toBe(true)
   })
 
+  it('unassigns the material each target already carries before assigning the new one', () => {
+    // Single-material rule: a drop REPLACES. Object 1 holds group 4, object 2
+    // holds group 5 — both are DELETEd first, so neither ends up with two.
+    const action = actions.assignMaterialRequested('p', 's', ['1', '2'], '7', 'Grass', 'Group.001')
+    const gen = assignMaterialWorker(action)
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(
+      gen.next({ '1': { materialGroupIds: ['4'] }, '2': { materialGroupIds: ['5'] } }).value
+    ).toEqual(
+      all([
+        call(service.unassignMaterial, 'p', 's', '1', '4'),
+        call(service.unassignMaterial, 'p', 's', '2', '5')
+      ])
+    )
+    expect(gen.next().value).toEqual(
+      all([
+        call(service.assignMaterialGroup, 'p', 's', '1', '7'),
+        call(service.assignMaterialGroup, 'p', 's', '2', '7')
+      ])
+    )
+  })
+
+  it('skips both calls for an object already carrying the dropped material', () => {
+    // Re-dropping the same material is a no-op: no DELETE (it is not displaced by
+    // itself) and no POST (the backend would 409 on the duplicate).
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next({ '1': { materialGroupIds: ['7'] } }).value).toEqual(all([]))
+    expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded('p', 's', ['1'], '7', 'Grass')))
+  })
+
   it('raises a failure toast naming the material when a call throws', () => {
     const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
     const gen = assignMaterialWorker(action)
-    gen.next() // all(...)
+    gen.next() // select(selectNodesById)
+    gen.next({ '1': { materialGroupIds: [] } }) // all(...)
     expect(gen.throw(new Error('boom')).value).toEqual(
       put(showSnackbar(messages.assignMaterialFailure('Grass'), 'error'))
     )

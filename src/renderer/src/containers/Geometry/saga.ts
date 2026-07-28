@@ -183,12 +183,29 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     const nextProps = numericProperties(draft.values)
     const propsChanged = !original || !sameProperties(nextProps, numericProperties(original.values))
 
-    // ADD-only: send just the groups picked this session that aren't already
-    // assigned on the backend (baseline seeded from the GET). Empty = no material
-    // change, so a re-Save of an unchanged ground sends nothing and avoids a 409.
+    // Send just the groups picked this session that aren't already assigned on
+    // the backend (baseline seeded from the GET). Empty = no material change, so
+    // a re-Save of an unchanged ground sends nothing and avoids a 409.
     const newMaterials = draft.materials
       .filter((m) => !draft.materialBaseline.includes(m.groupId))
       .map((m) => ({ group_id: Number(m.groupId), sync: true }))
+
+    // Single-select: anything in the baseline the draft no longer lists was
+    // REPLACED in the form. The PATCH is add-only, so the displaced assignment
+    // has to be DELETEd here — otherwise the ground would end up carrying both.
+    // This runs BEFORE the PATCH so the ground is never momentarily double-
+    // assigned, and only on Save, which is what lets an abandoned form leave the
+    // previously saved material intact.
+    const removedMaterialIds = draft.materialBaseline.filter(
+      (id) => !draft.materials.some((m) => m.groupId === id)
+    )
+    if (removedMaterialIds.length) {
+      yield all(
+        removedMaterialIds.map((id) =>
+          call(service.unassignMaterial, projectId, scenarioId, draft.objectId, id)
+        )
+      )
+    }
 
     if (propsChanged || newMaterials.length) {
       yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
@@ -206,8 +223,9 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
         objectId: draft.objectId,
         propsChanged,
         // A newly-assigned material restyles the object even with props unchanged,
-        // so the 3D viewport must re-fetch its binary in that case too.
-        materialsChanged: newMaterials.length > 0
+        // so the 3D viewport must re-fetch its binary in that case too. Losing one
+        // restyles it just as much, so a replacement counts on both counts.
+        materialsChanged: newMaterials.length > 0 || removedMaterialIds.length > 0
       })
     )
   } catch (err) {
@@ -370,8 +388,31 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
   const { projectId, scenarioId, objectIds, groupId, materialName, targetName } = action
   if (!objectIds.length) return
   try {
+    // Single-material rule: an object carries ONE material, so a drop REPLACES
+    // what's already there. Collect every other group currently on the targets
+    // and DELETE those assignments first, so the object is never briefly holding
+    // two. Unlike the right-panel form this commits immediately — a drop has no
+    // Save step to defer to.
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const displaced = objectIds.flatMap((objectId) =>
+      (nodesById[objectId]?.materialGroupIds ?? [])
+        .filter((id) => id !== groupId)
+        .map((oldGroupId) => ({ objectId, oldGroupId }))
+    )
+    if (displaced.length) {
+      yield all(
+        displaced.map((d) =>
+          call(service.unassignMaterial, projectId, scenarioId, d.objectId, d.oldGroupId)
+        )
+      )
+    }
+    // Objects already carrying this exact group need no POST — re-dropping the
+    // same material is a no-op, and the backend would 409 on the duplicate.
+    const toAssign = objectIds.filter(
+      (objectId) => !(nodesById[objectId]?.materialGroupIds ?? []).includes(groupId)
+    )
     yield all(
-      objectIds.map((objectId) =>
+      toAssign.map((objectId) =>
         call(service.assignMaterialGroup, projectId, scenarioId, objectId, groupId)
       )
     )

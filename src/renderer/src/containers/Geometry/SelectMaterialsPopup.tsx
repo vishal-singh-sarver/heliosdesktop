@@ -3,21 +3,23 @@ import searchIcon from '@renderer/assets/search.svg'
 import SearchBar from '@renderer/components/SearchBar'
 import React from 'react'
 
-// A material row: the library id + name plus whether it's currently assigned to
-// the ground (checked). The parent owns the checked state (it lives in the draft).
+// A material row: the library id + name plus whether it's the one currently on
+// the ground (selected). The parent owns the selected state (it lives in the
+// draft).
 export interface SelectMaterialsItem {
   id: string
   name: string
-  checked: boolean
+  selected: boolean
 }
 
 interface SelectMaterialsPopupProps {
-  // Selectable library materials (already filtered to exclude the ones saved on
-  // the ground). Each carries its checked state.
+  // The full library — including the material already saved on the ground, which
+  // is what carries the tick. Each row carries its own selected state.
   materials: SelectMaterialsItem[]
-  // Toggling a row: `checked` is the NEW state — true adds the material to the
-  // Materials section, false removes it. The parent dispatches add/remove.
-  onToggleMaterial: (material: { id: string; name: string }, checked: boolean) => void
+  // Picking a row. A ground holds ONE material, so this replaces whatever was
+  // selected rather than adding to it; re-clicking the selected row is a no-op
+  // (there is nothing to toggle off), so this only ever fires for a new pick.
+  onSelectMaterial: (material: { id: string; name: string }) => void
   // "+ Add New Material" — dummy for now.
   onAddNewMaterial: () => void
   // Cap from the surrounding AnchoredPopup: the room left beside the panel. A
@@ -31,13 +33,30 @@ interface SelectMaterialsPopupProps {
 // tall window doesn't stretch it past its designed size.
 const DEFAULT_HEIGHT = 343
 
+// The blue tick marking the selected material. Sits in a fixed-width slot to the
+// LEFT of the name, so every row's label starts on the same x whether or not it
+// carries the tick.
+function SelectedTick(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 12 11" aria-hidden="true" className="h-3 w-3">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M10.7464 0.274437L3.58641 7.18444L1.68641 5.15444C1.33641 4.82444 0.786406 4.80444 0.386406 5.08444C-0.00359413 5.37444 -0.113594 5.88444 0.126406 6.29444L2.37641 9.95444C2.59641 10.2944 2.97641 10.5044 3.40641 10.5044C3.81641 10.5044 4.20641 10.2944 4.42641 9.95444C4.78641 9.48444 11.6564 1.29444 11.6564 1.29444C12.5564 0.374437 11.4664 -0.435563 10.7464 0.264437V0.274437Z"
+        fill="#245AC5"
+      />
+    </svg>
+  )
+}
+
 // The "Select Materials" popup. 240 wide × DEFAULT_HEIGHT (shrinking to fit a
 // short window), 8px radius, #313131. A search field filters the list by name;
-// each material is a checkbox row (blue when checked). When the library has no
-// selectable materials it shows the empty state.
+// the list is a RADIO group — a ground carries a single material, so the one
+// currently on it shows a blue tick at the left and picking another replaces it.
+// When the library is empty it shows the empty state.
 export default function SelectMaterialsPopup({
   materials,
-  onToggleMaterial,
+  onSelectMaterial,
   onAddNewMaterial,
   maxHeight
 }: SelectMaterialsPopupProps): React.JSX.Element {
@@ -94,44 +113,40 @@ export default function SelectMaterialsPopup({
             />
           </div>
 
-          {/* Checkbox list — click a row to toggle. aria-pressed carries the
-              checked state; the blue box + tick is the checked visual. The
-              horizontal padding is what gives each row's focus outline room to
-              sit inside the popup instead of running flush to its edges. */}
-          <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto px-2 py-1">
+          {/* Radio list — click a row to make it THE material on the ground. The
+              tick slot leads each row so the names line up; aria-checked carries
+              the state to assistive tech. The horizontal padding is what gives
+              each row's focus outline room to sit inside the popup instead of
+              running flush to its edges. */}
+          <div
+            role="radiogroup"
+            aria-label="Select Materials"
+            className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto px-2 py-1"
+          >
             {visible.map((m) => (
               <button
                 key={m.id}
                 type="button"
-                aria-pressed={m.checked}
-                onClick={() => onToggleMaterial({ id: m.id, name: m.name }, !m.checked)}
+                role="radio"
+                aria-checked={m.selected}
+                // Re-clicking the selected material is a no-op: the ground always
+                // carries exactly one, so there is nothing to toggle off. Clearing
+                // it is the trash icon's job, back in the Materials section.
+                onClick={() => {
+                  if (!m.selected) onSelectMaterial({ id: m.id, name: m.name })
+                }}
                 // Keyboard focus reads as a rounded, inset, blue-bordered row —
                 // the same cue a selected row gets in the left-hand geometry tree
                 // (see TreeRow). The border is always present and transparent when
                 // unfocused, so focusing never shifts the row's contents.
-                className="flex w-full items-center justify-between gap-3 rounded border border-transparent px-2 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5 focus:outline-none focus-visible:border-[#245AC5] focus-visible:bg-[#2a2a2a]"
+                className="flex w-full items-center gap-2 rounded border border-transparent px-2 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5 focus:outline-none focus-visible:border-[#245AC5] focus-visible:bg-[#2a2a2a]"
               >
+                {/* Fixed-width slot: reserved whether or not this row is the
+                    selected one, so ticking a row never shifts any label. */}
+                <span className="flex h-3 w-3 shrink-0 items-center justify-center">
+                  {m.selected && <SelectedTick />}
+                </span>
                 <span className="min-w-0 truncate">{m.name}</span>
-                {m.checked ? (
-                  // Layered checked box: blue outer border → even 1px gap (popup
-                  // bg shows through) → blue inner square with a dark checkmark
-                  // punched out. All integers so the gap snaps evenly on every
-                  // side: 19 − 2×2px border − 13px inner, /2 = 1px.
-                  <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-[5px] border-2 border-[#245AC5]">
-                    <span className="flex h-[13px] w-[13px] items-center justify-center rounded-[3px] bg-[#245AC5]">
-                      <svg viewBox="0 0 12 11" aria-hidden="true" className="h-[7px] w-[7px]">
-                        <path
-                          fillRule="evenodd"
-                          clipRule="evenodd"
-                          d="M10.7464 0.274437L3.58641 7.18444L1.68641 5.15444C1.33641 4.82444 0.786406 4.80444 0.386406 5.08444C-0.00359413 5.37444 -0.113594 5.88444 0.126406 6.29444L2.37641 9.95444C2.59641 10.2944 2.97641 10.5044 3.40641 10.5044C3.81641 10.5044 4.20641 10.2944 4.42641 9.95444C4.78641 9.48444 11.6564 1.29444 11.6564 1.29444C12.5564 0.374437 11.4664 -0.435563 10.7464 0.264437V0.274437Z"
-                          fill="#313131"
-                        />
-                      </svg>
-                    </span>
-                  </span>
-                ) : (
-                  <span className="h-[19px] w-[19px] shrink-0 rounded-[5px] border border-[#6b6b6b]" />
-                )}
               </button>
             ))}
           </div>
