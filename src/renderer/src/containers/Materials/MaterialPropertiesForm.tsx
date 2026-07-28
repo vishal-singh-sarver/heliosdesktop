@@ -519,6 +519,9 @@ function MaterialFieldGrid({
               // text/number fields keep the label as their placeholder.
               placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : field.label,
               error,
+              // Surface the validation error as an in-cell info-icon tooltip
+              // (matches the Geometry right panel); selects keep the inline message.
+              errorAsTooltip: true,
               inputClassName: 'bg-[#121212]',
               options:
                 field.datatype === 'enum' && field.enumValues

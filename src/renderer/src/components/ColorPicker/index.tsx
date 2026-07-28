@@ -1,4 +1,6 @@
+import infoIcon from '@renderer/assets/info.svg'
 import React from 'react'
+import Tooltip from '../Tooltip'
 import {
   clamp,
   hsvToRgb,
@@ -236,20 +238,32 @@ function ColorPicker({
   const hex = rgbToHex(rgb)
   const hueColor = rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 }))
 
-  // The first field error drives the single message line under the row; each bad
-  // field also gets a red outline.
-  const firstError =
-    channelFields.r.error ?? channelFields.g.error ?? channelFields.b.error ?? opacityField.error
-
-  // Same error treatment as the app's FormField: a red outline on the input.
+  // Same error treatment as the app's FormField: a red outline on the input, plus
+  // an in-cell info-icon tooltip. Reserve right padding when errored so the value
+  // doesn't run under the icon (mirrors FormField's `pr-8`); pl-2/pr-2 keep the
+  // valid-state padding byte-identical to the previous `px-2`.
   const fieldClass = (error?: string): string =>
     // The placeholder is the channel's own letter, so an empty box still says
     // WHICH channel it is — greyed, so it never reads as an entered value.
-    `h-8 w-full rounded border bg-[#121212] px-2 text-center text-sm text-white outline-none placeholder:text-[#424242] ${
+    `h-8 w-full rounded border bg-[#121212] pl-2 ${error ? 'pr-7' : 'pr-2'} text-center text-sm text-white outline-none placeholder:text-[#424242] ${
       error
         ? 'border-app-border outline outline-1 -outline-offset-1 outline-[#D92D20] focus:border-[#D92D20]'
         : 'border-app-border focus:border-neutral-500'
     }`
+
+  // The validation error as an in-cell info-icon tooltip — the same Tooltip the
+  // app's FormField uses for `errorAsTooltip`, positioned inside the input box.
+  const errorIcon = (error?: string): React.JSX.Element | null =>
+    error ? (
+      <Tooltip
+        text={error}
+        ariaLabel={`Validation error: ${error}`}
+        place="top"
+        className="absolute right-1.5 top-1/2 -translate-y-1/2"
+      >
+        <img src={infoIcon} alt="" className="h-4 w-4" />
+      </Tooltip>
+    ) : null
 
   return (
     <div className="flex flex-col gap-3">
@@ -345,39 +359,40 @@ function ColorPicker({
             return (
               <label key={key} className="flex flex-1 flex-col gap-1">
                 <span className="text-xs uppercase text-neutral-500">{key}</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  aria-label={key.toUpperCase()}
-                  aria-invalid={field.error != null}
-                  placeholder={key.toUpperCase()}
-                  value={field.value}
-                  onChange={(e) => field.onChange(e.target.value)}
-                  onBlur={field.onBlur}
-                  className={fieldClass(field.error)}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    aria-label={key.toUpperCase()}
+                    aria-invalid={field.error != null}
+                    placeholder={key.toUpperCase()}
+                    value={field.value}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                    className={fieldClass(field.error)}
+                  />
+                  {errorIcon(field.error)}
+                </div>
               </label>
             )
           })}
           <label className="flex flex-1 flex-col gap-1">
             <span className="text-xs text-neutral-500">%</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              aria-label={labels.opacity}
-              aria-invalid={opacityField.error != null}
-              value={opacityField.value}
-              onChange={(e) => opacityField.onChange(e.target.value)}
-              onBlur={opacityField.onBlur}
-              className={fieldClass(opacityField.error)}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label={labels.opacity}
+                aria-invalid={opacityField.error != null}
+                value={opacityField.value}
+                onChange={(e) => opacityField.onChange(e.target.value)}
+                onBlur={opacityField.onBlur}
+                className={fieldClass(opacityField.error)}
+              />
+              {errorIcon(opacityField.error)}
+            </div>
           </label>
         </div>
-        {firstError && (
-          <p className="form-error-text mt-1" role="alert">
-            {firstError}
-          </p>
-        )}
       </div>
 
       {/* Recently-used colours. */}

@@ -957,7 +957,8 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     // reaches the box.
     fireEvent.change(screen.getByLabelText('R'), { target: { value: '3.5' } })
     expect(screen.getByLabelText('R')).toHaveValue('')
-    expect(screen.getByRole('alert')).toHaveTextContent('This input is not supported')
+    // The error surfaces as the info-icon tooltip (aria-label), not an inline line.
+    expect(screen.getByLabelText(/This input is not supported/)).toBeInTheDocument()
   })
 
   it('blocks a non-numeric keystroke with "This input is not supported"', () => {
@@ -970,7 +971,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
 
     fireEvent.change(screen.getByLabelText('G'), { target: { value: 'x' } })
     expect(screen.getByLabelText('G')).toHaveValue('')
-    expect(screen.getByRole('alert')).toHaveTextContent('This input is not supported')
+    expect(screen.getByLabelText(/This input is not supported/)).toBeInTheDocument()
   })
 
   it('shows the range message for a channel above 255', () => {
@@ -983,7 +984,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
 
     fireEvent.change(screen.getByLabelText('B'), { target: { value: '300' } })
     expect(screen.getByLabelText('B')).toHaveValue('300')
-    expect(screen.getByRole('alert')).toHaveTextContent('Values should be between 0-255')
+    expect(screen.getByLabelText(/Values should be between 0-255/)).toBeInTheDocument()
     expect(screen.getByLabelText('B')).toHaveAttribute('aria-invalid', 'true')
   })
 
@@ -998,7 +999,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     // A minus can be typed (partial numeric), but -5 is below 0 → range message,
     // matching the other numeric fields.
     fireEvent.change(screen.getByLabelText('R'), { target: { value: '-5' } })
-    expect(screen.getByRole('alert')).toHaveTextContent('Values should be between 0-255')
+    expect(screen.getByLabelText(/Values should be between 0-255/)).toBeInTheDocument()
   })
 
   it('shows the range message for opacity above 100', () => {
@@ -1013,7 +1014,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Opacity' }), {
       target: { value: '150' }
     })
-    expect(screen.getByRole('alert')).toHaveTextContent('Values should be between 0-100')
+    expect(screen.getByLabelText(/Values should be between 0-100/)).toBeInTheDocument()
   })
 
   it('opens with opacity at 100% and the channels showing their letters', () => {

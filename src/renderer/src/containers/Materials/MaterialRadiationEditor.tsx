@@ -108,6 +108,9 @@ export function MaterialRadiationEditor({
           value: values[property] ?? '',
           placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : label,
           error: fieldError(field),
+          // Surface the validation error as an in-cell info-icon tooltip
+          // (matches the Geometry right panel); selects keep the inline message.
+          errorAsTooltip: true,
           disabled: opts?.disabled,
           inputClassName: BAND_INPUT_CLASSES,
           options:
