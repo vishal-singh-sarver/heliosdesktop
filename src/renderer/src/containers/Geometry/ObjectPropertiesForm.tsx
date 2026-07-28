@@ -1,6 +1,7 @@
 import deleteIcon from '@renderer/assets/delete.svg'
 import infoIcon from '@renderer/assets/info.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
+import AnchoredPopup from '@renderer/components/AnchoredPopup'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Tooltip from '@renderer/components/Tooltip'
@@ -24,13 +25,13 @@ import {
 } from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
-import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import type { AnchorRect } from 'utils/useAnchoredPosition'
 import {
   addDraftMaterial,
   closeCreateForm,
@@ -67,10 +68,6 @@ import { validateGroupName } from './validation'
 // branch a no-op, leaving the cheap instant rules: non-empty + ≤20 characters.
 const NO_NAME_CONFLICTS = new Set<string>()
 
-// The read-only material properties popup's width, used to place it beside the
-// panel. The popup is sized + centered against the 3D window (see openDetailPopup),
-// so positioning needs only the width; the height is derived from the workspace.
-const DETAIL_POPUP_WIDTH = 370
 // The popup's height as a fraction of the 3D window's — "20% less than the window,
 // split top and bottom" (per the Figma), so it reads as a tall centered panel
 // rather than a content-hugging tooltip. Purely visual; tweak to taste.
@@ -344,35 +341,42 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const nameInputRef = React.useRef<HTMLInputElement>(null)
 
   // "Select Materials" popup — anchored just outside the right panel's left edge,
-  // vertically following the Select button, clamped to stay on-screen. Popup size
-  // is hardcoded: 240 wide × 343 tall. popupCoords null = closed.
+  // vertically following the Select button. AnchoredPopup measures the popup and
+  // keeps it there as the window resizes, so nothing here knows its size.
   const selectBtnRef = React.useRef<HTMLButtonElement>(null)
-  const [popupCoords, setPopupCoords] = React.useState<{ top: number; left: number } | null>(null)
-  const materialPopupOpen = popupCoords !== null
+  const [materialPopupOpen, setMaterialPopupOpen] = React.useState(false)
   const openMaterialPopup = (): void => {
-    const btn = selectBtnRef.current
-    if (!btn) return
     closeDetailPopup()
-    const panel = btn.closest('aside')?.getBoundingClientRect()
-    const btnRect = btn.getBoundingClientRect()
-    const leftAnchor = panel ? panel.left : btnRect.left
-    setPopupCoords({
-      top: Math.max(8, Math.min(btnRect.top, window.innerHeight - 343 - 8)),
-      left: leftAnchor - 240 - 8
-    })
+    setMaterialPopupOpen(true)
   }
-  const closeMaterialPopup = (): void => setPopupCoords(null)
+  const closeMaterialPopup = (): void => setMaterialPopupOpen(false)
+
+  // x from the panel's left edge, y from the Select button: the popup sits on the
+  // strip beside the panel, level with the button. Re-read on every measure pass,
+  // so both parts track independently as the layout moves. Falls back to the
+  // button alone when there's no panel (unit tests render the form bare).
+  const getSelectAnchorRect = React.useCallback((): AnchorRect | null => {
+    const btn = selectBtnRef.current
+    if (!btn) return null
+    const b = btn.getBoundingClientRect()
+    const panel = btn.closest('aside')?.getBoundingClientRect()
+    return {
+      top: b.top,
+      height: b.height,
+      left: panel?.left ?? b.left,
+      width: panel?.width ?? b.width
+    }
+  }, [])
 
   // Read-only material properties popup — opened by clicking a picked material's
-  // name. One nullable object rather than separate coords/material state: null =
-  // closed (the same convention as popupCoords above), and the material can't
-  // desync from the position it was measured against. Measured once on open, so
-  // it doesn't follow a scroll — matching the Select popup and the kebab menu.
+  // name. One nullable object rather than separate panel/material state: null =
+  // closed (the same convention as materialPopupOpen above). We keep the panel
+  // ELEMENT, not a rect, so AnchoredPopup can re-read it as the window resizes —
+  // and because the panel outlives the row that was clicked, the popup survives
+  // its material being removed from the list underneath it.
   const [detailPopup, setDetailPopup] = React.useState<{
     material: DraftMaterialGroup
-    top: number
-    left: number
-    height: number
+    panel: HTMLElement | null
   } | null>(null)
   const closeDetailPopup = (): void => setDetailPopup(null)
   const openDetailPopup = (row: HTMLElement, material: DraftMaterialGroup): void => {
@@ -389,33 +393,30 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     if (!materialDetailsById[material.groupId] && !material.stale) {
       dispatch(loadMaterialDetailRequested(material.groupId))
     }
-    const panel = row.closest('aside')?.getBoundingClientRect()
-    const rowRect = row.getBoundingClientRect()
-    const leftAnchor = panel ? panel.left : rowRect.left
-    // Size + center the popup against the 3D window, matching the Figma: a tall
-    // panel ~80% of the window's height, vertically centered (equal gap top and
-    // bottom). The right panel (this `aside`) is a flex sibling of the 3D window in
-    // the same row, so it shares the window's top and height — reuse it as the
-    // vertical anchor rather than reaching across to the workspace. Centering in it
-    // also keeps the popup well below the app's 45px `-webkit-app-region: drag`
-    // title bar, which would otherwise swallow the close button's click. Fall back
-    // to the viewport when there's no panel (e.g. unit tests).
-    const bounds = panel
-      ? { top: panel.top, height: panel.height }
-      : { top: POPUP_GAP, height: window.innerHeight - POPUP_GAP * 2 }
-    const height = Math.round(bounds.height * DETAIL_POPUP_HEIGHT_RATIO)
-    const top = bounds.top + (bounds.height - height) / 2
-    setDetailPopup({
-      material,
-      top,
-      // 8px left of the whole panel, like the Select popup — but clamped: at 370
-      // wide an unclamped left goes negative on a window under ~720px and walks
-      // off the left edge. Clamping can slide it over the panel instead; the
-      // portal renders at z-50, above it.
-      left: Math.max(POPUP_GAP, leftAnchor - DETAIL_POPUP_WIDTH - POPUP_GAP),
-      height
-    })
+    setDetailPopup({ material, panel: row.closest('aside') })
   }
+
+  // The popup is sized + centered against the 3D window, matching the Figma: a
+  // tall panel ~80% of the window's height, vertically centered (equal gap top
+  // and bottom). The right panel (this `aside`) is a flex sibling of the 3D
+  // window in the same row, so it shares the window's top and height — reuse it
+  // as the anchor rather than reaching across to the workspace. Centering in it
+  // also keeps the popup well below the app's 45px `-webkit-app-region: drag`
+  // title bar, which would otherwise swallow the close button's click. Fall back
+  // to the viewport when there's no panel (e.g. unit tests).
+  const detailPanel = detailPopup?.panel ?? null
+  const getDetailAnchorRect = React.useCallback((): AnchorRect => {
+    const panel = detailPanel?.getBoundingClientRect()
+    if (panel) {
+      return { top: panel.top, left: panel.left, width: panel.width, height: panel.height }
+    }
+    return {
+      top: POPUP_GAP,
+      left: window.innerWidth - POPUP_GAP,
+      width: 0,
+      height: window.innerHeight - POPUP_GAP * 2
+    }
+  }, [detailPanel])
 
   // Focus the name field the moment the pencil unlocks it (it's read-only until
   // then, so we can't focus in the same click handler before the re-render).
@@ -733,55 +734,66 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           </div>
         )}
 
-        {/* "Select Materials" popup — rendered in a portal so the panel's overflow
-            can't clip it; an overlay closes it on outside-click. */}
-        {popupCoords &&
-          createPortal(
-            <>
-              <div className="fixed inset-0 z-40" aria-hidden="true" onClick={closeMaterialPopup} />
-              <div className="fixed z-50" style={{ top: popupCoords.top, left: popupCoords.left }}>
-                <SelectMaterialsPopup
-                  materials={libraryMaterials
-                    .filter((m) => !savedMaterialIds.has(m.id))
-                    .map((m) => ({
-                      id: m.id,
-                      name: m.name,
-                      checked: checkedMaterialIds.has(m.id)
-                    }))}
-                  onToggleMaterial={handleToggleMaterial}
-                  onAddNewMaterial={() => {}}
-                />
-              </div>
-            </>,
-            document.body
+        {/* "Select Materials" popup — level with the Select button, on the strip
+            beside the panel, and it stays there as the window resizes. */}
+        <AnchoredPopup
+          open={materialPopupOpen}
+          onClose={closeMaterialPopup}
+          getAnchorRect={getSelectAnchorRect}
+          placement="left-start"
+          gap={POPUP_GAP}
+        >
+          {({ available }) => (
+            <SelectMaterialsPopup
+              materials={libraryMaterials
+                .filter((m) => !savedMaterialIds.has(m.id))
+                .map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  checked: checkedMaterialIds.has(m.id)
+                }))}
+              onToggleMaterial={handleToggleMaterial}
+              onAddNewMaterial={() => {}}
+              // Shrink rather than overflow when the window is too short for the
+              // popup's designed height; its list scrolls to absorb it.
+              maxHeight={available.height}
+            />
           )}
+        </AnchoredPopup>
 
-        {/* An assigned material's read-only properties — its own portal + overlay,
+        {/* An assigned material's read-only properties — centred on the panel,
             mirroring the Select popup. Only one of the two is ever open. Sections
             come from the group's members (from the GET); a freshly-picked group
             has none yet, so the popup shows its empty state until the ground is
             reopened. */}
-        {detailPopup &&
-          createPortal(
-            <>
-              <div className="fixed inset-0 z-40" aria-hidden="true" onClick={closeDetailPopup} />
-              <div className="fixed z-50" style={{ top: detailPopup.top, left: detailPopup.left }}>
-                <MaterialPropertiesPopup
-                  name={detailPopup.material.name}
-                  sections={buildMaterialSections(
-                    membersFor(detailPopup.material) ?? [],
-                    materialTypes
-                  )}
-                  // Fixed height, sized to the 3D window (see openDetailPopup). The
-                  // popup's body scrolls inside it, so a material with many parameter
-                  // groups scrolls rather than overflowing the panel.
-                  height={detailPopup.height}
-                  onClose={closeDetailPopup}
-                />
-              </div>
-            </>,
-            document.body
-          )}
+        <AnchoredPopup
+          open={detailPopup !== null}
+          onClose={closeDetailPopup}
+          getAnchorRect={getDetailAnchorRect}
+          placement="left"
+          gap={POPUP_GAP}
+        >
+          {({ anchorRect, available }) =>
+            detailPopup && (
+              <MaterialPropertiesPopup
+                name={detailPopup.material.name}
+                sections={buildMaterialSections(
+                  membersFor(detailPopup.material) ?? [],
+                  materialTypes
+                )}
+                // Sized to the 3D window and re-derived as it resizes, capped to
+                // what actually fits. The popup's body scrolls inside that height,
+                // so a material with many parameter groups scrolls rather than
+                // overflowing the panel.
+                height={Math.min(
+                  Math.round(anchorRect.height * DETAIL_POPUP_HEIGHT_RATIO),
+                  available.height
+                )}
+                onClose={closeDetailPopup}
+              />
+            )
+          }
+        </AnchoredPopup>
 
         {draft.saveError && !objectDeleted && <p className="form-error-text">{draft.saveError}</p>}
       </div>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import materialsReducer, {
   initialState as materialsInitialState
 } from 'containers/Materials/reducer'
@@ -6,7 +6,11 @@ import type { Material, MaterialGroupDetail } from 'containers/Materials/types'
 import projectScreenReducer, {
   initialState as projectScreenInitialState
 } from 'containers/ProjectScreen/reducer'
-import type { CatalogPropertyDef, MaterialTypeDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import type {
+  CatalogPropertyDef,
+  MaterialTypeDef,
+  ObjectTypeDef
+} from 'containers/ProjectScreen/types'
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
@@ -153,7 +157,12 @@ function makeStore(
       activeScenarioId: SCENARIO,
       catalog: {
         ...projectScreenInitialState.catalog,
-        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null },
+        objectTypes: {
+          byId: { 1: groundType },
+          allIds: [1],
+          loadStatus: 'loaded',
+          loadError: null
+        },
         materialTypes: {
           byId: Object.fromEntries((opts.materialTypes ?? []).map((t) => [t.id, t])),
           allIds: (opts.materialTypes ?? []).map((t) => t.id),
@@ -180,6 +189,83 @@ const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
   if (!el) throw new Error(`input[name="${name}"] not rendered`)
   return el as HTMLInputElement
 }
+
+// ── Anchored-popup test rig ───────────────────────────────────────────────────
+// AnchoredPopup places a popup by measuring it against its anchor, and jsdom has
+// no layout — every element reports a zero rect. These helpers supply the two
+// measurements it needs: a right-panel <aside> whose rect the test controls, and
+// a popup that reports the size it actually rendered at.
+
+const PANEL_WIDTH = 340
+
+const domRect = (top: number, left: number, width: number, height: number): DOMRect =>
+  ({
+    top,
+    left,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({})
+  }) as DOMRect
+
+/** A panel rect the test can move mid-run, to stand in for a window resize. */
+function panelRect(init: { top: number; left: number; height: number }): {
+  set: (next: { top: number; left: number; height: number }) => void
+  read: () => DOMRect
+} {
+  let r = { ...init }
+  return {
+    set: (next) => {
+      r = { ...next }
+    },
+    read: () => domRect(r.top, r.left, PANEL_WIDTH, r.height)
+  }
+}
+
+const realGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = realGetBoundingClientRect
+})
+
+/**
+ * Render the form inside a right panel whose rect the test drives, with popups
+ * reporting a real size so AnchoredPopup can place them. Width comes from the
+ * popup component's Tailwind class (which jsdom won't compute), height from the
+ * inline style it renders — so a popup that resizes itself is measured as such.
+ */
+function renderInPanel(rect: ReturnType<typeof panelRect>): ReturnType<typeof render> {
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): DOMRect {
+    // AnchoredPopup's positioned wrapper — the element it measures.
+    if (this.classList.contains('z-50')) {
+      const popup = this.firstElementChild as HTMLElement | null
+      if (!popup) return domRect(0, 0, 0, 0)
+      const width = popup.className.includes('w-[240px]') ? 240 : 370
+      return domRect(0, 0, width, parseFloat(popup.style.height || '0'))
+    }
+    return realGetBoundingClientRect.call(this)
+  }
+
+  const result = render(
+    <aside>
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    </aside>
+  )
+  const aside = result.container.querySelector('aside') as HTMLElement
+  aside.getBoundingClientRect = rect.read
+  return result
+}
+
+/** Let AnchoredPopup's requestAnimationFrame measure loop run one pass. */
+const tick = (): Promise<void> =>
+  act(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  })
 
 describe('<ObjectPropertiesForm /> — material properties popup', () => {
   // Pick Cotton from the Select popup, leaving it listed under the Materials row.
@@ -327,30 +413,12 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   })
 
   it('sizes the popup to 80% of the 3D-window height and vertically centers it', () => {
-    // openDetailPopup sizes/centers the popup against the surrounding right-panel
-    // <aside> — a flex sibling of the 3D window, so it shares the window's top and
-    // height. jsdom returns a zero rect, so stub the aside's rect: a 600px-tall
-    // panel at top 100 → height round(600*0.8)=480, top 100+(600-480)/2=160.
-    const { container } = render(
-      <aside>
-        <Provider store={makeStore([material('m1', 'Cotton')])}>
-          <ObjectPropertiesForm />
-        </Provider>
-      </aside>
-    )
-    const aside = container.querySelector('aside') as HTMLElement
-    aside.getBoundingClientRect = () =>
-      ({
-        top: 100,
-        left: 400,
-        right: 740,
-        bottom: 700,
-        width: 340,
-        height: 600,
-        x: 400,
-        y: 100,
-        toJSON: () => ({})
-      }) as DOMRect
+    // The popup is sized/centered against the surrounding right-panel <aside> —
+    // a flex sibling of the 3D window, so it shares the window's top and height.
+    // A 600px-tall panel at top 100 → height round(600*0.8)=480, and centering a
+    // 480-tall popup in it → top 100+(600-480)/2=160. Its left edge sits 8px
+    // clear of the panel → 400-370-8=22.
+    const { container } = renderInPanel(panelRect({ top: 100, left: 400, height: 600 }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
@@ -360,7 +428,35 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
     expect(dialog).toHaveStyle({ height: '480px' })
     // The portal wrapper carries the computed position — centered in the panel.
-    expect(dialog.parentElement).toHaveStyle({ top: '160px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '160px', left: '22px' })
+  })
+
+  it('follows the panel when the window is resized', async () => {
+    // The regression this replaced: the popup measured once on open and froze
+    // there, so resizing moved the trigger out from under it. AnchoredPopup
+    // re-measures on a rAF loop instead. Shrinking the panel from 700 to 500 tall
+    // re-derives the height (round(500*0.8)=400) and the centred top
+    // (30+(500-400)/2=80); narrowing it pulls the popup left until it would go
+    // negative (300-370-8=-78) and clamps to the 8px viewport padding.
+    const rect = panelRect({ top: 30, left: 400, height: 700 })
+    const { container } = renderInPanel(rect)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
+    expect(dialog).toHaveStyle({ height: '560px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '100px', left: '22px' })
+
+    rect.set({ top: 30, left: 300, height: 500 })
+    // The popup's own height is what it re-centres against, so let the loop run
+    // twice: once to re-derive the height, once to place the resized popup.
+    await tick()
+    await tick()
+
+    expect(dialog).toHaveStyle({ height: '400px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '80px', left: '8px' })
   })
 
   it("shows an assigned material's properties (from the GET) in the read-only popup", () => {
@@ -381,7 +477,9 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
       ]
     }
     const { container } = render(
-      <Provider store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}>
+      <Provider
+        store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}
+      >
         <ObjectPropertiesForm />
       </Provider>
     )

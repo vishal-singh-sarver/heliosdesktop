@@ -20,15 +20,26 @@ interface SelectMaterialsPopupProps {
   onToggleMaterial: (material: { id: string; name: string }, checked: boolean) => void
   // "+ Add New Material" — dummy for now.
   onAddNewMaterial: () => void
+  // Cap from the surrounding AnchoredPopup: the room left beside the panel. A
+  // short window shrinks the popup instead of pushing it past the viewport edge;
+  // the list below scrolls to absorb the difference. Standalone (or whenever
+  // there's room), the popup keeps its designed DEFAULT_HEIGHT.
+  maxHeight?: number
 }
 
-// The "Select Materials" popup. 240×343, 8px radius, #313131. A search field
-// filters the list by name; each material is a checkbox row (blue when checked).
-// When the library has no selectable materials it shows the empty state.
+// The Figma height. Also the cap — `maxHeight` only ever shrinks the popup, so a
+// tall window doesn't stretch it past its designed size.
+const DEFAULT_HEIGHT = 343
+
+// The "Select Materials" popup. 240 wide × DEFAULT_HEIGHT (shrinking to fit a
+// short window), 8px radius, #313131. A search field filters the list by name;
+// each material is a checkbox row (blue when checked). When the library has no
+// selectable materials it shows the empty state.
 export default function SelectMaterialsPopup({
   materials,
   onToggleMaterial,
-  onAddNewMaterial
+  onAddNewMaterial,
+  maxHeight
 }: SelectMaterialsPopupProps): React.JSX.Element {
   const [query, setQuery] = React.useState('')
 
@@ -38,7 +49,10 @@ export default function SelectMaterialsPopup({
   const visible = q ? materials.filter((m) => m.name.toLowerCase().includes(q)) : materials
 
   return (
-    <div className="flex h-[343px] w-[240px] flex-col overflow-hidden rounded-[8px] bg-[#313131]">
+    <div
+      style={{ height: Math.min(DEFAULT_HEIGHT, maxHeight ?? DEFAULT_HEIGHT) }}
+      className="flex w-[240px] flex-col overflow-hidden rounded-[8px] bg-[#313131]"
+    >
       {/* Header */}
       <div className="shrink-0 border-b border-app-border px-4 py-3">
         <p className="text-[13px] font-normal leading-[15px] text-neutral-300">Select Materials</p>
