@@ -324,7 +324,7 @@ export const radiationBandProperties = (band: RadiationBand): [string, string, s
   `transmissivity_${band}`,
   `emissivity_${band}`
 ]
-const ALL_BAND_PROPERTIES = RADIATION_BANDS.flatMap(radiationBandProperties)
+export const ALL_BAND_PROPERTIES = RADIATION_BANDS.flatMap(radiationBandProperties)
 
 // The Radiation top-level fields NOT shown in the bespoke editor: they are hidden
 // so only the curated set renders. surface_temperature is weather-driven; the
@@ -380,4 +380,25 @@ export function toRadiationProperties(
     delete out[SPECTRAL_DATA_PROPERTY]
   }
   return out
+}
+
+// Per band (PAR/NIR/LW), reflectivity + transmissivity + emissivity must not
+// exceed 1 (each may be up to 1 on its own). Returns the band-field properties
+// that belong to a band whose FILLED numeric values sum past 1 — so the editor can
+// flag all three of that band and Save can gate on it. An empty box counts as 0; a
+// band with a non-numeric filled value is skipped (its per-field validation
+// surfaces that instead). A tiny epsilon keeps an exact 1 (e.g. 0.1+0.2+0.7) from
+// tripping on floating-point drift.
+export function radiationBandSumViolations(values: Record<string, string>): Set<string> {
+  const over = new Set<string>()
+  for (const band of RADIATION_BANDS) {
+    const props = radiationBandProperties(band)
+    const parsed = props.map((p) => {
+      const raw = (values[p] ?? '').trim()
+      return raw === '' ? 0 : Number(raw)
+    })
+    if (parsed.some((n) => !Number.isFinite(n))) continue
+    if (parsed[0] + parsed[1] + parsed[2] - 1 > 1e-9) for (const p of props) over.add(p)
+  }
+  return over
 }

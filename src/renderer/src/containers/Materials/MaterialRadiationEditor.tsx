@@ -6,6 +6,7 @@ import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
 import {
   RADIATION_BANDS,
   radiationBandProperties,
+  radiationBandSumViolations,
   radiationHeaderFields,
   SPECTRAL_DATA_PROPERTY,
   type ResolvedMaterialField
@@ -89,6 +90,11 @@ export function MaterialRadiationEditor({
     [fields]
   )
 
+  // Band fields whose reflectivity + transmissivity + emissivity exceed 1 — every
+  // field of an offending band shows the same tooltip (Save is gated on this too,
+  // in the parent card).
+  const bandSumViolations = radiationBandSumViolations(values)
+
   // One catalog field as a FormField wired to the card pipeline. `label` overrides
   // the catalog label (e.g. the band grid shows "Reflectivity", not "Reflectivity
   // PAR"); `disabled` greys a band while a spectral file supersedes it.
@@ -107,7 +113,11 @@ export function MaterialRadiationEditor({
           name: `${idPrefix}-${property}`,
           value: values[property] ?? '',
           placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : label,
-          error: fieldError(field),
+          // Per-field validation wins; else the band-sum rule (R+T+E ≤ 1) flags
+          // all three of an offending band with the same tooltip.
+          error:
+            fieldError(field) ??
+            (bandSumViolations.has(property) ? messages.bandSumExceedsOne : undefined),
           // Surface the validation error as an in-cell info-icon tooltip
           // (matches the Geometry right panel); selects keep the inline message.
           errorAsTooltip: true,

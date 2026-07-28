@@ -37,7 +37,13 @@ import {
   UPLOAD_TEXTURE_REQUESTED,
   UPLOAD_TEXTURE_SUCCEEDED
 } from './constants'
-import { TEXTURE_PROPERTY, TEXTURE_TOGGLE_PROPERTY } from './materialBlueprint'
+import {
+  ALL_BAND_PROPERTIES,
+  SPECTRAL_DATA_PROPERTY,
+  TEXTURE_PROPERTY,
+  TEXTURE_TOGGLE_PROPERTY,
+  USE_RADIATION_BANDS_PROPERTY
+} from './materialBlueprint'
 import { lowestFreeNumber } from './naming'
 import { loadRecentColors, prependRecentColor } from './recentColors'
 import type { Material, MaterialDraft, MaterialGroupDetail, MaterialParameterGroup } from './types'
@@ -546,6 +552,17 @@ const materialsReducer = (
           card.saved = true
           card.saveStatus = 'idle'
           card.saveError = null
+          // Radiation's two modes are mutually exclusive, and the save payload
+          // already dropped the superseded side (toRadiationProperties). Drop it
+          // from the draft too — else the snapshot below (and the reopen cache
+          // built from it) would still carry the erased band values / spectral
+          // file. Only runs on radiation cards (others have no use_radiation_bands).
+          const radiationMode = card.values[USE_RADIATION_BANDS_PROPERTY]
+          if (radiationMode === 'false') {
+            for (const p of ALL_BAND_PROPERTIES) delete card.values[p]
+          } else if (radiationMode === 'true') {
+            delete card.values[SPECTRAL_DATA_PROPERTY]
+          }
           // What's on the backend is now what's on screen — the card is clean, so
           // Save closes again until the next edit.
           card.savedValues = { ...card.values }

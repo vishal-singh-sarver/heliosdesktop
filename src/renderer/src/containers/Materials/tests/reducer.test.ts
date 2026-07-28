@@ -244,6 +244,49 @@ describe('materialsReducer', () => {
       })
     })
 
+    it('saving a Radiation card in SPECTRAL mode erases the band values from the cache', () => {
+      // Spectral on (use_radiation_bands=false) with a file staged, but a stale
+      // band value still in the draft — saving must drop the superseded bands so a
+      // reopen shows only the file.
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 6))
+      const s1 = materialsReducer(
+        typed,
+        actions.setParameterGroupValue(1, 'use_radiation_bands', 'false')
+      )
+      const s2 = materialsReducer(
+        s1,
+        actions.setParameterGroupValue(1, 'spectral_data', 'uploads/groups/12/leaf.xml')
+      )
+      const s3 = materialsReducer(s2, actions.setParameterGroupValue(1, 'transmissivity_PAR', '0.3'))
+      const result = materialsReducer(s3, actions.saveParameterGroupSucceeded('12', 1))
+
+      const props = result.detailsById['12'].members[0].properties
+      expect(props.spectral_data).toBe('uploads/groups/12/leaf.xml')
+      expect(props.use_radiation_bands).toBe('false')
+      expect(props.transmissivity_PAR).toBeUndefined()
+    })
+
+    it('saving a Radiation card in MANUAL mode erases the spectral file from the cache', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 6))
+      const s1 = materialsReducer(
+        typed,
+        actions.setParameterGroupValue(1, 'use_radiation_bands', 'true')
+      )
+      const s2 = materialsReducer(s1, actions.setParameterGroupValue(1, 'transmissivity_PAR', '0.3'))
+      const s3 = materialsReducer(
+        s2,
+        actions.setParameterGroupValue(1, 'spectral_data', 'uploads/groups/12/leaf.xml')
+      )
+      const result = materialsReducer(s3, actions.saveParameterGroupSucceeded('12', 1))
+
+      const props = result.detailsById['12'].members[0].properties
+      expect(props.transmissivity_PAR).toBe('0.3')
+      expect(props.use_radiation_bands).toBe('true')
+      expect(props.spectral_data).toBeUndefined()
+    })
+
     it('removing a parameter group rewrites the cache without that member', () => {
       const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
       const typed = materialsReducer(opened, actions.setParameterGroupType(1, 6))

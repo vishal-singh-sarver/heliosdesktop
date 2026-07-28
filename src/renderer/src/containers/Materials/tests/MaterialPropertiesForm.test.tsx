@@ -510,6 +510,33 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
     }
   })
 
+  it('flags all three band fields and blocks Save when R+T+E exceed 1', () => {
+    const { container } = render(
+      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    const setBand = (prop: string, val: string): void => {
+      fireEvent.change(container.querySelector<HTMLInputElement>(`[id="1-${prop}"]`)!, {
+        target: { value: val }
+      })
+    }
+    const sumMsg = /The sum of reflectivity, transmissivity and emissivity can't exceed 1/
+
+    setBand('reflectivity_PAR', '0.6')
+    setBand('transmissivity_PAR', '0.6') // 0.6 + 0.6 = 1.2 > 1
+
+    // The message shows on all three PAR fields (via the info-icon tooltip), and
+    // Save is blocked.
+    expect(screen.getAllByLabelText(sumMsg)).toHaveLength(3)
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Bringing the sum back to ≤ 1 clears the flag and re-enables Save.
+    setBand('transmissivity_PAR', '0.2') // 0.6 + 0.2 = 0.8 ≤ 1
+    expect(screen.queryByLabelText(sumMsg)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
   // XML only, at most 5 MB. The backend enforces the extension but not the size,
   // so the size guard is the client's — and rejecting here avoids pushing a large
   // file over the wire only to have it refused.

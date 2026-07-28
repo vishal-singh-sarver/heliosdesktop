@@ -5,6 +5,7 @@ import {
   isRadiationFieldSet,
   isVisualisationComplete,
   isVisualisationFieldSet,
+  radiationBandSumViolations,
   radiationHeaderFields,
   readApplySpectral,
   resolveParameterGroups,
@@ -560,5 +561,38 @@ describe('isVisualisationComplete (colour required)', () => {
         opacity: '80'
       })
     ).toBe(false)
+  })
+})
+
+describe('radiationBandSumViolations', () => {
+  it('flags all three properties of a band whose R+T+E exceed 1', () => {
+    expect(
+      radiationBandSumViolations({ reflectivity_PAR: '0.6', transmissivity_PAR: '0.6' })
+    ).toEqual(new Set(['reflectivity_PAR', 'transmissivity_PAR', 'emissivity_PAR']))
+  })
+
+  it('allows a band summing to exactly 1, even with floating-point drift', () => {
+    // 0.1 + 0.2 + 0.7 lands at 1.0000000000000002 in IEEE-754 — the epsilon keeps
+    // it valid.
+    expect(
+      radiationBandSumViolations({
+        reflectivity_PAR: '0.1',
+        transmissivity_PAR: '0.2',
+        emissivity_PAR: '0.7'
+      }).size
+    ).toBe(0)
+  })
+
+  it('treats empty boxes as 0 and skips a band with a non-numeric value', () => {
+    expect(radiationBandSumViolations({ reflectivity_PAR: '0.9' }).size).toBe(0)
+    expect(
+      radiationBandSumViolations({ reflectivity_PAR: 'x', transmissivity_PAR: '0.9' }).size
+    ).toBe(0)
+  })
+
+  it('flags only the offending band, not the others', () => {
+    const v = radiationBandSumViolations({ reflectivity_NIR: '0.7', transmissivity_NIR: '0.7' })
+    expect(v.has('reflectivity_NIR')).toBe(true)
+    expect(v.has('reflectivity_PAR')).toBe(false)
   })
 })

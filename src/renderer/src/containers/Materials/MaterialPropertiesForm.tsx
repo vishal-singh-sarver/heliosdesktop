@@ -35,6 +35,7 @@ import {
   isRadiationFieldSet,
   isVisualisationComplete,
   isVisualisationFieldSet,
+  radiationBandSumViolations,
   readApplySpectral,
   readVisualisationMode,
   resolveParameterGroups,
@@ -807,7 +808,12 @@ function ParameterGroupCard({
   const textureDirty = chosenTexture !== (group.savedValues?.[TEXTURE_PROPERTY] ?? null)
   const dirty = isVisualiser && visualMode === 'texture' ? textureDirty : valuesDirty
 
-  const canSave = group.typeId != null && modeComplete && dirty && !saving && !uploading
+  // Radiation cross-field rule: a band's reflectivity + transmissivity + emissivity
+  // must not exceed 1. Blocks Save (the editor also flags the three fields).
+  const bandSumInvalid = isRadiation && radiationBandSumViolations(group.values).size > 0
+
+  const canSave =
+    group.typeId != null && modeComplete && dirty && !saving && !uploading && !bandSumInvalid
 
   // Route Save by type/mode. The Visualiser's texture mode persists the chosen path
   // (uploaded or library); Radiation builds its banded/spectral payload; every other

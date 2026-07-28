@@ -66,6 +66,8 @@ const messages = {
   bandReflectivity: 'Reflectivity',
   bandTransmissivity: 'Transmissivity',
   bandEmissivity: 'Emissivity',
+  // Shown on all three band fields when their values add up past 1.
+  bandSumExceedsOne: "The sum of reflectivity, transmissivity and emissivity can't exceed 1.",
   // Each Parameter Group card saves itself: the first save adds its material type
   // to the group, later ones update it.
   saveParameterGroup: 'Save',
