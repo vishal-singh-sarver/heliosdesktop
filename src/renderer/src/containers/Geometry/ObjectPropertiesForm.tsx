@@ -281,6 +281,12 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // PATCHes the net-new picks (add-only). The selection survives re-renders.
   const handleToggleMaterial = (m: { id: string; name: string }, checked: boolean): void => {
     dispatch(checked ? addDraftMaterial(m.id, m.name) : removeDraftMaterial(m.id))
+    // Picking a material dismisses the picker — the pick is done, and the new row
+    // appears under the Materials heading behind it. Unchecking deliberately does
+    // NOT close: that's undoing a mis-click, and closing would make the correction
+    // cost a reopen. Lives here rather than in the popup so the popup stays a dumb
+    // list and the open/closed state has a single owner.
+    if (checked) closeMaterialPopup()
   }
 
   // The per-material trash icon. A material only in the draft (picked this session,

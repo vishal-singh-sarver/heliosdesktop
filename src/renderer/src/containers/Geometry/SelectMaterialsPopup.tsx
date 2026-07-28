@@ -95,15 +95,21 @@ export default function SelectMaterialsPopup({
           </div>
 
           {/* Checkbox list — click a row to toggle. aria-pressed carries the
-              checked state; the blue box + tick is the checked visual. */}
-          <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto py-1">
+              checked state; the blue box + tick is the checked visual. The
+              horizontal padding is what gives each row's focus outline room to
+              sit inside the popup instead of running flush to its edges. */}
+          <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto px-2 py-1">
             {visible.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 aria-pressed={m.checked}
                 onClick={() => onToggleMaterial({ id: m.id, name: m.name }, !m.checked)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5"
+                // Keyboard focus reads as a rounded, inset, blue-bordered row —
+                // the same cue a selected row gets in the left-hand geometry tree
+                // (see TreeRow). The border is always present and transparent when
+                // unfocused, so focusing never shifts the row's contents.
+                className="flex w-full items-center justify-between gap-3 rounded border border-transparent px-2 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5 focus:outline-none focus-visible:border-[#245AC5] focus-visible:bg-[#2a2a2a]"
               >
                 <span className="min-w-0 truncate">{m.name}</span>
                 {m.checked ? (

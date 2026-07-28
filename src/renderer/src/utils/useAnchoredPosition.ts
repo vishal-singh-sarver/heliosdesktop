@@ -163,12 +163,17 @@ function same(a: Measurement | null, b: Measurement): boolean {
 /**
  * Keeps a popup glued to its trigger.
  *
- * While open, a requestAnimationFrame loop re-measures the anchor and the popup
- * and re-derives the position, skipping the state update when nothing moved. One
- * loop covers window resize, CSS transitions (the right panel animates its width
- * when collapsed), ancestor scrolling and arbitrary layout shifts — the cases a
- * measure-once-on-open approach misses. It runs only while `open`, and costs two
- * getBoundingClientRect calls per frame.
+ * Re-measures the anchor and the popup and re-derives the position on window
+ * resize and after every render, skipping the state update when nothing moved.
+ * That covers the cases a measure-once-on-open approach misses: the window being
+ * resized out from under an open popup, and the popup being re-sized by its own
+ * props.
+ *
+ * It deliberately does NOT poll. Nothing here tracks a popup through a CSS
+ * transition or an ancestor scroll — no current caller needs it (their panels
+ * unmount rather than animate, and their popups lay down a full-screen overlay
+ * that stops the page scrolling). A caller that does need it should add the
+ * observer here rather than measuring on its own.
  *
  * Measurement settles over two pre-paint passes: the first reads the anchor (so
  * the caller can size its popup against it), the second reads the resulting popup
@@ -226,26 +231,20 @@ export function useAnchoredPosition({
     [measure]
   )
 
-  // Re-measure after every render: the popup's own content can change size
-  // (an accordion expanding, a list filtering down) without the anchor moving,
-  // and that changes where it should sit. Converges immediately — `measure`
-  // bails out of the state update once nothing differs.
+  // Re-measure after every render. This is what settles the two-pass sequence
+  // (anchor first, then the popup the caller sized against it) and what picks up
+  // a popup re-sized by its props. Converges immediately — `measure` bails out of
+  // the state update once nothing differs, so this can't loop.
   React.useLayoutEffect(() => {
     if (open) measure()
   })
 
-  React.useLayoutEffect(() => {
+  // The trigger moves when the window does — that's the case this exists for.
+  // Only while open, so a closed popup costs nothing.
+  React.useEffect(() => {
     if (!open) return
-
-    let frame = 0
-    const tick = (): void => {
-      measure()
-      frame = requestAnimationFrame(tick)
-    }
-    // Synchronous first pass: position is committed before paint, not a frame later.
-    tick()
-
-    return () => cancelAnimationFrame(frame)
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
   }, [open, measure])
 
   return { floatingRef, measurement }

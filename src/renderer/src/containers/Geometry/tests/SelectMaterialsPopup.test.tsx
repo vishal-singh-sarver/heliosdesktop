@@ -36,3 +36,25 @@ describe('SelectMaterialsPopup sizing', () => {
     expect(renderPopup(900)).toHaveStyle({ height: '343px' })
   })
 })
+
+describe('SelectMaterialsPopup keyboard focus', () => {
+  it('gives each row an inset, rounded focus outline instead of the browser default', () => {
+    // Matches the selected-row cue in the left-hand geometry tree (TreeRow): a
+    // rounded blue border, not a square outline running flush to the popup edges.
+    renderPopup()
+    const row = screen.getByRole('button', { name: /Cotton/ })
+
+    expect(row).toHaveClass('rounded', 'focus:outline-none', 'focus-visible:border-[#245AC5]')
+    // The border is always present (transparent when unfocused), so gaining focus
+    // shifts nothing — the same trick TreeRow uses.
+    expect(row).toHaveClass('border', 'border-transparent')
+  })
+
+  it('leaves room inside the popup for the outline to sit', () => {
+    // The list's own horizontal padding is what insets the rows; without it the
+    // focus outline runs flush against the popup's edges.
+    const popup = renderPopup()
+    const list = popup.querySelector('.overflow-y-auto') as HTMLElement
+    expect(list).toHaveClass('px-2')
+  })
+})

@@ -261,17 +261,17 @@ function renderInPanel(rect: ReturnType<typeof panelRect>): ReturnType<typeof re
   return result
 }
 
-/** Let AnchoredPopup's requestAnimationFrame measure loop run one pass. */
-const tick = (): Promise<void> =>
-  act(async () => {
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+/** Fire the window resize AnchoredPopup listens for, and let it re-measure. */
+const resizeWindow = (): void => {
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
   })
+}
 
 describe('<ObjectPropertiesForm /> — material properties popup', () => {
   // Pick Cotton from the Select popup, leaving it listed under the Materials row.
-  // The Select popup stays open afterwards (picking doesn't dismiss it), so the
-  // picked row is reached via `within(container)` — the popup is portaled to
-  // document.body and would otherwise make a bare 'Cotton' query ambiguous.
+  // Picking dismisses the popup, so afterwards the only 'Cotton' button on the
+  // page is the picked row in the form body.
   const pickCotton = (): void => {
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cotton' }))
@@ -313,13 +313,21 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
 
     fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' }))
 
-    // Checked in the popup (blue box)…
-    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+    // Picking dismisses the popup — the pick is done and the new row is visible
+    // behind it.
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+    // …and it's now listed in the form's Materials section.
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    // Reopening shows the pick remembered as a checked box (blue), so the popup
+    // reflects the draft rather than resetting.
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const reopened = screen.getByText('Select Materials').parentElement!
+      .parentElement as HTMLElement
+    expect(within(reopened).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
       'aria-pressed',
       'true'
     )
-    // …and now listed in the form's Materials section.
-    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
   })
 
   it('unchecking a material removes it from the Materials section', () => {
@@ -334,9 +342,17 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // check → add
     expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
 
-    fireEvent.click(within(popup).getByRole('button', { name: 'Cotton' })) // uncheck → remove
+    // Checking dismissed the popup, so reopen to undo the pick.
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const reopened = screen.getByText('Select Materials').parentElement!
+      .parentElement as HTMLElement
+
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Cotton' })) // uncheck → remove
+    // Unchecking is undoing a mis-click, so the popup deliberately STAYS open —
+    // correcting it shouldn't cost a reopen.
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
     expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
-    expect(within(popup).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
+    expect(within(reopened).getByRole('button', { name: 'Cotton' })).toHaveAttribute(
       'aria-pressed',
       'false'
     )
@@ -434,7 +450,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   it('follows the panel when the window is resized', async () => {
     // The regression this replaced: the popup measured once on open and froze
     // there, so resizing moved the trigger out from under it. AnchoredPopup
-    // re-measures on a rAF loop instead. Shrinking the panel from 700 to 500 tall
+    // re-measures on the resize instead. Shrinking the panel from 700 to 500 tall
     // re-derives the height (round(500*0.8)=400) and the centred top
     // (30+(500-400)/2=80); narrowing it pulls the popup left until it would go
     // negative (300-370-8=-78) and clamps to the 8px viewport padding.
@@ -450,10 +466,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     expect(dialog.parentElement).toHaveStyle({ top: '100px', left: '22px' })
 
     rect.set({ top: 30, left: 300, height: 500 })
-    // The popup's own height is what it re-centres against, so let the loop run
-    // twice: once to re-derive the height, once to place the resized popup.
-    await tick()
-    await tick()
+    resizeWindow()
 
     expect(dialog).toHaveStyle({ height: '400px' })
     expect(dialog.parentElement).toHaveStyle({ top: '80px', left: '8px' })
@@ -570,19 +583,27 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   })
 
   it('closes the Select Materials popup when the properties popup opens', () => {
+    // A material already assigned to the ground gives us a form row to click while
+    // the Select popup is still open — since picking now dismisses the popup, an
+    // already-assigned row is the remaining way both could end up open together.
     const { container } = render(
-      <Provider store={makeStore([material('m1', 'Cotton')])}>
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          draftMaterials: [{ groupId: 'g1', name: 'Grass' }]
+        })}
+      >
         <ObjectPropertiesForm />
       </Provider>
     )
-    pickCotton()
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     expect(screen.getByText('Select Materials')).toBeInTheDocument()
 
-    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
 
     // Both popups anchor to the same strip beside the panel and each lays down
     // its own full-screen overlay — two open at once would stack overlays over
     // each other's contents.
+    expect(screen.getByRole('dialog', { name: 'Grass properties' })).toBeInTheDocument()
     expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
   })
 
