@@ -102,14 +102,82 @@ function isMachO(file) {
 const INTERMEDIATE_EXT = new Set(['.o', '.a', '.obj', '.lo'])
 
 /**
+ * Repair a versioned .framework whose symlinks were flattened into real copies,
+ * which codesign rejects with
+ *   "bundle format is ambiguous (could be app or framework)"
+ *
+ * A canonical versioned framework is almost entirely symlinks:
+ *   Python.framework/Python     -> Versions/Current/Python
+ *   Python.framework/Resources  -> Versions/Current/Resources
+ *   Python.framework/Versions/Current -> 3.11
+ * PyInstaller's collection (and any copy through a filesystem without symlink
+ * support - Dropbox, a zip round-trip, some wheels) turns each of those into a
+ * real file or a full duplicate directory. The bundle then has real content at
+ * its top level AND a Versions/ tree, so codesign cannot tell whether it is
+ * looking at an app or a framework and refuses to sign it.
+ *
+ * Restoring the three symlinks is the standard fix. It also shrinks the bundle,
+ * since Versions/Current was a byte-for-byte copy of the real version dir.
+ *
+ * Returns true if anything was changed. No-op for already-correct frameworks.
+ */
+function repairFramework(fw) {
+  const versionsDir = path.join(fw, 'Versions')
+  if (!fs.existsSync(versionsDir)) return false // not a versioned framework
+
+  // The real version directory is the one that is not "Current".
+  const version = fs
+    .readdirSync(versionsDir, { withFileTypes: true })
+    .filter((e) => e.name !== 'Current' && (e.isDirectory() || e.isSymbolicLink()))
+    .map((e) => e.name)
+    .sort()
+    .pop()
+  if (!version) return false
+
+  let repaired = false
+
+  // Versions/Current must be a symlink to the version dir, not a copy of it.
+  const current = path.join(versionsDir, 'Current')
+  if (!isSymlink(current)) {
+    fs.rmSync(current, { recursive: true, force: true })
+    fs.symlinkSync(version, current)
+    repaired = true
+  }
+
+  // Top-level entries must be symlinks into Versions/Current, not real copies.
+  // Anything present in the version dir belongs there, not at the bundle root.
+  for (const name of fs.readdirSync(path.join(versionsDir, version))) {
+    const top = path.join(fw, name)
+    if (!fs.existsSync(top) || isSymlink(top)) continue
+    fs.rmSync(top, { recursive: true, force: true })
+    fs.symlinkSync(path.join('Versions', 'Current', name), top)
+    repaired = true
+  }
+
+  if (repaired) {
+    console.log(
+      `[sign-backend] repaired flattened symlinks in ${path.relative(REPO_ROOT, fw)} (version ${version})`
+    )
+  }
+  return repaired
+}
+
+/** True if the path itself is a symlink (does not follow it). */
+function isSymlink(p) {
+  try {
+    return fs.lstatSync(p).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+/**
  * Every signable Mach-O under dir, deepest paths first.
  *
  * Frameworks are returned as the .framework DIRECTORY, not the binary inside it,
- * and are not descended into. codesign must be handed the bundle so it can read
- * Versions/Current; given the inner binary it inspects the enclosing directory,
- * cannot tell an app from a framework, and fails with
- *   "bundle format is ambiguous (could be app or framework)"
- * which is exactly what PyInstaller's bundled Python.framework triggers.
+ * and are not descended into: codesign must be handed the bundle so it can
+ * resolve Versions/Current, and signing the bundle seals its contents anyway.
+ * Each one is structurally repaired first - see repairFramework.
  */
 function findMachO(dir) {
   const found = []
@@ -119,6 +187,7 @@ function findMachO(dir) {
     if (entry.isDirectory()) {
       // Sign the framework as a bundle; its contents are sealed with it.
       if (entry.name.endsWith('.framework')) {
+        repairFramework(full)
         found.push(full)
         continue
       }
