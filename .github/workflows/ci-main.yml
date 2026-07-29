@@ -84,6 +84,11 @@ jobs:
     # Builds the app + runs e2e, so it is a build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
     name: Integration Tests (${{ matrix.os }})
+    # Without this the job inherits GitHub's 6-hour default. A macOS run on
+    # 2026-07-29 spent 1h50m here because ~104 e2e tests each waited out their
+    # own 10s/120s timeout - and since `package` needs this job, that stalled
+    # signing behind a result that `continue-on-error` discards anyway.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

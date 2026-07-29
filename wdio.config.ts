@@ -27,10 +27,20 @@ const electronPath: string = require('electron')
  * We match ONLY this checkout's paths and kill BY PID (never `pkill -f`, which
  * could hit unrelated processes). Electron matches also require the WebDriver
  * automation flag so a separately-running `npm run dev` app is never touched.
- * Linux-only: the backend is a native Linux binary and this leak is Linux-specific.
+ *
+ * NOT Linux-only. This was originally gated to Linux on the assumption that the
+ * leak was specific to the native Linux backend binary; a macOS CI run
+ * (2026-07-29) disproved that, ending with EIGHT orphaned
+ * Electron + heliosgui_backend groups that the runner had to terminate itself:
+ *   Terminate orphan process: pid (39070) (Electron Helper)
+ *   Terminate orphan process: pid (38755) (heliosgui_backe)
+ *   ... x8 groups
+ * The leak is a property of how the service kills Electron (no before-quit), so
+ * it applies to any POSIX platform. Windows is excluded because `ps -eo` does
+ * not exist there and the kill would need a different implementation.
  */
 function reapOrphans(label: string, includeElectron: boolean): void {
-  if (process.platform !== 'linux') return
+  if (process.platform === 'win32') return
   const backendScope = join(process.cwd(), 'resources', 'backend')
   const electronScope = join(process.cwd(), 'out', 'main')
   try {
@@ -123,7 +133,12 @@ export const config: Options.Testrunner = {
 
   // Seed the Allure Environment widget (browser / platform / node details) before
   // the run starts.
+  //
+  // Also sweep orphans left by a PREVIOUS run before spawning anything: a run
+  // that was force-killed (CI cancellation, job timeout) leaves backends holding
+  // ports, and this is the only hook that fires before the first session.
   onPrepare: function () {
+    reapOrphans('onPrepare', true)
     writeAllureEnvironment()
   },
 

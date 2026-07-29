@@ -51,6 +51,9 @@ jobs:
     # Builds the app + runs e2e, so it is a build: only on push, never on PRs.
     if: github.event_name != 'pull_request'
     name: Integration Tests (${{ matrix.os }})
+    # See ci-main.yml: without this the job inherits GitHub's 6-hour default and
+    # a slow/failing e2e suite gates everything downstream of it.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
