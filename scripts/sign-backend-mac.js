@@ -22,6 +22,13 @@
  * Nested code must be signed INNERMOST-FIRST: signing a parent seals a hash of
  * its children, so re-signing a child afterwards invalidates the parent.
  *
+ * Two traps in the --onedir tree, both hit in practice (see findMachO):
+ *   - Frameworks (PyInstaller bundles Python.framework) must be signed as the
+ *     .framework DIRECTORY. Passing the inner binary fails with "bundle format
+ *     is ambiguous (could be app or framework)".
+ *   - .o/.a intermediates from the Helios C++ build are Mach-O too, but are not
+ *     runtime code; they are skipped rather than signed.
+ *
  * No-ops (exit 0) when the backend or a signing identity is absent, so
  * `npm run build` on a dev machine without certs still works. Set
  * REQUIRE_SIGNING=1 (CI does) to turn those no-ops into hard failures.
@@ -87,16 +94,38 @@ function isMachO(file) {
   return res.status === 0 && /Mach-O/.test(res.stdout || '')
 }
 
-/** Every Mach-O under dir, deepest paths first. */
+// Intermediate build artifacts that `file` still reports as Mach-O. PyInstaller's
+// --collect-all sweeps in the whole pyhelios tree, CMake object/archive files
+// included, so the bundle carries hundreds of .o files from the Helios C++ build.
+// They are not loadable code, nothing links them at runtime, and codesign happily
+// signs them - producing a slower build and a fatter bundle for no benefit.
+const INTERMEDIATE_EXT = new Set(['.o', '.a', '.obj', '.lo'])
+
+/**
+ * Every signable Mach-O under dir, deepest paths first.
+ *
+ * Frameworks are returned as the .framework DIRECTORY, not the binary inside it,
+ * and are not descended into. codesign must be handed the bundle so it can read
+ * Versions/Current; given the inner binary it inspects the enclosing directory,
+ * cannot tell an app from a framework, and fails with
+ *   "bundle format is ambiguous (could be app or framework)"
+ * which is exactly what PyInstaller's bundled Python.framework triggers.
+ */
 function findMachO(dir) {
   const found = []
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name)
     if (entry.isSymbolicLink()) continue
     if (entry.isDirectory()) {
+      // Sign the framework as a bundle; its contents are sealed with it.
+      if (entry.name.endsWith('.framework')) {
+        found.push(full)
+        continue
+      }
       found.push(...findMachO(full))
-    } else if (entry.isFile() && isMachO(full)) {
-      found.push(full)
+    } else if (entry.isFile()) {
+      if (INTERMEDIATE_EXT.has(path.extname(entry.name))) continue
+      if (isMachO(full)) found.push(full)
     }
   }
   // Deepest first: nested code must be signed before its container.
