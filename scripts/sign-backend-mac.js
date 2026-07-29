@@ -149,22 +149,63 @@ if (isOnedir) {
   targets = [target]
 }
 
+/**
+ * Dump a bundle's real on-disk layout. codesign's "bundle format is ambiguous"
+ * and "unsealed contents" errors are both decided by structure - whether
+ * Contents/ and Versions/ coexist, and whether the framework's symlinks
+ * survived collection or were mangled into hard copies. Guessing at that from
+ * outside is how this bug ate several CI runs; print the truth instead.
+ */
+function describeBundle(dir) {
+  console.error(`[sign-backend] --- layout of ${path.relative(REPO_ROOT, dir)} ---`)
+  const walk = (d, depth) => {
+    if (depth > 3) return
+    let entries
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries.slice(0, 40)) {
+      const full = path.join(d, e.name)
+      let kind = e.isDirectory() ? 'dir ' : 'file'
+      if (e.isSymbolicLink()) {
+        let dest = '?'
+        try {
+          dest = fs.readlinkSync(full)
+        } catch {}
+        kind = `link -> ${dest}`
+      }
+      console.error(`[sign-backend]   ${'  '.repeat(depth)}${e.name}  [${kind}]`)
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(full, depth + 1)
+    }
+  }
+  walk(dir, 0)
+  console.error('[sign-backend] --- end layout ---')
+}
+
 for (const bin of targets) {
-  execFileSync(
-    'codesign',
-    [
-      '--force',
-      '--options',
-      'runtime', // hardened runtime - mandatory for notarization
-      '--timestamp', // a secure timestamp is also mandatory
-      '--entitlements',
-      ENTITLEMENTS,
-      '--sign',
-      identity,
-      bin
-    ],
-    { stdio: 'inherit' }
-  )
+  try {
+    execFileSync(
+      'codesign',
+      [
+        '--force',
+        '--options',
+        'runtime', // hardened runtime - mandatory for notarization
+        '--timestamp', // a secure timestamp is also mandatory
+        '--entitlements',
+        ENTITLEMENTS,
+        '--sign',
+        identity,
+        bin
+      ],
+      { stdio: 'inherit' }
+    )
+  } catch (err) {
+    console.error(`[sign-backend] FAILED on ${path.relative(REPO_ROOT, bin)}`)
+    if (fs.existsSync(bin) && fs.statSync(bin).isDirectory()) describeBundle(bin)
+    throw err
+  }
   console.log(`[sign-backend] signed ${path.relative(REPO_ROOT, bin)}`)
 }
 
