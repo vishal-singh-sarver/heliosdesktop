@@ -129,13 +129,19 @@ jobs:
       - name: Build Application for Integration Testing
         run: npm run build
 
+      # No continue-on-error: a failing e2e run must show up as a failing job.
+      # It previously reported green - and `continue-on-error` does not merely
+      # let the job proceed, it REWRITES the recorded conclusion, so both the
+      # step and the job read "success" while the log showed `exit code 1`. A
+      # check that cannot go red is worse than no check. Nothing gates on this
+      # job (see `package` below), so failing here blocks no downstream work.
+      #
       # bail:1 (wdio.config.ts) stops after the FIRST failure, but only once a
       # test actually reports one. If the app hangs before that - or wdio itself
-      # wedges - nothing bails and the job runs to its 30min cap on three OSes at
-      # once, macOS billing at 10x, for a result continue-on-error discards.
-      # 8min is well clear of a healthy run and caps the bleed on a wedged one.
+      # wedges - nothing bails and the job would run to its 30min cap on three
+      # OSes at once, macOS billing at 10x. 8min is well clear of a healthy run
+      # (macOS took 46s on 2026-07-29) and caps the bleed on a wedged one.
       - name: Run Integration Checks
-        continue-on-error: true
         timeout-minutes: 8
         run: npm run e2e
 
@@ -168,10 +174,10 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
-    # NOT `needs: test-integration`. That job is continue-on-error, so its result
-    # is discarded either way - gating on it only made signing wait out the e2e
-    # run for a verdict nobody reads. It still runs, and still reports, in
-    # parallel. Restore the dependency once e2e is green and gating for real.
+    # NOT `needs: test-integration`, deliberately. e2e now fails honestly (no
+    # continue-on-error), and this is what keeps that from blocking releases:
+    # the job reports its real result in parallel while packaging proceeds. Add
+    # it back here once e2e is reliably green and you want it gating releases.
     needs:
       - lint
       - test-unit
