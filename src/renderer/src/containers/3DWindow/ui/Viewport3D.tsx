@@ -434,7 +434,7 @@ export function Viewport3D(): React.JSX.Element {
 
       {/* Scene statistics overlay */}
       {showStats && stats && (
-        <div className="absolute left-3 top-10 z-10 select-text rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-neutral-400 backdrop-blur-sm">
+        <div className="absolute left-3 top-10 z-10 select-text rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 font-mono text-[13px] leading-relaxed text-neutral-400 backdrop-blur-sm">
           <div className="flex gap-6">
             <div className="flex flex-col">
               <span>

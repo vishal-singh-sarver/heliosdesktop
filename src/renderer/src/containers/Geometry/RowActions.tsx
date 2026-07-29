@@ -170,14 +170,14 @@ export function KebabMenu({
               className="fixed z-50 rounded-md border border-app-border bg-[#1f2126] p-1 shadow-lg"
               onClick={(e) => e.stopPropagation()}
             >
-              <p className="px-2 py-1 text-[11px] uppercase tracking-wide text-neutral-500">
+              <p className="px-2 py-1 text-[13px] uppercase tracking-wide text-neutral-500">
                 Models
               </p>
 
               {/* Per-model toggles from the catalog (top-level models). A hidden
                   model is shown with a greyed, dimmed row so its state is obvious. */}
               {modelTypes.length === 0 ? (
-                <p className="px-2 py-1.5 text-[12px] text-neutral-500">No models</p>
+                <p className="px-2 py-1.5 text-[13px] text-neutral-500">No models</p>
               ) : (
                 modelTypes.map((model) => {
                   const on = isModelOn(node.modelVisibility, model.id)
@@ -188,7 +188,7 @@ export function KebabMenu({
                       role="menuitemcheckbox"
                       aria-checked={on}
                       onClick={() => onToggleModel(model.id, !on)}
-                      className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-neutral-700/50 ${
+                      className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-[13px] hover:bg-neutral-700/50 ${
                         on ? 'text-neutral-200' : 'bg-neutral-800/70 text-neutral-500'
                       }`}
                     >
@@ -275,7 +275,7 @@ export default function RowActions({
         <TrashIcon />
       </IconButton>
       <span
-        className="flex h-5 w-4 cursor-grab items-center justify-center text-neutral-500"
+        className="flex h-5 w-5 cursor-grab items-center justify-center text-neutral-500"
         aria-hidden="true"
       >
         <DragHandleIcon />

@@ -1,5 +1,8 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
-import { selectLoadStatus } from 'containers/Geometry/selectors'
+import { assignMaterialSucceeded, unassignMaterialSucceeded } from 'containers/Geometry/actions'
+import { removeMaterial, saveParameterGroupSucceeded } from 'containers/Materials/actions'
+import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
+import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { call, delay, put, race, select, take, takeLatest, takeLeading } from 'redux-saga/effects'
 import { fetchObjectGeometryBinary } from '../api/geometry'
@@ -9,6 +12,10 @@ import { LOAD_OBJECT_GEOMETRY_REQUESTED } from '../store/constants'
 import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
+  onMaterialAssigned,
+  onMaterialDeleted,
+  onMaterialSaved,
+  onMaterialUnassigned,
   onNodesListed
 } from '../store/saga'
 import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
@@ -158,6 +165,132 @@ describe('onNodesListed', () => {
     gen.next([]) // select scene load
     // A load is already running → let it finish, don't start another.
     expect(gen.next({ loading: true }).done).toBe(true)
+  })
+})
+
+describe('onMaterialAssigned', () => {
+  const visibleNode = (id: string): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('re-fetches and re-caches the binary geometry of each restyled object', () => {
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    // Enter the loop with a visible node → fetch + cache its geometry.
+    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('skips a hidden object so an assignment never un-hides it', () => {
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
+    gen.next() // select nodesById
+    const hidden = { ...visibleNode('28'), visibleInViewport: false }
+    // Node is hidden → no fetch, generator completes.
+    expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+})
+
+describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
+  const withGroups = (id: string, materialGroupIds: string[], visible = true): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: visible,
+    renderEnabled: true,
+    modelVisibility: {},
+    materialGroupIds
+  })
+
+  // 28 uses group 7 (re-fetch), 29 uses a different group (skip), 30 uses 7 but is
+  // hidden (skip) — so only 28's binary is re-fetched.
+  const mixedNodes = {
+    '28': withGroups('28', ['7']),
+    '29': withGroups('29', ['9']),
+    '30': withGroups('30', ['7'], false)
+  }
+
+  it('onMaterialSaved re-fetches only the shown objects using the saved group', () => {
+    const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1)) // materialId = group id
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    // 29 (other group) and 30 (hidden) are skipped → done, no more fetches.
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('onMaterialSaved does nothing for a material used by no shown object', () => {
+    const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1))
+    gen.next() // select nodesById
+    expect(gen.next({ '29': withGroups('29', ['9']) }).done).toBe(true)
+  })
+
+  it('onMaterialDeleted re-fetches only the shown objects that used the deleted group', () => {
+    const gen = onMaterialDeleted(removeMaterial('7')) // id = group id
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+})
+
+describe('onMaterialUnassigned', () => {
+  const visibleNode = (id: string): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: true,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('re-fetches the object binary so it reverts to its remaining look', () => {
+    const gen = onMaterialUnassigned(unassignMaterialSucceeded('p', 's', '28', '7'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('skips a hidden object so an unassign never un-hides it', () => {
+    const gen = onMaterialUnassigned(unassignMaterialSucceeded('p', 's', '28', '7'))
+    gen.next() // select nodesById
+    const hidden = { ...visibleNode('28'), visibleInViewport: false }
+    expect(gen.next({ '28': hidden }).done).toBe(true)
   })
 })
 

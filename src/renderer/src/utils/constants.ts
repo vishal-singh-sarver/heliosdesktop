@@ -91,6 +91,11 @@ export const API_ROUTES = {
     // different verb). Used by the right-panel Save.
     update: (projectId: string, scenarioId: string, objectId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // DELETE — unassign a saved material GROUP from an object (migration 022).
+    // Used by the per-material trash icon when the material is already persisted
+    // on the ground; a draft-only pick is dropped client-side instead.
+    unassignMaterial: (projectId: string, scenarioId: string, objectId: string, groupId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/material-groups/${groupId}`,
     renameGroup: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/rename`,
     // Group-level visibility (viewport / render / per-model) — the backend
@@ -98,6 +103,63 @@ export const API_ROUTES = {
     groupVisibility: (projectId: string, scenarioId: string, groupId: string) =>
       `/api/geometry/project/${projectId}/scenario/${scenarioId}/groups/${groupId}/visibility`,
     remove: (projectId: string, scenarioId: string, objectId: string) =>
-      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}`,
+    // POST — assign a material GROUP to one object (drag-and-drop a material onto
+    // a geometry row). Body: { group_id, sync }. A group drop fans this out over
+    // the group's member objects, one call each.
+    assignMaterialGroup: (projectId: string, scenarioId: string, objectId: string) =>
+      `/api/geometry/project/${projectId}/scenario/${scenarioId}/objects/${objectId}/material-groups`
+  },
+  // Material library — GLOBAL material GROUPS (migration 022). A group is a named
+  // bundle of one-or-more material types + their property values. `groupsList`
+  // feeds the Saved Materials list (app open / project change); `groupsCreate`
+  // persists the right-panel draft on Save Material. The per-project `rename`
+  // route below still backs the inline rename of local rows.
+  // Material library — GLOBAL material GROUPS. A material IS a group: +Add
+  // creates it empty (groupsCreate), then each "Parameter Group" card adds
+  // (groupMaterials POST), updates (groupMaterial PUT) or removes
+  // (groupMaterial DELETE) exactly one material type on it. `scenario_id` (the
+  // active scenario) is appended by the service on the mutating calls so the
+  // backend can reconcile + repaint that scenario.
+  materials: {
+    groupsList: () => `/api/materials/library/groups`,
+    // POST — create the material as an EMPTY group; returns its group id.
+    groupsCreate: () => `/api/materials/library/groups`,
+    // GET one group's full members + property values (to open in the right panel).
+    groupsGet: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // PATCH — rename a material group (used for inline renames in panels).
+    renameGroup: (groupId: string) => `/api/materials/library/groups/${groupId}/rename`,
+    // PUT — update the group itself (used for renaming the material).
+    groupsUpdate: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // DELETE the whole material (group + all its members).
+    groupsDelete: (groupId: string) => `/api/materials/library/groups/${groupId}`,
+    // POST — add one material type (with its properties) to the group.
+    groupMaterials: (groupId: string) => `/api/materials/library/groups/${groupId}/materials`,
+    // PUT (full-replace update) / DELETE (remove) one material type on the group.
+    // PUT (update) / DELETE (remove) one material type already on the group.
+    groupMaterial: (groupId: string, materialTypeId: number) =>
+      `/api/materials/library/groups/${groupId}/materials/${materialTypeId}`,
+    // POST (multipart) — upload a file for one property of a member (the Visualiser
+    // texture). Creates the member if it doesn't exist yet, in texture mode.
+    groupMaterialFile: (groupId: string, materialTypeId: number, property: string) =>
+      `/api/materials/library/groups/${groupId}/files/${property}`,
+    // POST (multipart) — the Radiation spectral-data file. A dedicated endpoint
+    // that returns just `{ success, path }`; the caller stages that path and the
+    // member's own Save persists it. Unlike the texture upload this does NOT
+    // create the member, so the card must already be saved.
+    groupMaterialSpectral: (groupId: string) =>
+      `/api/materials/library/groups/${groupId}/spectral`,
+    // DELETE — remove an uploaded file from the group by its stored `path` (added
+    // as a query param by the caller). The backend 409s while any material or
+    // frozen geometry snapshot still references it, so callers fire it only after
+    // a save has dropped the reference.
+    groupMaterialFileDelete: (groupId: string) =>
+      `/api/materials/library/groups/${groupId}/files`
+  },
+  // Texture assets — serve one by (backend-side) path; `defaults` lists the
+  // built-in library textures (name + ready-to-use serve url).
+  textures: {
+    serve: (path: string) => `/api/textures/serve?path=${encodeURIComponent(path)}`,
+    defaults: () => `/api/textures/defaults`
   }
 } as const

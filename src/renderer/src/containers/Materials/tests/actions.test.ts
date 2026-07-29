@@ -1,41 +1,69 @@
 import * as actions from '../actions'
 import {
-  FETCH_STATUS,
-  FETCH_STATUS_SUCCESS,
-  FETCH_STATUS_FAILURE,
-  SSE_CONNECT,
-  SSE_EVENT,
-  SSE_DISCONNECT
+  CREATE_MATERIAL_REQUESTED,
+  LIST_MATERIALS_FAILED,
+  LIST_MATERIALS_REQUESTED,
+  LIST_MATERIALS_SUCCEEDED,
+  REMOVE_MATERIAL,
+  SELECT_MATERIAL,
+  SET_PARAMETER_GROUP_VALUE,
+  SET_SEARCH_QUERY
 } from '../constants'
-import type { MaterialsStatus, MaterialsStreamEvent } from '../types'
+import type { Material } from '../types'
+
+const material: Material = {
+  id: '11',
+  name: 'GMaterial.002',
+  materialTypeId: 1,
+  materialType: 'Radiation',
+  preview: { colorR: 90, colorG: 200, colorB: 90, textureFile: null },
+  createdAt: '2026-06-23T06:41:16Z'
+}
 
 describe('Materials actions', () => {
-  it('fetchStatus has correct type', () => {
-    expect(actions.fetchStatus()).toEqual({ type: FETCH_STATUS })
+  it('listMaterialsRequested takes no scope (the library is global)', () => {
+    expect(actions.listMaterialsRequested()).toEqual({ type: LIST_MATERIALS_REQUESTED })
   })
 
-  it('fetchStatusSuccess carries payload', () => {
-    const payload: MaterialsStatus = { version: '1.0.0', uptime: 0 }
-    expect(actions.fetchStatusSuccess(payload)).toEqual({ type: FETCH_STATUS_SUCCESS, payload })
-  })
-
-  it('fetchStatusFailure carries error message', () => {
-    expect(actions.fetchStatusFailure('oops')).toEqual({
-      type: FETCH_STATUS_FAILURE,
-      payload: 'oops'
+  it('listMaterialsSucceeded carries the list', () => {
+    expect(actions.listMaterialsSucceeded([material])).toEqual({
+      type: LIST_MATERIALS_SUCCEEDED,
+      payload: [material]
     })
   })
 
-  it('sseConnect has correct type', () => {
-    expect(actions.sseConnect()).toEqual({ type: SSE_CONNECT })
+  it('listMaterialsFailed carries the error', () => {
+    expect(actions.listMaterialsFailed('boom')).toEqual({
+      type: LIST_MATERIALS_FAILED,
+      payload: 'boom'
+    })
   })
 
-  it('sseEvent carries payload', () => {
-    const payload: MaterialsStreamEvent = { type: 'ping', data: null, timestamp: 1 }
-    expect(actions.sseEvent(payload)).toEqual({ type: SSE_EVENT, payload })
+  it('createMaterialRequested carries only the name (materials are global)', () => {
+    expect(actions.createMaterialRequested('Material.001')).toEqual({
+      type: CREATE_MATERIAL_REQUESTED,
+      name: 'Material.001'
+    })
   })
 
-  it('sseDisconnect has correct type', () => {
-    expect(actions.sseDisconnect()).toEqual({ type: SSE_DISCONNECT })
+  it('setParameterGroupValue targets one card', () => {
+    expect(actions.setParameterGroupValue(1, 'reflectivity', '0.4')).toEqual({
+      type: SET_PARAMETER_GROUP_VALUE,
+      groupId: 1,
+      property: 'reflectivity',
+      value: '0.4'
+    })
+  })
+
+  it('removeMaterial carries the id', () => {
+    expect(actions.removeMaterial('11')).toEqual({ type: REMOVE_MATERIAL, id: '11' })
+  })
+
+  it('selectMaterial carries the id', () => {
+    expect(actions.selectMaterial('11')).toEqual({ type: SELECT_MATERIAL, id: '11' })
+  })
+
+  it('setSearchQuery carries the query', () => {
+    expect(actions.setSearchQuery('foo')).toEqual({ type: SET_SEARCH_QUERY, payload: 'foo' })
   })
 })

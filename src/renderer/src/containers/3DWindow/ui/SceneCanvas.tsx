@@ -39,7 +39,7 @@ export function SceneCanvas({ children }: SceneCanvasProps): React.JSX.Element {
     <div ref={wrapperRef} className="h-full w-full">
       <Canvas
         frameloop="demand"
-        shadows
+        shadows="percentage"
         camera={{
           position: [10, 10, 8],
           fov: 50,

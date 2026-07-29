@@ -1,7 +1,7 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
 import { unionVisibility, type VisibilityLike } from './models'
-import type { GeoNode, ModelVisibility } from './types'
+import type { DraftMaterialGroup, GeoNode, ModelVisibility } from './types'
 
 // ── Create-object payload + wire shapes ──────────────────────────────────────
 //
@@ -18,6 +18,28 @@ export interface CreateObjectInput {
 // Subset of the backend's persisted object we actually consume. `properties` is
 // the flat catalog-property→value map (e.g. { length: 10, position_x: 0 }) the
 // POST/GET returns; the right-panel form reads it to show the saved values.
+// One material within an assigned group, as the object GET returns it (§ material
+// -groups): the resolved (library or frozen-snapshot) property values plus flags.
+interface WireMaterial {
+  material_id: number
+  material_type_id: number
+  material_type: string
+  properties?: Record<string, number | string | boolean | null>
+  library_drift?: boolean
+  stale?: boolean
+}
+
+// One material-GROUP assignment on the object, under the GET's `material_groups`.
+interface WireMaterialGroup {
+  object_id: number
+  group_id: number
+  name: string | null
+  sync: boolean
+  source: string
+  stale?: boolean
+  materials: WireMaterial[]
+}
+
 interface WireObject {
   id: number
   name: string
@@ -30,6 +52,7 @@ interface WireObject {
     render?: boolean
     models?: Record<string, boolean>
   }
+  material_groups?: WireMaterialGroup[]
 }
 
 interface CreateObjectResponse {
@@ -52,7 +75,10 @@ export function wireObjectToNode(obj: WireObject): GeoNode {
     expanded: false,
     visibleInViewport: obj.visibility?.viewport ?? true,
     renderEnabled: obj.visibility?.render ?? true,
-    modelVisibility: parseModels(obj.visibility?.models)
+    modelVisibility: parseModels(obj.visibility?.models),
+    // Seed the assigned material-group ids from the list so the 3D viewport can
+    // reload only the objects a material actually touches.
+    materialGroupIds: (obj.material_groups ?? []).map((g) => String(g.group_id))
   }
 }
 
@@ -64,6 +90,25 @@ export function wireObjectToValues(obj: WireObject): Record<string, string> {
     values[property] = value == null ? '' : String(value)
   }
   return values
+}
+
+// The object GET's `material_groups` → the draft's assigned-materials rows.
+// Group ids become strings (matching the tree's string ids and the popup's
+// Material.id). Each member carries its resolved property values for the
+// read-only popup; `drift` is true when any member drifted from the library.
+// Absent → []. Exported for a pure unit test (mirrors wireObjectToNode).
+export function wireObjectToMaterialGroups(obj: WireObject): DraftMaterialGroup[] {
+  return (obj.material_groups ?? []).map((g) => ({
+    groupId: String(g.group_id),
+    name: g.name ?? '',
+    stale: g.stale === true,
+    drift: g.materials.some((m) => m.library_drift === true),
+    materials: g.materials.map((m) => ({
+      materialTypeId: m.material_type_id,
+      materialTypeName: m.material_type,
+      properties: m.properties ?? {}
+    }))
+  }))
 }
 
 // The API's visibility.models is keyed by stringified model id; convert to the
@@ -87,6 +132,11 @@ interface ApiObject {
   object_type: string
   group_id: number | null
   visibility: { viewport: boolean; render: boolean; models: Record<string, boolean> }
+  // The assigned material-group ids. The LIST sends only `group_id` per entry
+  // (the object GET sends the full WireMaterialGroup); the 3D viewport needs it
+  // to know which objects a material save restyles. Optional so an older backend
+  // that omits it still parses — see mergeTree.
+  material_groups?: Pick<WireMaterialGroup, 'group_id'>[]
   created_at: string
 }
 
@@ -126,7 +176,8 @@ function deriveGroupVisibility(
 // not in the list falls back to the root so it never disappears. Root rows
 // (leaves + groups) are ordered by created_at ascending — oldest first, matching
 // the objects endpoint's own ordering.
-function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
+// Exported for a pure unit test (mirrors wireObjectToNode).
+export function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
   const groupIds = new Set(groups.map((g) => String(g.id)))
   const parentByChild = new Map<string, string>()
   for (const g of groups) {
@@ -181,7 +232,13 @@ function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
         visibleInViewport: vis?.visibleInViewport ?? true,
         renderEnabled: vis?.renderEnabled ?? true,
         // Per-model map keyed by catalog model id; absent ids default to on.
-        modelVisibility: vis?.modelVisibility ?? {}
+        modelVisibility: vis?.modelVisibility ?? {},
+        // Seed the assigned material-group ids from the list, exactly as
+        // wireObjectToNode does for a single object. Without this a REFRESH left
+        // every node with no assignments, so a material save found no object
+        // using the group and never re-fetched its binary geometry — the
+        // viewport kept the old colour until a reload or a viewport toggle.
+        materialGroupIds: (o.material_groups ?? []).map((g) => String(g.group_id))
       }
     })
   }
@@ -355,6 +412,7 @@ export interface LoadedObject {
   values: Record<string, string>
   objectTypeId: number
   objectName: string
+  materialGroups: DraftMaterialGroup[]
 }
 
 // GET one object's detail — used when a ground is clicked in the tree. Tolerant
@@ -372,7 +430,8 @@ export function getObject(
         node: wireObjectToNode(obj),
         values: wireObjectToValues(obj),
         objectTypeId: obj.object_type_id,
-        objectName: obj.object_type
+        objectName: obj.object_type,
+        materialGroups: wireObjectToMaterialGroups(obj)
       }
     })
 }
@@ -384,6 +443,8 @@ export interface UpdateObjectInput {
   properties: Record<string, number>
   visibility: { viewport: boolean; render: boolean }
   groupId: string | null
+  // Material GROUPS to ADD (the backend PATCH is ADD-only). Empty = no change.
+  materials: { group_id: number; sync: boolean }[]
 }
 
 export function updateObject(
@@ -396,7 +457,41 @@ export function updateObject(
     .patch(API_ROUTES.geometry.update(projectId, scenarioId, id), {
       properties: input.properties,
       visibility: input.visibility,
-      group_id: input.groupId == null ? null : Number(input.groupId)
+      group_id: input.groupId == null ? null : Number(input.groupId),
+      materials: input.materials
     })
+    .then(() => undefined)
+}
+
+
+// POST — assign a material GROUP to one object (drag-and-drop). The backend keys
+// both objects and groups by integer; `sync` asks it to reconcile + repaint the
+// scenario. Returns nothing we consume — feedback is the caller's toast.
+export function assignMaterialGroup(
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string,
+  sync = true
+): Promise<void> {
+  return api
+    .post(API_ROUTES.geometry.assignMaterialGroup(projectId, scenarioId, objectId), {
+      group_id: Number(groupId),
+      sync
+    })
+    .then(() => undefined)
+}
+
+// DELETE a saved material-GROUP assignment from an object (§ material-groups).
+// Used by the per-material trash icon when the material is already persisted on
+// the ground (in the baseline); a draft-only pick is dropped client-side instead.
+export function unassignMaterial(
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
+  groupId: string
+): Promise<void> {
+  return api
+    .delete(API_ROUTES.geometry.unassignMaterial(projectId, scenarioId, objectId, groupId))
     .then(() => undefined)
 }

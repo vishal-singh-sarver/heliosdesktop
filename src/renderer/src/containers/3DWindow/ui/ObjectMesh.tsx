@@ -1,5 +1,5 @@
 import { useThree } from '@react-three/fiber'
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import type { PrimitiveInfo } from '../models/types'
 import type { LightingMode } from './materials'
@@ -44,11 +44,13 @@ export function ObjectMesh({
 
   const groups = useMemo(() => buildTexturedGeometries(primitives), [primitives])
 
-  // Track previous geometries for disposal when replaced.
-  const prevGroupsRef = useRef<GeometryGroup[] | null>(null)
+  // Release the previous geometries when they're replaced, and the current ones
+  // on unmount. React's cleanup is the SINGLE owner of that: it already runs
+  // before the next effect and on unmount, which is exactly both cases. This
+  // used to also track the previous groups in a ref and dispose them in the
+  // effect body — but since cleanup runs first, that body then disposed the very
+  // same groups a second time.
   useEffect(() => {
-    if (prevGroupsRef.current) disposeGroups(prevGroupsRef.current)
-    prevGroupsRef.current = groups
     return () => {
       if (groups) disposeGroups(groups)
     }
@@ -94,12 +96,9 @@ export function ObjectMesh({
     [lightingMode, backfaceCulling]
   )
 
-  // Dispose all materials when they are replaced or on unmount.
-  const prevMatsRef = useRef<{ t: Map<string, THREE.Material>; m: Map<string, THREE.Material>; v: THREE.Material | null }>({ t: new Map(), m: new Map(), v: null })
+  // Dispose all materials when they are replaced or on unmount — same single-owner
+  // rule as the geometries above, for the same reason.
   useEffect(() => {
-    const prev = prevMatsRef.current
-    disposeMaterials(prev.t, prev.m, prev.v)
-    prevMatsRef.current = { t: textureMaterials, m: maskMaterials, v: vertexColorMaterial }
     return () => disposeMaterials(textureMaterials, maskMaterials, vertexColorMaterial)
   }, [textureMaterials, maskMaterials, vertexColorMaterial])
 

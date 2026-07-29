@@ -61,7 +61,7 @@ export function LeftPanel(): React.JSX.Element {
         className={`flex shrink-0 items-center px-3 py-2 ${collapsed ? 'justify-center' : 'justify-between'}`}
       >
         {!collapsed && (
-          <span className="text-[14px] font-normal leading-[15px] tracking-normal text-neutral-200">
+          <span className="text-[13px] font-normal leading-[15px] tracking-normal text-neutral-200">
             Tools
           </span>
         )}

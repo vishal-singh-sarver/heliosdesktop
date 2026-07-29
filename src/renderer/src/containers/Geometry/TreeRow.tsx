@@ -2,11 +2,15 @@ import chevronIcon from '@renderer/assets/chevron.svg'
 import Dialog from '@renderer/components/Dialog'
 import React from 'react'
 import { useDispatch } from 'react-redux'
+import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
+import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import {
+  assignMaterialRequested,
   deleteNodeRequested,
   groupNodesRequested,
   loadObjectRequested,
   moveNodesRequested,
+  reorderNodes,
   select,
   toggleExpand
 } from './actions'
@@ -29,6 +33,29 @@ function readDraggedIds(e: React.DragEvent): string[] {
   }
 }
 
+// A material row being dragged (from the Saved Materials list) exposes its mime
+// in the drag's type list — readable during dragover, where the payload itself
+// is not. Lets a row light up for an incoming material without reading it yet.
+function isMaterialDrag(e: React.DragEvent): boolean {
+  return Array.from(e.dataTransfer.types).includes(MATERIAL_DND_MIME)
+}
+
+// The dropped material's { groupId, name }, or null when the drag isn't a
+// material / the payload is malformed.
+function readMaterialDrop(e: React.DragEvent): { groupId: string; name: string } | null {
+  const raw = e.dataTransfer.getData(MATERIAL_DND_MIME)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { groupId?: unknown; name?: unknown }
+    if (typeof parsed.groupId === 'string' && typeof parsed.name === 'string') {
+      return { groupId: parsed.groupId, name: parsed.name }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 interface TreeRowProps {
   node: GeoNode
   nodesById: Record<string, GeoNode>
@@ -36,6 +63,10 @@ interface TreeRowProps {
   projectId: string | null
   scenarioId: string | null
   selectedIds: string[]
+  // The node just created by +Ground (or null) — that row flashes and scrolls
+  // into view. Passed down the recursion so a new row nested in a group gets the
+  // cue too.
+  highlightedId: string | null
   // Lowercased names of all groups / all leaves (for the rename unique check;
   // geometry and group names are separate namespaces).
   groupNamesLower: Set<string>
@@ -55,6 +86,7 @@ function TreeRow({
   projectId,
   scenarioId,
   selectedIds,
+  highlightedId,
   groupNamesLower,
   leafNamesLower,
   nameErrors
@@ -62,11 +94,16 @@ function TreeRow({
   const dispatch = useDispatch()
   const isGroup = node.kind === 'group'
   const selected = selectedIds.includes(node.id)
+  const highlighted = node.id === highlightedId
+  const rowRef = useScrollIntoViewWhen<HTMLDivElement>(highlighted)
   const [editing, setEditing] = React.useState(false)
   // Current rename validation error, lifted from NameEditor so the row box can
   // turn red (vs blue) while editing an invalid name.
   const [editError, setEditError] = React.useState<string | null>(null)
-  const [dragOver, setDragOver] = React.useState(false)
+  // Where a drag is hovering within this row: 'into' (center → group) or
+  // 'before' / 'after' (edges → reorder, shown as a thin blue line). null = no
+  // drag over this row.
+  const [dropZone, setDropZone] = React.useState<'before' | 'into' | 'after' | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   const childCount = isGroup ? node.childIds.length : 0
@@ -93,16 +130,67 @@ function TreeRow({
 
   const handleDragOver = (e: React.DragEvent): void => {
     e.preventDefault()
+    // A dragged material assigns to the whole row (leaf OR group) — no edge
+    // bands. Light the whole row ('into' ring) and mark it a copy, not a move.
+    if (isMaterialDrag(e)) {
+      e.dataTransfer.dropEffect = 'copy'
+      setDropZone('into')
+      return
+    }
     e.dataTransfer.dropEffect = 'move'
-    setDragOver(true)
+    // Split the row into edge/center bands: hovering the top 30% places the item
+    // before this row, the bottom 30% after it (thin blue line), and the
+    // generous middle 40% drops onto it (group / move-into).
+    const rect = e.currentTarget.getBoundingClientRect()
+    const offset = e.clientY - rect.top
+    const zone =
+      offset < rect.height * 0.3 ? 'before' : offset > rect.height * 0.7 ? 'after' : 'into'
+    setDropZone(zone)
   }
 
   const handleDrop = (e: React.DragEvent): void => {
     e.preventDefault()
     e.stopPropagation() // don't also trigger the root (ungroup) drop zone
-    setDragOver(false)
+    const zone = dropZone
+    setDropZone(null)
+
+    // A dropped material assigns to this row. A leaf takes just itself; a group
+    // fans out over its member objects (groups don't nest, so childIds are all
+    // leaves). Handled before the row-drag logic so a material never reorders.
+    const material = readMaterialDrop(e)
+    if (material) {
+      if (!projectId || !scenarioId) return
+      const targetIds = isGroup
+        ? node.childIds.filter((id) => nodesById[id]?.kind !== 'group')
+        : [node.id]
+      if (targetIds.length) {
+        dispatch(
+          assignMaterialRequested(
+            projectId,
+            scenarioId,
+            targetIds,
+            material.groupId,
+            material.name,
+            node.name
+          )
+        )
+      }
+      return
+    }
+
     const ids = readDraggedIds(e)
     if (!ids.length || !projectId || !scenarioId) return
+
+    // Edge drop → reorder at root, before/after this row (client-only order).
+    if (zone === 'before' || zone === 'after') {
+      const movable = ids.filter(
+        (id) => id !== node.id && nodesById[id] && nodesById[id].kind !== 'group'
+      )
+      if (movable.length) dispatch(reorderNodes(projectId, scenarioId, movable, node.id, zone))
+      return
+    }
+
+    // Center drop ('into') → group / move into group.
     // Only leaves can be moved into a group (groups don't nest), and a move into
     // the leaf's current parent is a no-op — filter both out so we never fire a
     // pointless PATCH (+ its dissolved-group cleanup) for a drop that changes
@@ -165,27 +253,55 @@ function TreeRow({
 
   const nameError = nameErrors[node.id]
 
+  // Any error on the row (live rename validation while editing, or a backend
+  // rename failure) turns the box border red — the same #D92D20 the right-panel
+  // form uses for invalid fields.
+  const hasError = editing ? Boolean(editError) : Boolean(nameError)
+
   return (
     <>
       <div className="mb-1">
         <div
+          ref={rowRef}
           role="button"
           tabIndex={0}
           onClick={handleSelect}
           draggable={!isGroup && !editing}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
-          onDragLeave={() => setDragOver(false)}
+          onDragLeave={() => setDropZone(null)}
           onDrop={handleDrop}
-          className={`group flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[14px] font-normal text-neutral-200 ${
-            editing
-              ? 'border-[#245AC5] bg-[#2a2a2a]'
-              : selected
-                ? 'border-app-border bg-[#2a2a2a]'
-                : 'border-transparent hover:bg-neutral-700/40'
-          } ${dragOver ? 'ring-1 ring-inset ring-blue-500' : ''}`}
+          // The "just created" cue sits under the error/editing states (both of
+          // which are about the name being wrong right now, and must win) but
+          // over selection — a new row is selected too, and the flash is what's
+          // new.
+          className={`group relative flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-[13px] font-normal text-neutral-200 transition-colors duration-500 ${
+            hasError
+              ? 'border-[#D92D20] bg-[#2a2a2a]'
+              : editing
+                ? 'border-[#245AC5] bg-[#2a2a2a]'
+                : highlighted
+                  ? HIGHLIGHT_CLASSES
+                  : selected
+                    ? 'border-app-border bg-[#2a2a2a]'
+                    : 'border-transparent hover:bg-neutral-700/40'
+          } ${dropZone === 'into' ? 'ring-1 ring-inset ring-blue-500' : ''}`}
           style={{ paddingLeft: 10 + depth * 16 }}
         >
+          {/* Reorder insertion lines (absolutely positioned so they never shift
+              layout — that lets the center "drop to group" still work). */}
+          {dropZone === 'before' && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 -top-1 h-0.5 rounded-full bg-[#245AC5]"
+            />
+          )}
+          {dropZone === 'after' && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 -bottom-1 h-0.5 rounded-full bg-[#245AC5]"
+            />
+          )}
           {isGroup && (
             <button
               type="button"
@@ -244,10 +360,15 @@ function TreeRow({
           </span>
         )}
       </div>
-<Dialog isOpen={confirmOpen} title={messages.deleteTitle} onClose={() => setConfirmOpen(false)}>
-        <h3 className="text-base font-medium text-white">{confirmMessage}</h3>
+
+      <Dialog
+        isOpen={confirmOpen}
+        title={messages.deleteTitle}
+        onClose={() => setConfirmOpen(false)}
+      >
+        <p className="text-sm text-neutral-200">{confirmMessage}</p>
         <p className="text-sm text-neutral-400">{messages.deleteBody}</p>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex justify-end gap-2 pt-1">
           <button
             type="button"
             onClick={() => setConfirmOpen(false)}
@@ -265,7 +386,6 @@ function TreeRow({
         </div>
       </Dialog>
 
-
       {children.map((child) => (
         <TreeRow
           key={child.id}
@@ -275,6 +395,7 @@ function TreeRow({
           projectId={projectId}
           scenarioId={scenarioId}
           selectedIds={selectedIds}
+          highlightedId={highlightedId}
           groupNamesLower={groupNamesLower}
           leafNamesLower={leafNamesLower}
           nameErrors={nameErrors}

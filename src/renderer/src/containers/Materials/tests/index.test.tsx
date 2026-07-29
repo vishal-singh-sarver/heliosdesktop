@@ -1,11 +1,12 @@
-import React from 'react'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { Provider } from 'react-redux'
-import { createStore, UnknownAction, Reducer } from 'redux'
-import { Materials } from '../index'
+import { createStore, Reducer, UnknownAction } from 'redux'
 import { InjectableStore } from 'store/configureStore'
+import { Materials } from '../index'
 
-const mockStore = createStore((state = {}) => state) as InjectableStore
+const mockStore = createStore(
+  ((state = {}) => state) as Reducer<unknown, UnknownAction>
+) as InjectableStore
 mockStore.injectedReducers = {}
 mockStore.injectedSagas = {}
 mockStore.runSaga = () =>
@@ -18,20 +19,22 @@ mockStore.runSaga = () =>
 mockStore.createReducer = () => ((state = {}) => state) as Reducer<unknown, UnknownAction>
 
 describe('<Materials />', () => {
-  it('renders without error', () => {
+  it('renders the Add Materials button and the Saved Materials header', () => {
     render(
       <Provider store={mockStore}>
         <Materials />
       </Provider>
     )
+    expect(screen.getByRole('button', { name: 'Add Materials' })).toBeInTheDocument()
+    expect(screen.getByText('Saved Materials')).toBeInTheDocument()
   })
 
-  it('should match the snapshot', () => {
-    const { container } = render(
+  it('shows the empty-state message when there are no materials', () => {
+    render(
       <Provider store={mockStore}>
         <Materials />
       </Provider>
     )
-    expect(container.firstChild).toMatchSnapshot()
+    expect(screen.getByText('No saved materials yet.')).toBeInTheDocument()
   })
 })

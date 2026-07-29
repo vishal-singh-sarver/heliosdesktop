@@ -1,8 +1,11 @@
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
-import { call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import * as actions from './actions'
+import messages from './messages'
 import type {
+  AssignMaterialRequestedAction,
   CreateObjectRequestedAction,
   DeleteNodeRequestedAction,
   GroupNodesRequestedAction,
@@ -11,11 +14,13 @@ import type {
   MoveNodesRequestedAction,
   RenameRequestedAction,
   UpdateObjectRequestedAction,
+  UnassignMaterialRequestedAction,
   SetModelOnAction,
   ToggleRenderAction,
   ToggleViewportAction
 } from './actions'
 import {
+  ASSIGN_MATERIAL_REQUESTED,
   CREATE_OBJECT_REQUESTED,
   DELETE_NODE_REQUESTED,
   GROUP_NODES_REQUESTED,
@@ -24,6 +29,7 @@ import {
   MOVE_NODES_REQUESTED,
   RENAME_REQUESTED,
   UPDATE_OBJECT_REQUESTED,
+  UNASSIGN_MATERIAL_REQUESTED,
   SET_MODEL_ON,
   TOGGLE_RENDER,
   TOGGLE_VIEWPORT
@@ -177,20 +183,49 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     const nextProps = numericProperties(draft.values)
     const propsChanged = !original || !sameProperties(nextProps, numericProperties(original.values))
 
-    if (propsChanged) {
+    // Send just the groups picked this session that aren't already assigned on
+    // the backend (baseline seeded from the GET). Empty = no material change, so
+    // a re-Save of an unchanged ground sends nothing and avoids a 409.
+    const newMaterials = draft.materials
+      .filter((m) => !draft.materialBaseline.includes(m.groupId))
+      .map((m) => ({ group_id: Number(m.groupId), sync: true }))
+
+    // Single-select: anything in the baseline the draft no longer lists was
+    // REPLACED in the form. The PATCH is add-only, so the displaced assignment
+    // has to be DELETEd here — otherwise the ground would end up carrying both.
+    // This runs BEFORE the PATCH so the ground is never momentarily double-
+    // assigned, and only on Save, which is what lets an abandoned form leave the
+    // previously saved material intact.
+    const removedMaterialIds = draft.materialBaseline.filter(
+      (id) => !draft.materials.some((m) => m.groupId === id)
+    )
+    if (removedMaterialIds.length) {
+      yield all(
+        removedMaterialIds.map((id) =>
+          call(service.unassignMaterial, projectId, scenarioId, draft.objectId, id)
+        )
+      )
+    }
+
+    if (propsChanged || newMaterials.length) {
       yield call(service.updateObject, projectId, scenarioId, draft.objectId, {
         properties: nextProps,
         visibility: {
           viewport: node?.visibleInViewport ?? true,
           render: node?.renderEnabled ?? true
         },
-        groupId: node?.parentId ?? null
+        groupId: node?.parentId ?? null,
+        materials: newMaterials
       })
     }
     yield put(
       actions.updateObjectSucceeded(projectId, scenarioId, {
         objectId: draft.objectId,
-        propsChanged
+        propsChanged,
+        // A newly-assigned material restyles the object even with props unchanged,
+        // so the 3D viewport must re-fetch its binary in that case too. Losing one
+        // restyles it just as much, so a replacement counts on both counts.
+        materialsChanged: newMaterials.length > 0 || removedMaterialIds.length > 0
       })
     )
   } catch (err) {
@@ -344,6 +379,67 @@ export function* setModelOnWorker(action: SetModelOnAction): Generator {
   }
 }
 
+// Assign a material group to the drop target(s). One object for a leaf drop, or
+// every member object for a group drop — all POSTed together. On success a
+// single success toast; if ANY call fails, the failure toast names the material.
+// Fire-and-report: the tree already shows the assignment via the backend repaint
+// (sync), so there's no slice state to reconcile here.
+export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Generator {
+  const { projectId, scenarioId, objectIds, groupId, materialName, targetName } = action
+  if (!objectIds.length) return
+  try {
+    // Single-material rule: an object carries ONE material, so a drop REPLACES
+    // what's already there. Collect every other group currently on the targets
+    // and DELETE those assignments first, so the object is never briefly holding
+    // two. Unlike the right-panel form this commits immediately — a drop has no
+    // Save step to defer to.
+    const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    const displaced = objectIds.flatMap((objectId) =>
+      (nodesById[objectId]?.materialGroupIds ?? [])
+        .filter((id) => id !== groupId)
+        .map((oldGroupId) => ({ objectId, oldGroupId }))
+    )
+    if (displaced.length) {
+      yield all(
+        displaced.map((d) =>
+          call(service.unassignMaterial, projectId, scenarioId, d.objectId, d.oldGroupId)
+        )
+      )
+    }
+    // Objects already carrying this exact group need no POST — re-dropping the
+    // same material is a no-op, and the backend would 409 on the duplicate.
+    const toAssign = objectIds.filter(
+      (objectId) => !(nodesById[objectId]?.materialGroupIds ?? []).includes(groupId)
+    )
+    yield all(
+      toAssign.map((objectId) =>
+        call(service.assignMaterialGroup, projectId, scenarioId, objectId, groupId)
+      )
+    )
+    // Tell the 3D viewport which objects were restyled so it re-fetches their
+    // binary geometry, and the open object form so it lists the new group —
+    // without this the material only shows after a refresh.
+    yield put(actions.assignMaterialSucceeded(projectId, scenarioId, objectIds, groupId, materialName))
+    yield put(showSnackbar(messages.assignMaterialSuccess(materialName, targetName), 'success'))
+  } catch {
+    yield put(showSnackbar(messages.assignMaterialFailure(materialName), 'error'))
+  }
+}
+
+// Unassign a saved material group from the open object (the per-material trash
+// icon, for a backend material). DELETE the assignment; on success the reducer
+// drops it from the draft + baseline + detail cache. Pessimistic: a failed DELETE
+// leaves the material in place and surfaces the error.
+export function* unassignMaterialWorker(action: UnassignMaterialRequestedAction): Generator {
+  const { projectId, scenarioId, objectId, groupId } = action
+  try {
+    yield call(service.unassignMaterial, projectId, scenarioId, objectId, groupId)
+    yield put(actions.unassignMaterialSucceeded(projectId, scenarioId, objectId, groupId))
+  } catch (err) {
+    yield put(actions.unassignMaterialFailed(groupId, (err as Error).message))
+  }
+}
+
 export default function* geometrySaga(): Generator {
   yield takeLatest(LIST_NODES_REQUESTED, listNodesWorker)
   yield takeEvery(RENAME_REQUESTED, renameWorker)
@@ -351,9 +447,11 @@ export default function* geometrySaga(): Generator {
   yield takeLeading(CREATE_OBJECT_REQUESTED, createObjectWorker)
   yield takeLeading(UPDATE_OBJECT_REQUESTED, updateObjectWorker)
   yield takeLatest(LOAD_OBJECT_REQUESTED, loadObjectWorker)
+  yield takeEvery(UNASSIGN_MATERIAL_REQUESTED, unassignMaterialWorker)
   yield takeEvery(GROUP_NODES_REQUESTED, groupNodesWorker)
   yield takeEvery(MOVE_NODES_REQUESTED, moveNodesWorker)
   yield takeEvery(TOGGLE_VIEWPORT, toggleViewportWorker)
   yield takeEvery(TOGGLE_RENDER, toggleRenderWorker)
   yield takeEvery(SET_MODEL_ON, setModelOnWorker)
+  yield takeEvery(ASSIGN_MATERIAL_REQUESTED, assignMaterialWorker)
 }

@@ -3,6 +3,16 @@ import { Provider } from 'react-redux'
 import GeometryTree from '../GeometryTree'
 import { emptyScenarioGeometry, scopeKey } from '../reducer'
 import type { GeoNode, ScenarioGeometry } from '../types'
+import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
+
+// A dropped material row exposes its { groupId, name } under the material mime;
+// any other mime (e.g. the tree's own row-drag mime) reads empty.
+const materialDataTransfer = (
+  groupId: string,
+  name: string
+): { getData: (type: string) => string } => ({
+  getData: (type) => (type === MATERIAL_DND_MIME ? JSON.stringify({ groupId, name }) : '')
+})
 
 // jsdom doesn't implement HTMLDialogElement — mock showModal/close so the
 // delete confirmation dialog can open (mirrors components/Dialog tests).
@@ -400,6 +410,50 @@ describe('<GeometryTree />', () => {
         type: 'app/Geometry/MOVE_NODES_REQUESTED',
         nodeIds: ['a'],
         toGroupId: 'g'
+      })
+    )
+  })
+
+  it('dropping a material onto a leaf assigns it to that object', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a']
+    })
+    const target = screen.getByText('Ground.001').closest('[role="button"]')!
+    fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['a'],
+        groupId: '7',
+        materialName: 'Grass',
+        targetName: 'Ground.001'
+      })
+    )
+  })
+
+  it('dropping a material onto a group assigns it to every member object', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['a', 'b']),
+        a: ground('a', 'Ground.001', 'g'),
+        b: ground('b', 'Ground.002', 'g')
+      },
+      rootOrder: ['g']
+    })
+    const target = screen.getByText('Group.001').closest('[role="button"]')!
+    fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['a', 'b'],
+        groupId: '7',
+        materialName: 'Grass',
+        targetName: 'Group.001'
       })
     )
   })

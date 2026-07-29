@@ -1,20 +1,28 @@
 import {
+  ASSIGN_MATERIAL_SUCCEEDED,
   CREATE_OBJECT_SUCCEEDED,
   DELETE_NODE_SUCCEEDED,
   LIST_NODES_SUCCEEDED,
   TOGGLE_VIEWPORT,
+  UNASSIGN_MATERIAL_SUCCEEDED,
   UPDATE_OBJECT_SUCCEEDED,
   VISIBILITY_SYNC_FAILED
 } from 'containers/Geometry/constants'
 import type {
+  AssignMaterialSucceededAction,
   CreateObjectSucceededAction,
-  DeleteNodeSucceededAction,
   ToggleViewportAction,
+  UnassignMaterialSucceededAction,
   UpdateObjectSucceededAction,
   VisibilitySyncFailedAction
 } from 'containers/Geometry/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode, LoadStatus } from 'containers/Geometry/types'
+import { REMOVE_MATERIAL, SAVE_PARAMETER_GROUP_SUCCEEDED } from 'containers/Materials/constants'
+import type {
+  RemoveMaterialAction,
+  SaveParameterGroupSucceededAction
+} from 'containers/Materials/actions'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -90,8 +98,10 @@ export function* onGeometryCreated(action: CreateObjectSucceededAction): Generat
 }
 
 export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generator {
-  // Skip rename-only updates — geometry data hasn't changed.
-  if (!action.payload.propsChanged) return
+  // Re-fetch when properties OR materials changed — a material assignment restyles
+  // the object even with no property edit. Skip only a true no-op / name-only save
+  // (neither changed), where the binary is identical.
+  if (!action.payload.propsChanged && !action.payload.materialsChanged) return
 
   const objectId = Number(action.payload.objectId)
 
@@ -110,7 +120,70 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
   }
 }
 
-export function* onGeometryDeleted(_action: DeleteNodeSucceededAction): Generator {
+// A material was assigned to one-or-more objects (drag-and-drop). The material's
+// appearance is baked into each object's binary geometry, so re-fetch every
+// affected object to restyle it in place — mirroring onGeometryUpdated, and
+// skipping hidden objects so an assignment never un-hides one.
+export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Generator {
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  for (const rawId of action.objectIds) {
+    const node = nodesById[rawId]
+    if (node && !node.visibleInViewport) continue
+    try {
+      yield* fetchAndCacheObjectGeometry(Number(rawId), false)
+    } catch {
+      // Non-fatal — the object keeps its previous appearance until reloaded.
+    }
+  }
+}
+
+// Re-fetch the binary of every SHOWN object that uses `groupId` — the objects a
+// material-library change (save/delete) actually restyles. The node carries its
+// assigned material-group ids (seeded from the objects list, kept in sync on
+// assign/unassign/save), so a save of a material used by nothing costs 0 fetches
+// and one used by 1 ground costs 1 — instead of one per shown object.
+function* refetchObjectsUsingGroup(groupId: string): Generator {
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  for (const node of Object.values(nodesById)) {
+    if (node.kind === 'group' || !node.visibleInViewport) continue
+    if (!(node.materialGroupIds ?? []).includes(groupId)) continue
+    try {
+      yield* fetchAndCacheObjectGeometry(Number(node.id), false)
+    } catch {
+      // Non-fatal — the object keeps its previous appearance until reloaded.
+    }
+  }
+}
+
+// A material member was SAVED (Visualiser colour/texture edit). Restyle only the
+// objects that use it. `materialId` is the material GROUP id.
+export function* onMaterialSaved(action: SaveParameterGroupSucceededAction): Generator {
+  yield* refetchObjectsUsingGroup(action.materialId)
+}
+
+// A whole material was DELETED. The objects using it revert (to their remaining
+// material or the default soil) — reload just those. `id` is the group id.
+export function* onMaterialDeleted(action: RemoveMaterialAction): Generator {
+  yield* refetchObjectsUsingGroup(action.id)
+}
+
+// A material was UNASSIGNED from an object (the per-material trash in the object
+// form). The object reverts to its remaining look — another assigned material, or
+// the default soil — so re-fetch its binary to show that. Skips a hidden object
+// so an unassign never un-hides one, mirroring onGeometryUpdated/onMaterialAssigned.
+export function* onMaterialUnassigned(action: UnassignMaterialSucceededAction): Generator {
+  const objectId = Number(action.objectId)
+  const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+  const node = nodesById[String(objectId)]
+  if (node && !node.visibleInViewport) return
+  try {
+    yield* fetchAndCacheObjectGeometry(objectId, false)
+  } catch {
+    // Non-fatal — the object keeps its previous appearance until reloaded.
+  }
+}
+
+export function* onGeometryDeleted(): Generator {
   // The Geometry reducer has already removed the node (and children if group)
   // from nodesById. Compare our cached objectIds against the current visible
   // objects to find which ones were removed.
@@ -354,4 +427,8 @@ export default function* threeDWindowSaga(): Generator {
   yield takeEvery(DELETE_NODE_SUCCEEDED, onGeometryDeleted)
   yield takeEvery(TOGGLE_VIEWPORT, onViewportToggled)
   yield takeEvery(VISIBILITY_SYNC_FAILED, onVisibilitySyncFailed)
+  yield takeEvery(ASSIGN_MATERIAL_SUCCEEDED, onMaterialAssigned)
+  yield takeEvery(UNASSIGN_MATERIAL_SUCCEEDED, onMaterialUnassigned)
+  yield takeEvery(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialSaved)
+  yield takeEvery(REMOVE_MATERIAL, onMaterialDeleted)
 }

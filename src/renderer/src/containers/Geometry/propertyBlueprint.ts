@@ -88,7 +88,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
     fields: [{ property: 'rotation_z', label: 'degree', defaultValue: '0' }]
   },
   {
-    heading: 'Texture Repeat (X x Y)',
+    heading: 'Number of Textures',
     columns: 2,
     fields: [
       { property: 'texture_x', label: 'R', defaultValue: '1' },

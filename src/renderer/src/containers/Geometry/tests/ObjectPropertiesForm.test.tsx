@@ -1,8 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import materialsReducer, {
+  initialState as materialsInitialState
+} from 'containers/Materials/reducer'
+import type { Material, MaterialGroupDetail } from 'containers/Materials/types'
 import projectScreenReducer, {
   initialState as projectScreenInitialState
 } from 'containers/ProjectScreen/reducer'
-import type { CatalogPropertyDef, ObjectTypeDef } from 'containers/ProjectScreen/types'
+import type {
+  CatalogPropertyDef,
+  MaterialTypeDef,
+  ObjectTypeDef
+} from 'containers/ProjectScreen/types'
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
@@ -12,7 +20,18 @@ import geometryReducer, {
   initialState as geometryInitialState,
   scopeKey
 } from '../reducer'
-import type { GeoNode } from '../types'
+import type { DraftMaterialGroup, GeoNode } from '../types'
+
+// jsdom doesn't implement <dialog>.showModal()/close(); polyfill them (reflecting
+// the `open` attribute) so the confirm dialogs can actually open in tests.
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
+    this.setAttribute('open', '')
+  }
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement): void {
+    this.removeAttribute('open')
+  }
+})
 
 const PROJECT = 'p'
 const SCENARIO = 's'
@@ -64,22 +83,50 @@ const node: GeoNode = {
   modelVisibility: {}
 }
 
+// A saved library material, as the left panel's <Materials/> would have loaded
+// it — the Select popup lists these.
+const material = (id: string, name: string): Material => ({
+  id,
+  name,
+  materialTypeId: 1,
+  materialType: 'Radiation',
+  preview: null,
+  createdAt: '2026-01-01T00:00:00Z'
+})
+
 // A real store wired like the app's: combined geometry + projectScreen reducers,
 // preloaded with the active scope, the Ground catalog, the node, and an OPEN
 // draft whose values are empty (so every required field is invalid). detailsById
 // is left empty so `original` is undefined → the form reads as dirty → Save is
 // enabled without a prior edit.
-function makeStore(): InjectableStore {
+//
+// `materials` seeds the library the Select popup lists; the slice is included so
+// selectAllMaterials reads real rows instead of falling back to initialState.
+function makeStore(
+  materials: Material[] = [],
+  opts: {
+    draftMaterials?: DraftMaterialGroup[]
+    materialTypes?: MaterialTypeDef[]
+    materialDetails?: MaterialGroupDetail[]
+  } = {}
+): InjectableStore {
   // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
   // satisfy the bare Reducer the injectable store expects under Redux 5.
   const rootReducer = (injected: Record<string, Reducer> = {}): Reducer =>
     combineReducers({
       geometry: geometryReducer,
       projectScreen: projectScreenReducer,
+      materials: materialsReducer,
       ...injected
     }) as unknown as Reducer
 
   const preloaded = {
+    materials: {
+      ...materialsInitialState,
+      byId: Object.fromEntries(materials.map((m) => [m.id, m])),
+      order: materials.map((m) => m.id),
+      detailsById: Object.fromEntries((opts.materialDetails ?? []).map((d) => [d.id, d]))
+    },
     geometry: {
       ...geometryInitialState,
       byScope: {
@@ -95,7 +142,8 @@ function makeStore(): InjectableStore {
         objectName: 'Ground',
         name: 'Ground.001',
         values: {},
-        materialId: null,
+        materials: opts.draftMaterials ?? [],
+        materialBaseline: (opts.draftMaterials ?? []).map((m) => m.groupId),
         isNew: true,
         saving: false,
         saveError: null,
@@ -109,7 +157,18 @@ function makeStore(): InjectableStore {
       activeScenarioId: SCENARIO,
       catalog: {
         ...projectScreenInitialState.catalog,
-        objectTypes: { byId: { 1: groundType }, allIds: [1], loadStatus: 'loaded', loadError: null }
+        objectTypes: {
+          byId: { 1: groundType },
+          allIds: [1],
+          loadStatus: 'loaded',
+          loadError: null
+        },
+        materialTypes: {
+          byId: Object.fromEntries((opts.materialTypes ?? []).map((t) => [t.id, t])),
+          allIds: (opts.materialTypes ?? []).map((t) => t.id),
+          loadStatus: 'loaded',
+          loadError: null
+        }
       }
     }
   }
@@ -130,6 +189,467 @@ const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
   if (!el) throw new Error(`input[name="${name}"] not rendered`)
   return el as HTMLInputElement
 }
+
+// ── Anchored-popup test rig ───────────────────────────────────────────────────
+// AnchoredPopup places a popup by measuring it against its anchor, and jsdom has
+// no layout — every element reports a zero rect. These helpers supply the two
+// measurements it needs: a right-panel <aside> whose rect the test controls, and
+// a popup that reports the size it actually rendered at.
+
+const PANEL_WIDTH = 340
+
+const domRect = (top: number, left: number, width: number, height: number): DOMRect =>
+  ({
+    top,
+    left,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({})
+  }) as DOMRect
+
+/** A panel rect the test can move mid-run, to stand in for a window resize. */
+function panelRect(init: { top: number; left: number; height: number }): {
+  set: (next: { top: number; left: number; height: number }) => void
+  read: () => DOMRect
+} {
+  let r = { ...init }
+  return {
+    set: (next) => {
+      r = { ...next }
+    },
+    read: () => domRect(r.top, r.left, PANEL_WIDTH, r.height)
+  }
+}
+
+const realGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = realGetBoundingClientRect
+})
+
+/**
+ * Render the form inside a right panel whose rect the test drives, with popups
+ * reporting a real size so AnchoredPopup can place them. Width comes from the
+ * popup component's Tailwind class (which jsdom won't compute), height from the
+ * inline style it renders — so a popup that resizes itself is measured as such.
+ */
+function renderInPanel(rect: ReturnType<typeof panelRect>): ReturnType<typeof render> {
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): DOMRect {
+    // AnchoredPopup's positioned wrapper — the element it measures.
+    if (this.classList.contains('z-50')) {
+      const popup = this.firstElementChild as HTMLElement | null
+      if (!popup) return domRect(0, 0, 0, 0)
+      const width = popup.className.includes('w-[240px]') ? 240 : 370
+      return domRect(0, 0, width, parseFloat(popup.style.height || '0'))
+    }
+    return realGetBoundingClientRect.call(this)
+  }
+
+  const result = render(
+    <aside>
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    </aside>
+  )
+  const aside = result.container.querySelector('aside') as HTMLElement
+  aside.getBoundingClientRect = rect.read
+  return result
+}
+
+/** Fire the window resize AnchoredPopup listens for, and let it re-measure. */
+const resizeWindow = (): void => {
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+}
+
+describe('<ObjectPropertiesForm /> — material properties popup', () => {
+  // Pick Cotton from the Select popup, leaving it listed under the Materials row.
+  // Picking dismisses the popup, so afterwards the only 'Cotton' button on the
+  // page is the picked row in the form body.
+  const pickCotton = (): void => {
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cotton' }))
+  }
+
+  /** The Select popup, portaled to document.body. */
+  const openPopup = (): HTMLElement => {
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    return screen.getByText('Select Materials').parentElement!.parentElement as HTMLElement
+  }
+
+  it('lists the material already assigned to the ground, ticked', () => {
+    render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+          // Cotton (library id m1) is already assigned to this ground.
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // The assigned material is NOT filtered out any more — it's the row carrying
+    // the tick, so hiding it would leave the current selection invisible.
+    const popup = openPopup()
+
+    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(within(popup).getByRole('radio', { name: 'Steel' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
+  })
+
+  it('picking a material lists it in the Materials section and ticks it', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const popup = openPopup()
+    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
+
+    fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
+
+    // Picking dismisses the popup — the pick is done and the new row is visible
+    // behind it.
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+    // …and it's now listed in the form's Materials section.
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    // Reopening shows the pick remembered as the ticked row, so the popup
+    // reflects the draft rather than resetting.
+    expect(within(openPopup()).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+  })
+
+  it('picking a different material REPLACES the previous one', () => {
+    // A ground carries exactly one material: choosing Steel drops Cotton from the
+    // Materials section rather than listing both.
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Cotton' }))
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Steel' }))
+
+    expect(within(container).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+
+    // The tick moved with it — Steel is now the selected row, Cotton is not.
+    const reopened = openPopup()
+    expect(within(reopened).getByRole('radio', { name: 'Steel' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(within(reopened).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
+  })
+
+  it('re-clicking the ticked material is a no-op and leaves the popup open', () => {
+    // There is nothing to toggle off — clearing the material is the trash icon's
+    // job — so the row must not dismiss the picker or change the selection.
+    const { container } = render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const popup = openPopup()
+
+    fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
+
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+  })
+
+  it('filters the material list by the search query', () => {
+    render(
+      <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const popup = openPopup()
+
+    fireEvent.change(within(popup).getByRole('textbox', { name: 'Search materials' }), {
+      target: { value: 'steel' }
+    })
+
+    expect(within(popup).getByRole('radio', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(popup).queryByRole('radio', { name: 'Cotton' })).not.toBeInTheDocument()
+  })
+
+  it('trash icon removes a draft-only material immediately, with no confirm dialog', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Pick Cotton this session → it's in the draft but NOT the baseline.
+    pickCotton()
+    expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+    // Trash it → dropped from the section right away, no dialog opened.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Cotton' }))
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+    expect(document.querySelector('dialog[open]')).toBeNull()
+  })
+
+  it('trash icon on a saved material opens the unassign confirm dialog', () => {
+    render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          // A material seeded here also lands in the baseline (already saved).
+          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    expect(
+      screen.queryByText('Are you sure you want to unassign "Cotton"?')
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Cotton' }))
+
+    expect(screen.getByText('Are you sure you want to unassign "Cotton"?')).toBeInTheDocument()
+    expect(
+      screen.getByText('This action will delete any progress made using this material.')
+    ).toBeInTheDocument()
+  })
+
+  it('opens the read-only properties popup when a picked material is clicked', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+
+    expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    expect(screen.getByRole('dialog', { name: 'Cotton properties' })).toBeInTheDocument()
+  })
+
+  it('sizes the popup to 80% of the 3D-window height and vertically centers it', () => {
+    // The popup is sized/centered against the surrounding right-panel <aside> —
+    // a flex sibling of the 3D window, so it shares the window's top and height.
+    // A 600px-tall panel at top 100 → height round(600*0.8)=480, and centering a
+    // 480-tall popup in it → top 100+(600-480)/2=160. Its left edge sits 8px
+    // clear of the panel → 400-370-8=22.
+    const { container } = renderInPanel(panelRect({ top: 100, left: 400, height: 600 }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    // Fixed height (the body scrolls inside it), not a content-hugging box.
+    const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
+    expect(dialog).toHaveStyle({ height: '480px' })
+    // The portal wrapper carries the computed position — centered in the panel.
+    expect(dialog.parentElement).toHaveStyle({ top: '160px', left: '22px' })
+  })
+
+  it('follows the panel when the window is resized', async () => {
+    // The regression this replaced: the popup measured once on open and froze
+    // there, so resizing moved the trigger out from under it. AnchoredPopup
+    // re-measures on the resize instead. Shrinking the panel from 700 to 500 tall
+    // re-derives the height (round(500*0.8)=400) and the centred top
+    // (30+(500-400)/2=80); narrowing it pulls the popup left until it would go
+    // negative (300-370-8=-78) and clamps to the 8px viewport padding.
+    const rect = panelRect({ top: 30, left: 400, height: 700 })
+    const { container } = renderInPanel(rect)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cotton' }))
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Cotton properties' })
+    expect(dialog).toHaveStyle({ height: '560px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '100px', left: '22px' })
+
+    rect.set({ top: 30, left: 300, height: 500 })
+    resizeWindow()
+
+    expect(dialog).toHaveStyle({ height: '400px' })
+    expect(dialog.parentElement).toHaveStyle({ top: '80px', left: '8px' })
+  })
+
+  it("shows an assigned material's properties (from the GET) in the read-only popup", () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })],
+      groups: []
+    }
+    // A material already assigned to the ground (as the object GET returns it):
+    // it renders under the Materials row without needing the Select popup.
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+      ]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([], { draftMaterials: [assigned], materialTypes: [radiationType] })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    // The type accordion is expanded by default, so the resolved property + value show.
+    expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
+    expect(within(dialog).getByText('0.3')).toBeInTheDocument()
+  })
+
+  it('shows the freshly-saved library values, not the stale GET baseline, for an assigned material', () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })],
+      groups: []
+    }
+    // The ground's GET baked in reflectivity 0.3 when it loaded…
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        { materialTypeId: 5, materialTypeName: 'Radiation', properties: { reflectivity: 0.3 } }
+      ]
+    }
+    // …but the material was since edited to 0.7 in the Materials editor, which the
+    // library detail cache holds write-through. Because the assignment is synced,
+    // the popup must reflect the current library value, not the stale baseline.
+    const detail: MaterialGroupDetail = {
+      id: '41',
+      name: 'Grass',
+      members: [{ materialTypeId: 5, properties: { reflectivity: '0.7' } }]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([], {
+          draftMaterials: [assigned],
+          materialTypes: [radiationType],
+          materialDetails: [detail]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    expect(within(dialog).getByText('0.7')).toBeInTheDocument()
+    expect(within(dialog).queryByText('0.3')).not.toBeInTheDocument()
+  })
+
+  it("shows a freshly-picked material's properties from the Materials library cache", () => {
+    const radiationType: MaterialTypeDef = {
+      id: 5,
+      materialtype: 'Radiation',
+      description: '',
+      properties: [prop('reflectivity', 1, { group: 'model' })],
+      groups: []
+    }
+    // The library detail is already cached (as if a prior GET filled it), so the
+    // popup resolves properties for a picked-but-unsaved material — no baseline.
+    const detail: MaterialGroupDetail = {
+      id: '41',
+      name: 'Grass',
+      members: [{ materialTypeId: 5, properties: { reflectivity: '0.3' } }]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([material('41', 'Grass')], {
+          materialTypes: [radiationType],
+          materialDetails: [detail]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // Pick it from the Select popup (no baseline → freshly picked)…
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Grass' }))
+    // …then open its properties from the row: the cached detail fills the popup.
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    expect(within(dialog).getByText('Reflectivity')).toBeInTheDocument()
+    expect(within(dialog).getByText('0.3')).toBeInTheDocument()
+  })
+
+  it('closes the Select Materials popup when the properties popup opens', () => {
+    // A material already assigned to the ground gives us a form row to click while
+    // the Select popup is still open — since picking now dismisses the popup, an
+    // already-assigned row is the remaining way both could end up open together.
+    const { container } = render(
+      <Provider
+        store={makeStore([material('m1', 'Cotton')], {
+          draftMaterials: [{ groupId: 'g1', name: 'Grass' }]
+        })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    // Both popups anchor to the same strip beside the panel and each lays down
+    // its own full-screen overlay — two open at once would stack overlays over
+    // each other's contents.
+    expect(screen.getByRole('dialog', { name: 'Grass properties' })).toBeInTheDocument()
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+  })
+
+  it('dismisses the properties popup from its close button', () => {
+    const { container } = render(
+      <Provider store={makeStore([material('m1', 'Cotton')])}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    pickCotton()
+    fireEvent.click(within(container).getByRole('button', { name: 'Cotton' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close material properties' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+  })
+})
 
 describe('<ObjectPropertiesForm /> — Save gating', () => {
   const saveButton = (): HTMLButtonElement =>
@@ -190,8 +710,11 @@ describe('<ObjectPropertiesForm /> — Save gating', () => {
     expect(saveButton()).toBeDisabled()
     expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'true')
     // The message describes the rule + the ceiling (not a bare "Invalid Input").
+    // It surfaces as the info-icon tooltip (aria-label), not an inline text node.
     expect(
-      screen.getByText("Texture repeat can't exceed the ground resolution (10)")
+      screen.getByLabelText(
+        "Validation error: Texture repeat can't exceed the ground resolution (10)"
+      )
     ).toBeInTheDocument()
 
     // Bringing it back within the resolution clears the violation → Save enabled.

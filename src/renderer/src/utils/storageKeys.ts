@@ -4,7 +4,10 @@
 // auditable.
 export const STORAGE_KEYS = {
   activeProjectId: 'helios:activeProjectId',
-  activeScenarioId: 'helios:activeScenarioId'
+  activeScenarioId: 'helios:activeScenarioId',
+  // Recently-used material visualisation colours (the picker's "Used colors"
+  // row) — a global, most-recent-first list persisted across restarts.
+  recentColors: 'helios:materials:recentColors'
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

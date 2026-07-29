@@ -5,7 +5,7 @@ import {
   isPartialNumericInput,
   truncateToMaxDecimals,
   wouldTruncateAny
-} from './decimalValidation'
+} from '../decimalValidation'
 
 describe('decimalValidation utilities', () => {
   describe('exceedsMaxDecimals', () => {

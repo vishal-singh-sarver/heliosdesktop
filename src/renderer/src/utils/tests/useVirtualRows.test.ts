@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { useVirtualRows } from 'utils/useVirtualRows'
+import { useVirtualRows } from '../useVirtualRows'
 
 beforeAll(() => {
   // jsdom doesn't ship ResizeObserver

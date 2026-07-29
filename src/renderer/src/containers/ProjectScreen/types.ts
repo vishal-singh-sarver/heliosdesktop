@@ -65,7 +65,21 @@ export interface CatalogPropertyDef {
   display_order: number
   required?: boolean // object-types only
   group?: string // material-types only (e.g. "model" | "visualisation")
+  label?: string // material-types only — API-supplied display label ("V cmax25")
   enum_values?: string[] // present only when datatype === 'enum'
+}
+
+// A material type's optional sub-group of properties, rendered as a collapsible
+// section under the type's top-level fields. `selector_property`/`selector_value`
+// make a group conditional: it shows only when the top-level enum named by
+// `selector_property` currently holds `selector_value` (e.g. the Ball-Woodrow-Berry
+// coefficients appear only while stomatal_model === "BWB"). Both null = always shown.
+export interface MaterialGroupDef {
+  name: string
+  selector_property: string | null
+  selector_value: string | null
+  display_order: number
+  properties: CatalogPropertyDef[]
 }
 
 // GET /api/catalog/object-types -> { object_types: ObjectTypeDef[] }
@@ -81,6 +95,7 @@ export interface MaterialTypeDef {
   materialtype: string // "Radiation" | "Energy Balance" | …
   description: string
   properties: CatalogPropertyDef[]
+  groups: MaterialGroupDef[]
 }
 
 // ── Catalog: model types (runnable simulation models) ───────────────────────

@@ -7,10 +7,12 @@ import {
 } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { listNodesRequested, moveNodesRequested } from './actions'
+import { useTransientHighlight } from 'utils/useTransientHighlight'
+import { clearCreateHighlight, listNodesRequested, moveNodesRequested } from './actions'
 import messages from './messages'
 import {
   selectGroupNamesLower,
+  selectLastCreatedId,
   selectLeafNamesLower,
   selectLoadError,
   selectLoadStatus,
@@ -36,6 +38,14 @@ export function GeometryTree(): React.JSX.Element {
   const nameErrors = useSelector(selectNameErrors)
   const projectId = useSelector(selectActiveProjectId)
   const scenarioId = useSelector(selectActiveScenarioId)
+  // +Ground appends its row at the bottom of the tree, which can be below the
+  // fold — the row flashes and scrolls itself into view so it's obvious which one
+  // just appeared. Same cue the Properties form gives a new card. Declared above
+  // the early returns below: hooks can't sit behind a conditional.
+  const lastCreatedId = useSelector(selectLastCreatedId)
+  const highlightedId = useTransientHighlight(lastCreatedId, () => {
+    if (projectId && scenarioId) dispatch(clearCreateHighlight(projectId, scenarioId))
+  })
 
   if (status === 'loading') {
     return (
@@ -68,7 +78,7 @@ export function GeometryTree(): React.JSX.Element {
   if (rootOrder.length === 0) {
     // Distinguish "nothing saved" from "search matched nothing".
     const hint = query.trim() ? messages.noMatches : messages.emptyTree
-    return <p className="py-2 text-[12px] text-neutral-500">{hint}</p>
+    return <p className="py-2 text-[13px] text-neutral-500">{hint}</p>
   }
 
   // Dropping in the empty area (not on a row, which stops propagation) ungroups
@@ -102,6 +112,7 @@ export function GeometryTree(): React.JSX.Element {
           projectId={projectId}
           scenarioId={scenarioId}
           selectedIds={selectedIds}
+          highlightedId={highlightedId}
           groupNamesLower={groupNamesLower}
           leafNamesLower={leafNamesLower}
           nameErrors={nameErrors}

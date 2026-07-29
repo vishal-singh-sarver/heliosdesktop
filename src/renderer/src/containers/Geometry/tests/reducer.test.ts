@@ -1,7 +1,8 @@
+import { removeMaterial } from 'containers/Materials/actions'
 import { setActiveScenario } from 'containers/ProjectScreen/actions'
 import geometryReducer, { initialState, scopeKey } from '../reducer'
 import * as actions from '../actions'
-import type { GeoNode } from '../types'
+import type { GeoNode, ObjectDetail } from '../types'
 
 const P = 'p1'
 const S = 's1'
@@ -269,6 +270,106 @@ describe('geometryReducer', () => {
     expect(s.selectedIds).toEqual(['grp-x'])
   })
 
+  it('GROUP_NODES_SUCCEEDED inserts the group in place (at the topmost member position)', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        ground('b', 'Ground.002'),
+        ground('c', 'Ground.003'),
+        ground('d', 'Ground.004')
+      ])
+    )
+    // Group b + d → the new group takes b's slot (index 1), not the end.
+    const r = geometryReducer(
+      seeded,
+      actions.groupNodesSucceeded(P, S, { id: 'grp-x', name: 'Group.001', memberIds: ['b', 'd'] })
+    )
+    expect(r.byScope[KEY].rootOrder).toEqual(['a', 'grp-x', 'c'])
+  })
+
+  it('MOVE_NODES_SUCCEEDED ungroups in place (right after the former group)', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.011', 'g'),
+        ground('c2', 'Ground.012', 'g'),
+        ground('c3', 'Ground.013', 'g'),
+        ground('d', 'Ground.004')
+      ])
+    )
+    // Pull c1 out — the group keeps ≥2 members, and c1 lands right after it.
+    const r = geometryReducer(seeded, actions.moveNodesSucceeded(P, S, ['c1'], null))
+    expect(r.byScope[KEY].rootOrder).toEqual(['a', 'g', 'c1', 'd'])
+  })
+
+  it('REORDER_NODES places a leaf before the target at root', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        ground('b', 'Ground.002'),
+        ground('c', 'Ground.003')
+      ])
+    )
+    // Drop c on the top edge of a → c lands just before a.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['c'], 'a', 'before'))
+    expect(r.byScope[KEY].rootOrder).toEqual(['c', 'a', 'b'])
+  })
+
+  it('REORDER_NODES places a leaf after the target at root', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        ground('b', 'Ground.002'),
+        ground('c', 'Ground.003')
+      ])
+    )
+    // Drop a on the bottom edge of b → a lands just after b.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['a'], 'b', 'after'))
+    expect(r.byScope[KEY].rootOrder).toEqual(['b', 'a', 'c'])
+  })
+
+  it('REORDER_NODES reorders within a group without ejecting it', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.011', 'g'),
+        ground('c2', 'Ground.012', 'g'),
+        ground('c3', 'Ground.013', 'g')
+      ])
+    )
+    // Drop c1 after c3 — both inside g → c1 stays in g, just reordered.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['c1'], 'c3', 'after'))
+    const s = r.byScope[KEY]
+    expect(s.nodesById['c1'].parentId).toBe('g')
+    expect(s.nodesById['g'].childIds).toEqual(['c2', 'c3', 'c1'])
+    expect(s.rootOrder).toEqual(['g'])
+  })
+
+  it('REORDER_NODES ungroups a leaf to root before the target', () => {
+    const seeded = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        ground('a', 'Ground.001'),
+        group('g', 'Group.001', ['c1', 'c2', 'c3']),
+        ground('c1', 'Ground.011', 'g'),
+        ground('c2', 'Ground.012', 'g'),
+        ground('c3', 'Ground.013', 'g')
+      ])
+    )
+    // Drop c1 on the top edge of a → c1 leaves the group and lands before a.
+    const r = geometryReducer(seeded, actions.reorderNodes(P, S, ['c1'], 'a', 'before'))
+    const s = r.byScope[KEY]
+    expect(s.rootOrder).toEqual(['c1', 'a', 'g'])
+    expect(s.nodesById['c1'].parentId).toBeNull()
+    expect(s.nodesById['g'].childIds).toEqual(['c2', 'c3'])
+  })
+
   it('MOVE_NODES_SUCCEEDED moves a leaf into a group', () => {
     const seeded = geometryReducer(
       initialState,
@@ -393,13 +494,33 @@ describe('geometryReducer', () => {
         objectName: 'Ground',
         name: 'Ground.001',
         values: { length: '10', breadth: '10' },
-        materialId: null,
+        materials: [],
+        materialBaseline: [],
         isNew: true,
         saving: false,
         saveError: null,
         nameError: null
       })
       expect(r.createDraftNonce).toBe(1)
+    })
+
+    it('CREATE_OBJECT_SUCCEEDED marks the new row for the "just created" cue', () => {
+      expect(created().byScope[KEY].lastCreatedId).toBe('27')
+    })
+
+    it('CLEAR_CREATE_HIGHLIGHT forgets the cued row once the cue has run', () => {
+      const r = geometryReducer(created(), actions.clearCreateHighlight(P, S))
+      expect(r.byScope[KEY].lastCreatedId).toBeNull()
+    })
+
+    it('LIST_NODES_SUCCEEDED forgets a cue left over from an earlier session', () => {
+      // The cue's timer can't fire if the tree unmounted (or the scenario changed)
+      // mid-cue; a reload must not flash a row created long ago.
+      const r = geometryReducer(
+        created(),
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      expect(r.byScope[KEY].lastCreatedId).toBeNull()
     })
 
     it('LOAD_OBJECT_SUCCEEDED opens the form for an existing ground (isNew:false, no insert)', () => {
@@ -414,13 +535,16 @@ describe('geometryReducer', () => {
           node: ground('27', 'Ground.001'),
           values: { length: '10', breadth: '10' },
           objectTypeId: 1,
-          objectName: 'Ground'
+          objectName: 'Ground',
+          materialGroups: []
         })
       )
       expect(r.createDraft).toMatchObject({
         objectId: '27',
         isNew: false,
-        values: { length: '10', breadth: '10' }
+        values: { length: '10', breadth: '10' },
+        materials: [],
+        materialBaseline: []
       })
       // No duplicate insert from a load.
       expect(r.byScope[KEY].rootOrder).toEqual(['27'])
@@ -429,18 +553,83 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].detailsById['27']).toEqual({
         values: { length: '10', breadth: '10' },
         objectTypeId: 1,
-        objectName: 'Ground'
+        objectName: 'Ground',
+        materialGroups: []
       })
     })
 
-    it('SET_DRAFT_VALUE / MATERIAL update the open draft', () => {
+    it('LOAD_OBJECT_SUCCEEDED seeds the draft materials + baseline from the GET', () => {
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      const materialGroups = [
+        {
+          groupId: '41',
+          name: 'Grass',
+          materials: [{ materialTypeId: 5, materialTypeName: 'Radiation', properties: { rho: 0.2 } }]
+        }
+      ]
+      const r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground',
+          materialGroups
+        })
+      )
+      // Displayed set = the assignments; baseline = their ids (so Save is a no-op
+      // until a NEW material is picked).
+      expect(r.createDraft?.materials).toEqual(materialGroups)
+      expect(r.createDraft?.materialBaseline).toEqual(['41'])
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual(materialGroups)
+    })
+
+    it('SET_DRAFT_VALUE updates a value; ADD_DRAFT_MATERIAL sets the material (idempotent)', () => {
       let r = created()
       r = geometryReducer(r, actions.setDraftValue('length', '20'))
-      r = geometryReducer(r, actions.setDraftMaterial(3))
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass')) // re-pick → no-op
       expect(r.createDraft).toMatchObject({
         values: { length: '20', breadth: '10' },
-        materialId: 3
+        materials: [{ groupId: '41', name: 'Grass' }]
       })
+    })
+
+    it('ADD_DRAFT_MATERIAL REPLACES the current material — a ground carries only one', () => {
+      let r = created()
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      r = geometryReducer(r, actions.addDraftMaterial('42', 'Cotton'))
+      // Not appended — the second pick displaces the first.
+      expect(r.createDraft?.materials).toEqual([{ groupId: '42', name: 'Cotton' }])
+      // The baseline is untouched: the swap is client-side until Save, which is
+      // what unassigns the displaced group. So an abandoned form still reverts to
+      // whatever was saved.
+      expect(r.createDraft?.materialBaseline).toEqual([])
+    })
+
+    it('ADD_DRAFT_MATERIAL keeps the richer existing row when the same group is re-picked', () => {
+      // The GET baseline row carries members/stale/drift that a bare
+      // {groupId, name} would drop — re-picking it must not flatten the row.
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001')])
+      )
+      const group = { groupId: '41', name: 'Grass', stale: true }
+      let r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground',
+          materialGroups: [group]
+        })
+      )
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      expect(r.createDraft?.materials).toEqual([group])
     })
 
     it('UPDATE_OBJECT_REQUESTED marks the draft saving; FAILED records the error', () => {
@@ -454,12 +643,72 @@ describe('geometryReducer', () => {
     it('UPDATE_OBJECT_SUCCEEDED keeps the form open and clears saving/new, without touching the name', () => {
       let r = created()
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true }))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
       // Form stays open (panel must not blank) showing the saved values.
       expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
       // The name is owned by the blur/rename path — Save is field-only and leaves
       // the tree row's name untouched (so a rejected rename can't leak into it).
       expect(r.byScope[KEY].nodesById['27'].name).toBe('Ground.001')
+    })
+
+    it('UPDATE_OBJECT_SUCCEEDED folds picked materials into the baseline + cache', () => {
+      let r = created()
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+      // Before save: picked but not yet in the baseline (Save would PATCH it).
+      expect(r.createDraft?.materialBaseline).toEqual([])
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+      // After save: the group is now assigned → baseline covers it (re-Save is a
+      // no-op) and the cache carries it so a re-click still shows the assignment.
+      expect(r.createDraft?.materialBaseline).toEqual(['41'])
+      expect(r.createDraft?.materials).toEqual([{ groupId: '41', name: 'Grass' }])
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
+        { groupId: '41', name: 'Grass' }
+      ])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) lists the group on the open object + baseline + cache', () => {
+      let r = created()
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
+      // The drop already persisted on the backend → shown in the Materials list
+      // AND folded into the baseline so a later Save won't try to re-assign it.
+      expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
+      expect(r.createDraft?.materialBaseline).toEqual(['55'])
+      // …AND the detail cache is updated, so closing + re-opening the object still
+      // shows the material instead of serving a stale (material-less) cached detail.
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
+        { groupId: '55', name: 'Concrete' }
+      ])
+      // …AND the node carries the group id, so the 3D viewport reloads only THIS
+      // object when the material is later edited (surgical, not all-objects).
+      expect(r.byScope[KEY].nodesById['27'].materialGroupIds).toEqual(['55'])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED dedupes and ignores assigns to a DIFFERENT object', () => {
+      let r = created()
+      // A drop on some other object must not touch the open form.
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['99'], '55', 'Concrete'))
+      expect(r.createDraft?.materials).toEqual([])
+      // A repeat drop on the open object doesn't duplicate the row.
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
+      expect(r.createDraft?.materials).toEqual([{ groupId: '55', name: 'Concrete' }])
+      expect(r.createDraft?.materialBaseline).toEqual(['55'])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) REPLACES the material already on the object', () => {
+      // Single-material rule holds for drops too: the saga has already DELETEd the
+      // displaced assignment, so every list here is overwritten, not appended to.
+      let r = created()
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '56', 'Sand'))
+
+      expect(r.createDraft?.materials).toEqual([{ groupId: '56', name: 'Sand' }])
+      expect(r.createDraft?.materialBaseline).toEqual(['56'])
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([
+        { groupId: '56', name: 'Sand' }
+      ])
+      expect(r.byScope[KEY].nodesById['27'].materialGroupIds).toEqual(['56'])
     })
 
     it('RENAME_FAILED for the open draft object lands on the draft, not the tree row', () => {
@@ -531,5 +780,64 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].nodesById['27']).toBeUndefined() // gone from the tree…
       expect(r.createDraft?.objectId).toBe('27') // …but the form stays open
     })
+  })
+})
+
+// Deleting a material from the library eagerly unassigns it on the backend, but
+// nothing used to tell the geometry slice — so the object form and the detail
+// cache kept listing a material that no longer exists, on every geometry it had
+// been assigned to, until a full reload.
+describe('REMOVE_MATERIAL (a library material was deleted)', () => {
+  const seeded = (): ReturnType<typeof geometryReducer> => {
+    const base = geometryReducer(
+      initialState,
+      actions.listNodesSucceeded(P, S, [
+        { ...ground('a', 'Ground.001'), materialGroupIds: ['55', '12'] },
+        { ...ground('b', 'Ground.002'), materialGroupIds: ['55'] }
+      ])
+    )
+    const detail = (name: string): ObjectDetail => ({
+      values: {},
+      objectTypeId: 1,
+      objectName: name,
+      materialGroups: [
+        { groupId: '55', name: 'Grass' },
+        { groupId: '12', name: 'Dirt' }
+      ]
+    })
+    return {
+      ...base,
+      byScope: {
+        ...base.byScope,
+        [KEY]: {
+          ...base.byScope[KEY],
+          detailsById: { a: detail('Ground.001'), b: detail('Ground.002') }
+        }
+      }
+    }
+  }
+
+  // materialGroupIds is the 3D viewport's index, NOT panel state. redux-saga runs
+  // reducers before the saga channel, so purging it here fired FIRST and left
+  // onMaterialDeleted unable to find the objects using the group — the deleted
+  // material stayed painted in the viewport until a reload. It must survive.
+  it('KEEPS materialGroupIds so the viewport can still find and repaint the objects', () => {
+    const r = geometryReducer(seeded(), removeMaterial('55') as never)
+    expect(r.byScope[KEY].nodesById['a'].materialGroupIds).toEqual(['55', '12'])
+    expect(r.byScope[KEY].nodesById['b'].materialGroupIds).toEqual(['55'])
+  })
+
+  it('drops it from every cached object detail, so reopening the form stays clean', () => {
+    const r = geometryReducer(seeded(), removeMaterial('55') as never)
+    expect(r.byScope[KEY].detailsById['a'].materialGroups.map((g) => g.groupId)).toEqual(['12'])
+    expect(r.byScope[KEY].detailsById['b'].materialGroups.map((g) => g.groupId)).toEqual(['12'])
+  })
+
+  it('deleting an unrelated material leaves the assigned ones on screen', () => {
+    const r = geometryReducer(seeded(), removeMaterial('999') as never)
+    expect(r.byScope[KEY].detailsById['a'].materialGroups.map((g) => g.groupId)).toEqual([
+      '55',
+      '12'
+    ])
   })
 })

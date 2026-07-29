@@ -391,6 +391,7 @@ export function HomePage(): React.JSX.Element {
 
         <div className="flex justify-end gap-2 pt-2">
           <button
+            type="button"
             onClick={closeNewProjectDialog}
             disabled={createLoading}
             className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100 disabled:opacity-50"
@@ -398,6 +399,7 @@ export function HomePage(): React.JSX.Element {
             {messages.createProject.cancelButton}
           </button>
           <button
+            type="button"
             onClick={() => formik.submitForm()}
             disabled={createLoading}
             className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-500 disabled:opacity-50"
