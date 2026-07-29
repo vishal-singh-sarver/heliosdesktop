@@ -93,18 +93,23 @@ jobs:
       - name: Build Application for Integration Testing
         run: npm run build
 
+      # See ci-main.yml: bail:1 only fires once a test reports a failure, so a
+      # hang before that would otherwise run to the 30min job cap on three OSes.
       - name: Run Integration Checks
         continue-on-error: true
+        timeout-minutes: 8
         run: npm run e2e
 
   package:
     name: Package & Sign (${{ matrix.os }})
     # Installer/package build: only on push, never on PRs.
     if: github.event_name != 'pull_request'
+    # NOT `needs: test-integration` - see ci-main.yml. That job is
+    # continue-on-error, so gating on it only made packaging wait out the e2e run
+    # for a verdict that is discarded. It still runs, in parallel.
     needs:
       - lint
       - test-unit
-      - test-integration
     strategy:
       fail-fast: false
       matrix:

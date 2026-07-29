@@ -129,8 +129,14 @@ jobs:
       - name: Build Application for Integration Testing
         run: npm run build
 
+      # bail:1 (wdio.config.ts) stops after the FIRST failure, but only once a
+      # test actually reports one. If the app hangs before that - or wdio itself
+      # wedges - nothing bails and the job runs to its 30min cap on three OSes at
+      # once, macOS billing at 10x, for a result continue-on-error discards.
+      # 8min is well clear of a healthy run and caps the bleed on a wedged one.
       - name: Run Integration Checks
         continue-on-error: true
+        timeout-minutes: 8
         run: npm run e2e
 
       # Every e2e spec fails with "Timeout exceeded to get the ContextId", which
@@ -162,10 +168,13 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
+    # NOT `needs: test-integration`. That job is continue-on-error, so its result
+    # is discarded either way - gating on it only made signing wait out the e2e
+    # run for a verdict nobody reads. It still runs, and still reports, in
+    # parallel. Restore the dependency once e2e is green and gating for real.
     needs:
       - lint
       - test-unit
-      - test-integration
     strategy:
       fail-fast: false
       matrix:
