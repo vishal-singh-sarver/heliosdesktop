@@ -44,7 +44,10 @@ jobs:
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
-      - run: npm run lint || echo "Lint warnings detected, proceeding."
+      # No `|| echo` swallow: eslint exits non-zero only on ERRORS (warnings do
+      # not fail it), and swallowing that reported "43 problems (9 errors, 34
+      # warnings)" as a green build. Errors gate; the 34 warnings still do not.
+      - run: npm run lint
 
   test-unit:
     if: |

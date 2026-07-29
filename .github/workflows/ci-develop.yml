@@ -24,9 +24,11 @@ jobs:
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
       
-      # Lint rules check properly. If code has errors, it will print warnings cleanly.
+      # See ci-main.yml: no `|| echo` swallow. eslint fails only on errors
+      # (warnings never fail it), so the previous form reported real errors as a
+      # green build.
       - name: Lint Execution
-        run: npm run lint || echo "Lint warnings detected, please review logs for code standards."
+        run: npm run lint
 
   test-unit:
     runs-on: ubuntu-latest

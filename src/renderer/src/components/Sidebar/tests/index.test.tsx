@@ -7,7 +7,6 @@ import { SidebarItem } from '../../../types/project'
 vi.mock('@renderer/components/SidebarButton', () => ({
   default: ({
     label,
-    icon,
     isActive,
     onClick
   }: {
