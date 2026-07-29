@@ -112,8 +112,17 @@ export const config: Options.Testrunner = {
   //   npx wdio run wdio.config.ts --logLevel debug
   logLevel: 'warn',
 
-  // Stop after N failures (0 = never stop early)
-  bail: 0,
+  // Stop after N failures. CI bails on the first one; locally 0 (run everything)
+  // is more useful for seeing the whole picture at once.
+  //
+  // Why CI bails: when the app itself cannot start, EVERY test fails the same
+  // way, and each one first burns its own waitforTimeout (10s) or mocha timeout
+  // (120s). A macOS run on 2026-07-29 spent 1h50m producing ~104 identical
+  // "element wasn't found" failures downstream of a single root cause
+  // ("Timeout exceeded to get the ContextId"). The 104th failure teaches nothing
+  // the 1st did not, so paying a runner for it - 10x billing on macOS - is pure
+  // waste. Bailing surfaces the same signal in ~1 minute.
+  bail: process.env['CI'] ? 1 : 0,
 
   waitforTimeout: 10000,
   connectionRetryTimeout: 120000,
