@@ -58,6 +58,9 @@ resources/        Platform-specific backend binaries bundled into the installer
 | Package (current OS) | `npm run package` |
 | E2E | `npm run e2e:build` |
 
+First-time setup: `cp .env.example .env`. Without it every script above fails at config load with
+`VITE_BACKEND_URL is not set` — `.env` is gitignored, so a fresh clone never has one.
+
 Dev server launches with `--no-sandbox` on Linux. If testing sandbox behavior, see README for the one-time `chrome-sandbox` chown/chmod.
 
 ## Conventions

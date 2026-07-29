@@ -83,6 +83,7 @@ junit.xml
 test-results/
 .playwright/
 allure-results/
+allure-report/
 
 package-lock.json
 linux-installer/payload/Helios/helios
