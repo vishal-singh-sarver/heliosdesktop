@@ -69,11 +69,15 @@ function WeatherToolbar({
     setIsAddRowsOpen(false)
   }
 
-  React.useEffect(() => {
+  // The imported file going away (delete succeeded, or it was cleared
+  // elsewhere) closes the confirm dialog. Render-phase like the two above.
+  const [lastSeenFilename, setLastSeenFilename] = React.useState(importedFilename)
+  if (lastSeenFilename !== importedFilename) {
+    setLastSeenFilename(importedFilename)
     if (!importedFilename) {
       setIsDeleteDialogOpen(false)
     }
-  }, [importedFilename, clearingImport])
+  }
 
   const handleRequestDeleteImportedFile = (): void => {
     if (!canDelete) return

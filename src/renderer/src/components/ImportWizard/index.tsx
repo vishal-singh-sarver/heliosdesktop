@@ -95,60 +95,67 @@ function ImportWizard({
   // <ImportWizard /> via its `{showWizard && …}` guard, so closing the modal
   // discards all hooks. No effect needed.
 
-  // Parse on pickedFile change — runs during render so it doesn't trigger a
-  // setState-in-effect cascade. React schedules an immediate re-render with
-  // the new state without flushing the in-progress one to DOM.
-  React.useEffect(() => {
-    if (pickedFile !== lastSeenPickedFile) {
-      setLastSeenPickedFile(pickedFile)
+  // Parse on pickedFile change — adjusts state during render (React's documented
+  // alternative to a setState-in-effect cascade), so the component re-runs with
+  // the parsed result before anything is committed to the DOM. `onImportWarning`
+  // is a parent callback, so it stays in the effect below — calling it here would
+  // set state on another component mid-render.
+  if (pickedFile !== lastSeenPickedFile) {
+    setLastSeenPickedFile(pickedFile)
 
-      if (pickedFile) {
-        setFilename(pickedFile.filename)
+    if (pickedFile) {
+      setFilename(pickedFile.filename)
 
-        try {
-          const result = parseFile(pickedFile.filename, pickedFile.rawText)
+      try {
+        const result = parseFile(pickedFile.filename, pickedFile.rawText)
 
-          setParsed(result)
-          setParseError(null)
+        setParsed(result)
+        setParseError(null)
 
-          onImportWarning(null)
-
-          const auto: DateTimeMapping = {
-            year: findHeaderByKeyword(result.headers, ['year']),
-            month: findHeaderByKeyword(result.headers, ['month']),
-            day: findHeaderByKeyword(result.headers, ['day']),
-            julianYear: findHeaderByKeyword(result.headers, ['julian year', 'year']),
-            julianDay: findHeaderByKeyword(result.headers, ['julian day', 'day of year', 'doy']),
-            hour: findHeaderByKeyword(result.headers, ['hour']),
-            minute: findHeaderByKeyword(result.headers, ['minute']),
-            date: findHeaderByKeyword(result.headers, ['date']),
-            time: findHeaderByKeyword(result.headers, ['time']),
-            datetime: findHeaderByKeyword(result.headers, ['datetime', 'timestamp', 'date_time'])
-          }
-
-          setMapping(auto)
-
-          if (auto.datetime) {
-            setDateMode('datetime')
-            setTimeMode('none')
-            const detected = detectDateTimeFormat(result.headers, result.rows, auto.datetime)
-            if (detected) setDateTimeFormat(detected)
-          } else {
-            if (auto.year && auto.month && auto.day) setDateMode('parts')
-            else if (auto.julianYear && auto.julianDay) setDateMode('julian')
-            else if (auto.date) setDateMode('string')
-
-            if (auto.hour || auto.minute) setTimeMode('parts')
-            else if (auto.time) setTimeMode('string')
-            else setTimeMode('none')
-          }
-        } catch (err) {
-          setParseError((err as Error).message)
-          setParsed(null)
+        const auto: DateTimeMapping = {
+          year: findHeaderByKeyword(result.headers, ['year']),
+          month: findHeaderByKeyword(result.headers, ['month']),
+          day: findHeaderByKeyword(result.headers, ['day']),
+          julianYear: findHeaderByKeyword(result.headers, ['julian year', 'year']),
+          julianDay: findHeaderByKeyword(result.headers, ['julian day', 'day of year', 'doy']),
+          hour: findHeaderByKeyword(result.headers, ['hour']),
+          minute: findHeaderByKeyword(result.headers, ['minute']),
+          date: findHeaderByKeyword(result.headers, ['date']),
+          time: findHeaderByKeyword(result.headers, ['time']),
+          datetime: findHeaderByKeyword(result.headers, ['datetime', 'timestamp', 'date_time'])
         }
+
+        setMapping(auto)
+
+        if (auto.datetime) {
+          setDateMode('datetime')
+          setTimeMode('none')
+          const detected = detectDateTimeFormat(result.headers, result.rows, auto.datetime)
+          if (detected) setDateTimeFormat(detected)
+        } else {
+          if (auto.year && auto.month && auto.day) setDateMode('parts')
+          else if (auto.julianYear && auto.julianDay) setDateMode('julian')
+          else if (auto.date) setDateMode('string')
+
+          if (auto.hour || auto.minute) setTimeMode('parts')
+          else if (auto.time) setTimeMode('string')
+          else setTimeMode('none')
+        }
+      } catch (err) {
+        setParseError((err as Error).message)
+        setParsed(null)
       }
     }
-  }, [pickedFile, lastSeenPickedFile, onImportWarning])
+  }
+
+  // Deferred out of the render-phase parse above: notifying the parent has to
+  // happen after commit. `parsed` is set on exactly the successful-parse path
+  // that used to call this inline, so depending on it fires the callback in the
+  // same cases and no others.
+  React.useEffect(() => {
+    if (!parsed) return
+    onImportWarning(null)
+  }, [parsed, onImportWarning])
 
   // Close on Esc — the wizard uses a custom <div> overlay (not <dialog>),
   // so we wire up the key handler ourselves. Skipped while importing.

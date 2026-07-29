@@ -37,15 +37,21 @@ function DataTypeUnitPicker({
   const [pendingDataTypeId, setPendingDataTypeId] = React.useState<number | null>(null)
   const wrapRef = React.useRef<HTMLDivElement>(null)
 
-  React.useEffect(() => {
+  // Derived during render rather than in an effect, so the popover never paints
+  // a frame with the previous open-state's view.
+  const [lastSeenOpen, setLastSeenOpen] = React.useState(open)
+  const [lastSeenDataTypeId, setLastSeenDataTypeId] = React.useState(col.dataTypeId)
+  if (lastSeenOpen !== open || lastSeenDataTypeId !== col.dataTypeId) {
+    setLastSeenOpen(open)
+    setLastSeenDataTypeId(col.dataTypeId)
     if (!open) {
       // Closing always discards a pending data type — only an explicit unit
       // pick commits the pair, per the atomic-pair contract above.
       setPendingDataTypeId(null)
-      return
+    } else {
+      setView(col.dataTypeId == null ? 'type' : 'unit')
     }
-    setView(col.dataTypeId == null ? 'type' : 'unit')
-  }, [open, col.dataTypeId])
+  }
 
   React.useEffect(() => {
     if (!open) return

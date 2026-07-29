@@ -91,9 +91,20 @@ export function Weather(): React.JSX.Element {
     }
   }, [importToastMessage])
 
+  // Raise the toast during render so it appears in the same commit that the
+  // warning lands; the effect then acknowledges it back to the store. Tracking
+  // the last-seen flag keeps a dismissed toast from being re-raised while the
+  // `consumed` dispatch is still in flight.
+  const [warningRaised, setWarningRaised] = React.useState(false)
+  if (importPrecisionWarningPending && !warningRaised) {
+    setWarningRaised(true)
+    setImportToastMessage(VALIDATION_MESSAGES.IMPORT_WARNING)
+  } else if (!importPrecisionWarningPending && warningRaised) {
+    setWarningRaised(false)
+  }
+
   React.useEffect(() => {
     if (!importPrecisionWarningPending) return
-    setImportToastMessage(VALIDATION_MESSAGES.IMPORT_WARNING)
     if (activeProjectId && activeScenarioId) {
       dispatch(importPrecisionWarningConsumed(activeProjectId, activeScenarioId))
     }

@@ -231,13 +231,18 @@ export function HomePage(): React.JSX.Element {
   })
 
   // Close the dialog and clear the slice once the backend confirms success.
+  // The close itself is applied during render (below) so the dialog never
+  // paints a frame after success; the effect only carries the side effects.
+  const createConfirmed = Boolean(createSuccess && createProjectData?.project_id)
+  if (createConfirmed && showNewProjectDialog) {
+    setShowNewProjectDialog(false)
+  }
   React.useEffect(() => {
-    if (!createSuccess || !createProjectData?.project_id) return
+    if (!createConfirmed) return
 
     resetFormRef.current()
-    setShowNewProjectDialog(false)
     dispatch(resetCreateProject())
-  }, [createSuccess, createProjectData, dispatch])
+  }, [createConfirmed, dispatch])
 
   const openNewProjectDialog = (): void => {
     formik.resetForm()
