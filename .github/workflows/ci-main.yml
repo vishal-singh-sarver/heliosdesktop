@@ -130,6 +130,31 @@ jobs:
         continue-on-error: true
         run: npm run e2e
 
+      # Every e2e spec fails with "Timeout exceeded to get the ContextId", which
+      # upstream documents as the app crashing during/shortly after init - but the
+      # app's own startup log has never been surfaced, so the crash reason is
+      # unknown. writeEarlyLog() in src/main/index.ts appends to
+      # <userData>/logs/app-startup.log from a path derived from getPath('home')
+      # (NOT the automation-skipped userData override), so it survives the crash.
+      # if: always() because the interesting case is exactly when e2e failed.
+      - name: Dump app startup + backend logs (diagnostic)
+        if: always()
+        shell: bash
+        run: |
+          found=0
+          for d in "$HOME/Library/Application Support/Helios" \
+                   "$HOME/.config/Helios" \
+                   "${APPDATA:-}/Helios"; do
+            [ -d "$d/logs" ] || continue
+            for f in "$d/logs"/*.log; do
+              [ -f "$f" ] || continue
+              found=1
+              echo "===== $f (last 100 lines) ====="
+              tail -100 "$f" || true
+            done
+          done
+          [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
+
   package:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
