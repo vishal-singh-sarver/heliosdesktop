@@ -117,7 +117,13 @@ linux:
   target:
   - AppImage
   - deb
-  maintainer: Navyug Designs
+  # Must carry an RFC-822 address, not a bare name: this becomes the .deb's
+  # Maintainer control field, which Debian tooling expects as "Name <email>".
+  # electron-builder only validates this when it is unset (FpmTarget then falls
+  # back to package.json `author` and errors on a missing email) - a non-null
+  # value is passed through as-is, so a bare name ships silently malformed.
+  # Only the deb target goes through fpm; AppImage never reads this.
+  maintainer: Navyug Designs <baileylabshared@gmail.com>
   category: Utility
   executableName: helios
   artifactName: ${name}-${version}-setup.${ext}
