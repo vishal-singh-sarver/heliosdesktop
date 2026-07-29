@@ -54,13 +54,13 @@ describe('SelectMaterialsPopup single-select', () => {
     const selected = screen.getByRole('radio', { name: /Grass/ })
     const [tickSlot, label] = Array.from(selected.children) as HTMLElement[]
 
-    expect(tickSlot.querySelector('svg')).toBeInTheDocument()
+    expect(tickSlot.querySelector('img')).toBeInTheDocument()
     expect(label).toHaveTextContent('Grass')
 
     // The unselected row keeps the same empty slot, so both labels start level.
     const unselected = screen.getByRole('radio', { name: /Cotton/ })
     const [emptySlot] = Array.from(unselected.children) as HTMLElement[]
-    expect(emptySlot.querySelector('svg')).toBeNull()
+    expect(emptySlot.querySelector('img')).toBeNull()
     expect(emptySlot.className).toBe(tickSlot.className)
   })
 

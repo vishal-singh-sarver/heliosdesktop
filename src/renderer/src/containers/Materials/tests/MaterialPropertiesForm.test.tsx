@@ -405,9 +405,12 @@ describe('<MaterialPropertiesForm /> conditional parameter groups', () => {
         <MaterialPropertiesForm />
       </Provider>
     )
-    // The option value stays the code; its visible label is the group name.
-    const option = screen.getByRole('option', { name: 'Ball-woodrow-berry' })
-    expect(option).toHaveValue('BWB')
+    // The enum field is our own dropdown now, so its list only exists once
+    // opened — and the raw code never surfaces as a label.
+    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Conductance/ }))
+
+    expect(screen.getByRole('option', { name: 'Ball-woodrow-berry' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'BWB' })).not.toBeInTheDocument()
   })
 })
 
@@ -684,7 +687,7 @@ describe('<MaterialPropertiesForm /> + Add Material Type', () => {
     // Pick a type — the parameters render in the (hidden) body, so selecting must
     // re-open the card.
     fireEvent.click(screen.getByRole('combobox', { name: 'Material Type.01' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Radiation' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Radiation' }))
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
 })
@@ -716,8 +719,8 @@ describe('<MaterialPropertiesForm /> material-type dropdown', () => {
     // Not "vis" — the stale query is gone...
     expect(combo).not.toHaveValue('vis')
     // ...and the list is no longer filtered by it.
-    expect(screen.getByRole('button', { name: 'Radiation' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Visualiser' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Radiation' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Visualiser' })).toBeInTheDocument()
   })
 
   it('reopens with a blank filter after Escape dismissed the list', () => {
@@ -735,7 +738,7 @@ describe('<MaterialPropertiesForm /> material-type dropdown', () => {
     fireEvent.keyDown(combo, { key: 'ArrowDown' })
 
     expect(combo).not.toHaveValue('vis')
-    expect(screen.getByRole('button', { name: 'Radiation' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Radiation' })).toBeInTheDocument()
   })
 })
 
@@ -1372,7 +1375,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     // Pick Visualiser, go to the texture tab, highlight a library texture.
     const combo = screen.getByRole('combobox', { name: 'Material Type.01' })
     fireEvent.click(combo)
-    fireEvent.click(screen.getByRole('button', { name: 'Visualiser' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Visualiser' }))
     fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
     const tile = await screen.findByRole('button', { name: 'Use texture grass' })
     fireEvent.click(tile)
@@ -1380,9 +1383,9 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
 
     // Switch to another type, then back.
     fireEvent.click(combo)
-    fireEvent.click(screen.getByRole('button', { name: 'Radiation' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Radiation' }))
     fireEvent.click(combo)
-    fireEvent.click(screen.getByRole('button', { name: 'Visualiser' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Visualiser' }))
 
     // Back on the Custom tab (the stored mode of a fresh card), and the old
     // library pick is gone — so Save can't apply a texture chosen for the type

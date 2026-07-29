@@ -4,6 +4,7 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
+import Select from '@renderer/components/Select'
 import ToolbarButton from '@renderer/components/ToolbarButton'
 import { selectActiveScenarioId, selectAllMaterialTypes } from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
@@ -901,17 +902,22 @@ function ParameterGroupCard({
           reads as the type's name where an untouched card reads "Select").
           Collapsing hides just that type's parameters and its Save. */}
       <div className="flex flex-col gap-2.5 px-3 pb-2.5">
-        <MaterialTypeSelect
-          options={typeOptions}
-          value={group.typeId == null ? '' : String(group.typeId)}
-          placeholder={messages.selectPlaceholder}
-          ariaLabel={title}
-          // Locked once saved: the group keys this member by its material type.
-          disabled={group.saved}
-          // A type already used by another card can't be picked again.
-          disabledValues={disabledTypeValues}
-          onChange={(v) => onSelectType(v === '' ? null : Number(v))}
-        />
+        <div className="mt-1">
+          <Select
+            searchable
+            options={typeOptions}
+            value={group.typeId == null ? '' : String(group.typeId)}
+            placeholder={messages.selectPlaceholder}
+            ariaLabel={title}
+            // Locked once saved: the group keys this member by its material type.
+            disabled={group.saved}
+            // A type already used by another card can't be picked again.
+            disabledValues={disabledTypeValues}
+            className="h-9 w-full rounded border border-app-border bg-[#121212] px-3 pr-9 text-sm text-white outline-none focus:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-60"
+            listClassName="bg-[#121212]"
+            onChange={(v) => onSelectType(v === '' ? null : Number(v))}
+          />
+        </div>
 
         {open && (
           <>
@@ -1082,204 +1088,6 @@ function ParameterGroupCard({
           </button>
         </div>
       </Dialog>
-    </div>
-  )
-}
-
-// A searchable material-type picker: type to filter the catalog options, click
-// (or Enter) to select. Replaces the native <select> so the long material-type
-// list is filterable. Controlled by the card's typeId; local state only tracks
-// the typed query, the open state, and the keyboard highlight.
-function MaterialTypeSelect({
-  options,
-  value,
-  placeholder,
-  ariaLabel,
-  disabled = false,
-  disabledValues,
-  onChange
-}: {
-  options: { value: string; label: string }[]
-  value: string
-  placeholder: string
-  ariaLabel: string
-  disabled?: boolean
-  // Option values that are present but not selectable (already used elsewhere).
-  disabledValues?: Set<string>
-  onChange: (value: string) => void
-}): React.JSX.Element {
-  const selected = options.find((o) => o.value === value) ?? null
-  const [query, setQuery] = React.useState('')
-  const [open, setOpen] = React.useState(false)
-  const [highlight, setHighlight] = React.useState(0)
-  const rootRef = React.useRef<HTMLDivElement>(null)
-  const inputRef = React.useRef<HTMLInputElement>(null)
-  const listId = React.useId()
-
-  // Close the dropdown on an outside click.
-  React.useEffect(() => {
-    if (!open) return undefined
-    const onDown = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
-  // Open from a closed state with a fresh (empty) query, so the full list shows;
-  // no-op if already open, so clicking to reposition the caret keeps the text.
-  const openList = (): void => {
-    if (disabled) return
-    if (!open) {
-      setOpen(true)
-      setQuery('')
-      setHighlight(0)
-    }
-  }
-
-  // The chevron is a real toggle: it both opens AND closes the list. (The input
-  // itself only ever opens, so that clicking into the text to reposition the
-  // caret doesn't dismiss the list mid-typing.) Opening also focuses the input so
-  // the user can type to filter, since the chevron suppresses the focus itself.
-  const toggleList = (): void => {
-    if (disabled) return
-    if (open) {
-      setOpen(false)
-    } else {
-      openList()
-      inputRef.current?.focus()
-    }
-  }
-
-  const q = query.trim().toLowerCase()
-  const filtered = q === '' ? options : options.filter((o) => o.label.toLowerCase().includes(q))
-
-  const isTaken = (opt: { value: string }): boolean => disabledValues?.has(opt.value) ?? false
-
-  const commit = (opt: { value: string; label: string }): void => {
-    if (isTaken(opt)) return
-    onChange(opt.value)
-    setOpen(false)
-  }
-
-  // Arrow keys walk past the taken options rather than landing on them.
-  const nextSelectable = (from: number, step: 1 | -1): number => {
-    for (let i = from; i >= 0 && i < filtered.length; i += step) {
-      if (!isTaken(filtered[i])) return i
-    }
-    return highlight
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      // Opening from closed goes through openList, like every other way in — it
-      // resets the query. Calling setOpen directly left the last search text in
-      // place, so after committing a pick with Enter (or dismissing with Escape),
-      // which both close WITHOUT clearing it, the next ArrowDown replaced the
-      // selected label with that stale text and re-filtered the list to it.
-      if (!open) {
-        openList()
-        return
-      }
-      setHighlight((h) => nextSelectable(Math.min(h + 1, filtered.length - 1), 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setHighlight((h) => nextSelectable(Math.max(h - 1, 0), -1))
-    } else if (e.key === 'Enter') {
-      const opt = filtered[highlight]
-      if (open && opt && !isTaken(opt)) {
-        e.preventDefault()
-        commit(opt)
-      }
-    } else if (e.key === 'Escape') {
-      setOpen(false)
-    }
-  }
-
-  return (
-    <div ref={rootRef} className="relative mt-1">
-      <input
-        ref={inputRef}
-        type="text"
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-label={ariaLabel}
-        disabled={disabled}
-        value={open ? query : (selected?.label ?? '')}
-        placeholder={placeholder}
-        onChange={(e) => {
-          setQuery(e.target.value)
-          setOpen(true)
-          setHighlight(0)
-        }}
-        onFocus={openList}
-        onClick={openList}
-        onKeyDown={onKeyDown}
-        className="h-9 w-full rounded border border-app-border bg-[#121212] px-3 pr-9 text-sm text-white outline-none focus:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-60"
-      />
-      {/* The chevron is its own button, not an overlay image: as a bare image it
-          sat on top of the text input, so it showed the input's text (I-beam)
-          cursor and its click fell through to the input — which only ever opens
-          the list. As a button it toggles, and shows the pointer cursor. */}
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-hidden="true"
-        disabled={disabled}
-        // Keep the click from blurring/refocusing the input, which would
-        // re-open the list via onFocus right after we closed it.
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={toggleList}
-        className="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center disabled:cursor-not-allowed"
-      >
-        <img
-          src={chevronDown}
-          alt=""
-          aria-hidden="true"
-          className="h-1.5 w-auto transition-transform duration-150"
-          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
-        />
-      </button>
-      {open && filtered.length > 0 && (
-        <div
-          id={listId}
-          className="scrollbar-custom-thin absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded border border-app-border bg-[#121212] py-1 shadow-lg"
-        >
-          {/* No "all taken" row here: a card can only be added while at least one
-              type is free (the "+ Material Type" button disables at the limit and
-              its tooltip carries messages.allTypesAdded), so a dropdown in which
-              every option is taken is unreachable. */}
-          {filtered.map((opt, i) => {
-            // Already used by another parameter group: still listed (so the user
-            // can see it exists) but greyed out and unselectable.
-            const taken = isTaken(opt)
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                disabled={taken}
-                aria-current={opt.value === value}
-                onMouseEnter={() => {
-                  if (!taken) setHighlight(i)
-                }}
-                onClick={() => commit(opt)}
-                className={`flex w-full items-center px-3 py-2 text-left text-sm ${
-                  taken
-                    ? 'cursor-not-allowed text-neutral-600'
-                    : `text-neutral-200 hover:bg-neutral-700/50 ${
-                        i === highlight ? 'bg-neutral-700/50' : ''
-                      }`
-                }`}
-              >
-                {opt.label}
-              </button>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }

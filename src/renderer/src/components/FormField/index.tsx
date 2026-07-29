@@ -1,6 +1,7 @@
 import infoIcon from '@renderer/assets/info.svg'
 import React, { useId } from 'react'
 import type { PlacesType } from 'react-tooltip'
+import Select from '../Select'
 import Tooltip from '../Tooltip'
 
 export interface FormFieldLabelProps {
@@ -53,6 +54,21 @@ interface FormFieldProps {
   inputProps: FormFieldInputProps
 }
 
+// components/Select reports a plain value, but FormField's callers were written
+// against a native <select> — including formik's handleChange/handleBlur, which
+// pull `name` off the target to decide which field to update and `type` to decide
+// how to coerce the value. So the adapter lives here, at the boundary, rather
+// than leaking event plumbing into Select's other callers.
+function selectEvent<T>(name: string, value: string): T {
+  const target = { name, id: name, value, type: 'select-one' }
+  return {
+    target,
+    currentTarget: target,
+    // Formik calls persist() on React 16 pooled events; harmless no-op here.
+    persist: () => {}
+  } as unknown as T
+}
+
 function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Element {
   const { label, optional = false, helpText, helpAriaLabel, helpPlace, hideLabel = false } = labelProps
   const {
@@ -83,7 +99,12 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     ? 'outline outline-1 -outline-offset-1 outline-[#D92D20]'
     : 'outline-none'
   const focusBorderClassName = error ? 'focus:border-[#D92D20]' : 'focus:border-neutral-500'
-  const baseClassName = `mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
+  // Split out so the dropdown can put `mt-1` on its positioning wrapper instead
+  // of the control — an absolutely-placed list anchors to the wrapper, and a
+  // margin on the child would make `top-full` land in the wrong place. The
+  // composed baseClassName below is unchanged, so the <input> branch is identical.
+  const controlClassName = `h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
+  const baseClassName = `mt-1 ${controlClassName}`
   // When the error icon is shown, reserve right padding so the value doesn't run
   // under it (matches Weather's `pr-8`). Otherwise keep the original padding so
   // existing layouts stay byte-identical.
@@ -109,31 +130,30 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
       </label>
 
       {options ? (
-        <select
-          {...restInputProps}
-          id={restInputProps.name}
-          disabled={disabled}
-          aria-describedby={error ? errorId : undefined}
-          aria-invalid={!!error}
-          className={`${baseClassName} px-3 disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          {/* Inline style on each <option> because Chromium's native
-              dropdown popup ignores most CSS but DOES honor an option's
-              own background-color / color — without this the popup
-              renders with the OS (GTK) light theme on Linux. */}
-          <option value="" style={{ backgroundColor: '#181a1f', color: '#ffffff' }}>
-            {placeholder}
-          </option>
-          {options.map((opt) => (
-            <option
-              key={opt.value}
-              value={opt.value}
-              style={{ backgroundColor: '#181a1f', color: '#ffffff' }}
-            >
-              {opt.label}
-            </option>
-          ))}
-        </select>
+        // Our own dropdown rather than a native <select>: the OS anchors a
+        // select's popup to the SELECTED option, so the list jumped around as
+        // soon as anything but the first entry was chosen. See components/Select.
+        <div className="mt-1">
+          <Select
+            id={restInputProps.name}
+            name={restInputProps.name}
+            value={restInputProps.value}
+            options={options}
+            placeholder={placeholder}
+            disabled={disabled}
+            invalid={!!error}
+            describedBy={error ? errorId : undefined}
+            // The empty <option> a native select carried, and the tick marking
+            // which row is live.
+            clearable
+            showTick
+            className={`${controlClassName} px-3 disabled:cursor-not-allowed disabled:opacity-50`}
+            listClassName="bg-[#181a1f]"
+            onChange={(v) => restInputProps.onChange(selectEvent(restInputProps.name, v))}
+            onBlur={() => restInputProps.onBlur(selectEvent(restInputProps.name, restInputProps.value))}
+            onFocus={() => restInputProps.onFocus?.(selectEvent(restInputProps.name, restInputProps.value))}
+          />
+        </div>
       ) : (
         <div className="relative">
           {iconLeft &&

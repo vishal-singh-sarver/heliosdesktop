@@ -1,4 +1,5 @@
 import addWhiteIcon from '@renderer/assets/add_white.svg'
+import checkIcon from '@renderer/assets/CheckIcon.svg'
 import searchIcon from '@renderer/assets/search.svg'
 import SearchBar from '@renderer/components/SearchBar'
 import React from 'react'
@@ -32,22 +33,6 @@ interface SelectMaterialsPopupProps {
 // The Figma height. Also the cap — `maxHeight` only ever shrinks the popup, so a
 // tall window doesn't stretch it past its designed size.
 const DEFAULT_HEIGHT = 343
-
-// The blue tick marking the selected material. Sits in a fixed-width slot to the
-// LEFT of the name, so every row's label starts on the same x whether or not it
-// carries the tick.
-function SelectedTick(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 12 11" aria-hidden="true" className="h-3 w-3">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M10.7464 0.274437L3.58641 7.18444L1.68641 5.15444C1.33641 4.82444 0.786406 4.80444 0.386406 5.08444C-0.00359413 5.37444 -0.113594 5.88444 0.126406 6.29444L2.37641 9.95444C2.59641 10.2944 2.97641 10.5044 3.40641 10.5044C3.81641 10.5044 4.20641 10.2944 4.42641 9.95444C4.78641 9.48444 11.6564 1.29444 11.6564 1.29444C12.5564 0.374437 11.4664 -0.435563 10.7464 0.264437V0.274437Z"
-        fill="#245AC5"
-      />
-    </svg>
-  )
-}
 
 // The "Select Materials" popup. 240 wide × DEFAULT_HEIGHT (shrinking to fit a
 // short window), 8px radius, #313131. A search field filters the list by name;
@@ -142,9 +127,10 @@ export default function SelectMaterialsPopup({
                 className="flex w-full items-center gap-2 rounded border border-transparent px-2 py-3 text-left text-[15px] leading-[18px] text-white hover:bg-white/5 focus:outline-none focus-visible:border-[#245AC5] focus-visible:bg-[#2a2a2a]"
               >
                 {/* Fixed-width slot: reserved whether or not this row is the
-                    selected one, so ticking a row never shifts any label. */}
+                    selected one, so ticking a row never shifts any label. Same
+                    white tick asset the FormField dropdowns use. */}
                 <span className="flex h-3 w-3 shrink-0 items-center justify-center">
-                  {m.selected && <SelectedTick />}
+                  {m.selected && <img src={checkIcon} alt="" aria-hidden="true" className="w-3" />}
                 </span>
                 <span className="min-w-0 truncate">{m.name}</span>
               </button>
