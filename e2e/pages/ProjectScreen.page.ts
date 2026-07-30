@@ -13,6 +13,8 @@
  *    rendered for coordinates — assert aria-invalid + outcome, never an error str.
  */
 
+import { selectAll } from '../support/harness'
+
 type El = ReturnType<typeof $>
 type Field = 'latitude' | 'longitude'
 type TabKey = '3dwindow' | 'weather' | 'output'
@@ -59,10 +61,10 @@ class ProjectScreenPage {
     await this.goHomeButton.click()
   }
 
-  /** Replace a controlled input's value (click -> Ctrl+A -> Delete -> type). */
+  /** Replace a controlled input's value (click -> select-all -> Delete -> type). */
   private async replaceValue(el: El, value: string): Promise<void> {
     await el.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await el.addValue(value)
   }

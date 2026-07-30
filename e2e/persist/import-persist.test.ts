@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
-import { stubFileImport, waitForMainWindow } from '../support/harness'
+import { selectAll, stubFileImport, waitForMainWindow } from '../support/harness'
 import { PERSIST_DB, relaunchAndReopen } from './persist-helpers'
 import { TIMEOUTS } from '../config/timeouts'
 import { DEFAULT_COORDS } from '../constants/test-data'
@@ -34,7 +34,7 @@ async function typeCell(rowId: string, colId: string, value: string): Promise<vo
   const input = Weather.cellInput(rowId, colId)
   await input.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
   await input.click()
-  await browser.keys(['Control', 'a'])
+  await selectAll()
   await browser.keys(['Delete'])
   await input.addValue(value)
 }
