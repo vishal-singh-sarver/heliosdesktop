@@ -17,6 +17,8 @@
  *    / { reverse: true }) — never waitForExist.
  */
 
+import { selectAll } from '../support/harness'
+
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
 
@@ -132,6 +134,10 @@ class HomePagePage {
    * controlled (Formik/React) input first — React re-renders the old value back,
    * so the typed value would append to the default ("38.5412.34") and fail
    * validation, leaving the dialog open (create never navigates).
+   *
+   * The select-all keystroke MUST be platform-aware (see selectAll() in
+   * support/harness.ts) — Control+A on macOS moves the caret instead of
+   * selecting, which reintroduces exactly the "38.5412.34" append bug above.
    */
   async fillAndSubmitCreate(name: string, lat: string, lon: string): Promise<void> {
     await this.replaceInput(this.createNameInput, name)
@@ -147,7 +153,7 @@ class HomePagePage {
    */
   private async replaceInput(el: El, value: string): Promise<void> {
     await el.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await el.addValue(value)
   }
@@ -164,7 +170,7 @@ class HomePagePage {
    */
   async clearSearch(): Promise<void> {
     await this.searchbar.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
   }
 
@@ -203,23 +209,39 @@ class HomePagePage {
    * project it just created without knowing the server UUID in advance.
    */
   async visibleRowIds(): Promise<string[]> {
-    const els = await this.rows
-    const ids: string[] = []
-    for (const el of els) {
-      const testid = await el.getAttribute('data-testid')
-      if (testid) ids.push(testid.replace(/^row-/, ''))
-    }
-    return ids
+    // Single browser.execute rather than a getAttribute per row: the projects
+    // table is virtualized and this is polled inside waitUntil loops, so rows
+    // unmount between round-trips and each unmount logged a stale-element
+    // warning. A synchronous snapshot cannot go stale mid-read.
+    return browser.execute(() =>
+      Array.from(document.querySelectorAll('[data-testid^="row-"]'))
+        .map((el) => (el.getAttribute('data-testid') || '').replace(/^row-/, ''))
+        .filter(Boolean)
+    )
   }
 
-  /** Resolve the row id for a project by its (unique) name, or null if absent. */
+  /**
+   * Resolve the row id for a project by its (unique) name, or null if absent.
+   *
+   * Reads the DOM in ONE browser.execute rather than a getAttribute/getText
+   * round-trip per row. The projects table is virtualized, so rows unmount
+   * between round-trips while callers poll this in a waitUntil — each such
+   * unmount logged a "Request encountered a stale element" warning, and a
+   * single create-then-find could emit dozens. Snapshotting synchronously in
+   * the renderer removes the race (and the log flood) entirely; a row that
+   * disappears mid-poll simply isn't in the snapshot, which is what the
+   * previous `if (testid)` guard was already tolerating.
+   */
   async rowIdForName(name: string): Promise<string | null> {
-    const ids = await this.visibleRowIds()
-    for (const id of ids) {
-      const text = await this.row(id).getText()
-      if (text.includes(name)) return id
-    }
-    return null
+    return browser.execute((needle: string) => {
+      const rows = Array.from(document.querySelectorAll('[data-testid^="row-"]'))
+      for (const row of rows) {
+        if ((row.textContent || '').includes(needle)) {
+          return (row.getAttribute('data-testid') || '').replace(/^row-/, '') || null
+        }
+      }
+      return null
+    }, name)
   }
 
   // ----- Extra create-dialog fields / buttons / errors -----
@@ -292,15 +314,18 @@ class HomePagePage {
       return th ? th.getAttribute('aria-sort') : null
     }, key)
   }
-  /** Visible row name cells (first <td> text), top-to-bottom in DOM order. */
+  /**
+   * Visible row name cells (first <td> text), top-to-bottom in DOM order.
+   * Single-shot DOM read — see visibleRowIds. Uses textContent rather than
+   * getText(): this is asserted on ORDER (sorting tests), and textContent is
+   * stable where getText()'s visibility filtering would vary mid-render.
+   */
   async visibleRowNames(): Promise<string[]> {
-    const els = await this.rows
-    const names: string[] = []
-    for (const el of els) {
-      const cell = await el.$('td:first-child')
-      names.push((await cell.getText()).trim())
-    }
-    return names
+    return browser.execute(() =>
+      Array.from(document.querySelectorAll('[data-testid^="row-"]')).map((el) =>
+        (el.querySelector('td:first-child')?.textContent || '').trim()
+      )
+    )
   }
 
   // ----- Misc interaction helpers -----

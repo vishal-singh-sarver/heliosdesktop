@@ -112,6 +112,38 @@ export const config: Options.Testrunner = {
   //   npx wdio run wdio.config.ts --logLevel debug
   logLevel: 'warn',
 
+  // Silence the `webdriver` logger's WARN tier specifically.
+  //
+  // It emits "Request encountered a stale element - terminating request" every
+  // time an element reference goes stale — which, against a React tree that
+  // re-renders under a virtualized list, is constant: a single homepage run
+  // produced ~156 of them and they crowded out real output. They are NOT
+  // failures. WebdriverIO catches the staleness, re-finds the element and
+  // retries transparently (verified in a --logLevel debug trace: each warning
+  // is immediately followed by a successful retry), and the same tier carries
+  // "element not interactable" warnings for clicks that are likewise retried.
+  //
+  // ERROR still comes through, so a genuinely unrecoverable WebDriver failure
+  // is still visible. Drop this override (or set 'warn') when debugging a
+  // selector/timing problem — the retry chatter is useful there.
+  logLevels: {
+    webdriver: 'error',
+    // Silence the CDP bridge logger entirely. Its only ERROR in a healthy run is
+    //   "Timeout exceeded to get the ContextId"
+    // which is an upstream bug rather than a failure: connect() never clears the
+    // setTimeout that races the Runtime.executionContextCreated listener, so the
+    // orphaned timer calls log.error at exactly cdpBridgeTimeout even though the
+    // context arrived in ~13ms and the promise already resolved (the paired
+    // reject() is a no-op). It appears in runs that pass 100/100 and is purely a
+    // function of the spec outlasting the timer — see the cdpBridgeTimeout note
+    // below for why raising the value makes it worse, not better.
+    //
+    // Losing this logger costs nothing: a genuinely dead bridge is caught by
+    // assertElectronBridge in e2e/support/harness.ts, which fails the spec with
+    // a real diagnostic instead of a log line nobody can act on.
+    'electron-service:bridge': 'silent'
+  },
+
   // Stop after N failures. CI bails on the first one; locally 0 (run everything)
   // is more useful for seeing the whole picture at once.
   //
@@ -128,6 +160,22 @@ export const config: Options.Testrunner = {
   connectionRetryTimeout: 120000,
   connectionRetryCount: 3,
 
+  // NOTE: do NOT raise cdpBridgeTimeout to silence
+  //   "ERROR electron-service:bridge: Timeout exceeded to get the ContextId"
+  // It is an upstream bug, not a real timeout, and raising the value makes it
+  // WORSE. ElectronCdpBridge.connect() races a Runtime.executionContextCreated
+  // listener against a setTimeout(cdpBridgeTimeout) that it never clears. The
+  // context arrives in ~13ms (measured) and resolves the promise; the orphaned
+  // timer still fires at the full timeout and calls log.error unconditionally.
+  // The reject() is a no-op on an already-settled promise, which is why the
+  // line appears in runs that pass 100/100.
+  //
+  // Consequence: the log lands at exactly cdpBridgeTimeout after session start,
+  // so a LOWER value fires sooner and short specs exit before it ever runs. At
+  // 30s it reliably fired in every spec that ran longer than 30s. Left at the
+  // 10s default deliberately. The real fix is upstream (clear the timer on
+  // resolve); the bridge probe in e2e/support/harness.ts is what actually
+  // guards against a genuinely dead bridge.
   services: ['electron'],
 
   framework: 'mocha',

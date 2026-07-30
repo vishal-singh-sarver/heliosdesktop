@@ -8,7 +8,7 @@
 
 import Weather from '../pages/Weather.page'
 import type { WeatherCatalogType, WeatherCatalogUnit } from '../pages/Weather.page'
-import { enterWeather, reloadToHome, reopenByName, stubFileImport, waitForMainWindow } from '../support/harness'
+import { enterWeather, reloadToHome, reopenByName, selectAll, stubFileImport, waitForMainWindow } from '../support/harness'
 import { DELETE_IMPORT, WEATHER_MSG } from '../constants/messages'
 import { SAMPLE_CSV } from '../config/fixtures'
 import { TIMEOUTS } from '../config/timeouts'
@@ -331,8 +331,27 @@ describe('Weather — virtualization', () => {
     )
 
     // And a now-visible far-down row is editable end-to-end.
-    const nowIds = await Weather.visibleRowIds()
-    const newRow = nowIds.find((id) => !firstWindow.includes(id)) ?? nowIds[nowIds.length - 1]
+    //
+    // Re-read the window immediately before editing and require the chosen row
+    // to STILL be rendered. The list is virtualized and settles asynchronously
+    // after the scroll, so a row id captured in the waitUntil above can be
+    // unmounted by the time editCell clicks it ("element wasn't found"). Poll
+    // until a row is both new and still present, so the id we hand to editCell
+    // was live on the last observation rather than a stale snapshot.
+    let newRow = ''
+    await browser.waitUntil(
+      async () => {
+        const ids = await Weather.visibleRowIds()
+        const candidate = ids.find((id) => !firstWindow.includes(id)) ?? ids[ids.length - 1]
+        if (!candidate) return false
+        // Confirm it is still in the CURRENT window before committing to it.
+        const stillThere = (await Weather.visibleRowIds()).includes(candidate)
+        if (!stillThere) return false
+        newRow = candidate
+        return true
+      },
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'no stable far-down row to edit after scrolling' }
+    )
     await Weather.editCell(newRow, colId, '7')
     await browser.waitUntil(async () => (await Weather.cellInput(newRow, colId).getValue()) === '7', {
       timeout: TIMEOUTS.MEDIUM,
@@ -471,7 +490,7 @@ describe('Weather CRUD — rename column + header validation', () => {
     const colId = await Weather.waitForColumn('ccc')
     const input = Weather.columnNameInput(colId)
     await input.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     await expect($(`p=${WEATHER_MSG.columnNameRequired}`)).toBeDisplayed()
   })
@@ -910,7 +929,7 @@ describe('Weather CRUD — cell editing', () => {
 
     // (a) the 8th decimal keystroke is rejected -> draft never reaches 8 decimals.
     await input.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     await input.addValue('1.12345678')
     const decimalValue = await input.getValue()
@@ -920,7 +939,7 @@ describe('Weather CRUD — cell editing', () => {
 
     // (b) a value above the global ±1e6 bound is blocked keystroke-by-keystroke.
     await input.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     await input.addValue('9999999')
     await expect(await input.getValue()).not.toBe('9999999')

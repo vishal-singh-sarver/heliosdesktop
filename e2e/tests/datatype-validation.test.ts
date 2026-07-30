@@ -137,6 +137,48 @@ async function addTypedColumn(name: string, dataType: string): Promise<{ colId: 
   return { colId, unitId }
 }
 
+/**
+ * Snapshot everything that explains a validation-assert failure, in ONE DOM read.
+ *
+ * These assertions fail intermittently (see the unit-conversion race noted at
+ * the alt-unit switch below), and a bare "never showed X" message says nothing
+ * about WHY. wdio's timeoutMsg is a static string built before the wait, so the
+ * state has to be captured after the fact and appended to the error.
+ *
+ * The decisive fields are `value` (did the conversion overwrite our probe?) and
+ * `invalid` vs `tip` (did the flag and the tooltip disagree?).
+ */
+async function cellDiagnostic(colId: string): Promise<string> {
+  try {
+    const snap = await browser.execute((cellLabel: string) => {
+      const input = document.querySelector(`[aria-label="${cellLabel}"]`) as HTMLInputElement | null
+      if (!input) return JSON.stringify({ error: 'cell input not in DOM' })
+      const tip = input.parentElement?.querySelector('[aria-label^="Validation error:"]')
+      return JSON.stringify({
+        value: input.value,
+        invalid: input.getAttribute('aria-invalid'),
+        tip: tip?.getAttribute('aria-label') ?? null
+      })
+    }, `${SHARED_ROW} ${colId}`)
+    return snap
+  } catch (err) {
+    return `(diagnostic read failed: ${(err as Error).message})`
+  }
+}
+
+/** Re-throw a wait failure with the cell's live state appended. */
+async function withCellDiagnostic<T>(colId: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    const state = await cellDiagnostic(colId)
+    const header = await Weather.headerPickerLabel(colId).catch(() => '(header read failed)')
+    throw new Error(
+      `${(err as Error).message}\n  cell state at failure: ${state}\n  header unit: ${header}`
+    )
+  }
+}
+
 /** Set a cell and assert it flags aria-invalid with the EXACT unit message. */
 async function assertOutOfRange(colId: string, value: number, message: string): Promise<void> {
   await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
@@ -144,10 +186,12 @@ async function assertOutOfRange(colId: string, value: number, message: string): 
   // aria-invalid proxy: the flag flips a render-tick before the tooltip mounts,
   // so "wait for flag, then read message once" races the render (observed
   // air_humidity flake — message read back null).
-  await browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === message, {
-    timeout: 10000,
-    timeoutMsg: `cell[${colId}] never showed "${message}" for out-of-range ${value}`
-  })
+  await withCellDiagnostic(colId, () =>
+    browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === message, {
+      timeout: 10000,
+      timeoutMsg: `cell[${colId}] never showed "${message}" for out-of-range ${value}`
+    })
+  )
   expect(await Weather.cellInvalid(SHARED_ROW, colId)).toBe('true')
 }
 
@@ -156,10 +200,12 @@ async function assertInRange(colId: string, value: number): Promise<void> {
   await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
   // Same discipline as assertOutOfRange: wait until the tooltip is GONE (the
   // asserted condition), then confirm the flag cleared with it.
-  await browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === null, {
-    timeout: 10000,
-    timeoutMsg: `in-range ${value} did not clear the validation message on ${colId}`
-  })
+  await withCellDiagnostic(colId, () =>
+    browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === null, {
+      timeout: 10000,
+      timeoutMsg: `in-range ${value} did not clear the validation message on ${colId}`
+    })
+  )
   expect(await Weather.cellInvalid(SHARED_ROW, colId)).toBe(null)
 }
 
@@ -224,6 +270,20 @@ describe('Weather data types — per-type range validation sweep', () => {
           async () => norm(await Weather.headerPickerLabel(colId)) === alt.unit,
           { timeout: 10000, timeoutMsg: `unit did not change to ${alt.unit}` }
         )
+        // The header label is NOT enough to start probing. A unit-only change
+        // runs updateColumnWorker -> buildConvertedColumnValues, which REWRITES
+        // every cell in the column (the last base-unit probe value gets scaled,
+        // e.g. -1 W/m^2 -> -0.001 kW/m^2), then PATCHes, then revalidates. The
+        // header flips on the optimistic reducer write at the START of that
+        // sequence, so probing here raced the conversion: assertOutOfRange's
+        // value landed and was immediately overwritten by the converted value,
+        // leaving the cell showing no error and the waitUntil timing out.
+        //
+        // Settle on the cell instead: park a known IN-RANGE value for the NEW
+        // unit and wait for the error to clear. That can only hold once the
+        // conversion has been applied and revalidateColumn has run against the
+        // new unit, so the subsequent probes start from a quiet cell.
+        await assertInRange(colId, alt.inRange)
         await exerciseUnit(colId, t.alt)
       }
     })

@@ -145,10 +145,17 @@ jobs:
         timeout-minutes: 8
         run: npm run e2e
 
-      # Every e2e spec fails with "Timeout exceeded to get the ContextId", which
-      # upstream documents as the app crashing during/shortly after init - but the
-      # app's own startup log has never been surfaced, so the crash reason is
-      # unknown. writeEarlyLog() in src/main/index.ts appends to
+      # "Timeout exceeded to get the ContextId" is NOT itself proof of a crash.
+      # wdio-electron-service races a Runtime.executionContextCreated listener
+      # against an uncancelled setTimeout(cdpBridgeTimeout, default 10s); the
+      # timer fires and logs at ERROR even when the context arrived and the run
+      # passes. What matters is whether the bridge actually came up: if it did
+      # not, browser.electron.* is swapped for stubs that throw. wdio.config.ts
+      # now raises cdpBridgeTimeout and probes the bridge in `before`, so a real
+      # failure aborts the first spec with a self-describing message instead of
+      # degrading silently. Keep dumping the startup log anyway - it is still the
+      # only view into an app that died during init. writeEarlyLog() in
+      # src/main/index.ts appends to
       # <userData>/logs/app-startup.log from a path derived from getPath('home')
       # (NOT the automation-skipped userData override), so it survives the crash.
       # if: always() because the interesting case is exactly when e2e failed.

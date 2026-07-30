@@ -20,6 +20,8 @@
  *    startDate/startTime/deltaHours).
  */
 
+import { selectAll } from '../support/harness'
+
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
 
@@ -373,7 +375,7 @@ class WeatherPage {
   async editCell(rowId: string, colId: string, value: string): Promise<void> {
     const input = this.cellInput(rowId, colId)
     await input.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await input.addValue(value)
     await this.filterButton.click() // blur -> commit
@@ -383,7 +385,7 @@ class WeatherPage {
   async renameColumn(colId: string, newName: string): Promise<void> {
     const input = this.columnNameInput(colId)
     await input.click()
-    await browser.keys(['Control', 'a'])
+    await selectAll()
     await browser.keys(['Delete'])
     if (newName.length) await input.addValue(newName)
     await this.filterButton.click() // blur -> commit
@@ -433,15 +435,18 @@ class WeatherPage {
     }
   }
 
-  /** colIds of every MANAGED column (the reserved Date-Time column has no name input). */
+  /**
+   * colIds of every MANAGED column (the reserved Date-Time column has no name
+   * input). Single-shot DOM read — see visibleRowIds for why.
+   */
   async managedColumnIds(): Promise<string[]> {
-    const inputs = await $$('[aria-label^="Column "][aria-label$=" name"]')
-    const ids: string[] = []
-    for (const input of inputs) {
-      const label = await input.getAttribute('aria-label') // "Column {id} name"
-      if (label) ids.push(label.replace(/^Column /, '').replace(/ name$/, ''))
-    }
-    return ids
+    return browser.execute(() =>
+      Array.from(document.querySelectorAll('[aria-label^="Column "][aria-label$=" name"]'))
+        .map((el) =>
+          (el.getAttribute('aria-label') || '').replace(/^Column /, '').replace(/ name$/, '')
+        )
+        .filter(Boolean)
+    )
   }
 
   /**
@@ -460,16 +465,26 @@ class WeatherPage {
     }
   }
 
-  /** Resolve the colId of a managed column by its current name (header input). */
+  /**
+   * Resolve the colId of a managed column by its current name (header input).
+   *
+   * Single-shot DOM read for the same reason as visibleRowIds: this is polled
+   * while columns are being added/renamed/deleted, so a getValue()/getAttribute()
+   * pair per header raced the re-render and produced stale-element warnings.
+   */
   async colIdForName(name: string): Promise<string | null> {
-    const inputs = await $$('[aria-label^="Column "][aria-label$=" name"]')
-    for (const input of inputs) {
-      if ((await input.getValue()) === name) {
-        const label = await input.getAttribute('aria-label') // "Column {id} name"
-        return label ? label.replace(/^Column /, '').replace(/ name$/, '') : null
+    return browser.execute((needle: string) => {
+      const inputs = Array.from(
+        document.querySelectorAll('[aria-label^="Column "][aria-label$=" name"]')
+      ) as HTMLInputElement[]
+      for (const input of inputs) {
+        if (input.value === needle) {
+          const label = input.getAttribute('aria-label') || '' // "Column {id} name"
+          return label.replace(/^Column /, '').replace(/ name$/, '') || null
+        }
       }
-    }
-    return null
+      return null
+    }, name)
   }
 
   async openImportWizard(): Promise<void> {
@@ -551,15 +566,21 @@ class WeatherPage {
     return colId as unknown as string
   }
 
-  /** Resolve the rowIds currently rendered (virtualized window only). */
+  /**
+   * Resolve the rowIds currently rendered (virtualized window only).
+   *
+   * ONE browser.execute rather than a getAttribute round-trip per row. The
+   * table is virtualized and this is polled inside waitUntil loops, so rows
+   * unmount between round-trips — each unmount logged a "Request encountered a
+   * stale element" warning, and a single spec could emit a hundred of them.
+   * A synchronous snapshot cannot go stale mid-read.
+   */
   async visibleRowIds(): Promise<string[]> {
-    const els = await this.rows
-    const ids: string[] = []
-    for (const el of els) {
-      const t = await el.getAttribute('data-testid')
-      if (t) ids.push(t.replace(/^weather-row-/, ''))
-    }
-    return ids
+    return browser.execute(() =>
+      Array.from(document.querySelectorAll('[data-testid^="weather-row-"]'))
+        .map((el) => (el.getAttribute('data-testid') || '').replace(/^weather-row-/, ''))
+        .filter(Boolean)
+    )
   }
 
   // ===========================================================================
@@ -869,14 +890,28 @@ class WeatherPage {
   async cellInvalid(rowId: string, colId: string): Promise<string | null> {
     return this.cellInput(rowId, colId).getAttribute('aria-invalid')
   }
-  /** The cell's validation message (from the info-icon tooltip), or null if none. */
+  /**
+   * The cell's validation message (from the info-icon tooltip), or null if none.
+   *
+   * Reads the DOM in ONE browser.execute rather than isExisting() followed by
+   * getAttribute(). CellInput mounts the tooltip conditionally on `displayError`,
+   * so it is a sibling that unmounts and remounts as the value changes. Split
+   * across two round-trips, the element could exist for the isExisting() check
+   * and be gone by the getAttribute() call, which threw
+   *   "Can't call getElementAttribute ... because element wasn't found"
+   * and aborted the enclosing waitUntil instead of just returning a
+   * not-yet-matching value. That surfaced as the air_humidity flake: it is the
+   * only type whose base->alt switch (0-1 -> 0-100) leaves the probe value
+   * out-of-range for BOTH units, so the tooltip re-renders with new text while
+   * the poll is reading it. A single synchronous read cannot tear.
+   */
   async cellError(rowId: string, colId: string): Promise<string | null> {
-    const tip = this.cellInput(rowId, colId)
-      .parentElement()
-      .$('[aria-label^="Validation error:"]')
-    if (!(await tip.isExisting())) return null
-    const label = await tip.getAttribute('aria-label')
-    return label ? label.replace(/^Validation error:\s*/, '') : null
+    return browser.execute((cellLabel: string) => {
+      const input = document.querySelector(`[aria-label="${cellLabel}"]`)
+      const tip = input?.parentElement?.querySelector('[aria-label^="Validation error:"]')
+      const label = tip?.getAttribute('aria-label')
+      return label ? label.replace(/^Validation error:\s*/, '') : null
+    }, `${rowId} ${colId}`)
   }
 
   // ===========================================================================
