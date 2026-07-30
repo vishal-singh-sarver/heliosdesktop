@@ -319,6 +319,52 @@ jobs:
 
       - run: npm install
 
+      # Rollup ships a prebuilt native .node per platform and picks it purely by
+      # process.platform/arch (dist/native.js getPackageBase) - there is no env
+      # switch to opt out. The linux-x64-gnu build now needs GLIBC_2.32, but the
+      # ubuntu20.04 job builds in python:3.10-bullseye (glibc 2.31), so loading
+      # it dies with ERR_DLOPEN_FAILED and packaging fails:
+      #   /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.32' not found
+      # Rollup's own message blames npm's optional-dependency bug and suggests
+      # reinstalling; that is a red herring here - the module IS present, it just
+      # cannot be loaded, so a reinstall fetches the same incompatible binary.
+      #
+      # native.js requires that package BY NAME, so we replace it with a stub that
+      # re-exports @rollup/wasm-node's own dist/native.js - the WASM-backed module
+      # exposing the same five symbols (parse, parseAsync, xxhashBase64Url,
+      # xxhashBase36, xxhashBase16), with no libc dependency. Note the wasm-node
+      # package ROOT is a full Rollup (rollup/watch/defineConfig), NOT a drop-in
+      # for the native addon; only its dist/native.js has what native.js wants.
+      #
+      # Scoped to this one container: a package.json `overrides` entry would force
+      # WASM on macOS and Windows too, which are fine - and faster - on the native
+      # binary. Only 20.04 needs it, and only until its glibc floor rises above
+      # what Rollup targets.
+      - name: Use Rollup WASM build (glibc 2.31 container)
+        if: matrix.label == 'ubuntu20.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./node_modules/rollup/package.json').version")
+          echo "rollup $version - installing matching @rollup/wasm-node"
+          npm install --no-save "@rollup/wasm-node@${version}"
+          target=node_modules/@rollup/rollup-linux-x64-gnu
+          rm -rf "$target"
+          mkdir -p "$target"
+          cat > "$target/package.json" <<'JSON'
+          { "name": "@rollup/rollup-linux-x64-gnu", "version": "0.0.0-wasm-shim", "main": "index.js" }
+          JSON
+          echo "module.exports = require('@rollup/wasm-node/dist/native.js')" > "$target/index.js"
+          # Fail loudly here rather than letting the build die later with the same
+          # opaque dlopen error. Asserts the symbols native.js destructures.
+          node -e "
+            const m = require('@rollup/rollup-linux-x64-gnu')
+            const need = ['parse','parseAsync','xxhashBase64Url','xxhashBase36','xxhashBase16']
+            const missing = need.filter(k => typeof m[k] === 'undefined')
+            if (missing.length) { console.error('WASM shim missing: ' + missing.join(', ')); process.exit(1) }
+            console.log('rollup native require -> WASM shim OK')
+          "
+
       - name: Create .env file
         shell: bash
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env

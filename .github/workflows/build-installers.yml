@@ -372,6 +372,34 @@ jobs:
         run: |
           npm ci || npm install
 
+      # See ci-main.yml for the full explanation. Rollup's prebuilt
+      # linux-x64-gnu addon needs GLIBC_2.32; the 20.04 job builds in
+      # python:3.10-bullseye (glibc 2.31), so requiring it dies with
+      # ERR_DLOPEN_FAILED. native.js requires the addon by name, so we point that
+      # name at @rollup/wasm-node's dist/native.js, which exports the same
+      # symbols with no libc dependency. Only this container needs it.
+      - name: Use Rollup WASM build (glibc 2.31 container)
+        if: matrix.label == '20.04'
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./node_modules/rollup/package.json').version")
+          echo "rollup $version - installing matching @rollup/wasm-node"
+          npm install --no-save "@rollup/wasm-node@${version}"
+          target=node_modules/@rollup/rollup-linux-x64-gnu
+          rm -rf "$target"
+          mkdir -p "$target"
+          cat > "$target/package.json" <<'JSON'
+          { "name": "@rollup/rollup-linux-x64-gnu", "version": "0.0.0-wasm-shim", "main": "index.js" }
+          JSON
+          echo "module.exports = require('@rollup/wasm-node/dist/native.js')" > "$target/index.js"
+          node -e "
+            const m = require('@rollup/rollup-linux-x64-gnu')
+            const need = ['parse','parseAsync','xxhashBase64Url','xxhashBase36','xxhashBase16']
+            const missing = need.filter(k => typeof m[k] === 'undefined')
+            if (missing.length) { console.error('WASM shim missing: ' + missing.join(', ')); process.exit(1) }
+            console.log('rollup native require -> WASM shim OK')
+          "
+
       - name: Create .env file
         run: |
           echo "VITE_BACKEND_URL=http://localhost:8000" > .env
