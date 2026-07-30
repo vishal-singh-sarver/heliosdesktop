@@ -34,6 +34,27 @@ function isUnderTestAutomation(): boolean {
   )
 }
 
+/**
+ * True when e2e windows should stay off the screen entirely.
+ *
+ * Electron has no real headless mode — Chromium's `--headless` is silently
+ * ignored by the Electron binary (it still creates a native window), and
+ * offscreen rendering (`webPreferences.offscreen`) forces a frameless window,
+ * which would bypass the titleBarStyle/traffic-light setup this app depends on.
+ * macOS has no Xvfb, so there is nothing to hide the window behind either.
+ *
+ * What DOES work: never calling show(). A never-shown BrowserWindow still runs
+ * the renderer, lays out normally (non-zero getBoundingClientRect), and serves
+ * WebDriver clicks, keys, and screenshots — it just never hits the screen.
+ * Paired with app.dock.hide() this makes an e2e run fully invisible: no window,
+ * no dock icon, no focus stealing.
+ *
+ * Opt out with HELIOS_E2E_HEADED=1 to watch a run while debugging.
+ */
+function isHeadlessTestRun(): boolean {
+  return isUnderTestAutomation() && process.env['HELIOS_E2E_HEADED'] !== '1'
+}
+
 function getPlatformUserDataPath(homeDir: string): string {
   if (process.platform === 'win32') {
     return join(homeDir, 'AppData/Roaming/Helios')
@@ -116,7 +137,10 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   // screen has actually painted.
   mainWindow.webContents.ipc.once('app:ready', () => {
     if (mainWindow.isDestroyed()) return
-    mainWindow.show()
+    // Headless e2e: skip show() so the window never reaches the screen. The
+    // renderer is already mounted and painted at this point, so every WebDriver
+    // interaction still works — see isHeadlessTestRun().
+    if (!isHeadlessTestRun()) mainWindow.show()
     // Short hold covers the macOS show() reveal animation. hide() before
     // destroy() skips the splash's own fade-out, which otherwise reads as a
     // white/flicker frame during the handoff.
@@ -133,6 +157,7 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   // splash forever. The splash stays up — error dialogs in the renderer (if
   // any) will surface.
   const fallbackTimer = setTimeout(() => {
+    if (isHeadlessTestRun()) return
     if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
   }, 10_000)
   mainWindow.once('closed', () => clearTimeout(fallbackTimer))
@@ -178,7 +203,10 @@ function createSplashWindow(): BrowserWindow {
   const splash = new BrowserWindow({
     width: 1000,
     height: 600,
-    show: true,
+    // Headless e2e: the splash is the FIRST window created, so leaving it
+    // visible would flash on screen (and bounce the dock) before the main
+    // window is even built.
+    show: !isHeadlessTestRun(),
     frame: false,
     alwaysOnTop: true,
     resizable: false,
@@ -371,6 +399,15 @@ function setUserDataPath(): void {
 writeEarlyLog('='.repeat(80))
 writeEarlyLog(`App startup initiated [packaged=${app.isPackaged}, platform=${process.platform}]`)
 setUserDataPath()
+
+// Headless e2e: drop to the macOS "accessory" activation policy BEFORE the app
+// finishes launching, so no dock icon ever appears (not even a flash) and the
+// test app cannot steal focus from whatever you are doing. Must run at module
+// scope — calling it once a window exists still flashes the icon.
+if (process.platform === 'darwin' && isHeadlessTestRun()) {
+  app.dock?.hide()
+  writeEarlyLog('Headless e2e run — dock icon hidden')
+}
 
 // Acquire single-instance lock AFTER setUserDataPath so the lock file uses
 // the correct userData directory. If another Helios is already running, this

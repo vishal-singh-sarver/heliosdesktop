@@ -23,12 +23,20 @@ before(async () => {
 
 describe('App launch', () => {
   // The app uses a frameless custom title bar, so the OS-level window title is
-  // intentionally empty. We assert the launch via a visible window instead.
-  it('opens a visible application window', async () => {
-    const visibleWindowCount = await browser.electron.execute(
-      (electron) => electron.BrowserWindow.getAllWindows().filter((win) => win.isVisible()).length
+  // intentionally empty. We assert the launch via an open, loaded window.
+  //
+  // NOT isVisible(): e2e runs headless (windows are never show()n so they stay
+  // off-screen — see isHeadlessTestRun() in src/main/index.ts), so native
+  // visibility is legitimately false. A window that exists and has finished
+  // loading is the property that actually matters here.
+  it('opens an application window', async () => {
+    const openWindowCount = await browser.electron.execute(
+      (electron) =>
+        electron.BrowserWindow.getAllWindows().filter(
+          (win) => !win.isDestroyed() && !win.webContents.isLoading()
+        ).length
     )
-    expect(visibleWindowCount).toBeGreaterThan(0)
+    expect(openWindowCount).toBeGreaterThan(0)
   })
 
   it('renders the React root element', async () => {
@@ -85,18 +93,20 @@ describe('Electron app metadata', () => {
 })
 
 describe('BrowserWindow', () => {
-  it('starts in a visible, non-minimised state', async () => {
-    const isVisible = await browser.electron.execute((electron) => {
-      const win = electron.BrowserWindow.getAllWindows().find((w) => w.isVisible())
-      return win ? win.isVisible() : false
+  // Headless e2e never show()s the window, so isVisible() is false by design.
+  // Minimised IS still meaningful though: it would mean the window was created
+  // in a state the renderer can't paint from.
+  it('starts in a non-minimised state', async () => {
+    const isMinimized = await browser.electron.execute((electron) => {
+      const win = electron.BrowserWindow.getAllWindows()[0]
+      return win ? win.isMinimized() : true
     })
-    expect(isVisible).toBe(true)
+    expect(isMinimized).toBe(false)
   })
 
   it('has a positive width and height', async () => {
     const bounds = await browser.electron.execute((electron) => {
-      const windows = electron.BrowserWindow.getAllWindows()
-      const win = windows.find((w) => w.isVisible()) ?? windows[0]
+      const win = electron.BrowserWindow.getAllWindows()[0]
       return win ? win.getBounds() : { width: 0, height: 0 }
     })
     expect(bounds.width).toBeGreaterThan(0)
