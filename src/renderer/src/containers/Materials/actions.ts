@@ -36,7 +36,7 @@ import {
   UPLOAD_TEXTURE_REQUESTED,
   UPLOAD_TEXTURE_SUCCEEDED
 } from './constants'
-import type { RgbColor } from 'utils/color'
+import type { RecentColor } from 'utils/color'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
 // ── Action types ────────────────────────────────────────────────────────────
@@ -241,9 +241,9 @@ export type UploadTextureFailedAction = {
 export type SetMaterialDraftNameAction = { type: typeof SET_MATERIAL_DRAFT_NAME; name: string }
 export type CloseMaterialDraftAction = { type: typeof CLOSE_MATERIAL_DRAFT }
 
-// A colour the user just saved onto a material — prepended to the "Used colors"
-// history.
-export type RecordRecentColorAction = { type: typeof RECORD_RECENT_COLOR; color: RgbColor }
+// A colour the user just saved onto a material, with the opacity it was saved
+// at — prepended to the "Used colors" history.
+export type RecordRecentColorAction = { type: typeof RECORD_RECENT_COLOR; color: RecentColor }
 
 export type MaterialsAction =
   | ListMaterialsRequestedAction
@@ -442,7 +442,7 @@ export const setMaterialDraftName = (name: string): SetMaterialDraftNameAction =
 
 export const closeMaterialDraft = (): CloseMaterialDraftAction => ({ type: CLOSE_MATERIAL_DRAFT })
 
-export const recordRecentColor = (color: RgbColor): RecordRecentColorAction => ({
+export const recordRecentColor = (color: RecentColor): RecordRecentColorAction => ({
   type: RECORD_RECENT_COLOR,
   color
 })

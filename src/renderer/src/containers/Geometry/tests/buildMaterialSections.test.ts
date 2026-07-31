@@ -158,14 +158,14 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
 
     // Name derived from the file path (basename → drop extension → title-case).
     const nameRow = group.rows.find((r) => r.property === 'texture_name')
-    expect(nameRow?.value).toBe('Dirt')
+    expect(nameRow?.value).toBe('dirt.jpg')
 
     // The image row carries the serve URL, not a text value.
     const imageRow = group.rows.find((r) => r.property === 'texture_file')
     expect(imageRow?.value).toBe('')
     expect(imageRow?.image).toEqual({
       src: textureServeUrl('uploads/materials/7/dirt.jpg'),
-      alt: 'Dirt'
+      alt: 'dirt.jpg'
     })
   })
 
@@ -176,7 +176,7 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
     )
     const group = sections[0].groups[0]
     expect(group.label).toBe('Visualisation properties (Texture)')
-    expect(group.rows.find((r) => r.property === 'texture_name')?.value).toBe('Grass Tile')
+    expect(group.rows.find((r) => r.property === 'texture_name')?.value).toBe('grass_tile.png')
   })
 
   it('shows a — placeholder and no image when texture mode is on but no file is set', () => {

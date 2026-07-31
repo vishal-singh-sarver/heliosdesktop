@@ -16,6 +16,7 @@ vi.mock('utils/api', () => ({
 import {
   deleteMaterialFile,
   listMaterials,
+  sanitizeUploadFileName,
   uploadSpectralFile,
   uploadTextureFile
 } from '../service'
@@ -80,6 +81,48 @@ describe('listMaterials — one malformed group must not blank the whole list', 
   })
 })
 
+// macOS names screenshots with U+202F (narrow no-break space) before AM/PM, not
+// an ordinary space. Those three bytes (e2 80 af) have to survive the upload AND
+// every later `?path=…` fetch of the texture; anything on that route that isn't
+// byte-exact about UTF-8 mangles them, and the texture never renders. Names are
+// made ASCII-safe before the file is sent.
+describe('sanitizeUploadFileName', () => {
+  it('replaces the narrow no-break space and drops the trailing AM/PM', () => {
+    const macName = `Screenshot 2026-07-21 at 2.07.21\u202fPM.png`
+    // Guard the fixture itself: this is the exact byte sequence being defended
+    // against, so a normal space here would make the test prove nothing.
+    expect(macName).toContain('\u202f')
+    expect(sanitizeUploadFileName(macName)).toBe('Screenshot_2026-07-21_at_2.07.21.png')
+  })
+
+  it('strips accents to their base letters rather than blanking them', () => {
+    // Composed and macOS-style decomposed forms both land on the same name.
+    expect(sanitizeUploadFileName('caf\u00e9.png')).toBe('cafe.png')
+    expect(sanitizeUploadFileName('cafe\u0301.png')).toBe('cafe.png')
+  })
+
+  it('collapses unsafe runs and trims the edges', () => {
+    expect(sanitizeUploadFileName('my   photo (1) .PNG')).toBe('my_photo_1.png')
+  })
+
+  it('falls back to a usable name when nothing survives', () => {
+    expect(sanitizeUploadFileName('\u65e5\u672c\u8a9e.png')).toBe('texture.png')
+  })
+
+  it('only drops a TRAILING meridiem token, never one inside a real name', () => {
+    expect(sanitizeUploadFileName('spam.png')).toBe('spam.png')
+    expect(sanitizeUploadFileName('am.png')).toBe('am.png')
+    expect(sanitizeUploadFileName('pm_texture.png')).toBe('pm_texture.png')
+    // Lower-case and hyphen-separated forms go too.
+    expect(sanitizeUploadFileName('shot 3.04.11 am.jpg')).toBe('shot_3.04.11.jpg')
+  })
+
+  it('leaves an already-safe name completely alone', () => {
+    expect(sanitizeUploadFileName('grass.png')).toBe('grass.png')
+    expect(sanitizeUploadFileName('dirt-2_v3.jpg')).toBe('dirt-2_v3.jpg')
+  })
+})
+
 // Radiation's spectral file uses its OWN endpoint (POST …/spectral) rather than
 // the generic per-property file one, and answers { success, path } — the caller
 // stages that path and the member's next Save writes it.
@@ -89,6 +132,20 @@ describe('listMaterials — one malformed group must not blank the whole list', 
 // Save stayed disabled.
 describe('uploadTextureFile', () => {
   const file = new File(['png'], 'grass.png', { type: 'image/png' })
+
+  it('sends a renamed copy when the picked name needs sanitising', async () => {
+    uploadFile.mockResolvedValue({ path: 'uploads/groups/50/Screenshot_2026-07-21_at_2.07.21.png' })
+    const macFile = new File(['png'], `Screenshot 2026-07-21 at 2.07.21\u202fPM.png`, {
+      type: 'image/png'
+    })
+    await uploadTextureFile('50', 7, macFile, null)
+
+    const [, sent] = uploadFile.mock.calls[0]
+    expect((sent as File).name).toBe('Screenshot_2026-07-21_at_2.07.21.png')
+    // Same bytes and type — only the name is rewritten.
+    expect((sent as File).type).toBe('image/png')
+    expect((sent as File).size).toBe(macFile.size)
+  })
 
   it('returns the stored path from the backend { path } response', async () => {
     uploadFile.mockResolvedValue({

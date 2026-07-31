@@ -58,7 +58,6 @@ import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
-import { textureServeUrl } from './service'
 import {
   selectDeletingIds,
   selectMaterialDraft,
@@ -146,14 +145,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
 
   const openGroup = (id: number): void => {
     setOpenGroupIds((prev) => new Set(prev).add(id))
-  }
-
-  const collapseGroup = (id: number): void => {
-    setOpenGroupIds((prev) => {
-      const next = new Set(prev)
-      next.delete(id)
-      return next
-    })
   }
 
   // Picking a type on a collapsed card reveals that type's parameters — but they
@@ -460,10 +451,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             onSaveRadiation={() => handleSaveRadiation(group)}
             onUploadTexture={(file) => handleUploadTexture(group, file)}
             onUploadSpectral={(file) => handleUploadSpectral(group, file)}
-            // A saved card folds itself away — its type still reads from the
-            // collapsed header, and the room goes to the cards still being
-            // filled in.
-            onSaved={() => collapseGroup(group.id)}
             onDelete={() => handleDeleteGroup(group)}
           />
         ))}
@@ -527,7 +514,14 @@ function MaterialFieldGrid({
         return (
           <FormField
             key={field.property}
-            labelProps={{ label: field.label, optional: true, helpText: field.description }}
+            labelProps={{
+              label: field.label,
+              // The label is visible here, so FormField's own red star is the
+              // marker — no need to fold one into the placeholder as the
+              // Geometry form does with its sr-only labels.
+              optional: !field.required,
+              helpText: field.description
+            }}
             inputProps={{
               name: `${groupId}-${field.property}`,
               value,
@@ -573,7 +567,6 @@ function ParameterGroupCard({
   onSaveRadiation,
   onUploadTexture,
   onUploadSpectral,
-  onSaved,
   onDelete
 }: {
   group: MaterialParameterGroup
@@ -594,8 +587,6 @@ function ParameterGroupCard({
   onSaveRadiation: () => void
   onUploadTexture: (file: File) => void
   onUploadSpectral: (file: File) => void
-  // A save landed on the backend — the parent folds this card away.
-  onSaved: () => void
   onDelete: () => void
 }): React.JSX.Element {
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
@@ -643,18 +634,18 @@ function ParameterGroupCard({
   }
 
   // A save that COMPLETED: saving → idle. (A failure goes saving → error, which
-  // leaves the card open with its error showing.) That drops the pending file and
-  // folds the card away — its work is done and persisted, so the space goes back
-  // to the cards still being filled in.
+  // leaves the card open with its error showing.) That drops the pending file —
+  // its bytes are on the backend now, and the stored path is what renders.
+  //
+  // The card STAYS OPEN. It used to fold itself away on a successful save, which
+  // hid the values the user had just committed at the moment they'd want to check
+  // them; the header's type name is no substitute for seeing the fields.
   const prevSaveStatus = React.useRef(group.saveStatus)
   React.useEffect(() => {
     if (prevSaveStatus.current === 'saving' && group.saveStatus === 'idle') {
       setPending(null)
-      onSaved()
     }
     prevSaveStatus.current = group.saveStatus
-    // setPending/onSaved are stable enough here; only the transition matters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.saveStatus])
   React.useEffect(
     () => () => {
@@ -937,16 +928,20 @@ function ParameterGroupCard({
                   saved={group.saved}
                   mode={visualMode}
                   onModeChange={setVisualMode}
-                  selectedPath={pendingLibrary}
-                  // Preview: the just-picked file's object URL for immediacy,
-                  // else the stored/uploaded path served from the backend — so a
-                  // completed upload (or a reopened texture member) still shows.
-                  pendingFileUrl={
-                    pendingFile?.url ??
-                    (group.values[TEXTURE_PROPERTY]
-                      ? textureServeUrl(group.values[TEXTURE_PROPERTY])
-                      : undefined)
-                  }
+                  // The live pick when there is one, else the texture already
+                  // stored on the member — `pendingLibrary` alone starts null on
+                  // every reopen (and an outside click clears it), so a saved
+                  // library texture came back with NO tile highlighted and the
+                  // user couldn't tell which one was applied.
+                  selectedPath={chosenTexture}
+                  // ONLY the object URL of a file just picked in the Upload tab.
+                  // This used to fall back to whatever `texture_file` held, which
+                  // meant a saved LIBRARY texture rendered as the upload preview —
+                  // the Upload tab claiming the user had uploaded a stock asset.
+                  // The stored texture's preview is TextureSelector's own call now:
+                  // it holds the library list, so only it can tell an uploaded path
+                  // from a library one.
+                  pendingFileUrl={pendingFile?.url}
                   onPickLibrary={toggleLibrary}
                   onPickFile={pickFile}
                   uploading={uploading}

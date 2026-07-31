@@ -258,15 +258,33 @@ describe('saveParameterGroupWorker', () => {
     const gen = saveParameterGroupWorker(
       actions.saveParameterGroupRequested({
         ...base,
-        properties: { color_r: 10, color_g: 20, color_b: 30, opacity: 100 },
+        properties: { color_r: 10, color_g: 20, color_b: 30, opacity: 40 },
         saved: false
       })
     )
     gen.next() // add call
     expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
-    // A visualisation colour save then feeds the "Used colors" history.
-    expect(gen.next().value).toEqual(put(actions.recordRecentColor({ r: 10, g: 20, b: 30 })))
+    // A visualisation colour save then feeds the "Used colors" history — with the
+    // opacity it was saved at, so the swatch can restore the whole appearance.
+    expect(gen.next().value).toEqual(
+      put(actions.recordRecentColor({ r: 10, g: 20, b: 30, opacity: 40 }))
+    )
     expect(gen.next().done).toBe(true)
+  })
+
+  it('records a colour saved without an opacity as fully opaque', () => {
+    const gen = saveParameterGroupWorker(
+      actions.saveParameterGroupRequested({
+        ...base,
+        properties: { color_r: 10, color_g: 20, color_b: 30 },
+        saved: false
+      })
+    )
+    gen.next() // add call
+    gen.next() // succeeded
+    expect(gen.next().value).toEqual(
+      put(actions.recordRecentColor({ r: 10, g: 20, b: 30, opacity: 100 }))
+    )
   })
 
   it('records nothing when the payload has no colour channels', () => {
@@ -368,7 +386,7 @@ describe('persistRecentColorsWorker', () => {
   it('mirrors the current recent-colours list to localStorage', () => {
     const gen = persistRecentColorsWorker()
     expect(gen.next().value).toEqual(select(selectRecentColors))
-    const list = [{ r: 1, g: 2, b: 3 }]
+    const list = [{ r: 1, g: 2, b: 3, opacity: 55 }]
     expect(gen.next(list).value).toEqual(call(saveRecentColors, list))
     expect(gen.next().done).toBe(true)
   })

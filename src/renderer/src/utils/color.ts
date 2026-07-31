@@ -9,6 +9,15 @@ export interface RgbColor {
   b: number
 }
 
+// An entry in the picker's "Used colors" history: the RGB the user saved, plus
+// the opacity (0-100) they saved it AT. Clicking the swatch restores both — the
+// opacity is part of the appearance the user chose for that colour, so handing
+// back the RGB alone silently changed it. Extends RgbColor, so every colour
+// helper (rgbToHex, isDarkColor, rgbEquals) takes one as-is.
+export interface RecentColor extends RgbColor {
+  opacity: number
+}
+
 export interface HsvColor {
   h: number
   s: number

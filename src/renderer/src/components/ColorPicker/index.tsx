@@ -9,6 +9,7 @@ import {
   rgbToHex,
   rgbToHsv,
   type HsvColor,
+  type RecentColor,
   type RgbColor
 } from 'utils/color'
 
@@ -33,7 +34,9 @@ export interface ColorPickerFieldControl {
 export interface ColorPickerProps {
   rgb: RgbColor
   opacity: number
-  recentColors: RgbColor[]
+  // Each history entry carries the opacity it was saved at; picking one restores
+  // that too (see the swatch row below).
+  recentColors: RecentColor[]
   onChangeColor: (rgb: RgbColor) => void
   onChangeOpacity: (opacity: number) => void
   // The R/G/B and opacity number boxes, each controlled + validated by the caller.
@@ -409,7 +412,14 @@ function ColorPicker({
                   key={swatchHex}
                   type="button"
                   aria-label={labels.swatch(swatchHex)}
-                  onClick={() => onChangeColor(c)}
+                  // A swatch restores the appearance the user saved, which is the
+                  // colour AND the opacity they chose for it — handing back the
+                  // RGB alone left the card on whatever opacity it happened to
+                  // carry, silently changing the picked colour's transparency.
+                  onClick={() => {
+                    onChangeColor({ r: c.r, g: c.g, b: c.b })
+                    onChangeOpacity(c.opacity)
+                  }}
                   // The outline flips with the swatch's own brightness: a dark
                   // swatch on this dark panel has no visible edge of its own (a
                   // black one disappeared entirely), so it gets a LIGHT ring;

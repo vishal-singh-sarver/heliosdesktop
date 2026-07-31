@@ -533,6 +533,61 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     expect(within(dialog).getByText('0.3')).toBeInTheDocument()
   })
 
+  // A Windows backend stores native paths, which contain no '/' at all. Taking the
+  // basename by splitting on '/' alone returned the WHOLE path, so the popup's
+  // "Texture Name" read as the install directory (title-cased, extension stripped)
+  // instead of the texture.
+  it('shows only the texture file name, from a Windows-style stored path', () => {
+    const visualiserType: MaterialTypeDef = {
+      id: 7,
+      materialtype: 'Visualiser',
+      description: '',
+      // `color_r` is what marks a group as the visualisation set.
+      properties: [
+        prop('color_r', 1, { datatype: 'integer', min: 0, max: 255 }),
+        prop('texture_file', 2),
+        prop('texture_toggle', 3, { datatype: 'boolean' })
+      ],
+      groups: []
+    }
+    const assigned: DraftMaterialGroup = {
+      groupId: '41',
+      name: 'Grass',
+      materials: [
+        {
+          materialTypeId: 7,
+          materialTypeName: 'Visualiser',
+          properties: {
+            texture_toggle: true,
+            texture_file:
+              'C:\\Program Files\\Helios\\resources\\backend\\heliosguiBackend.exe\\_Internal\\assets\\grass.jpg'
+          }
+        }
+      ]
+    }
+    const { container } = render(
+      <Provider
+        store={makeStore([], { draftMaterials: [assigned], materialTypes: [visualiserType] })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: 'Grass' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Grass properties' })
+    // The value sits in the <dd> right after the "Texture Name" <dt>. Targeted
+    // this way because the material is also NAMED Grass — a bare text query would
+    // match the popup heading and prove nothing.
+    const label = within(dialog).getByText('Texture Name')
+    // The stored file name, verbatim — not prettified into something that
+    // matches nothing in the API response.
+    expect(label.nextElementSibling).toHaveTextContent('grass.jpg')
+    // The texture image's alt is the same derived name.
+    expect(within(dialog).getByRole('img', { name: 'grass.jpg' })).toBeInTheDocument()
+    // Nothing of the install path leaks into the popup.
+    expect(within(dialog).queryByText(/Program Files/)).not.toBeInTheDocument()
+  })
+
   it('shows the freshly-saved library values, not the stale GET baseline, for an assigned material', () => {
     const radiationType: MaterialTypeDef = {
       id: 5,
@@ -648,6 +703,26 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close material properties' }))
 
     expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+  })
+})
+
+describe('<ObjectPropertiesForm /> — required marker', () => {
+  it('stars the group heading, not each field, when the group holds a required field', () => {
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // "Ground Size" (length + breadth, both required) carries the star; the
+    // individual boxes keep their bare names as placeholders.
+    expect(screen.getByText(/Ground Size/).textContent).toBe('Ground Size*')
+    expect(fieldInput(container, 'length')).toHaveAttribute('placeholder', 'Length')
+    expect(fieldInput(container, 'breadth')).toHaveAttribute('placeholder', 'Breadth')
+
+    // A group of entirely optional fields shows no star. Position's x/y/z are
+    // required: false in this fixture, so its heading stays bare.
+    expect(screen.getByText('Position').textContent).toBe('Position')
+    expect(fieldInput(container, 'position_x')).toHaveAttribute('placeholder', 'X')
   })
 })
 

@@ -25,6 +25,12 @@ export interface ResolvedMaterialField {
   description: string
   min: number | null
   max: number | null
+  // Whether the catalog marks this property as required — drives the label's red
+  // star. Absent from a material-type payload today (the API sends `required` on
+  // object types only), so it currently resolves to false for every material
+  // field and no star renders; the moment the API starts marking one, its label
+  // shows it without a further change here.
+  required: boolean
   // Present only when datatype === 'enum' — drives the field's Select options.
   enumValues?: string[]
   // For a selector enum (one that drives conditional groups): friendly option
@@ -106,6 +112,7 @@ const toResolvedField = (def: MaterialTypeDef['properties'][number]): ResolvedMa
   description: def.description,
   min: def.min,
   max: def.max,
+  required: def.required ?? false,
   enumValues: def.enum_values
 })
 
@@ -186,6 +193,18 @@ export function visibleParameterGroups(
   return groups.filter((g) => groupIsActive(g, values))
 }
 
+// Below the field's lower bound. `Number("-0")` is negative zero, and `-0 < 0`
+// is false, so a minus-signed zero ("-0", "-0.00", "-0e5") used to pass the range
+// check on a field whose range starts at 0 — a 0-1 band optic, a 0-255 RGB
+// channel — and commit as a negative-looking value. A sign the user typed is a
+// sign they meant: on a non-negative range it is out of range and gets the range
+// message, same as "-5" does. A range that genuinely admits negatives is
+// unaffected — there -0 is just zero.
+function isBelowMin(num: number, min: number | null): boolean {
+  if (min == null) return false
+  return num < min || (Object.is(num, -0) && min >= 0)
+}
+
 // Validate one material property's committed value against its catalog metadata,
 // mirroring the Geometry form's validateFieldValue. Returns an error message, or
 // null when valid. Only numeric properties (float / integer) are range-checked;
@@ -204,7 +223,7 @@ export function validateMaterialFieldValue(
   if (!Number.isFinite(num)) return messages.fieldInvalid
   // Range before datatype: an out-of-range value (whole or not) shows the range;
   // only an in-range non-integer falls through to the datatype error.
-  if ((field.min != null && num < field.min) || (field.max != null && num > field.max)) {
+  if (isBelowMin(num, field.min) || (field.max != null && num > field.max)) {
     return messages.valuesBetween(field.min, field.max)
   }
   // A non-integer in an integer field (e.g. an RGB channel) is a datatype error —

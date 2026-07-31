@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { RgbColor } from 'utils/color'
+import type { RecentColor, RgbColor } from 'utils/color'
 import ColorPicker, { type ColorPickerFieldControl } from '..'
 
 const field = (value = ''): ColorPickerFieldControl => ({
@@ -29,7 +29,7 @@ function Harness({
 }: {
   onChangeColor?: (rgb: RgbColor) => void
   onChangeOpacity?: (o: number) => void
-  recentColors?: RgbColor[]
+  recentColors?: RecentColor[]
 }): React.JSX.Element {
   const [rgb, setRgb] = React.useState<RgbColor>({ r: 255, g: 0, b: 0 })
   const [opacity, setOpacity] = React.useState(100)
@@ -296,5 +296,27 @@ describe('keyboard operation', () => {
     fireEvent.keyDown(area, { key: 'Tab' })
     fireEvent.keyDown(area, { key: 'a' })
     expect(onChangeColor).not.toHaveBeenCalled()
+  })
+})
+
+describe('used colours', () => {
+  it('restores the swatch’s opacity as well as its colour', () => {
+    const onChangeColor = vi.fn()
+    const onChangeOpacity = vi.fn()
+    render(
+      <Harness
+        onChangeColor={onChangeColor}
+        onChangeOpacity={onChangeOpacity}
+        recentColors={[{ r: 0, g: 128, b: 255, opacity: 40 }]}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Use colour #0080ff' }))
+    expect(onChangeColor).toHaveBeenCalledWith({ r: 0, g: 128, b: 255 })
+    // The picker opens at 100%; picking a swatch saved at 40% puts it back.
+    expect(onChangeOpacity).toHaveBeenCalledWith(40)
+    expect(screen.getByRole('slider', { name: 'Opacity slider' })).toHaveAttribute(
+      'aria-valuenow',
+      '40'
+    )
   })
 })
