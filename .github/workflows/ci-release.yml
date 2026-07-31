@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     name: Lint Check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -33,12 +33,12 @@ jobs:
     runs-on: ubuntu-latest
     name: Unit Tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -66,14 +66,30 @@ jobs:
           - ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      # The ubuntu runner ran out of disk mid-suite on 2026-07-31:
+      #   "Free space left: 53 MB"
+      # fired immediately before journey.test.ts, which then failed on a
+      # validation message that never rendered. macOS and Windows never emit
+      # the warning and pass that same spec, so this was environmental, not a
+      # product bug. Reclaiming the preinstalled toolchains we do not use frees
+      # ~25GB and costs a few seconds. Only Linux ships these images.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "before:"; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          echo "after:"; df -h / | tail -1
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -168,7 +184,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             git ca-certificates
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
@@ -203,7 +219,7 @@ jobs:
           install_one libgbm1
           install_one libxkbcommon0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -414,7 +430,7 @@ jobs:
       # from a ci-main run, so the distinct prefix keeps these out of its
       # reach by construction.
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rc-installer-${{ matrix.label }}
           # Upload ONLY the installer files, NOT the entire dist/ - see

@@ -28,6 +28,14 @@ export default [
   },
 
   // Main process (Node.js)
+  //
+  // `no-console` is off here, as it is for scripts/ above. The main process has
+  // no devtools console - stdout/stderr IS its logging channel, and in a
+  // packaged app it is usually the only diagnostic available when the backend
+  // child process fails to launch. The statements this rule flagged are all
+  // deliberate operational logging (backend stdout/stderr forwarding, exit
+  // codes, startup failures), not debug leftovers, so enforcing the rule would
+  // mean deleting the output you need when a user reports the app not starting.
   {
     files: ['src/main/**/*.ts'],
     languageOptions: {
@@ -36,7 +44,7 @@ export default [
       globals: { ...globals.node }
     },
     plugins: { '@typescript-eslint': tsPlugin },
-    rules: { ...tsRules, 'no-console': 'warn' }
+    rules: { ...tsRules, 'no-console': 'off' }
   },
 
   // Preload process (Node.js + browser globals)

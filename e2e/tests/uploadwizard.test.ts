@@ -1212,6 +1212,7 @@ describe('Import Wizard — Date/Time (step 2)', () => {
       'YYYY-MM-DDTHH:MM:SSZ',
       'YYYY-MM-DDTHH:MM:SS-HH:MM',
       'YYYY-MM-DDTHH:MM:SS',
+      'YYYY-MM-DDTHH:MM',
       'YYYYMMDDHH',
       'YYYYMMDDHHMM',
       'YYYY-MM-DD HH:MM',

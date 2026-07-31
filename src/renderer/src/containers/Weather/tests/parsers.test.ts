@@ -1151,10 +1151,28 @@ describe('exported constants', () => {
     expect(values).toContain('DOY YYYY')
   })
 
-  it('DATETIME_FORMATS includes ISO and compact combined formats', () => {
+  // Asserts the WHOLE list, in order, not a couple of toContain spot-checks.
+  // e2e/tests/uploadwizard.test.ts pins the same sequence against the rendered
+  // dropdown, so adding a format here without updating that fixture fails a
+  // 15-minute e2e run on every OS. Failing here instead costs seconds and names
+  // the mismatch directly - keep the two lists in step.
+  it('DATETIME_FORMATS lists every supported format, in dropdown order', () => {
     const values = DATETIME_FORMATS.map((f) => f.value)
-    expect(values).toContain('YYYY-MM-DDTHH:MM:SSZ')
-    expect(values).toContain('YYYYMMDDHH')
+    expect(values).toEqual([
+      'YYYY-MM-DDTHH:MM:SSZ',
+      'YYYY-MM-DDTHH:MM:SS-HH:MM',
+      'YYYY-MM-DDTHH:MM:SS',
+      'YYYY-MM-DDTHH:MM',
+      'YYYYMMDDHH',
+      'YYYYMMDDHHMM',
+      'YYYY-MM-DD HH:MM',
+      'DD/MM/YYYY HH:MM',
+      'MM/DD/YYYY HH:MM',
+      'DD-MM-YYYY HH:MM',
+      'MM-DD-YYYY HH:MM',
+      'YYYY DOY HH:MM',
+      'DOY YYYY HH:MM'
+    ])
   })
 
   it('INITIAL_MAPPING has every field as null', () => {

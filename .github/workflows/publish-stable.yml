@@ -34,7 +34,7 @@ jobs:
     outputs:
       ci_run_id: ${{ steps.find-run.outputs.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # full history is required for tag verification
 
@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download ci-main artifacts (this platform only)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: stable-installer-${{ matrix.platform }}
           path: ./dist
@@ -130,7 +130,7 @@ jobs:
       #       --cache-control "max-age=300"
 
       - name: Re-upload artifacts (combined for github-release job)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: stable-release-${{ matrix.platform }}
           path: ./dist
@@ -146,10 +146,10 @@ jobs:
     if: always() && needs.verify.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download all stable artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
           pattern: stable-release-*
