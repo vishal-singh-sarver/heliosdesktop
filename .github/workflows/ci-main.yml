@@ -22,11 +22,14 @@ on:
   workflow_dispatch:
 
 jobs:
+  # lint and test-unit run on EVERY event that reaches this workflow - no `if:`.
+  # They previously ran on PRs only when the head branch was `release` or
+  # `hotfix/*`. Because a skipped job reports as successful, a PR into main from
+  # any other branch name showed an all-green check run with nothing having
+  # actually executed - the same "a check that cannot go red" failure mode the
+  # continue-on-error comment below warns about. These two jobs are cheap
+  # (ubuntu-only, no build), so gating them by branch name bought nothing.
   lint:
-    if: |
-      (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     name: Lint Check
     steps:
@@ -49,11 +52,9 @@ jobs:
       # warnings)" as a green build. Errors gate; the 34 warnings still do not.
       - run: npm run lint
 
+  # See lint above: no `if:` - this must run on every PR into main, not just
+  # ones from `release` / `hotfix/*`.
   test-unit:
-    if: |
-      (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     name: Unit Tests
     steps:
@@ -91,7 +92,9 @@ jobs:
     # 2026-07-29 spent 1h50m here because ~104 e2e tests each waited out their
     # own 10s/120s timeout - and since `package` needs this job, that stalled
     # signing behind a result that `continue-on-error` discards anyway.
-    timeout-minutes: 30
+    # Must stay above the e2e step's own cap below, or the job kills the step
+    # first and the step timeout never takes effect.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -138,11 +141,12 @@ jobs:
       #
       # bail:1 (wdio.config.ts) stops after the FIRST failure, but only once a
       # test actually reports one. If the app hangs before that - or wdio itself
-      # wedges - nothing bails and the job would run to its 30min cap on three
-      # OSes at once, macOS billing at 10x. 8min is well clear of a healthy run
-      # (macOS took 46s on 2026-07-29) and caps the bleed on a wedged one.
+      # wedges - nothing bails and the run bleeds until this cap on three OSes
+      # at once, macOS billing at 10x. A healthy run is fast (macOS took 46s on
+      # 2026-07-29), so 60min is far above what the suite needs - it is a
+      # backstop against a wedged run, not a budget.
       - name: Run Integration Checks
-        timeout-minutes: 8
+        timeout-minutes: 60
         run: npm run e2e
 
       # "Timeout exceeded to get the ContextId" is NOT itself proof of a crash.
