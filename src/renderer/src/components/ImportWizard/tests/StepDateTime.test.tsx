@@ -88,6 +88,7 @@ function renderStep(overrides: Partial<StepDateTimeProps> = {}): StepDateTimePro
     onChangeDateFormat: vi.fn(),
     datetimeFormat: 'YYYY-MM-DDTHH:MM:SSZ',
     onChangeDateTimeFormat: vi.fn(),
+    ambiguousDateFormat: null,
     stats: { configReady: true, valid: 2, invalid: 0, total: 2 },
     ...overrides
   }
@@ -112,6 +113,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={baseStats}
       />
     )
@@ -136,6 +138,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={baseStats}
       />
     )
@@ -159,6 +162,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={baseStats}
       />
     )
@@ -182,6 +186,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={baseStats}
       />
     )
@@ -215,6 +220,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={baseStats}
       />
     )
@@ -236,6 +242,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={baseStats}
       />
     )
@@ -260,6 +267,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={{ configReady: true, valid: 0, invalid: 1, total: 1 }}
       />
     )
@@ -280,6 +288,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={{ configReady: true, valid: 2, invalid: 0, total: 2 }}
       />
     )
@@ -300,6 +309,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={{ configReady: true, valid: 1, invalid: 1, total: 2 }}
       />
     )
@@ -321,6 +331,7 @@ describe('<StepDateTime />', () => {
         onChangeDateFormat={vi.fn()}
         datetimeFormat="YYYY-MM-DDTHH:MM:SSZ"
         onChangeDateTimeFormat={vi.fn()}
+        ambiguousDateFormat={null}
         stats={{ configReady: true, valid: 2, invalid: 0, total: 2 }}
       />
     )

@@ -64,6 +64,11 @@ export interface StepDateTimeProps {
   onChangeDateFormat: (value: DateFormatKey) => void
   datetimeFormat: DateTimeFormatKey
   onChangeDateTimeFormat: (value: DateTimeFormatKey) => void
+  /**
+   * "<picked> or <counterpart>" when auto-detection could not tell a day-first
+   * from a month-first layout, else null. Drives the step's ambiguity warning.
+   */
+  ambiguousDateFormat: string | null
   stats: DateTimeStats
 }
 

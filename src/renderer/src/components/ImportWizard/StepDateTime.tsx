@@ -330,6 +330,7 @@ export default function StepDateTime({
   onChangeDateFormat,
   datetimeFormat,
   onChangeDateTimeFormat,
+  ambiguousDateFormat,
   stats
 }: StepDateTimeProps): React.JSX.Element {
   // Keep all source columns available in every dropdown so the UI can mirror
@@ -394,6 +395,21 @@ export default function StepDateTime({
   return (
     <div className="flex max-h-full flex-col gap-5 overflow-y-auto px-6 pb-4 scrollbar-custom">
       <div className="text-sm text-neutral-300">Map each day/time component to a column.</div>
+
+      {ambiguousDateFormat && (
+        <div
+          data-testid="dt-ambiguous-warning"
+          role="status"
+          className="flex items-start gap-2 rounded-[3px] border border-amber-600/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-200"
+        >
+          <AlertTriangleIcon className="mt-[2px] h-4 w-4 shrink-0" />
+          <span>
+            Every date in this file fits <span className="font-medium">{ambiguousDateFormat}</span>,
+            so the day and month cannot be told apart automatically. Confirm the date format below —
+            the preview updates as you change it.
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 pr-1">
         <Section title="Date">

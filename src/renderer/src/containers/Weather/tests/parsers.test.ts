@@ -1009,6 +1009,132 @@ describe('toCsv', () => {
   })
 })
 
+// ── Real-world file shapes (Helios core/lib/testdata) ─────────────────────────
+
+describe('-END HEADER- preamble (NASA POWER shape)', () => {
+  const nasa = [
+    '-BEGIN HEADER-',
+    'NASA/POWER Source Native Resolution Hourly Data',
+    'Dates (month/day/year): 01/01/2024 through 01/03/2024 in LST',
+    'Location: Latitude  38.55   Longitude -121.76',
+    '-END HEADER-',
+    'YEAR,MO,DY,HR,T2M',
+    '2024,1,1,0,7.68',
+    '2024,1,1,1,7.7'
+  ].join('\n')
+
+  it('ignores the prose preamble when detecting the delimiter', () => {
+    // The header sentences are space-heavy; without the -END HEADER- cut the
+    // detector picked ' ' and the file failed to parse at all.
+    expect(detectDelimiter(nasa)).toBe(',')
+  })
+
+  it('skips through the end-header marker to the real column row', () => {
+    expect(detectHeaderLinesToSkip(nasa, ',')).toBe(5)
+  })
+
+  it('parses to the real columns and rows', () => {
+    const r = parseFile('nasa.csv', nasa)
+    expect(r.headers).toEqual(['YEAR', 'MO', 'DY', 'HR', 'T2M'])
+    expect(r.rows).toHaveLength(2)
+    expect(r.rows[0]).toEqual(['2024', '1', '1', '0', '7.68'])
+  })
+})
+
+describe('space-delimited file whose value contains the delimiter', () => {
+  const spaced = [
+    'datetime temperature',
+    '2026-02-03 10:00 15.5',
+    '2026-02-03 11:00 16.2',
+    '2026-02-03 12:00 17.8'
+  ].join('\n')
+
+  it('keeps the real header instead of consuming it as data', () => {
+    // The header splits into 2 tokens while data rows split into 3, which used
+    // to look like a junk line to skip — promoting row 1 to the header and
+    // losing a record.
+    expect(detectHeaderLinesToSkip(spaced, ' ')).toBe(0)
+  })
+
+  it('rejoins the date and time into the single value they were', () => {
+    const r = parseFile('spaced.csv', spaced)
+    expect(r.headers).toEqual(['datetime', 'temperature'])
+    expect(r.rows).toHaveLength(3)
+    expect(r.rows[0]).toEqual(['2026-02-03 10:00', '15.5'])
+  })
+
+  it('still throws on a mismatch that is not a date/time pair', () => {
+    const bad = 'a b\n1 2 3\n4 5 6'
+    expect(() => parseFile('bad.csv', bad)).toThrow(/fields, expected/)
+  })
+})
+
+describe('parseRowDateTimeSelections — HHMM values in an Hour column', () => {
+  const headers = ['date', 'hour']
+  const mapping: DateTimeMapping = { ...INITIAL_MAPPING, date: 'date', hour: 'hour' }
+  const run = (hour: string): ReturnType<typeof parseRowDateTimeSelections> =>
+    parseRowDateTimeSelections(
+      ['2023-07-13', hour],
+      headers,
+      'string',
+      'parts',
+      mapping,
+      'YYYY-MM-DD'
+    )
+
+  it('reads a zero-padded CIMIS "0100" as 01:00, not hour 100', () => {
+    const r = run('0100')
+    expect(r.kind).toBe('ok')
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T01:00:00.000Z')
+  })
+
+  it('reads a compact "1300" as 13:00', () => {
+    const r = run('1300')
+    expect(r.kind).toBe('ok')
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T13:00:00.000Z')
+  })
+
+  it('still reads a plain "9" as hour 9', () => {
+    const r = run('9')
+    expect(r.kind).toBe('ok')
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T09:00:00.000Z')
+  })
+
+  it('still rejects a genuinely out-of-range hour', () => {
+    expect(run('99').kind).toBe('invalid_time')
+  })
+
+  it('lets an explicitly mapped Minute column win over the hour-recovered minute', () => {
+    const r = parseRowDateTimeSelections(
+      ['2023-07-13', '0100', '45'],
+      ['date', 'hour', 'minute'],
+      'string',
+      'parts',
+      { ...INITIAL_MAPPING, date: 'date', hour: 'hour', minute: 'minute' },
+      'YYYY-MM-DD'
+    )
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T01:45:00.000Z')
+  })
+})
+
+describe('tryParseDateTime — seconds-less ISO (Open-Meteo shape)', () => {
+  it('parses YYYY-MM-DDTHH:MM', () => {
+    expect(tryParseDateTime('2024-01-01T08:00', 'YYYY-MM-DDTHH:MM')?.toISOString()).toBe(
+      '2024-01-01T08:00:00.000Z'
+    )
+  })
+
+  it('does not accept a seconds-bearing value under the seconds-less key', () => {
+    expect(tryParseDateTime('2024-01-01T08:00:30', 'YYYY-MM-DDTHH:MM')).toBeNull()
+  })
+
+  it('leaves the seconds-bearing formats matching as before', () => {
+    expect(tryParseDateTime('2024-01-01T08:00:30', 'YYYY-MM-DDTHH:MM:SS')?.toISOString()).toBe(
+      '2024-01-01T08:00:30.000Z'
+    )
+  })
+})
+
 // ── DELIMITERS / DATE_FORMATS sanity ──────────────────────────────────────────
 
 describe('exported constants', () => {

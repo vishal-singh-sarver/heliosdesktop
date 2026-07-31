@@ -5,6 +5,7 @@ import {
   parseDelimited,
   parseFile,
   parseRowDateTimeSelections,
+  tryParseDate,
   tryParseDateTime,
   type DateFormatKey,
   type DateSelectionMode,
@@ -37,25 +38,141 @@ function isUnsupportedCharacterValue(value: string | undefined): boolean {
   return !isValidNumber(trimmed)
 }
 
-const findHeaderByKeyword = (headers: string[], keywords: string[]): string | null => {
-  const lower = headers.map((h) => h.toLowerCase())
+// Substring match on the header text, with an exact-match fallback for the
+// terse abbreviations agency exports use. NASA POWER writes YEAR,MO,DY,HR — no
+// substring of those contains "month"/"day"/"hour", so without the aliases the
+// whole file is left unmapped. They are matched EXACTLY and only after the
+// substring pass, so a short alias like "dy" can never hijack a column that a
+// full keyword already describes.
+const findHeaderByKeyword = (
+  headers: string[],
+  keywords: string[],
+  exactAliases: string[] = []
+): string | null => {
+  const lower = headers.map((h) => h.toLowerCase().trim())
   const i = lower.findIndex((h) => keywords.some((k) => h.includes(k)))
-  return i >= 0 ? headers[i] : null
+  if (i >= 0) return headers[i]
+  if (exactAliases.length === 0) return null
+  const j = lower.findIndex((h) => exactAliases.includes(h))
+  return j >= 0 ? headers[j] : null
+}
+
+// Day-first / month-first pairs that are indistinguishable from the data alone
+// whenever every sampled day-of-month is <= 12. Detection has to pick one, so
+// the UI warns and names the alternative rather than presenting a silent guess
+// as "all rows valid".
+const AMBIGUOUS_DATE_COUNTERPART: Partial<Record<DateFormatKey, DateFormatKey>> = {
+  'DD/MM/YYYY': 'MM/DD/YYYY',
+  'MM/DD/YYYY': 'DD/MM/YYYY',
+  'DD-MM-YYYY': 'MM-DD-YYYY',
+  'MM-DD-YYYY': 'DD-MM-YYYY'
+}
+
+const AMBIGUOUS_DATETIME_COUNTERPART: Partial<Record<DateTimeFormatKey, DateTimeFormatKey>> = {
+  'DD/MM/YYYY HH:MM': 'MM/DD/YYYY HH:MM',
+  'MM/DD/YYYY HH:MM': 'DD/MM/YYYY HH:MM',
+  'DD-MM-YYYY HH:MM': 'MM-DD-YYYY HH:MM',
+  'MM-DD-YYYY HH:MM': 'DD-MM-YYYY HH:MM'
+}
+
+const columnSamples = (headers: string[], rows: string[][], col: string): string[] => {
+  const idx = headers.indexOf(col)
+  if (idx < 0) return []
+  return rows
+    .map((r) => (r[idx] ?? '').trim())
+    .filter(Boolean)
+    .slice(0, DATE_FORMAT_SAMPLE_COUNT)
 }
 
 const detectDateTimeFormat = (
   headers: string[],
   rows: string[][],
   datetimeCol: string
-): DateTimeFormatKey | null => {
-  const idx = headers.indexOf(datetimeCol)
-  if (idx < 0) return null
-  const sample = rows.find((r) => (r[idx] ?? '').trim() !== '')?.[idx]?.trim()
-  if (!sample) return null
+): { format: DateTimeFormatKey; ambiguousWith: DateTimeFormatKey | null } | null => {
+  const samples = columnSamples(headers, rows, datetimeCol)
+  if (samples.length === 0) return null
   for (const { value } of DATETIME_FORMATS) {
-    if (tryParseDateTime(sample, value)) return value
+    if (!tryParseDateTime(samples[0], value)) continue
+    const counterpart = AMBIGUOUS_DATETIME_COUNTERPART[value] ?? null
+    // Ambiguous only if the counterpart also parses EVERY sample; one row with
+    // a day > 12 is enough to settle it.
+    const ambiguousWith =
+      counterpart && samples.every((s) => tryParseDateTime(s, counterpart)) ? counterpart : null
+    return { format: value, ambiguousWith }
   }
   return null
+}
+
+// How many non-empty values a format is scored against. One sample is not
+// enough to separate genuinely ambiguous layouts: "03/04/2026" parses under
+// both DD/MM/YYYY and MM/DD/YYYY, and only a later row with a >12 first token
+// rules one of them out.
+const DATE_FORMAT_SAMPLE_COUNT = 20
+
+// Does this column actually hold full date-times, whatever its header says?
+// Header keywords alone mismap Open-Meteo exports: their column is named
+// `time`, which matches the 'time' keyword long before 'datetime' is
+// considered, so ISO values like "2024-01-01T00:00" were mapped as a
+// time-of-day and never parsed. Value shape is the reliable signal.
+const columnHoldsDateTimes = (headers: string[], rows: string[][], col: string): boolean => {
+  const idx = headers.indexOf(col)
+  if (idx < 0) return false
+  const samples = rows
+    .map((r) => (r[idx] ?? '').trim())
+    .filter(Boolean)
+    .slice(0, DATE_FORMAT_SAMPLE_COUNT)
+  if (samples.length === 0) return false
+  return samples.every((s) => DATETIME_FORMATS.some(({ value }) => tryParseDateTime(s, value)))
+}
+
+// Probe order, and the tiebreak when several formats parse every sample. It is
+// DATE_FORMATS reordered so YYYY-MM-DD (the wizard's default, and the most
+// common unambiguous layout) is tried before the compact YYYYMMDD, and so the
+// day-first / month-first pairs keep their existing relative order.
+const DATE_FORMAT_DETECTION_ORDER: ReadonlyArray<DateFormatKey> = [
+  'YYYY-MM-DD',
+  'YYYYMMDD',
+  'YYYY/MM/DD',
+  'DD/MM/YYYY',
+  'MM/DD/YYYY',
+  'DD-MM-YYYY',
+  'MM-DD-YYYY',
+  'DD.MM.YYYY',
+  'YYYY DOY',
+  'DOY YYYY'
+]
+
+// Pick the date format that parses the most sampled values of the mapped date
+// column. Without this the wizard left `dateFormat` at its 'YYYY-MM-DD'
+// initial value, so a compact "20260203" column showed as Invalid until the
+// user set the format by hand. Returns null when nothing parses, which leaves
+// the default in place (same fallback as detectDateTimeFormat).
+const detectDateFormat = (
+  headers: string[],
+  rows: string[][],
+  dateCol: string
+): { format: DateFormatKey; ambiguousWith: DateFormatKey | null } | null => {
+  const samples = columnSamples(headers, rows, dateCol)
+  if (samples.length === 0) return null
+
+  let best: DateFormatKey | null = null
+  let bestScore = 0
+  for (const value of DATE_FORMAT_DETECTION_ORDER) {
+    const score = samples.filter((s) => tryParseDate(s, value)).length
+    // Strictly greater keeps the first format in probe order on a tie.
+    if (score > bestScore) {
+      bestScore = score
+      best = value
+    }
+  }
+  if (!best) return null
+
+  const counterpart = AMBIGUOUS_DATE_COUNTERPART[best] ?? null
+  // Ambiguous only when the counterpart parses every sample too — a single
+  // day > 12 disambiguates the file and no warning is warranted.
+  const ambiguousWith =
+    counterpart && samples.every((s) => tryParseDate(s, counterpart)) ? counterpart : null
+  return { format: best, ambiguousWith }
 }
 
 function ImportWizard({
@@ -79,6 +196,10 @@ function ImportWizard({
   const [mapping, setMapping] = useState<DateTimeMapping>(INITIAL_MAPPING)
   const [dateFormat, setDateFormat] = useState<DateFormatKey>('YYYY-MM-DD')
   const [datetimeFormat, setDateTimeFormat] = useState<DateTimeFormatKey>('YYYY-MM-DDTHH:MM:SSZ')
+  // Set when auto-detection had to guess between a day-first and a month-first
+  // layout that the data cannot distinguish. Cleared as soon as the user picks
+  // a format themselves — at that point the choice is theirs, not a guess.
+  const [ambiguousDateFormat, setAmbiguousDateFormat] = useState<string | null>(null)
   const [columnSelection, setColumnSelection] = useState<Record<number, boolean>>({})
   const [filename, setFilename] = useState<string | null>(null)
   // Tracks the last pickedFile we observed so the render-time parse runs
@@ -113,29 +234,63 @@ function ImportWizard({
         setParseError(null)
 
         const auto: DateTimeMapping = {
-          year: findHeaderByKeyword(result.headers, ['year']),
-          month: findHeaderByKeyword(result.headers, ['month']),
-          day: findHeaderByKeyword(result.headers, ['day']),
-          julianYear: findHeaderByKeyword(result.headers, ['julian year', 'year']),
+          year: findHeaderByKeyword(result.headers, ['year'], ['yr']),
+          month: findHeaderByKeyword(result.headers, ['month'], ['mo', 'mon', 'mm']),
+          day: findHeaderByKeyword(result.headers, ['day'], ['dy', 'dd']),
+          julianYear: findHeaderByKeyword(result.headers, ['julian year', 'year'], ['yr']),
           julianDay: findHeaderByKeyword(result.headers, ['julian day', 'day of year', 'doy']),
-          hour: findHeaderByKeyword(result.headers, ['hour']),
-          minute: findHeaderByKeyword(result.headers, ['minute']),
+          hour: findHeaderByKeyword(result.headers, ['hour'], ['hr', 'hh']),
+          minute: findHeaderByKeyword(result.headers, ['minute'], ['min', 'mi']),
           date: findHeaderByKeyword(result.headers, ['date']),
           time: findHeaderByKeyword(result.headers, ['time']),
           datetime: findHeaderByKeyword(result.headers, ['datetime', 'timestamp', 'date_time'])
         }
 
+        // Promote a keyword-mapped date/time column to the datetime slot when
+        // its values are really full date-times. Covers `time` columns holding
+        // ISO timestamps (Open-Meteo) and `date` columns holding the same.
+        if (!auto.datetime) {
+          const promoted = [auto.time, auto.date].find(
+            (col): col is string =>
+              Boolean(col) && columnHoldsDateTimes(result.headers, result.rows, col as string)
+          )
+          if (promoted) {
+            auto.datetime = promoted
+            // Clear the slot it was borrowed from so the same column is not
+            // also read as a bare time-of-day / date.
+            if (auto.time === promoted) auto.time = null
+            if (auto.date === promoted) auto.date = null
+          }
+        }
+
         setMapping(auto)
+
+        setAmbiguousDateFormat(null)
 
         if (auto.datetime) {
           setDateMode('datetime')
           setTimeMode('none')
           const detected = detectDateTimeFormat(result.headers, result.rows, auto.datetime)
-          if (detected) setDateTimeFormat(detected)
+          if (detected) {
+            setDateTimeFormat(detected.format)
+            if (detected.ambiguousWith) {
+              setAmbiguousDateFormat(`${detected.format} or ${detected.ambiguousWith}`)
+            }
+          }
         } else {
           if (auto.year && auto.month && auto.day) setDateMode('parts')
           else if (auto.julianYear && auto.julianDay) setDateMode('julian')
           else if (auto.date) setDateMode('string')
+
+          if (auto.date) {
+            const detected = detectDateFormat(result.headers, result.rows, auto.date)
+            if (detected) {
+              setDateFormat(detected.format)
+              if (detected.ambiguousWith) {
+                setAmbiguousDateFormat(`${detected.format} or ${detected.ambiguousWith}`)
+              }
+            }
+          }
 
           if (auto.hour || auto.minute) setTimeMode('parts')
           else if (auto.time) setTimeMode('string')
@@ -549,9 +704,16 @@ function ImportWizard({
                 mapping={mapping}
                 onChangeMapping={(k, v) => setMapping((current) => ({ ...current, [k]: v }))}
                 dateFormat={dateFormat}
-                onChangeDateFormat={setDateFormat}
+                onChangeDateFormat={(v) => {
+                  setDateFormat(v)
+                  setAmbiguousDateFormat(null)
+                }}
                 datetimeFormat={datetimeFormat}
-                onChangeDateTimeFormat={setDateTimeFormat}
+                onChangeDateTimeFormat={(v) => {
+                  setDateTimeFormat(v)
+                  setAmbiguousDateFormat(null)
+                }}
+                ambiguousDateFormat={ambiguousDateFormat}
                 stats={dtStats}
               />
             )}

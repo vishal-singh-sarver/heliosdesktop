@@ -606,6 +606,130 @@ describe('<ImportWizard /> — auto-detected date modes', () => {
     expect(screen.getByText('Next')).toBeDisabled()
   })
 
+  it('auto-detects the compact YYYYMMDD date format', () => {
+    // testdata/timeseries_compact_date.csv: the format the wizard used to miss,
+    // leaving dateFormat at YYYY-MM-DD so every row read as Invalid.
+    const compact = {
+      filename: 'compact.csv',
+      rawText: 'date,hour,temperature\n20260203,10,15.5\n20260203,11,16.2\n20260203,12,17.8'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={compact} />)
+    fireEvent.click(screen.getByText('Next')) // step 2
+    fireEvent.click(screen.getByText('Next')) // step 3
+    expect(screen.getByTestId('dt-date-format')).toHaveValue('YYYYMMDD')
+    expect(screen.getByText(/All 3 rows valid/)).toBeInTheDocument()
+  })
+
+  it('auto-detects a slash-separated day-first date format', () => {
+    // 26 in the first token rules out MM/DD/YYYY, so scoring must land on
+    // DD/MM/YYYY rather than the default.
+    const slash = {
+      filename: 'slash.csv',
+      rawText: 'date,temp\n26/02/2026,20\n27/02/2026,21'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={slash} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-date-format')).toHaveValue('DD/MM/YYYY')
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+  })
+
+  it('keeps the YYYY-MM-DD default for an unrecognizable date column', () => {
+    const bad = { filename: 'bad.csv', rawText: 'date,temp\ngarbage,20\njunk,21' }
+    render(<ImportWizard {...baseProps} pickedFile={bad} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-date-format')).toHaveValue('YYYY-MM-DD')
+    expect(screen.getByText(/0 of 2 rows valid/)).toBeInTheDocument()
+  })
+
+  it('warns when a date column is ambiguous between day-first and month-first', () => {
+    // Every day-of-month is <= 12, so DD/MM and MM/DD both parse every row and
+    // detection cannot tell them apart. It must say so rather than report
+    // "all rows valid" over a silent guess.
+    const ambiguous = { filename: 'amb.csv', rawText: 'date,temp\n03/04/2026,20\n05/06/2026,21' }
+    render(<ImportWizard {...baseProps} pickedFile={ambiguous} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    const warn = screen.getByTestId('dt-ambiguous-warning')
+    expect(warn).toBeInTheDocument()
+    expect(warn.textContent).toMatch(/DD\/MM\/YYYY or MM\/DD\/YYYY/)
+  })
+
+  it('does not warn when a later row disambiguates the date format', () => {
+    // 26 > 12 rules out MM/DD/YYYY outright — nothing to warn about.
+    const clear = { filename: 'clear.csv', rawText: 'date,temp\n03/04/2026,20\n26/04/2026,21' }
+    render(<ImportWizard {...baseProps} pickedFile={clear} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.queryByTestId('dt-ambiguous-warning')).not.toBeInTheDocument()
+    expect(screen.getByTestId('dt-date-format')).toHaveValue('DD/MM/YYYY')
+  })
+
+  it('clears the ambiguity warning once the user picks a format themselves', () => {
+    const ambiguous = { filename: 'amb.csv', rawText: 'date,temp\n03/04/2026,20\n05/06/2026,21' }
+    render(<ImportWizard {...baseProps} pickedFile={ambiguous} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-ambiguous-warning')).toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('dt-date-format'), { target: { value: 'MM/DD/YYYY' } })
+    expect(screen.queryByTestId('dt-ambiguous-warning')).not.toBeInTheDocument()
+  })
+
+  it('warns for an ambiguous date-time column too', () => {
+    const ambiguousDt = {
+      filename: 'ambdt.csv',
+      rawText: 'datetime,temp\n03/02/2026 10:00,20\n04/05/2026 11:00,21'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={ambiguousDt} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-ambiguous-warning').textContent).toMatch(
+      /DD\/MM\/YYYY HH:MM or MM\/DD\/YYYY HH:MM/
+    )
+  })
+
+  it('maps a `time` column that actually holds ISO date-times as a datetime', () => {
+    // Open-Meteo shape: the column is named `time`, which matched the 'time'
+    // keyword and was read as a time-of-day, so nothing parsed.
+    const openMeteo = {
+      filename: 'om.csv',
+      rawText: 'time,temperature_2m\n2024-01-01T00:00,9.1\n2024-01-01T01:00,8.4'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={openMeteo} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-datetime-format')).toHaveValue('YYYY-MM-DDTHH:MM')
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+  })
+
+  it('maps terse agency abbreviations (YEAR/MO/DY/HR) to date parts', () => {
+    const nasa = {
+      filename: 'nasa.csv',
+      rawText: 'YEAR,MO,DY,HR,T2M\n2024,1,1,0,7.68\n2024,1,1,1,7.7'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={nasa} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-month')).toHaveValue('MO')
+    expect(screen.getByTestId('dt-day')).toHaveValue('DY')
+    expect(screen.getByTestId('dt-hour')).toHaveValue('HR')
+    expect(screen.getByText(/All 2 rows valid/)).toBeInTheDocument()
+  })
+
+  it('prefers a full keyword over a short alias when both are present', () => {
+    // "month"/"day" must win over a stray "mo"/"dy" column.
+    const both = {
+      filename: 'both.csv',
+      rawText: 'year,month,day,mo,dy,temp\n2026,2,26,9,9,20\n2026,2,27,9,9,21'
+    }
+    render(<ImportWizard {...baseProps} pickedFile={both} />)
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByTestId('dt-month')).toHaveValue('month')
+    expect(screen.getByTestId('dt-day')).toHaveValue('day')
+  })
+
   it('changing the date mode to date-time on step 3 disables the Time controls', () => {
     render(<ImportWizard {...baseProps} pickedFile={goodGroup1File} />)
     fireEvent.click(screen.getByText('Next'))
