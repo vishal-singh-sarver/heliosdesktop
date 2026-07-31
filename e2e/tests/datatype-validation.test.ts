@@ -182,31 +182,42 @@ async function withCellDiagnostic<T>(colId: string, fn: () => Promise<T>): Promi
 /** Set a cell and assert it flags aria-invalid with the EXACT unit message. */
 async function assertOutOfRange(colId: string, value: number, message: string): Promise<void> {
   await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
-  // Wait for the EXACT thing we assert (the tooltip message), not the
-  // aria-invalid proxy: the flag flips a render-tick before the tooltip mounts,
-  // so "wait for flag, then read message once" races the render (observed
-  // air_humidity flake — message read back null).
+  // Wait for BOTH asserted facts together, read from one DOM snapshot. Polling
+  // the message and then reading aria-invalid separately still races the
+  // render: the wait can settle and the tooltip re-render before the second
+  // round-trip lands, which read the flag back as null (the air_humidity flake
+  // — its 0-1 -> 0-100 switch leaves the probe out of range for both units, so
+  // the tooltip is always re-rendering underneath the assertion).
   await withCellDiagnostic(colId, () =>
-    browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === message, {
-      timeout: 10000,
-      timeoutMsg: `cell[${colId}] never showed "${message}" for out-of-range ${value}`
-    })
+    browser.waitUntil(
+      async () => {
+        const v = await Weather.cellValidation(SHARED_ROW, colId)
+        return v.message === message && v.invalid === 'true'
+      },
+      {
+        timeout: 10000,
+        timeoutMsg: `cell[${colId}] never showed "${message}" + aria-invalid for out-of-range ${value}`
+      }
+    )
   )
-  expect(await Weather.cellInvalid(SHARED_ROW, colId)).toBe('true')
 }
 
 /** Set an in-range value and assert the flag clears (no false positive). */
 async function assertInRange(colId: string, value: number): Promise<void> {
   await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
-  // Same discipline as assertOutOfRange: wait until the tooltip is GONE (the
-  // asserted condition), then confirm the flag cleared with it.
+  // Same discipline as assertOutOfRange: both facts, one snapshot.
   await withCellDiagnostic(colId, () =>
-    browser.waitUntil(async () => (await Weather.cellError(SHARED_ROW, colId)) === null, {
-      timeout: 10000,
-      timeoutMsg: `in-range ${value} did not clear the validation message on ${colId}`
-    })
+    browser.waitUntil(
+      async () => {
+        const v = await Weather.cellValidation(SHARED_ROW, colId)
+        return v.message === null && v.invalid === null
+      },
+      {
+        timeout: 10000,
+        timeoutMsg: `in-range ${value} did not clear the validation message + flag on ${colId}`
+      }
+    )
   )
-  expect(await Weather.cellInvalid(SHARED_ROW, colId)).toBe(null)
 }
 
 /** Drive the below/above probes (whichever the unit has) + the in-range guard. */

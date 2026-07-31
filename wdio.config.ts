@@ -144,17 +144,33 @@ export const config: Options.Testrunner = {
     'electron-service:bridge': 'silent'
   },
 
-  // Stop after N failures. CI bails on the first one; locally 0 (run everything)
-  // is more useful for seeing the whole picture at once.
+  // Run every spec, everywhere, and fail at the end with the full picture.
   //
-  // Why CI bails: when the app itself cannot start, EVERY test fails the same
-  // way, and each one first burns its own waitforTimeout (10s) or mocha timeout
-  // (120s). A macOS run on 2026-07-29 spent 1h50m producing ~104 identical
-  // "element wasn't found" failures downstream of a single root cause
-  // ("Timeout exceeded to get the ContextId"). The 104th failure teaches nothing
-  // the 1st did not, so paying a runner for it - 10x billing on macOS - is pure
-  // waste. Bailing surfaces the same signal in ~1 minute.
-  bail: process.env['CI'] ? 1 : 0,
+  // `bail` is a LAUNCHER-level kill switch, not a per-spec one: on the Nth
+  // failure the scheduler empties `specs` for every remaining spec FILE
+  // (@wdio/cli launcher `_runSpecs`), so `bail: 1` reports the first failing
+  // spec and silently skips the rest. That cost real money on 2026-07-31 -
+  // two full release runs (~$8) surfaced three unrelated failures one at a
+  // time, and ubuntu never reached 5 of the 7 specs at all, so nobody knew
+  // whether they passed. A run that names every failure is cheaper than three
+  // runs that each name one.
+  //
+  // This previously bailed in CI to bound a different problem: when the app
+  // cannot START, every test fails the same way and each first burns its own
+  // waitforTimeout (10s) or mocha timeout (120s). A macOS run on 2026-07-29
+  // spent 1h50m producing ~104 identical "element wasn't found" failures
+  // downstream of one root cause. That case is now bounded by two things that
+  // did not exist then, both better targeted than bail:
+  //   - assertElectronBridge (e2e/support/harness.ts) probes the bridge once
+  //     per session and throws a real diagnostic immediately, so a dead app
+  //     fails in ~1 minute on its own.
+  //   - the 60-minute timeout on the "Run Integration Checks" step caps the
+  //     spend directly. bail bounds test COUNT; a timeout bounds COST, which
+  //     was the actual concern.
+  //
+  // If a cascade ever does slip past both, prefer a small cap (bail: 3-5) over
+  // returning to 1 - it still surveys most specs.
+  bail: 0,
 
   waitforTimeout: 10000,
   connectionRetryTimeout: 120000,

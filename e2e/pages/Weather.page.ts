@@ -371,14 +371,35 @@ class WeatherPage {
     await this.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
   }
 
-  /** Replace an editable cell's value and commit it (blur via the no-op Filter button). */
+  /**
+   * Commit a pending edit by blurring the focused input.
+   *
+   * Blur is the whole point here - the Filter button is a no-op target chosen
+   * only because clicking it moves focus. So do NOT use a coordinate click:
+   * once the table scrolls (30 columns, or a body scrolled to the bottom), a
+   * WebDriver click on the toolbar gets "element click intercepted ... at
+   * point (1103, 226)", and webdriverio cannot recover by scrolling because
+   * its scrollIntoView fallback needs `Browser.getWindowForTarget`, a CDP
+   * command this Electron build does not implement:
+   *   WebDriverError: unknown command: 'Browser.getWindowForTarget'
+   * Blurring the active element in-page is position-agnostic and fires the
+   * same React onBlur commit. Same reasoning as deleteColumn below.
+   */
+  async commitBlur(): Promise<void> {
+    await browser.execute(() => {
+      const el = document.activeElement as HTMLElement | null
+      el?.blur()
+    })
+  }
+
+  /** Replace an editable cell's value and commit it (blur -> React onBlur). */
   async editCell(rowId: string, colId: string, value: string): Promise<void> {
     const input = this.cellInput(rowId, colId)
     await input.click()
     await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await input.addValue(value)
-    await this.filterButton.click() // blur -> commit
+    await this.commitBlur() // blur -> commit
   }
 
   /** Rename a managed column via its header input and commit on blur. */
@@ -388,7 +409,7 @@ class WeatherPage {
     await selectAll()
     await browser.keys(['Delete'])
     if (newName.length) await input.addValue(newName)
-    await this.filterButton.click() // blur -> commit
+    await this.commitBlur() // blur -> commit
   }
 
   /** Confirm-delete a column via its trash icon + the delete-column dialog. */
@@ -911,6 +932,32 @@ class WeatherPage {
       const tip = input?.parentElement?.querySelector('[aria-label^="Validation error:"]')
       const label = tip?.getAttribute('aria-label')
       return label ? label.replace(/^Validation error:\s*/, '') : null
+    }, `${rowId} ${colId}`)
+  }
+
+  /**
+   * The cell's validation message AND aria-invalid flag from ONE DOM snapshot.
+   *
+   * Reading them separately re-opens the race cellError was written to close:
+   * a poll on the message that then reads the flag in a second round-trip can
+   * land after the tooltip has re-rendered, and the flag comes back null.
+   * air_humidity is the reliable reproducer - it is the only type whose
+   * base->alt switch (0-1 -> 0-100) leaves the probe value out of range for
+   * BOTH units, so setting the next probe re-renders the tooltip while the
+   * assertion is mid-flight. Callers asserting on both must use this.
+   */
+  async cellValidation(
+    rowId: string,
+    colId: string
+  ): Promise<{ message: string | null; invalid: string | null }> {
+    return browser.execute((cellLabel: string) => {
+      const input = document.querySelector(`[aria-label="${cellLabel}"]`)
+      const tip = input?.parentElement?.querySelector('[aria-label^="Validation error:"]')
+      const label = tip?.getAttribute('aria-label')
+      return {
+        message: label ? label.replace(/^Validation error:\s*/, '') : null,
+        invalid: input?.getAttribute('aria-invalid') ?? null
+      }
     }, `${rowId} ${colId}`)
   }
 

@@ -111,9 +111,9 @@ jobs:
         run: npm run build
 
       # See ci-main.yml: no continue-on-error (it rewrites the conclusion to
-      # "success", so a failing run reported green), and bail:1 only fires once
-      # a test reports a failure, so a hang before that would otherwise run to
-      # the job cap on three OSes. Nothing gates on this job.
+      # "success", so a failing run reported green). bail is 0, so every spec
+      # runs and the job fails at the end with the full list; this timeout is
+      # what bounds a hung run. Nothing gates on this job.
       - name: Run Integration Checks
         timeout-minutes: 60
         run: npm run e2e

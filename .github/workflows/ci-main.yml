@@ -139,11 +139,11 @@ jobs:
       # check that cannot go red is worse than no check. Nothing gates on this
       # job (see `package` below), so failing here blocks no downstream work.
       #
-      # bail:1 (wdio.config.ts) stops after the FIRST failure, but only once a
-      # test actually reports one. If the app hangs before that - or wdio itself
-      # wedges - nothing bails and the run bleeds until this cap on three OSes
-      # at once, macOS billing at 10x. A healthy run is fast (macOS took 46s on
-      # 2026-07-29), so 60min is far above what the suite needs - it is a
+      # bail is 0 (wdio.config.ts): every spec runs and the job fails at the end
+      # with the full list, rather than stopping at the first failure and hiding
+      # the rest. This timeout is what bounds the cost - a hung app or a wedged
+      # wdio would otherwise bleed on three OSes at once, macOS billing at 10x.
+      # A full healthy suite is ~13min locally and ~20min on CI, so 60min is a
       # backstop against a wedged run, not a budget.
       - name: Run Integration Checks
         timeout-minutes: 60

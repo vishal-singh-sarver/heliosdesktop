@@ -2,8 +2,7 @@
  * Weather table E2E — toolbar, virtualized table, column/row CRUD, header
  * rename, cell editing, unit conversion, the Add-Column / Add-Rows dialogs,
  * and Delete Data. Each test self-provisions a fresh project (enterProject)
- * and asserts only on its own rows/columns. One intentional RED finding:
- * the delete-row route bug (see the "delete row" block).
+ * and asserts only on its own rows/columns.
  */
 
 import Weather from '../pages/Weather.page'
@@ -585,24 +584,13 @@ describe('Weather CRUD — delete column', () => {
 })
 
 describe('Weather CRUD — delete row', () => {
-  // This test asserts the CORRECT behavior and therefore FAILS until the bug is
-  // fixed — by design: a real defect must be reported, not hidden. Confirming a
-  // row delete should remove the row, but it does not: the frontend posts to
-  // `.../scenario/{id}/deleteRow` (utils/constants.ts), while the backend only
-  // exposes `POST .../scenario/{id}/delete` (weather.py:135) — /deleteRow 404s,
-  // so deleteRowWorker rolls back the optimistic removal and the row reappears.
-  //
-  // FIX IS NOT A ONE-LINE ROUTE SWAP (see service.ts deleteRowsRequest):
-  //   1. ROUTE + BODY. /delete expects a DeleteRequest OBJECT `{ row: { date, time } }`
-  //      with `extra="forbid"` (schemas/weather.py). The frontend sends a bare ARRAY
-  //      `[{ date, time }]`, so pointing at API_ROUTES.weather.delete alone turns the
-  //      404 into a 422 — the body must also change to `{ row: { date, time } }`.
-  //   2. SEMANTIC GAP. The backend "row delete" does NOT drop the timestamp; it NaNs
-  //      every column at that (date, time) via updateTimeseriesData(..., NaN)
-  //      (weather_service.py:1411+). Unless the grid drops all-empty rows, the row
-  //      stays visible (blank) and this count==1 assertion still fails. A true
-  //      "remove row" likely needs a backend change (backend-api submodule).
-  // Also update service.test.ts when the request changes.
+  // This asserted a real defect for a while: the frontend POSTed to
+  // `.../scenario/{id}/deleteRow` while the backend exposed only `/delete`, so
+  // the call 404'd and deleteRowWorker rolled the optimistic removal back. The
+  // backend now serves `POST .../deleteRow` (routers/weather.py), takes the bare
+  // `[{ date, time }]` array the frontend already sends, and removes each
+  // (date, time) from every column rather than NaN-ing it. The test is green
+  // and is now an ordinary regression guard on that route.
   it('confirm removes the row', async () => {
     await enterWeather('delrow')
     await Weather.addRows(2)
@@ -611,9 +599,8 @@ describe('Weather CRUD — delete row', () => {
     await browser.waitUntil(async () => (await Weather.rowCount()) === 1, {
       timeout: 15000,
       timeoutMsg:
-        'Row NOT deleted (count stayed 2). BUG: frontend POSTs /deleteRow but the ' +
-        'backend route is /delete (weather.py:135) -> 404 -> optimistic delete rolls ' +
-        'back. Fix: deleteRowsRequest should use API_ROUTES.weather.delete.'
+        'Row NOT deleted (count stayed 2). Check that the frontend route in ' +
+        'utils/constants.ts still matches the backend POST .../deleteRow.'
     })
     await expect(await Weather.rowCount()).toBe(1)
   })

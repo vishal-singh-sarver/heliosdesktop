@@ -3,8 +3,13 @@
  * open/close, stubbed file pick, delimiter / header-skip parsing, the
  * Date/Time mapping step (all modes), validation gating, Review, step
  * navigation, and REAL provider-file imports. The native file dialog is
- * stubbed in the main process (no OS picker under WDIO). Two intentional RED
- * findings live in the real-file block (CIMIS.csv, USW.csv).
+ * stubbed in the main process (no OS picker under WDIO).
+ *
+ * The real-file block also pins two REJECTIONS as correct behaviour, not bugs:
+ * CIMIS.csv (trailing whitespace-only CRLF line -> "Row 194: 1 fields, expected
+ * 26") and USW.csv (year-less "MM-DDTHH:MM:SS" NOAA normals, which no wizard
+ * datetime format can represent). Both assert the wizard stays gated, so a
+ * regression that silently accepted either file goes red.
  */
 
 import HomePage from '../pages/HomePage.page'
