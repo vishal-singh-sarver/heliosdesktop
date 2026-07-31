@@ -206,7 +206,38 @@ export async function enterProject(
   const name = uniqueName(label)
   await HomePage.openCreateDialogViaSidebar()
   await HomePage.fillAndSubmitCreate(name, lat, lon)
-  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 20000 })
+  // Wait for EITHER outcome, then report which one happened. A bare wait on
+  // project-title cannot tell "create was rejected, dialog still open" (a real
+  // bug, and instant) from "create succeeded but the screen is slow to mount"
+  // (load). Both surfaced identically as
+  //   element ("[data-testid=project-title]") still not displayed after 20000ms
+  // which sent an investigation at the wrong layer. fillAndSubmitCreate
+  // deliberately does not wait (see its comment: success navigates away,
+  // failure keeps the dialog open), so this is the first point that can tell
+  // them apart.
+  try {
+    await browser.waitUntil(
+      async () =>
+        (await ProjectScreen.projectTitle.isDisplayed().catch(() => false)) ||
+        !(await HomePage.createDialog.isDisplayed().catch(() => true)),
+      { timeout: TIMEOUTS.LONG }
+    )
+  } catch {
+    const errs = await HomePage.createDialogErrors()
+    throw new Error(
+      `create for "${name}" never left the dialog after ${TIMEOUTS.LONG}ms. ` +
+        (errs.length
+          ? `The form is showing validation errors: ${errs.join(' | ')} — the submit was ` +
+            'rejected, so this is a bad value being typed, not a slow app.'
+          : 'No validation errors are shown, so the submit was accepted and the app is ' +
+            'either slow to navigate or the create POST never resolved.')
+    )
+  }
+  // Dialog is gone (or the title already rendered); now allow for a slow mount.
+  await ProjectScreen.projectTitle.waitForDisplayed({
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: `create for "${name}" was accepted (dialog closed) but ProjectScreen never mounted`
+  })
   // The first scenario loads after create; its id lands in localStorage once GET
   // resolves. Gate on that so the Weather table is ready for downstream asserts.
   await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) != null, {

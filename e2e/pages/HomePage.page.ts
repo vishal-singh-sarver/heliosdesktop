@@ -72,6 +72,25 @@ class HomePagePage {
     return this.createDialog.$('[data-testid="error-latitude"]')
   }
 
+  /**
+   * Every validation message currently shown in the create dialog, as text.
+   *
+   * One in-page read rather than three round-trips: this runs on a failure path
+   * where the dialog may be mid-unmount, and an isExisting/getText pair can tear
+   * (the element is gone between the two calls and getElementText throws,
+   * masking the diagnostic it was meant to produce). Empty array = no errors,
+   * which is itself the signal that a stuck create was ACCEPTED rather than
+   * rejected. Used by enterProject in e2e/support/harness.ts.
+   */
+  async createDialogErrors(): Promise<string[]> {
+    return browser.execute(() => {
+      const ids = ['error-projectName', 'error-latitude', 'error-longitude']
+      return ids
+        .map((id) => document.querySelector(`[data-testid="${id}"]`)?.textContent?.trim() ?? '')
+        .filter((t) => t.length > 0)
+    })
+  }
+
   // ----- Rename-dialog field (rendered name is `projectName`, scoped to dialog) -----
   get renameNameInput(): El {
     return this.renameDialog.$('[data-testid="input-projectName"]')
