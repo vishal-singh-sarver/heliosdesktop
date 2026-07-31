@@ -185,10 +185,11 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
-    # NOT `needs: test-integration`, deliberately. e2e now fails honestly (no
-    # continue-on-error), and this is what keeps that from blocking releases:
-    # the job reports its real result in parallel while packaging proceeds. Add
-    # it back here once e2e is reliably green and you want it gating releases.
+    # NOT `needs: test-integration`, deliberately - and unlike ci-release.yml,
+    # which IS gated. e2e fails honestly here (no continue-on-error) and reports
+    # its real result in parallel, but it does not block: this is the branch
+    # that signs and ships, so a flaky e2e must not stand between a merged
+    # commit and a release. `release` is where a failing suite stops a build.
     needs:
       - lint
       - test-unit
