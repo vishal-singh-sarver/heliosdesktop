@@ -83,10 +83,6 @@ jobs:
           submodules: recursive
           token: ${{ secrets.PAT }}
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
       # The ubuntu runner runs out of disk MID-SUITE. First seen 2026-07-31
       # ("Free space left: 53 MB"); an earlier, smaller version of this step
       # freed 20GB (81% -> 52%, 35GB free) and run 30706282192 STILL hit
@@ -97,32 +93,43 @@ jobs:
       # product bugs - renderer message timeouts, screenshot failures, hook
       # failures.
       #
-      # So this does two things: reclaim as much as possible up front, and
-      # RECORD the starting figure. The per-spec probe (reapOrphans in
-      # wdio.config.ts) prints free space after every spec, so the pair tells us
-      # both how much we started with and which spec eats it.
+      # This does two things: reclaim as much as possible up front, and RECORD
+      # the starting figure. logDiskUsage() in wdio.config.ts then prints free
+      # space after every spec, so the pair says both how much we started with
+      # and which spec eats it.
       #
-      # Sizes are the documented approximations for ubuntu images: android 10GB,
-      # hostedtoolcache 6GB, dotnet 4GB, swift 4GB, ghcup 4GB. AGENT_TOOLSDIRECTORY
-      # is usually /opt/hostedtoolcache, listed separately in case it moves.
+      # RUNS BEFORE setup-node, DELIBERATELY, and does NOT touch
+      # /opt/hostedtoolcache or $AGENT_TOOLSDIRECTORY.
+      # Run 30707915344 deleted the tool cache AFTER setup-node had populated
+      # it, so `npm install` died with "npm: command not found" (exit 127) and
+      # the suite never ran. setup-node installs node there; the widely used
+      # jlumbroso/free-disk-space action makes that removal opt-in and OFF by
+      # default for exactly this reason. Ordering the step first is the second
+      # guard: even if a tool-cache path is added back later, setup-node runs
+      # after and repopulates it.
+      #
+      # Sizes are the documented ubuntu-image approximations: android 10GB,
+      # dotnet 4GB, swift 4GB, ghcup 4GB. The ~6GB tool cache is deliberately
+      # forgone - we already know 35GB free was not enough, so the marginal 6GB
+      # is not what decides this, and breaking the toolchain costs a whole run.
       - name: Free disk space (Linux)
         if: runner.os == 'Linux'
         run: |
           echo "=== before ==="; df -h /
           sudo rm -rf /usr/local/lib/android \
-                      /opt/hostedtoolcache \
                       /usr/share/dotnet \
                       /usr/share/swift \
                       /usr/local/.ghcup \
                       /opt/ghc \
                       /usr/local/share/boost \
-                      /usr/local/share/powershell \
-                      /usr/local/lib/node_modules \
-                      "${AGENT_TOOLSDIRECTORY:-}" || true
+                      /usr/local/share/powershell || true
           sudo apt-get clean || true
           docker image prune -af || true
           echo "=== after ==="; df -h /
-          echo "after:"; df -h / | tail -1
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
