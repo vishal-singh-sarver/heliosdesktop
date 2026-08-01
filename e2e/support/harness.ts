@@ -62,21 +62,83 @@ async function assertElectronBridge(): Promise<void> {
   )
 }
 
+/**
+ * Force the main window to a fixed size, so a local run can reproduce CI's
+ * geometry. Set HELIOS_E2E_VIEWPORT=WxH (e.g. 1024x768).
+ *
+ * Why this exists: the app sizes itself from the display work area, capped at
+ * 1920x1080 (src/main/index.ts). A dev machine gives it ~1728 CSS px wide; the
+ * CI runners' virtual displays give ~1024. Anything that only goes off-screen
+ * at the NARROW width — the 30-column table's right-hand cells — therefore
+ * passes locally and fails on every runner, on macOS AND Windows, which reads
+ * like an OS difference and is not. Reproduce before fixing:
+ *   HELIOS_E2E_VIEWPORT=1024x768 npx wdio run wdio.config.ts --spec <spec>
+ *
+ * MUST go through the Electron main process. browser.setWindowSize() issues
+ * WebDriver `window/rect`, which needs the CDP command Browser.getWindowForTarget
+ * — not implemented in this Electron build, so it throws the same
+ * "unknown command" this harness already works around for scrollIntoView.
+ */
+async function applyViewportOverride(): Promise<void> {
+  const spec = process.env['HELIOS_E2E_VIEWPORT']
+  if (!spec) return
+  const m = /^(\d+)x(\d+)$/.exec(spec.trim())
+  if (!m) throw new Error(`HELIOS_E2E_VIEWPORT must look like 1024x768, got "${spec}"`)
+  const [w, h] = [Number(m[1]), Number(m[2])]
+  await browser.electron.execute(
+    (electron, width: number, height: number) => {
+      const win = electron.BrowserWindow.getAllWindows()[0]
+      win?.setSize(width, height)
+    },
+    w,
+    h
+  )
+}
+
 export async function waitForMainWindow(): Promise<void> {
   await assertElectronBridge()
-  await browser.waitUntil(
-    async () => {
-      try {
-        const handles = await browser.getWindowHandles()
-        if (handles.length === 0) return false
-        await browser.switchToWindow(handles[handles.length - 1])
-        return await browser.execute(() => document.querySelector('#root') !== null)
-      } catch {
-        return false
-      }
-    },
-    { timeout: 30000, timeoutMsg: 'Main window with #root never became available' }
-  )
+  // Track the last state each poll saw, so a timeout can say HOW FAR startup
+  // got instead of just "never became available". On 2026-08-01 two ubuntu
+  // specs failed here with no other evidence, and the three cases below need
+  // completely different fixes:
+  //   0 handles          -> the app process never opened a window (crash/stall
+  //                         during init; check the app-startup.log dump)
+  //   handles, no #root  -> a window exists but the renderer never mounted
+  //                         (bundle/CSP/preload failure)
+  //   an error every poll -> the driver connection itself is broken
+  let last = 'no poll completed'
+  try {
+    await browser.waitUntil(
+      async () => {
+        try {
+          const handles = await browser.getWindowHandles()
+          if (handles.length === 0) {
+            last = '0 window handles (no window opened yet)'
+            return false
+          }
+          await browser.switchToWindow(handles[handles.length - 1])
+          const hasRoot = await browser.execute(() => document.querySelector('#root') !== null)
+          if (!hasRoot) {
+            last = `${handles.length} handle(s) but no #root (renderer not mounted)`
+            const url = await browser.getUrl().catch(() => '<url unavailable>')
+            last += ` at ${url}`
+          }
+          return hasRoot
+        } catch (err) {
+          last = `poll threw: ${(err as Error).message}`
+          return false
+        }
+      },
+      { timeout: 30000 }
+    )
+  } catch {
+    throw new Error(
+      `Main window with #root never became available after 30s. Last observed: ${last}. ` +
+        'If the app never opened a window, see the "Dump app startup + backend logs" step ' +
+        'for app-startup.log.'
+    )
+  }
+  await applyViewportOverride()
 }
 
 /**

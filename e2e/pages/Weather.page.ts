@@ -392,10 +392,35 @@ class WeatherPage {
     })
   }
 
+  /**
+   * Focus an input by aria-label, in-page.
+   *
+   * A WebDriver click cannot reach it once the table scrolls horizontally: at
+   * 30 columns a mid-table cell or header sits past the window edge and the
+   * click is intercepted ("not clickable at point (1103, 226)"), which
+   * webdriverio cannot recover from because its scrollIntoView fallback needs
+   * Browser.getWindowForTarget — a CDP command this Electron build does not
+   * implement. focus() is position-agnostic and fires the same React onFocus.
+   *
+   * This only bites at a NARROW viewport: the app sizes to the display work
+   * area capped at 1920x1080, so a dev machine (~1728 CSS px) keeps those
+   * columns on screen while CI's virtual display (~1024) does not. Reproduce
+   * with HELIOS_E2E_VIEWPORT=1024x768 (see applyViewportOverride in
+   * e2e/support/harness.ts) before assuming a change here works.
+   */
+  private async focusInput(label: string): Promise<void> {
+    const el = $(`[aria-label="${label}"]`)
+    await el.waitForExist({ timeout: 10000 })
+    await browser.execute((l: string) => {
+      const node = document.querySelector(`[aria-label="${l}"]`) as HTMLElement | null
+      node?.focus()
+    }, label)
+  }
+
   /** Replace an editable cell's value and commit it (blur -> React onBlur). */
   async editCell(rowId: string, colId: string, value: string): Promise<void> {
     const input = this.cellInput(rowId, colId)
-    await input.click()
+    await this.focusInput(`${rowId} ${colId}`)
     await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await input.addValue(value)
@@ -405,7 +430,7 @@ class WeatherPage {
   /** Rename a managed column via its header input and commit on blur. */
   async renameColumn(colId: string, newName: string): Promise<void> {
     const input = this.columnNameInput(colId)
-    await input.click()
+    await this.focusInput(`Column ${colId} name`)
     await selectAll()
     await browser.keys(['Delete'])
     if (newName.length) await input.addValue(newName)
