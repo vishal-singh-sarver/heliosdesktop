@@ -17,6 +17,49 @@ delete process.env['ELECTRON_RUN_AS_NODE']
 const electronPath: string = require('electron')
 
 /**
+ * Print free disk space, and the biggest space consumers under the repo, after
+ * each spec.
+ *
+ * The ubuntu CI runner reaches "Free space left: 0 MB" partway through a
+ * 7-spec run even after the workflow reclaims ~20GB up front, and the symptom
+ * is NOT an out-of-space error - the app opens a window whose renderer never
+ * mounts, so specs fail as renderer timeouts and hook failures that read like
+ * product bugs. One line per spec turns "something ate 35GB" into "spec N ate
+ * it", which is the difference between fixing this and guessing again.
+ *
+ * Best-effort and never throws: this is diagnostics, and a failure here must
+ * not fail the run. Linux/macOS only - `df`/`du` in this form are not portable
+ * to the Windows runner.
+ */
+function logDiskUsage(label: string): void {
+  if (process.platform === 'win32') return
+  try {
+    const free = execSync("df -h / | tail -1 | awk '{print $3\" used, \"$4\" free (\"$5\")\"}'", {
+      encoding: 'utf8'
+    }).trim()
+    console.log(`[disk:${label}] ${free}`)
+    // Top consumers inside the workspace. Depth 2 keeps it to a few lines while
+    // still separating e.g. node_modules from out/ from allure-results.
+    const top = execSync(
+      `du -sh ${process.cwd()}/* 2>/dev/null | sort -rh | head -6 | tr '\\n' ' | '`,
+      { encoding: 'utf8' }
+    ).trim()
+    if (top) console.log(`[disk:${label}] workspace: ${top}`)
+    // Also probe OUTSIDE the workspace. Electron writes user data (cache, GPU
+    // cache, Local Storage, crash dumps) under ~/.config/<app> on Linux, and a
+    // per-session leak there would be invisible in the workspace figures above
+    // — which is exactly the shape of "35GB vanished and the repo looks fine".
+    const home = execSync(
+      `du -sh ${process.env['HOME']}/.config/* ${process.env['HOME']}/.cache/* 2>/dev/null | sort -rh | head -4 | tr '\\n' ' | '`,
+      { encoding: 'utf8' }
+    ).trim()
+    if (home) console.log(`[disk:${label}] home: ${home}`)
+  } catch {
+    /* diagnostics only */
+  }
+}
+
+/**
  * Reap orphaned test child-processes. When wdio-electron-service hard-kills
  * Electron (session teardown / reloadSession) or the run is force-killed,
  * Electron's before-quit/will-quit backend cleanup never runs, so the spawned
@@ -212,6 +255,7 @@ export const config: Options.Testrunner = {
   // ports, and this is the only hook that fires before the first session.
   onPrepare: function () {
     reapOrphans('onPrepare', true)
+    logDiskUsage('onPrepare')
     writeAllureEnvironment()
   },
 
@@ -225,11 +269,13 @@ export const config: Options.Testrunner = {
   // weight. Prevents backends piling up across a full-suite run.
   afterSession: function () {
     reapOrphans('afterSession', false)
+    logDiskUsage('afterSession')
   },
 
   // Final safety net once the whole run finishes (or is interrupted): sweep both
   // orphaned backends AND any lingering wdio-launched Electron from out/main.
   onComplete: function () {
     reapOrphans('onComplete', true)
+    logDiskUsage('onComplete')
   },
 }

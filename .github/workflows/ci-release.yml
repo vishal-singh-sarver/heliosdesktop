@@ -61,17 +61,19 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - windows-2022
-          # macos-latest is TEMPORARILY DISABLED while the ubuntu startup
-          # failure is pinned down. macOS runners bill at 10x and a full e2e
-          # run there is ~16-20min, so it is the expensive way to re-learn
-          # something ubuntu and windows already tell us. The click-intercept
-          # fix that macOS was failing on is verified locally at CI's viewport
-          # (HELIOS_E2E_VIEWPORT=1024x768), and windows exercises the exact
-          # same code path.
+          # ══ BOTH macos-latest AND windows-2022 ARE TEMPORARILY DISABLED ══
+          # RESTORE BOTH before cutting a release. They are shipped platforms;
+          # this narrowing exists only to iterate cheaply on the ubuntu disk
+          # exhaustion, which is the one unresolved failure.
           #
-          # PUT THIS BACK before the release is cut - macOS is a shipped
-          # platform and the only one that covers the signing-adjacent paths.
+          # windows-2022 went GREEN on run 30706282192 (549d8f9) - the
+          # focusInput fix cleared the 30-column click-intercept failure - so
+          # re-running it each iteration re-proves a known result at 2x billing.
+          #
+          # macos-latest bills at 10x for a ~16-20min run and exercises the same
+          # click path windows already confirmed.
+          #
+          # - windows-2022
           # - macos-latest
           - ubuntu-latest
     runs-on: ${{ matrix.os }}
@@ -85,20 +87,41 @@ jobs:
         with:
           node-version: 22
 
-      # The ubuntu runner ran out of disk mid-suite on 2026-07-31:
-      #   "Free space left: 53 MB"
-      # fired immediately before journey.test.ts, which then failed on a
-      # validation message that never rendered. macOS and Windows never emit
-      # the warning and pass that same spec, so this was environmental, not a
-      # product bug. Reclaiming the preinstalled toolchains we do not use frees
-      # ~25GB and costs a few seconds. Only Linux ships these images.
+      # The ubuntu runner runs out of disk MID-SUITE. First seen 2026-07-31
+      # ("Free space left: 53 MB"); an earlier, smaller version of this step
+      # freed 20GB (81% -> 52%, 35GB free) and run 30706282192 STILL hit
+      # "Free space left: 0 MB" partway through, so the suite itself consumes
+      # ~35GB across 7 specs. Consequence is not a clean error: the app opens a
+      # window but the renderer never mounts, so waitForMainWindow times out
+      # ("1 handle(s) but no #root") and specs fail in ways that read like
+      # product bugs - renderer message timeouts, screenshot failures, hook
+      # failures.
+      #
+      # So this does two things: reclaim as much as possible up front, and
+      # RECORD the starting figure. The per-spec probe (reapOrphans in
+      # wdio.config.ts) prints free space after every spec, so the pair tells us
+      # both how much we started with and which spec eats it.
+      #
+      # Sizes are the documented approximations for ubuntu images: android 10GB,
+      # hostedtoolcache 6GB, dotnet 4GB, swift 4GB, ghcup 4GB. AGENT_TOOLSDIRECTORY
+      # is usually /opt/hostedtoolcache, listed separately in case it moves.
       - name: Free disk space (Linux)
         if: runner.os == 'Linux'
         run: |
-          echo "before:"; df -h / | tail -1
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
-          sudo apt-get clean
+          echo "=== before ==="; df -h /
+          sudo rm -rf /usr/local/lib/android \
+                      /opt/hostedtoolcache \
+                      /usr/share/dotnet \
+                      /usr/share/swift \
+                      /usr/local/.ghcup \
+                      /opt/ghc \
+                      /usr/local/share/boost \
+                      /usr/local/share/powershell \
+                      /usr/local/lib/node_modules \
+                      "${AGENT_TOOLSDIRECTORY:-}" || true
+          sudo apt-get clean || true
+          docker image prune -af || true
+          echo "=== after ==="; df -h /
           echo "after:"; df -h / | tail -1
 
       - name: Install Linux system dependencies
