@@ -47,7 +47,9 @@ jobs:
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
-      - run: npm test || echo "Unit tests completed, continuing pipeline."
+      # No `|| echo` swallow - see ci-main.yml: it exits 0 on failure, so this
+      # gate could never go red while `package` depends on it.
+      - run: npm test
 
   test-integration:
     # Builds the app + runs e2e, so it is a build: only on push, never on PRs.

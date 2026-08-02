@@ -72,12 +72,19 @@ jobs:
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
-      # TZ=Asia/Kolkata: some tests are IST-hardcoded (the precisionNormalized
-      # test in saga.test.ts). Running CI in IST makes those tests pass.
+      # No `|| echo` swallow. That form exits 0 even when vitest fails, so
+      # test-unit could never go red - and `package` now depends on it, which
+      # would make the new e2e gate leak: a failing unit suite would still sign
+      # and publish installers. Same reasoning as the lint step above.
+      #
+      # TZ=Asia/Kolkata is inert: vitest.config.ts pins env TZ='UTC' internally,
+      # which wins. Left in place because the suite passes either way (1299/1299
+      # verified under UTC) - but do not rely on it to make an IST-hardcoded
+      # test pass.
       - name: Run unit tests
         env:
           TZ: Asia/Kolkata
-        run: npm test || echo "Unit tests completed, continuing pipeline."
+        run: npm test
 
   test-integration:
     # Old gate (kept for reference):
@@ -109,6 +116,31 @@ jobs:
           submodules: recursive
           token: ${{ secrets.PAT }}
 
+      # Mirrors ci-release.yml - see the long comment there for the evidence.
+      # Short version: the ubuntu runner's e2e working set SPIKES (~36G steady,
+      # 50G and 57G during two specs) rather than growing, and without this
+      # reclamation the spike exhausts the disk. It does not fail cleanly: the
+      # app opens a window whose renderer never mounts, so specs fail as
+      # renderer timeouts and hook failures that read like product bugs.
+      #
+      # MUST run BEFORE setup-node, and must NOT delete /opt/hostedtoolcache or
+      # $AGENT_TOOLSDIRECTORY - setup-node installs node there, and deleting it
+      # afterwards makes `npm install` die with "npm: command not found".
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== before ==="; df -h /
+          sudo rm -rf /usr/local/lib/android \
+                      /usr/share/dotnet \
+                      /usr/share/swift \
+                      /usr/local/.ghcup \
+                      /opt/ghc \
+                      /usr/local/share/boost \
+                      /usr/local/share/powershell || true
+          sudo apt-get clean || true
+          docker image prune -af || true
+          echo "=== after ==="; df -h /
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -136,8 +168,8 @@ jobs:
       # It previously reported green - and `continue-on-error` does not merely
       # let the job proceed, it REWRITES the recorded conclusion, so both the
       # step and the job read "success" while the log showed `exit code 1`. A
-      # check that cannot go red is worse than no check. Nothing gates on this
-      # job (see `package` below), so failing here blocks no downstream work.
+      # check that cannot go red is worse than no check. `package` NOW GATES on
+      # this job (see its `needs`), so a red run here skips the installers.
       #
       # bail is 0 (wdio.config.ts): every spec runs and the job fails at the end
       # with the full list, rather than stopping at the first failure and hiding
@@ -185,14 +217,26 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
-    # NOT `needs: test-integration`, deliberately - and unlike ci-release.yml,
-    # which IS gated. e2e fails honestly here (no continue-on-error) and reports
-    # its real result in parallel, but it does not block: this is the branch
-    # that signs and ships, so a flaky e2e must not stand between a merged
-    # commit and a release. `release` is where a failing suite stops a build.
+    # Gated on test-integration, matching ci-release.yml. This was deliberately
+    # UNgated while e2e could not pass - a suite that is always red is not a
+    # gate, it is a blocker - but run 30753157914 went green on all three
+    # platforms, so the condition that comment set ("add it back once e2e is
+    # reliably green") is met. main is what publish-stable.yml promotes to the
+    # stable feed, so an artifact that ships should not come from a tree whose
+    # e2e is failing.
+    #
+    # Consequence: a failing e2e SKIPS all six package jobs, and a skipped job
+    # reports as SUCCESSFUL. A green check mark alone does not prove the
+    # installers were built - confirm the package jobs actually ran before
+    # tagging a release:
+    #   gh run view <id> --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
+    # publish-stable.yml is unaffected either way: it requires a successful
+    # ci-main run for the tagged commit and downloads that run's artifacts, so
+    # a skipped package job means the tag simply finds nothing to promote.
     needs:
       - lint
       - test-unit
+      - test-integration
     strategy:
       fail-fast: false
       matrix:
