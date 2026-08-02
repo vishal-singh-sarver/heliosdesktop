@@ -49,6 +49,23 @@ function logDiskUsage(label: string): void {
     // cache, Local Storage, crash dumps) under ~/.config/<app> on Linux, and a
     // per-session leak there would be invisible in the workspace figures above
     // — which is exactly the shape of "35GB vanished and the repo looks fine".
+    // Where the SPIKE actually lives. The workspace and $HOME probes above are
+    // byte-identical between a 36G baseline sample and a 51G/57G spike sample,
+    // so the 14-21G is somewhere neither of them looks. Sweep the whole root
+    // filesystem one level down (-x stays on / so we never walk a mount) and
+    // print anything over 1G, which names the directory without dumping a tree.
+    // `sudo -n` (never prompt) so a dev machine without passwordless sudo just
+    // fails this one probe instead of hanging. Wrapped separately from the
+    // others: a throw here must not skip the $HOME sweep below.
+    try {
+      const root = execSync(
+        `sudo -n du -xh --max-depth=2 --threshold=1G / 2>/dev/null | sort -rh | head -8 | tr '\\n' ' | '`,
+        { encoding: 'utf8' }
+      ).trim()
+      if (root) console.log(`[disk:${label}] root>1G: ${root}`)
+    } catch {
+      /* no passwordless sudo (normal on a dev machine) - CI runners have it */
+    }
     const home = execSync(
       `du -sh ${process.env['HOME']}/.config/* ${process.env['HOME']}/.cache/* 2>/dev/null | sort -rh | head -4 | tr '\\n' ' | '`,
       { encoding: 'utf8' }

@@ -21,6 +21,7 @@
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { enterProject, waitForBackendReady, waitForMainWindow } from '../support/harness'
+import { TIMEOUTS } from '../config/timeouts'
 
 /** One unit's range + the concrete literals the loop drives and asserts. */
 interface UnitCase {
@@ -195,7 +196,22 @@ async function assertOutOfRange(colId: string, value: number, message: string): 
         return v.message === message && v.invalid === 'true'
       },
       {
-        timeout: 10000,
+        // XLONG, not MEDIUM. This must outlast a wedged renderer, not just a
+        // slow one. On CI run 30763052415 chromedriver logged
+        //   SEVERE: Timed out receiving message from renderer: 10.000
+        // three times inside this spec, immediately before this wait expired -
+        // so a 10s budget was being consumed entirely by a 10s renderer stall
+        // and the assertion never got a live sample. The cell state dumped at
+        // failure ({"value":"-1","invalid":null,"tip":null}) is a snapshot of a
+        // frozen renderer, NOT proof that validation failed to run:
+        // validateCellValue returns the right message for these exact units,
+        // and CellInput takes `col` live from redux, so nothing here is stale.
+        //
+        // This spec is one of the two whose working set spikes (~51G vs a 36G
+        // baseline); the load that produces is the real cause and is tracked
+        // separately. Raising the budget is what stops that load from reading
+        // as a product bug.
+        timeout: TIMEOUTS.XLONG,
         timeoutMsg: `cell[${colId}] never showed "${message}" + aria-invalid for out-of-range ${value}`
       }
     )
@@ -213,7 +229,9 @@ async function assertInRange(colId: string, value: number): Promise<void> {
         return v.message === null && v.invalid === null
       },
       {
-        timeout: 10000,
+        // See assertOutOfRange: XLONG so a renderer stall cannot consume the
+        // whole budget.
+        timeout: TIMEOUTS.XLONG,
         timeoutMsg: `in-range ${value} did not clear the validation message + flag on ${colId}`
       }
     )
@@ -279,7 +297,9 @@ describe('Weather data types — per-type range validation sweep', () => {
         await Weather.changeUnit(colId, t.alt.unit)
         await browser.waitUntil(
           async () => norm(await Weather.headerPickerLabel(colId)) === alt.unit,
-          { timeout: 10000, timeoutMsg: `unit did not change to ${alt.unit}` }
+          // XLONG for the same reason as the assertions above: a renderer
+          // stall in this spec can eat a 10s budget whole.
+          { timeout: TIMEOUTS.XLONG, timeoutMsg: `unit did not change to ${alt.unit}` }
         )
         // The header label is NOT enough to start probing. A unit-only change
         // runs updateColumnWorker -> buildConvertedColumnValues, which REWRITES
