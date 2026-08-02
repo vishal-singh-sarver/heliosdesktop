@@ -106,8 +106,14 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - windows-2022
-          - macos-latest
+          # ══════════════════ TEMPORARY — REVERT THIS ══════════════════
+          # Narrowed to ubuntu while the e2e working-set spike is traced
+          # (logDiskUsage's root sweep in wdio.config.ts names it). ubuntu is
+          # the only platform that spikes, so windows (2x) and macos (10x) are
+          # paying to re-prove a result they already gave on run 30753157914.
+          # RESTORE both before tagging a release.
+          # - windows-2022
+          # - macos-latest
           - ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
@@ -215,8 +221,19 @@ jobs:
 
   package:
     name: Package & Sign ${{ matrix.label }}
+    # ══════════════════════ TEMPORARY — REVERT THIS ══════════════════════
+    # `&& false` disables all six package jobs while the ubuntu e2e
+    # working-set spike is traced. Six targets (both mac arches at 10x, three
+    # ubuntu containers, windows) is the most expensive thing in this repo,
+    # and none of it is under investigation - packaging and signing last
+    # passed on run 30753157914.
+    #
+    # Restore by deleting the `&& false` below. The condition is left inline
+    # rather than the job commented out so the revert is one token and the
+    # job's `needs`/matrix stay under review in the meantime.
+    #
     # Installer/package build: only on push/dispatch, never on PRs.
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && false
     # Gated on test-integration, matching ci-release.yml. This was deliberately
     # UNgated while e2e could not pass - a suite that is always red is not a
     # gate, it is a blocker - but run 30753157914 went green on all three
