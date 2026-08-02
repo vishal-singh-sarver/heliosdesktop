@@ -208,19 +208,16 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push, never on PRs.
     if: github.event_name != 'pull_request'
-    # Gated on test-integration, unlike ci-main.yml. This is the branch where
-    # problems are supposed to surface, so a release candidate should not be
-    # built from a tree whose e2e suite is failing - and nothing downstream
+    # Gated on test-integration, as ci-main.yml now is too. This is the branch
+    # where problems are supposed to surface, so a release candidate should not
+    # be built from a tree whose e2e suite is failing - and nothing downstream
     # consumes these artifacts, so blocking here blocks no shipping.
     #
-    # Consequence to expect: a failing e2e SKIPS all three package jobs, and a
-    # skipped job reports as successful. If you are pushing to get packaging or
-    # signing signal specifically, check that the package jobs actually RAN -
-    # a green check alone does not prove it. Drop test-integration from `needs`
-    # temporarily when you need the two exercised independently.
-    #
-    # main deliberately does NOT gate (see ci-main.yml): keeping e2e flakiness
-    # out of the path that signs and ships.
+    # Consequence to expect: a failing e2e SKIPS all three package jobs. The RUN
+    # still goes red (the e2e job is red), so a failing suite cannot look green.
+    # But no rc-installer-* artifacts exist for that commit. If you are pushing
+    # to get packaging or signing signal specifically, drop test-integration
+    # from `needs` temporarily so the two are exercised independently.
     needs:
       - lint
       - test-unit

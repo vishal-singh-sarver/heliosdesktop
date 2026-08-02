@@ -225,14 +225,14 @@ jobs:
     # stable feed, so an artifact that ships should not come from a tree whose
     # e2e is failing.
     #
-    # Consequence: a failing e2e SKIPS all six package jobs, and a skipped job
-    # reports as SUCCESSFUL. A green check mark alone does not prove the
-    # installers were built - confirm the package jobs actually ran before
-    # tagging a release:
+    # Consequence: a failing e2e SKIPS all six package jobs. The RUN still goes
+    # red - the e2e job itself is red, so there is no way for a failing suite to
+    # look green. What a skipped job does mean is that no installers exist for
+    # that commit, which matters before tagging: publish-stable.yml requires a
+    # SUCCESSFUL ci-main run for the tagged commit and downloads its artifacts,
+    # so tagging a commit whose package jobs were skipped finds nothing to
+    # promote. Check conclusions rather than assuming:
     #   gh run view <id> --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
-    # publish-stable.yml is unaffected either way: it requires a successful
-    # ci-main run for the tagged commit and downloads that run's artifacts, so
-    # a skipped package job means the tag simply finds nothing to promote.
     needs:
       - lint
       - test-unit
