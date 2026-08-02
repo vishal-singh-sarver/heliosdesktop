@@ -126,7 +126,26 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
     ...frameOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Under e2e ONLY. isHeadlessTestRun() deliberately never calls show(),
+      // so Chromium treats the window as hidden and - with backgroundThrottling
+      // at its default of true - throttles the renderer's animations and timers
+      // and flips the Page Visibility API to hidden.
+      //
+      // That is what chromedriver reports as
+      //   SEVERE: Timed out receiving message from renderer: 10.000
+      // The renderer is not wedged; it is throttled, and a WebDriver command
+      // that lands during a throttled slice waits out its whole budget. Those
+      // stalls have failed a different spec on each of the last three ubuntu
+      // runs (weather -> datatype-validation -> projectscreen), which is why
+      // raising each assertion's timeout only relocated the failure. They also
+      // appear on the windows runner, so this is not Linux-specific - Linux is
+      // just slow enough to hit it most often.
+      //
+      // Left at the default in normal use: a real user's hidden window SHOULD
+      // throttle to save battery. This only opts out when the window is hidden
+      // for the artificial reason that we never show it.
+      ...(isHeadlessTestRun() ? { backgroundThrottling: false } : {})
     }
   })
 
