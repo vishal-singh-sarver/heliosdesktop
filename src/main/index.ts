@@ -127,20 +127,21 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Under e2e ONLY. isHeadlessTestRun() deliberately never calls show(),
-      // so Chromium treats the window as hidden and - with backgroundThrottling
-      // at its default of true - throttles the renderer's animations and timers
-      // and flips the Page Visibility API to hidden.
+      // Under e2e ONLY. isHeadlessTestRun() deliberately never calls show(), so
+      // Chromium treats the window as hidden and - with backgroundThrottling at
+      // its default of true - throttles the renderer's animations and timers and
+      // flips the Page Visibility API to hidden. A test run wants none of that,
+      // so we opt out: general hygiene for a never-shown window under test.
       //
-      // That is what chromedriver reports as
+      // CORRECTION (2026-08-03, measured on a real Windows box): this flag was
+      // originally added believing it caused
       //   SEVERE: Timed out receiving message from renderer: 10.000
-      // The renderer is not wedged; it is throttled, and a WebDriver command
-      // that lands during a throttled slice waits out its whole budget. Those
-      // stalls have failed a different spec on each of the last three ubuntu
-      // runs (weather -> datatype-validation -> projectscreen), which is why
-      // raising each assertion's timeout only relocated the failure. They also
-      // appear on the windows runner, so this is not Linux-specific - Linux is
-      // just slow enough to hit it most often.
+      // It does not, and neither do the switches below. That line is emitted by
+      // attachFailureScreenshot (e2e/config/reporting.ts) taking a screenshot of
+      // the hidden window AFTER a test has already failed - see the evidence
+      // block there. The flag is kept because not throttling a test renderer is
+      // right on its own merits, NOT because it fixes that stall; do not cite it
+      // as the fix.
       //
       // Left at the default in normal use: a real user's hidden window SHOULD
       // throttle to save battery. This only opts out when the window is hidden
@@ -422,18 +423,26 @@ setUserDataPath()
 // Headless e2e: stop Chromium throttling the renderer of a window we never
 // show. MUST be appended before app.whenReady().
 //
-// The webPreferences backgroundThrottling:false on the main window is NOT
-// enough on Windows. Per electron#31016 that flag covers occluded and
-// minimized windows there but NOT hidden ones - and "hidden" is exactly our
-// case, since isHeadlessTestRun() never calls show(). macOS covers all three,
-// which is why the webPreferences change alone took ubuntu and macos to zero
-// renderer stalls on run 30780330034 while windows stayed at 2.
-//
 // These switches are process-global (they apply to every renderer, not one
-// window), which is fine here because the whole process is a test run. Both
-// are the standard pair for CI test runners - karma sets them for the same
-// reason. Guarded by isHeadlessTestRun() so shipped behaviour is untouched: a
-// real user's backgrounded window SHOULD throttle to save battery.
+// window), which is fine here because the whole process is a test run. They are
+// the standard set for CI test runners - karma sets them for the same reason.
+// Guarded by isHeadlessTestRun() so shipped behaviour is untouched: a real
+// user's backgrounded window SHOULD throttle to save battery.
+//
+// CORRECTION (2026-08-03): these were added to chase
+//   SEVERE: Timed out receiving message from renderer: 10.000
+// on the windows runner, reasoning from electron#31016 that
+// backgroundThrottling:false misses HIDDEN windows on Windows. They had no
+// effect, and we now know why: that line never came from throttling at all. It
+// is attachFailureScreenshot (e2e/config/reporting.ts) screenshotting the hidden
+// window after a test has ALREADY failed - proven by an idle-vs-loaded A/B on a
+// real Windows box, where the same failing test produced 0 stall lines idle and
+// the exact 2-line CI signature under CPU contention.
+//
+// The apparent "ubuntu/macOS went to 0 while windows stayed at 2" signal was an
+// artifact of counting: stall lines only ever equalled 2 x failed tests, so a
+// run with no failures logged none regardless of these switches. Kept as test
+// hygiene; they are NOT the fix for that stall.
 if (isHeadlessTestRun()) {
   app.commandLine.appendSwitch('disable-renderer-backgrounding')
   app.commandLine.appendSwitch('disable-background-timer-throttling')

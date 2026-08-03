@@ -1,183 +1,121 @@
-# Handoff: Windows e2e renderer stall
+# RESOLVED: the "Windows e2e renderer stall" was never a renderer stall
 
-You are picking this up on a **real Windows machine**. Everything below was
-diagnosed from CI logs on macOS, where the failure cannot be reproduced. That
-limitation is why this is being handed off — the previous agent guessed twice
-and was wrong twice, at ~$8–12 per CI run. **Reproduce before you change
-anything.**
-
-Branch: `debug/windows-e2e-stall`, cut from `main` at `c586ae1`.
+Investigated on a real Windows box on 2026-08-03. **The conclusion in the
+original handoff was wrong**, and this file now records what actually happens so
+nobody spends another $8-12 CI run on the throttling theory. The original text is
+preserved in git history (`9ed62a0`).
 
 ---
 
-## The failure
+## What the stall actually is
 
-`weather.test.ts` and `datatype-validation.test.ts` fail one test per run on
-`windows-2022` CI. **A different test each run** — that is the key symptom. It
-is not one broken test; it is whichever assertion happens to be in flight when
-the renderer stalls.
+```
+[SEVERE]:  Timed out receiving message from renderer: 10.000
+[WARNING]: screenshot failed, retrying timeout: Timed out receiving message from renderer: 10.000
+```
 
-| CI run | stalls | failing test |
+Those two lines are **one `browser.takeScreenshot()` call** made by
+`attachFailureScreenshot` (`e2e/config/reporting.ts`), wired to `afterTest` in
+`wdio.config.ts`. It runs **only when a test has already failed**.
+
+`Page.captureScreenshot` needs a fresh compositor frame. Our e2e window is never
+shown (`isHeadlessTestRun()` never calls `show()`), and a hidden window under CPU
+pressure does not produce one inside chromedriver's 10s renderer budget — so the
+command times out and retries.
+
+**The stall is downstream of a failure, never its cause.**
+
+## The evidence
+
+Measured locally, full suite at `HELIOS_E2E_VIEWPORT=1024x768`, hidden:
+
+| Configuration | Failing tests | Stall lines |
 |---|---|---|
-| r3 / 30703357707 | 2 | `adds 30 columns then back-fills a defaulted column…` |
-| m5 / 30780330034 | 2 | `direct_horizontal_radiation_flux: is_base auto-selects…` |
-| **m6 / 30820985608** | **0** | *(none — 7/7 passed)* |
-| m7 / 30824713568 | 2 | `allows re-adding a column name once the original column is deleted` |
+| Full suite, unconstrained (20 cores) | 0 | **0** |
+| Full suite, pinned to 4 cores | 0 | **0** |
+| Full suite, 2 cores + 4 competing busy loops | many | many, **1:1 with screenshot retries** |
+| 1 deliberately-failing test, machine idle | 1 | **0** |
+| 1 deliberately-failing test, 2 cores + 6 busy loops | 1 | **2 — the exact CI signature** |
 
-The stall signature in the job log:
+Both ingredients are required — a failed test **and** a starved renderer. That is
+precisely why it never reproduced on a dev machine.
+
+Two further checks:
+
+- Across a whole contended run, **every** `SEVERE` line was followed by
+  `screenshot failed, retrying`. SEVERE count == retry count, no exceptions.
+- The failing test's own assertion error is printed **before** the stall lines.
+
+### Controlled A/B (identical load, one failing test)
+
+| | failing | SEVERE | screenshot retry |
+|---|---|---|---|
+| original code | 1 | 1 | 1 |
+| with the fix | 1 | **0** | **0** |
+
+## Where the original analysis went wrong
+
+- **"2 stalls per run" was 1 screenshot.** The `[SEVERE]` line and the
+  `[WARNING] screenshot failed, retrying` line are the same event; the retry
+  message quotes the timeout text, so a naive grep counts it twice. Stall lines
+  only ever equalled **2 x failed tests**.
+- **Run m6 was the control, not noise.** It logged 0 stalls *because it passed
+  7/7* — no failure, so the hook never fired. The handoff explicitly said not to
+  trust it; it was the datum that disproves the whole theory.
+- **"The stall precedes the failure by 1-2s"** compared a chromedriver timestamp
+  against the *spec reporter's* summary line, which is printed later. The
+  assertion error itself comes first.
+- **The two earlier fixes had no effect because they target a mechanism that was
+  never involved.** `backgroundThrottling: false` and the
+  `disable-renderer-backgrounding` / `-background-timer-throttling` /
+  `-backgrounding-occluded-windows` switches are unrelated to
+  `Page.captureScreenshot` needing a frame.
+
+## What changed
+
+`e2e/config/reporting.ts` — under a hidden run, attach the DOM
+(`getPageSource`, needs no compositor frame) instead of a screenshot. Headed runs
+(`HELIOS_E2E_HEADED=1`) keep the real screenshot.
+
+`src/main/index.ts` — the throttling flag and switches are **kept** (not
+throttling a test renderer is reasonable hygiene) but their comments no longer
+claim they fix this stall.
+
+## What is still open
+
+**The actual red build is one ordinary flaky test per run**, a different one each
+time, caused by `windows-2022` runner slowness. That is the real remaining issue,
+and it is unaffected by this change — the fix removes the misleading 20s stall
+and the SEVERE line, not the flake.
+
+Corroboration that these runners genuinely freeze for tens of seconds: see the
+comment in `src/main/backend-manager.ts` — on CI run 30765040961, one of seven
+sessions took **32.4s** to answer `/health` while the other six took 2.0-3.6s.
+
+Suggested next step: treat it as tolerance/flake management (widen the tightest
+waits on Windows, or add bounded spec retries), and judge it on **failed-test
+count**, not on stall lines — those are now a strict function of failures.
+
+## Reproducing the stall on demand
+
+Pin the whole tree to few cores against competing load. `cmd /c start /affinity`
+sets the mask at creation and children inherit it, so chromedriver, Electron and
+the backend all share the budget (verified: parent and child both reported `15`):
 
 ```
-WARN chromedriver: [SEVERE]: Timed out receiving message from renderer: 10.000
-WARN chromedriver: [WARNING]: screenshot failed, retrying timeout: Timed out receiving message from renderer: 10.000
+cmd /c start "e2e" /affinity 3 /wait run-suite.cmd     # cores 0-1
 ```
 
-## What the evidence actually shows
+with several busy-loop processes pinned to the same mask. Add a spec containing a
+deliberately failing test to trigger the capture hook directly.
 
-Read this before forming a theory — some of it contradicts the commit messages
-on this branch.
+## Environment notes for the next Windows box
 
-**1. "2 stalls" is really 1 stall + 1 echo.** Every run logs exactly 2, and
-exactly 1 of them is `screenshot failed, retrying`. That second line is the
-failure-screenshot hook (`attachFailureScreenshot` in `e2e/config/reporting.ts`,
-wired to `afterTest` in `wdio.config.ts`) hitting the same wedged renderer. So
-there is **one** real stall per run.
-
-**2. The stall PRECEDES the failure by 1–2 seconds.** Verified across three
-runs:
-
-```
-r3:  STALL 14:47:22.928   →  FAIL 14:50:19.852
-m5:  STALL 03:06:56.573   →  FAIL 03:06:58.611
-m7:  STALL 15:25:58.677   →  FAIL 15:25:59.897
-```
-
-It is a **cause**, not an artifact of the failure. Do not dismiss it as
-screenshot noise.
-
-**3. The 10.000 is exactly chromedriver's 10s renderer budget.** The renderer
-stops answering for the full window, and whatever WebDriver command is in
-flight burns its entire timeout.
-
-**4. Backend chatter appears near the stall but is probably unrelated.** In m7:
-
-```
-WARN chromedriver: [Backend stderr] WARNING (Context::deleteTimeseriesVariable):
-  Timeseries variable 'recycle' does not exist
-```
-
-This appears in passing runs too. Note it, do not anchor on it.
-
-## What has already been tried (and did NOT fix it)
-
-Do not redo these.
-
-| Change | Commit | Result on Windows |
-|---|---|---|
-| `backgroundThrottling: false` on the main window, under `isHeadlessTestRun()` | `54d61ef` | **no effect** — stalls stayed at 2. Fixed ubuntu and macOS (both 0 stalls). |
-| `disable-renderer-backgrounding`, `disable-background-timer-throttling`, `disable-backgrounding-occluded-windows` command-line switches | `2f8804b` | **no effect.** Verified applied (`app.commandLine.hasSwitch()` returns true; `"renderer backgrounding/throttling switches applied"` logged in all 7 sessions). |
-
-The reasoning behind those was [electron#31016](https://github.com/electron/electron/issues/31016):
-`backgroundThrottling: false` covers *occluded* and *minimized* windows on
-Windows but **not hidden** ones, and our e2e window is hidden
-(`isHeadlessTestRun()` never calls `show()` — see `src/main/index.ts`). That
-mechanism explains why ubuntu/macOS were fixed and Windows was not, but the
-switches that should have covered the hidden case did not help.
-
-**Beware run m6.** It logged 0 stalls and passed 7/7, and the previous agent
-called the fix "confirmed" on that basis. The next run (m7, same code) was back
-to 2. One zero-stall run against a baseline of 2 is noise. **Do not declare
-success on a single green run — count stalls across at least 3.**
-
-## How to reproduce locally
-
-The app sizes its window to the display work area capped at 1920×1080
-(`src/main/index.ts`). A dev machine gives ~1728 CSS px; CI runners give ~1024.
-Some failures only appear at the narrow width, so always reproduce at CI
-geometry:
-
-```powershell
-npm install
-npm run build
-$env:HELIOS_E2E_VIEWPORT="1024x768"
-npx wdio run wdio.config.ts --spec e2e/tests/weather.test.ts
-```
-
-`HELIOS_E2E_VIEWPORT` is implemented in `applyViewportOverride()` in
-`e2e/support/harness.ts` (it resizes via the Electron main process —
-`browser.setWindowSize()` throws `unknown command: Browser.getWindowForTarget`
-on this Electron build).
-
-To watch the run instead of running hidden — **this is likely the single most
-informative experiment**, since the whole theory is about a hidden window:
-
-```powershell
-$env:HELIOS_E2E_HEADED="1"
-```
-
-If the stall disappears when headed, the hidden-window theory is right and the
-remaining question is which mechanism still throttles it. If it stalls headed
-too, the theory is wrong and the cause is elsewhere.
-
-Useful counts from a local log:
-
-```powershell
-Select-String -Path <log> -Pattern "Timed out receiving message from renderer" | Measure-Object
-```
-
-## Suggested lines of attack, roughly in order
-
-1. **Headed vs hidden** (above). Cheapest, highest information.
-2. **Does it reproduce at all locally?** If a Windows dev box never stalls, the
-   cause is CI-environment-specific (resource contention, virtual display,
-   Defender) and the fix is more likely tolerance than elimination.
-3. **Narrow to a single spec/test.** `weather.test.ts` `[0-6]` is the usual
-   victim; `--spec` it in a loop and count stalls over ~10 runs to get a rate.
-4. **`--disable-hang-monitor`** — not yet tried, and specifically relevant to
-   renderer-unresponsiveness in automation.
-5. **Check whether the splash window matters.** The app opens a splash
-   `BrowserWindow` then the main window (`src/main/index.ts`). Two windows,
-   one hidden, is exactly the shape that trips Chromium visibility handling.
-   Nobody has tested whether skipping the splash under e2e changes anything.
-6. **If it cannot be eliminated**, make the suite tolerant: raise the remaining
-   20s waits on Windows only, and consider whether
-   `attachFailureScreenshot` should be skipped on Windows (its retry doubles
-   every stall and adds 10s to every failure).
-
-## Constraints
-
-- **Do not change shipped behaviour to fix a test.** Both existing fixes are
-  gated on `isHeadlessTestRun()`; keep that discipline. A real user's hidden
-  window *should* throttle to save battery.
-- **`bail: 0`** in `wdio.config.ts` is deliberate — every spec runs so one run
-  reports every failure. Do not set it back to 1.
-- **Do not delete `/opt/hostedtoolcache`** in any workflow (breaks `setup-node`),
-  and keep `Free disk space (Linux)` *before* `setup-node`.
-- House rules are in `CLAUDE.md` — notably no `console.log` in committed code
-  outside `src/main/**` and `scripts/**`, and no AI-authorship trailers in
-  commit messages.
-
-## Definition of done
-
-- Root cause identified, or explicitly documented as un-reproducible locally
-  with evidence.
-- **Stall count 0 across at least 3 consecutive local runs** at
-  `HELIOS_E2E_VIEWPORT=1024x768`, not one.
-- `npm run lint`, `npm test`, `npm run e2e:typecheck` all clean.
-- Findings written into the commit message, including anything that was tried
-  and did *not* work — that is as valuable as the fix.
-- Commit to `debug/windows-e2e-stall` and push. It will be fetched and merged
-  back from the other side.
-
-## Orientation
-
-- `wdio.config.ts` — runner config: `bail: 0`, `maxInstances: 1`, orphan reaper,
-  `logDiskUsage`, Linux `appArgs` (`--no-sandbox --disable-dev-shm-usage`).
-- `e2e/support/harness.ts` — `waitForMainWindow` (reports *how far* startup got),
-  `enterProject` (distinguishes rejected vs accepted-but-slow creates),
-  `applyViewportOverride`.
-- `e2e/pages/Weather.page.ts` — `focusInput` / `commitBlur`, both in-page
-  because coordinate clicks fail once the table scrolls horizontally.
-- `src/main/index.ts` — `isUnderTestAutomation()`, `isHeadlessTestRun()`, window
-  creation, the throttling switches.
-- `src/main/backend-manager.ts` — backend spawn; startup timeout is 120s under
-  automation, 30s shipped.
+- The pyhelios build hardcodes the `Visual Studio 17 2022` CMake generator
+  (`pyhelios/build_scripts/build_helios.py`), so it fails on a machine with only
+  VS 2026. Either install VS 2022 Build Tools, or drop the prebuilt
+  `libhelios.dll` from the `pyhelios3d` wheel (same version as the pinned
+  submodule) into `helios-desktop-backend/pyhelios/pyhelios_build/build/lib/` —
+  `build_binary.ps1` probes exactly that path and skips the source build.
+- Node 22 (`.nvmrc`) matters: npm 11 (Node 24) gates install scripts behind
+  `allow-scripts`.
