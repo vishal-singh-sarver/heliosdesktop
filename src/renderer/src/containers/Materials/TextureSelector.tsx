@@ -2,6 +2,7 @@ import uploadIcon from '@renderer/assets/Upload.svg'
 import React from 'react'
 import messages from './messages'
 import { listDefaultTextures, textureServeUrl } from './service'
+import { TEXTURE_ACCEPT_ATTR, validateTextureFile } from './validation'
 
 // The "Select Texture" body of the Visualiser editor: two sub-tabs —
 // "From Library" (a grid of the backend's default textures) and "Upload File" (a
@@ -13,10 +14,8 @@ import { listDefaultTextures, textureServeUrl } from './service'
 
 type SubTab = 'library' | 'upload'
 
-// Upload constraints: JPG/JPEG/PNG only, at most 10 MB.
-const ALLOWED_TYPES = ['image/jpeg', 'image/png']
-const ACCEPT_ATTR = '.jpg,.jpeg,.png,image/jpeg,image/png'
-const MAX_FILE_BYTES = 10 * 1024 * 1024
+// Upload constraints (JPG/JPEG/PNG, at most 10 MB) live in ./validation, so they
+// can be unit-tested without a DOM and stay in one place.
 
 interface DefaultTexture {
   name: string
@@ -41,7 +40,7 @@ export function TextureSelector({
   pendingFileUrl,
   onPickLibrary,
   onPickFile,
-  uploading,
+  uploading
 }: {
   // The library path to highlight: the current pick if there is one, else the
   // texture already stored on the member — so a saved texture still shows which
@@ -109,21 +108,17 @@ export function TextureSelector({
       : undefined
   const previewSrc = pendingFileUrl ?? storedPreview
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0]
     // Reset so picking the same file again still fires change.
     e.target.value = ''
     if (!file) return
-    // Only JPG/JPEG/PNG, at most 10 MB.
-    if (!/\.(jpe?g|png)$/i.test(file.name) && !ALLOWED_TYPES.includes(file.type)) {
-      setFileError(messages.textureFileTypeError)
-      return
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      setFileError(messages.textureFileSizeError)
-      return
-    }
-    setFileError(null)
+
+    // Async because the check reads the file's leading bytes to confirm it really
+    // is a PNG/JPEG, rather than trusting its name.
+    const error = await validateTextureFile(file)
+    setFileError(error)
+    if (error) return
     onPickFile(file)
   }
 
@@ -222,7 +217,7 @@ export function TextureSelector({
           <input
             ref={fileInputRef}
             type="file"
-            accept={ACCEPT_ATTR}
+            accept={TEXTURE_ACCEPT_ATTR}
             className="hidden"
             onChange={onFileChange}
           />

@@ -60,6 +60,9 @@ const messages = {
   textureUploadError: 'Unable to upload texture',
   textureFileTypeError: 'Only JPG, JPEG or PNG files are allowed',
   textureFileSizeError: 'File must be 10 MB or smaller',
+  // The name says .png/.jpg but the file's own contents say otherwise — usually a
+  // renamed document rather than anything malicious.
+  textureFileContentError: 'This file is not a valid JPG, JPEG or PNG image',
   // Radiation bespoke editor (spectral toggle + per-band optics).
   applySpectralData: 'Apply spectral data',
   spectralDataFile: 'Spectral Data File',
