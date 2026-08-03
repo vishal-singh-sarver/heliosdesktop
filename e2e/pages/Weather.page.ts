@@ -408,19 +408,30 @@ class WeatherPage {
    * with HELIOS_E2E_VIEWPORT=1024x768 (see applyViewportOverride in
    * e2e/support/harness.ts) before assuming a change here works.
    */
-  private async focusInput(label: string): Promise<void> {
+  private async focusInput(label: string): Promise<El> {
     const el = $(`[aria-label="${label}"]`)
     await el.waitForExist({ timeout: 10000 })
     await browser.execute((l: string) => {
       const node = document.querySelector(`[aria-label="${l}"]`) as HTMLElement | null
       node?.focus()
     }, label)
+    // Return a handle resolved AFTER the focus, and re-resolve it here rather
+    // than letting the caller reuse one captured earlier. In the virtualized
+    // table, focusing a row near the bottom scrolls it into the window and
+    // React remounts rows around it, which invalidates any handle taken before
+    // that point - addValue on a stale one fails with
+    //   Malformed type for "elementId" parameter of command elementSendKeys
+    //   Expected: string  Actual: undefined
+    // The previous `input.click()` masked this by re-resolving implicitly; the
+    // in-page focus() does not, so the re-resolve has to be explicit.
+    const fresh = $(`[aria-label="${label}"]`)
+    await fresh.waitForExist({ timeout: 10000 })
+    return fresh
   }
 
   /** Replace an editable cell's value and commit it (blur -> React onBlur). */
   async editCell(rowId: string, colId: string, value: string): Promise<void> {
-    const input = this.cellInput(rowId, colId)
-    await this.focusInput(`${rowId} ${colId}`)
+    const input = await this.focusInput(`${rowId} ${colId}`)
     await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await input.addValue(value)
@@ -429,8 +440,7 @@ class WeatherPage {
 
   /** Rename a managed column via its header input and commit on blur. */
   async renameColumn(colId: string, newName: string): Promise<void> {
-    const input = this.columnNameInput(colId)
-    await this.focusInput(`Column ${colId} name`)
+    const input = await this.focusInput(`Column ${colId} name`)
     await selectAll()
     await browser.keys(['Delete'])
     if (newName.length) await input.addValue(newName)
