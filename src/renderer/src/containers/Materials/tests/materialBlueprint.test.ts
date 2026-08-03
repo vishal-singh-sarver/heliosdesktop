@@ -451,6 +451,26 @@ describe('validateMaterialFieldValue', () => {
     ...overrides
   })
 
+  it('flags an empty REQUIRED field, and only a required one', () => {
+    // Same copy and same rule as the Geometry form's validateFieldValue.
+    expect(validateMaterialFieldValue(field({ required: true }), '')).toBe('Required Field')
+    expect(validateMaterialFieldValue(field({ required: true }), '   ')).toBe('Required Field')
+    expect(validateMaterialFieldValue(field({ required: false }), '')).toBeNull()
+  })
+
+  it('flags an empty required field of ANY datatype, not just numbers', () => {
+    // The datatype gate used to run first, so a required enum/file read as valid
+    // when blank.
+    expect(validateMaterialFieldValue(field({ datatype: 'enum', required: true }), '')).toBe(
+      'Required Field'
+    )
+    expect(validateMaterialFieldValue(field({ datatype: 'file', required: true }), '')).toBe(
+      'Required Field'
+    )
+    // A filled non-numeric field still skips the numeric checks entirely.
+    expect(validateMaterialFieldValue(field({ datatype: 'enum', required: true }), 'BWB')).toBeNull()
+  })
+
   it('rejects a minus-signed zero on a range that starts at 0', () => {
     // Number("-0") is -0 and -0 < 0 is false, so these used to slip past the
     // range check and commit as negative-looking values on a 0–1 band optic.

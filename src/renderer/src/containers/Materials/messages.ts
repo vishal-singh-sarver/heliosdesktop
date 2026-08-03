@@ -16,9 +16,14 @@ const messages = {
   parameterGroups: 'Material Types',
   // A numbered material-type header, e.g. "Material Type.01".
   parameterGroupTitle: (n: number): string => `Material Type.${String(n).padStart(2, '0')}`,
-  // Property-field validation (mirrors the Geometry right-panel form). A
-  // non-numeric or non-whole-number value shows "Invalid Input"; an out-of-range
-  // value shows the range; the keystroke guards reuse the shared decimal copy.
+  // Property-field validation (mirrors the Geometry right-panel form). An empty
+  // REQUIRED field shows "Required Field"; a non-numeric or non-whole-number value
+  // shows "Invalid Input"; an out-of-range value shows the range; the keystroke
+  // guards reuse the shared decimal copy.
+  //
+  // Word-for-word the Geometry form's REQUIRED_MESSAGE — the two right-panel forms
+  // are the same control to the user, so they must not phrase this differently.
+  fieldRequired: 'Required Field',
   fieldInvalid: 'Invalid Input',
   decimalLimit: 'Only 7 Decimal places are supported',
   inputNotSupported: 'This input is not supported',

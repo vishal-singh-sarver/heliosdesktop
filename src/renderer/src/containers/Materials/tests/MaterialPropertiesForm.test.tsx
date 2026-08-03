@@ -63,6 +63,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 255,
+      required: true,
       display_order: 90
     },
     {
@@ -72,6 +73,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 255,
+      required: true,
       display_order: 91
     },
     {
@@ -81,6 +83,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 255,
+      required: true,
       display_order: 92
     },
     {
@@ -90,6 +93,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 100,
+      required: true,
       display_order: 93
     },
     {
@@ -1063,6 +1067,53 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     fireEvent.change(screen.getByLabelText('G'), { target: { value: 'x' } })
     expect(screen.getByLabelText('G')).toHaveValue('')
     expect(screen.getByLabelText(/This input is not supported/)).toBeInTheDocument()
+  })
+
+  // The catalog marks the Visualiser's colour channels + opacity required, and
+  // blanking one already killed Save — with nothing on screen saying why. The copy
+  // is the Geometry form's, word for word: the two right-panel forms are the same
+  // control to the user.
+  it('shows "Required Field" when a required colour channel is blanked', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Fill it, then clear it — an untouched empty field stays quiet, exactly as in
+    // the Geometry form.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '120' } })
+    expect(screen.queryByLabelText(/Required Field/)).not.toBeInTheDocument()
+
+    // Cleared but still focused: quiet, like Geometry (showError = touched || value).
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '' } })
+    expect(screen.queryByLabelText(/Required Field/)).not.toBeInTheDocument()
+
+    // Leaving the field is what surfaces it.
+    fireEvent.blur(screen.getByLabelText('R'))
+    expect(screen.getByLabelText(/Required Field/)).toBeInTheDocument()
+    expect(screen.getByLabelText('R')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('shows it for opacity too, and stars the RGB Values heading', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The star sits on the heading, not on each box — the four channels are one
+    // value, the same rule the Geometry group headings follow.
+    expect(screen.getByText(/RGB Values/).textContent).toBe('RGB Values*')
+
+    // Role-scoped: the slider carries an "Opacity" label too.
+    const opacityBox = screen.getByRole('textbox', { name: 'Opacity' })
+    fireEvent.change(opacityBox, { target: { value: '' } })
+    fireEvent.blur(opacityBox)
+    expect(screen.getByLabelText(/Required Field/)).toBeInTheDocument()
   })
 
   it('shows the range message for a channel above 255', () => {

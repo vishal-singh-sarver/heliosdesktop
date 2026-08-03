@@ -25,11 +25,13 @@ const labels = {
 function Harness({
   onChangeColor = () => {},
   onChangeOpacity = () => {},
-  recentColors = []
+  recentColors = [],
+  required = false
 }: {
   onChangeColor?: (rgb: RgbColor) => void
   onChangeOpacity?: (o: number) => void
   recentColors?: RecentColor[]
+  required?: boolean
 }): React.JSX.Element {
   const [rgb, setRgb] = React.useState<RgbColor>({ r: 255, g: 0, b: 0 })
   const [opacity, setOpacity] = React.useState(100)
@@ -48,6 +50,7 @@ function Harness({
       }}
       channelFields={{ r: field('255'), g: field('0'), b: field('0') }}
       opacityField={field('100')}
+      required={required}
       labels={labels}
     />
   )
@@ -318,5 +321,48 @@ describe('used colours', () => {
       'aria-valuenow',
       '40'
     )
+  })
+})
+
+describe('error styling', () => {
+  // The red ring must be the SAME cue the app's FormField shows, or an invalid
+  // channel reads as valid next to an invalid field in the same panel. The trap:
+  // `outline-none` and the red `outline` utilities both set outline-style, so
+  // carrying both let Tailwind's emit order decide the winner — and the ring lost.
+  it('rings an errored channel red, with no competing outline-none', () => {
+    render(
+      <ColorPicker
+        rgb={{ r: 255, g: 0, b: 0 }}
+        opacity={100}
+        recentColors={[]}
+        onChangeColor={() => {}}
+        onChangeOpacity={() => {}}
+        channelFields={{
+          r: { ...field('300'), error: 'Values should be between 0-255' },
+          g: field('0'),
+          b: field('0')
+        }}
+        opacityField={field('100')}
+        labels={labels}
+      />
+    )
+
+    const errored = screen.getByLabelText('R')
+    expect(errored.className).toContain('outline-[#D92D20]')
+    expect(errored.className).not.toContain('outline-none')
+    expect(errored).toHaveAttribute('aria-invalid', 'true')
+
+    // A healthy box keeps outline-none and never the red.
+    const healthy = screen.getByLabelText('G')
+    expect(healthy.className).toContain('outline-none')
+    expect(healthy.className).not.toContain('outline-[#D92D20]')
+    expect(healthy).toHaveAttribute('aria-invalid', 'false')
+  })
+
+  it('shows the required star on the RGB Values heading only when asked', () => {
+    const { rerender } = render(<Harness />)
+    expect(screen.getByText(/RGB Values/).textContent).toBe('RGB Values')
+    rerender(<Harness required />)
+    expect(screen.getByText(/RGB Values/).textContent).toBe('RGB Values*')
   })
 })

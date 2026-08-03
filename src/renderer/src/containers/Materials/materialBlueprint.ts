@@ -209,15 +209,21 @@ function isBelowMin(num: number, min: number | null): boolean {
 // mirroring the Geometry form's validateFieldValue. Returns an error message, or
 // null when valid. Only numeric properties (float / integer) are range-checked;
 // enum / boolean / file / date / time are chosen from controls that can't
-// produce an invalid value, so they always pass. Every material property is
-// optional, so an empty value is never an error.
+// produce an invalid value, so they always pass.
+//
+// Empty is checked FIRST and for every datatype, so a required field reads the
+// same here as in the Geometry form: a required enum or file is just as unfilled
+// as a required number. This used to return null for every empty value, which
+// meant the Visualiser's colour channels — which the catalog marks required, and
+// which already blocked Save — could be blanked with nothing on screen saying why
+// the button had gone dead.
 export function validateMaterialFieldValue(
   field: ResolvedMaterialField,
   raw: string
 ): string | null {
-  if (field.datatype !== 'float' && field.datatype !== 'integer') return null
   const trimmed = raw.trim()
-  if (trimmed === '') return null
+  if (trimmed === '') return field.required ? messages.fieldRequired : null
+  if (field.datatype !== 'float' && field.datatype !== 'integer') return null
 
   const num = Number(trimmed)
   if (!Number.isFinite(num)) return messages.fieldInvalid
