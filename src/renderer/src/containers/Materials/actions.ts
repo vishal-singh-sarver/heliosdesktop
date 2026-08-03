@@ -8,6 +8,7 @@ import {
   DELETE_MATERIAL_FAILED,
   DELETE_MATERIAL_REQUESTED,
   DELETE_PARAMETER_GROUP_FAILED,
+  DELETE_PARAMETER_GROUP_SUCCEEDED,
   DELETE_PARAMETER_GROUP_REQUESTED,
   LIST_MATERIALS_FAILED,
   LIST_MATERIALS_REQUESTED,
@@ -201,6 +202,15 @@ export type DeleteParameterGroupRequestedAction = {
   type: typeof DELETE_PARAMETER_GROUP_REQUESTED
   payload: DeleteParameterGroupInput
 }
+// The backend removal LANDED. Distinct from the local `removeParameterGroup`,
+// which also fires for a card that was never saved: only this one means the stored
+// material actually changed, so it is what other features (the 3D scene) may act
+// on without repainting for a no-op.
+export type DeleteParameterGroupSucceededAction = {
+  type: typeof DELETE_PARAMETER_GROUP_SUCCEEDED
+  materialId: string
+  cardId: number
+}
 export type DeleteParameterGroupFailedAction = {
   type: typeof DELETE_PARAMETER_GROUP_FAILED
   materialId: string
@@ -275,6 +285,7 @@ export type MaterialsAction =
   | SaveParameterGroupSucceededAction
   | SaveParameterGroupFailedAction
   | DeleteParameterGroupRequestedAction
+  | DeleteParameterGroupSucceededAction
   | DeleteParameterGroupFailedAction
   | UploadTextureRequestedAction
   | UploadTextureSucceededAction
@@ -416,6 +427,15 @@ export const saveParameterGroupFailed = (
   materialId,
   cardId,
   payload: error
+})
+
+export const deleteParameterGroupSucceeded = (
+  materialId: string,
+  cardId: number
+): DeleteParameterGroupSucceededAction => ({
+  type: DELETE_PARAMETER_GROUP_SUCCEEDED,
+  materialId,
+  cardId
 })
 
 export const deleteParameterGroupRequested = (

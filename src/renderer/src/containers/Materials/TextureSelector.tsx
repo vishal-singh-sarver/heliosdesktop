@@ -2,7 +2,7 @@ import uploadIcon from '@renderer/assets/Upload.svg'
 import React from 'react'
 import messages from './messages'
 import { listDefaultTextures, textureServeUrl } from './service'
-import { TEXTURE_ACCEPT_ATTR, validateTextureFile } from './validation'
+import { normalizeImageOrientation, TEXTURE_ACCEPT_ATTR, validateTextureFile } from './validation'
 
 // The "Select Texture" body of the Visualiser editor: two sub-tabs —
 // "From Library" (a grid of the backend's default textures) and "Upload File" (a
@@ -114,12 +114,18 @@ export function TextureSelector({
     e.target.value = ''
     if (!file) return
 
-    // Async because the check reads the file's leading bytes to confirm it really
-    // is a PNG/JPEG, rather than trusting its name.
+    // Async because the checks read — and decode — the file, rather than trusting
+    // its name.
     const error = await validateTextureFile(file)
     setFileError(error)
     if (error) return
-    onPickFile(file)
+
+    // A phone JPEG carries its rotation as an EXIF tag rather than in the pixels:
+    // the preview below honours it, WebGL does not, so the same file would look
+    // upright here and sideways on the 3D surface. Bake it in once, here, so every
+    // consumer downstream agrees. Returns the original file when there's nothing
+    // to correct (the common case) or when the runtime can't do it.
+    onPickFile(await normalizeImageOrientation(file))
   }
 
   return (

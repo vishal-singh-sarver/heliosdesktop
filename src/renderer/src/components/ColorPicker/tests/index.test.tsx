@@ -366,3 +366,45 @@ describe('error styling', () => {
     expect(screen.getByText(/RGB Values/).textContent).toBe('RGB Values*')
   })
 })
+
+describe('number field chrome', () => {
+  it('shows no R/G/B or % captions — the boxes carry their own identity', () => {
+    render(<Harness />)
+    // The channel letters live on the placeholder (and aria-label), not on a
+    // caption row above the boxes.
+    expect(screen.queryByText('r')).not.toBeInTheDocument()
+    expect(screen.queryByText('R')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('R')).toHaveAttribute('placeholder', 'R')
+    // Every box is still named for a screen reader.
+    for (const name of ['R', 'G', 'B', 'Opacity']) {
+      expect(screen.getByRole('textbox', { name })).toBeInTheDocument()
+    }
+  })
+
+  it('renders the % inside the opacity box, without putting it in the value', () => {
+    render(<Harness />)
+    const opacity = screen.getByRole('textbox', { name: 'Opacity' })
+    // The suffix is decoration; the field itself still holds a bare number, so the
+    // caller's numeric guard and range check are untouched.
+    expect(opacity).toHaveValue('100')
+    const suffix = opacity.parentElement?.querySelector('span[aria-hidden="true"]')
+    expect(suffix?.textContent).toBe('%')
+  })
+
+  it('hides the % while the box is empty, so it never reads as a value of its own', () => {
+    render(
+      <ColorPicker
+        rgb={{ r: 0, g: 0, b: 0 }}
+        opacity={100}
+        recentColors={[]}
+        onChangeColor={() => {}}
+        onChangeOpacity={() => {}}
+        channelFields={{ r: field(), g: field(), b: field() }}
+        opacityField={field('')}
+        labels={labels}
+      />
+    )
+    const opacity = screen.getByRole('textbox', { name: 'Opacity' })
+    expect(opacity.parentElement?.querySelector('span[aria-hidden="true"]')).toBeNull()
+  })
+})

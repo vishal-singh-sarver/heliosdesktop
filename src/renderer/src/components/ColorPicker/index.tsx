@@ -250,7 +250,13 @@ function ColorPicker({
   // an in-cell info-icon tooltip. Reserve right padding when errored so the value
   // doesn't run under the icon (mirrors FormField's `pr-8`); pl-2/pr-2 keep the
   // valid-state padding byte-identical to the previous `px-2`.
-  const fieldClass = (error?: string): string =>
+  // `hasSuffix` is the opacity box, which shows a "%" inside it: the value needs
+  // clearance from that as well as from any error icon.
+  const fieldClass = (error?: string, hasSuffix = false): string => {
+    // Exactly ONE padding-right utility, decided here. Appending a second pr-*
+    // to the class string would leave the winner to Tailwind's emit order — the
+    // same trap that silently killed the red outline below.
+    const paddingRight = error ? (hasSuffix ? 'pr-12' : 'pr-7') : hasSuffix ? 'pr-6' : 'pr-2'
     // The placeholder is the channel's own letter, so an empty box still says
     // WHICH channel it is — greyed, so it never reads as an entered value.
     //
@@ -260,11 +266,12 @@ function ColorPicker({
     // and the red ring silently lost. FormField has always split them this way;
     // this is the same recipe, so an errored channel rings red exactly like an
     // errored field in the Geometry panel.
-    `h-8 w-full rounded border border-app-border bg-[#121212] pl-2 ${error ? 'pr-7' : 'pr-2'} text-center text-sm text-white placeholder:text-[#424242] ${
+    return `h-8 w-full rounded border border-app-border bg-[#121212] pl-2 ${paddingRight} text-center text-sm text-white placeholder:text-[#424242] ${
       error
         ? 'outline outline-1 -outline-offset-1 outline-[#D92D20] focus:border-[#D92D20]'
         : 'outline-none focus:border-neutral-500'
     }`
+  }
 
   // The validation error as an in-cell info-icon tooltip — the same Tooltip the
   // app's FormField uses for `errorAsTooltip`, positioned inside the input box.
@@ -369,45 +376,61 @@ function ColorPicker({
           {labels.rgbValues}
           {required && <span className="text-red-400">*</span>}
         </p>
+        {/* No caption above any box: each channel's own letter is its placeholder,
+            and the opacity box carries its unit inline (see below). The captions
+            said the same thing twice and stole a row of height. `aria-label` keeps
+            every box named for a screen reader. */}
         <div className="flex items-end gap-2">
           {(['r', 'g', 'b'] as const).map((key) => {
             const field = channelFields[key]
             return (
-              <label key={key} className="flex flex-1 flex-col gap-1">
-                <span className="text-xs uppercase text-neutral-500">{key}</span>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    aria-label={key.toUpperCase()}
-                    aria-invalid={field.error != null}
-                    placeholder={key.toUpperCase()}
-                    value={field.value}
-                    onChange={(e) => field.onChange(e.target.value)}
-                    onBlur={field.onBlur}
-                    className={fieldClass(field.error)}
-                  />
-                  {errorIcon(field.error)}
-                </div>
-              </label>
+              <div key={key} className="relative flex-1">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label={key.toUpperCase()}
+                  aria-invalid={field.error != null}
+                  placeholder={key.toUpperCase()}
+                  value={field.value}
+                  onChange={(e) => field.onChange(e.target.value)}
+                  onBlur={field.onBlur}
+                  className={fieldClass(field.error)}
+                />
+                {errorIcon(field.error)}
+              </div>
             )
           })}
-          <label className="flex flex-1 flex-col gap-1">
-            <span className="text-xs text-neutral-500">%</span>
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="numeric"
-                aria-label={labels.opacity}
-                aria-invalid={opacityField.error != null}
-                value={opacityField.value}
-                onChange={(e) => opacityField.onChange(e.target.value)}
-                onBlur={opacityField.onBlur}
-                className={fieldClass(opacityField.error)}
-              />
-              {errorIcon(opacityField.error)}
-            </div>
-          </label>
+          <div className="relative flex-1">
+            <input
+              type="text"
+              inputMode="numeric"
+              aria-label={labels.opacity}
+              aria-invalid={opacityField.error != null}
+              value={opacityField.value}
+              onChange={(e) => opacityField.onChange(e.target.value)}
+              onBlur={opacityField.onBlur}
+              className={fieldClass(opacityField.error, true)}
+            />
+            {/* The unit as a static suffix, NOT part of the input's value: the box
+                still holds a bare number, so typing, the keystroke guard and the
+                range validation all stay exactly as they are for the channels.
+                Sits left of the error icon when there is one, so the two never
+                overlap. */}
+            {opacityField.value !== '' && (
+              <span
+                aria-hidden="true"
+                // Off-white (neutral-200 is #e5e5e5, the app's off-white token) —
+                // it belongs to the value beside it, so it reads at the same
+                // weight rather than as dimmed helper text.
+                className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-sm text-neutral-200 ${
+                  opacityField.error ? 'right-7' : 'right-2'
+                }`}
+              >
+                %
+              </span>
+            )}
+            {errorIcon(opacityField.error)}
+          </div>
         </div>
       </div>
 

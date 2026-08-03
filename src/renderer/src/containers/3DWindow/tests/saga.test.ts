@@ -1,6 +1,7 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
 import { assignMaterialSucceeded, unassignMaterialSucceeded } from 'containers/Geometry/actions'
-import { removeMaterial, saveParameterGroupSucceeded } from 'containers/Materials/actions'
+import { deleteParameterGroupSucceeded,
+  removeMaterial, saveParameterGroupSucceeded } from 'containers/Materials/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
@@ -15,6 +16,7 @@ import threeDWindowSaga, {
   onMaterialAssigned,
   onMaterialDeleted,
   onMaterialSaved,
+  onMaterialTypeDeleted,
   onMaterialUnassigned,
   onNodesListed
 } from '../store/saga'
@@ -244,6 +246,22 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1))
     gen.next() // select nodesById
     expect(gen.next({ '29': withGroups('29', ['9']) }).done).toBe(true)
+  })
+
+  // Deleting ONE material type (e.g. the Visualiser) changes how every object
+  // using that material looks — the ground loses the texture. Before this, nothing
+  // told the scene, so it kept rendering a texture the material no longer had.
+  it('onMaterialTypeDeleted re-fetches the shown objects using that material', () => {
+    const gen = onMaterialTypeDeleted(deleteParameterGroupSucceeded('7', 1))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    // 29 (other material) and 30 (hidden) are left alone.
+    expect(gen.next().done).toBe(true)
   })
 
   it('onMaterialDeleted re-fetches only the shown objects that used the deleted group', () => {

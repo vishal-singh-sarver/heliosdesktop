@@ -71,6 +71,8 @@ export const SAVE_PARAMETER_GROUP_FAILED = 'app/Materials/SAVE_PARAMETER_GROUP_F
 // otherwise just drop the card.
 export const DELETE_PARAMETER_GROUP_REQUESTED =
   'app/Materials/DELETE_PARAMETER_GROUP_REQUESTED' as const
+export const DELETE_PARAMETER_GROUP_SUCCEEDED =
+  'app/Materials/DELETE_PARAMETER_GROUP_SUCCEEDED' as const
 export const DELETE_PARAMETER_GROUP_FAILED = 'app/Materials/DELETE_PARAMETER_GROUP_FAILED' as const
 
 // Visualiser texture upload: POST the file to the member's texture_file property.

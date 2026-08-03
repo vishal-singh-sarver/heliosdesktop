@@ -63,6 +63,20 @@ const messages = {
   // The name says .png/.jpg but the file's own contents say otherwise — usually a
   // renamed document rather than anything malicious.
   textureFileContentError: 'This file is not a valid JPG, JPEG or PNG image',
+  // Header says one format, extension says another (e.g. a PNG renamed .jpeg).
+  // It uploads and stores fine, then fails wherever a decoder is picked by
+  // extension — so name the mismatch instead of a vague "invalid file".
+  textureFileFormatMismatch: (actual: string, named: string): string =>
+    `This is a ${actual} image named "${named}". Rename it with the matching extension and try again`,
+  // Header is right but the image data behind it doesn't decode — a truncated
+  // download, a bad copy, or a deliberately mangled file.
+  textureFileCorruptError: 'Invalid or corrupted image file',
+  // Decodes, but no GPU in the wild will sample it.
+  textureFileTooLargeDimensions: (max: number): string =>
+    `Image is too large — maximum ${max} × ${max} pixels`,
+  // The file vanished between picking it and reading it (moved, deleted, or an
+  // unmounted volume). Distinct from "corrupt": nothing was wrong with the image.
+  textureFileUnreadable: 'Unable to read this file. It may have been moved or deleted',
   // Radiation bespoke editor (spectral toggle + per-band optics).
   applySpectralData: 'Apply spectral data',
   spectralDataFile: 'Spectral Data File',
@@ -70,6 +84,23 @@ const messages = {
   spectralUploading: 'Uploading…',
   spectralFileTypeError: 'Only XML files are allowed',
   spectralFileSizeError: 'File must be 5 MB or smaller',
+  // Named .xml, but the contents don't parse as XML — a renamed archive or
+  // document. The backend only checks the extension, so this is the only place it
+  // gets caught before the simulation reads it.
+  spectralFileContentError: 'This file is not valid XML',
+  spectralFileUnreadable: 'Unable to read this file. It may have been moved or deleted',
+  // Parses as XML, but isn't a Helios file. Helios refuses to load anything whose
+  // tags aren't wrapped in <helios>, so this would fail inside a simulation with
+  // no trail back to this upload.
+  spectralRootError: 'Not a Helios spectral file — its tags must be wrapped in <helios>',
+  // A <helios> file with no spectra in it. Loads without error and contributes
+  // nothing, which is worse than failing: the material looks configured.
+  spectralNoDataError: 'This file contains no spectral data (<globaldata_vec2>)',
+  // The two ways Helios itself calls a data block invalid: no values at all, or a
+  // value that isn't a number.
+  spectralDataEmpty: (label: string): string => `Spectral data "${label}" is empty`,
+  spectralDataInvalid: (label: string): string =>
+    `Spectral data "${label}" contains values that are not numbers`,
   spectralRemove: 'Remove spectral data file',
   bandReflectivity: 'Reflectivity',
   bandTransmissivity: 'Transmissivity',
@@ -83,10 +114,15 @@ const messages = {
   createError: 'Unable to create material. Please try again',
   noMaterialTypes: 'No material types available',
   allTypesAdded: 'All material types added',
-  // Delete confirmation (matches the Geometry object-form copy).
-  deleteTitle: 'Delete material',
-  deleteHeading: (name: string): string => `Delete "${name}"?`,
-  deleteBody: 'This action cannot be undone.',
+  // Delete confirmation — word for word the Geometry object-form copy, for BOTH
+  // the whole material and a single Material Type card. The comment here always
+  // claimed to match Geometry while the strings didn't: the title said "Delete
+  // material", the heading quoted and question-marked the name, and the body
+  // dropped the "Are you sure…" the design asks for. Two confirm dialogs a click
+  // apart in the same app must not be phrased differently.
+  deleteTitle: 'Delete',
+  deleteHeading: (name: string): string => `Delete ${name}`,
+  deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteCancel: 'Cancel',
   deleteConfirm: 'Delete'
 } as const
