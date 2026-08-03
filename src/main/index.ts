@@ -419,6 +419,28 @@ writeEarlyLog('='.repeat(80))
 writeEarlyLog(`App startup initiated [packaged=${app.isPackaged}, platform=${process.platform}]`)
 setUserDataPath()
 
+// Headless e2e: stop Chromium throttling the renderer of a window we never
+// show. MUST be appended before app.whenReady().
+//
+// The webPreferences backgroundThrottling:false on the main window is NOT
+// enough on Windows. Per electron#31016 that flag covers occluded and
+// minimized windows there but NOT hidden ones - and "hidden" is exactly our
+// case, since isHeadlessTestRun() never calls show(). macOS covers all three,
+// which is why the webPreferences change alone took ubuntu and macos to zero
+// renderer stalls on run 30780330034 while windows stayed at 2.
+//
+// These switches are process-global (they apply to every renderer, not one
+// window), which is fine here because the whole process is a test run. Both
+// are the standard pair for CI test runners - karma sets them for the same
+// reason. Guarded by isHeadlessTestRun() so shipped behaviour is untouched: a
+// real user's backgrounded window SHOULD throttle to save battery.
+if (isHeadlessTestRun()) {
+  app.commandLine.appendSwitch('disable-renderer-backgrounding')
+  app.commandLine.appendSwitch('disable-background-timer-throttling')
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+  writeEarlyLog('Headless e2e: renderer backgrounding/throttling switches applied')
+}
+
 // Headless e2e: drop to the macOS "accessory" activation policy BEFORE the app
 // finishes launching, so no dock icon ever appears (not even a flash) and the
 // test app cannot steal focus from whatever you are doing. Must run at module
