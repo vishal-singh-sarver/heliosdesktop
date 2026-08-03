@@ -43,6 +43,12 @@ const messages = {
   deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteConfirm: 'Delete',
   deleteCancel: 'Cancel',
+  // Delete outcome toasts. The row disappearing is easy to miss (and, for a group,
+  // several rows go at once), so success confirms what went; failure is the only
+  // thing telling the user why nothing happened, since the row and the open form
+  // both stay put on a rejected delete. Both name the geometry.
+  deleteSuccess: (name: string) => `Deleted "${name}"`,
+  deleteFailure: (name: string) => `Failed to delete "${name}"`,
   // Material drag-and-drop assignment outcome toasts. Success names both the
   // material and the geometry/group it landed on; failure names the material.
   assignMaterialSuccess: (materialName: string, targetName: string) =>

@@ -455,11 +455,13 @@ describe('materialsReducer', () => {
       expect(result.deletingIds).not.toContain('11')
     })
 
-    it('DELETE_MATERIAL_FAILED clears the mark and surfaces the error', () => {
+    it('DELETE_MATERIAL_FAILED clears the mark so the delete can be retried', () => {
       const deleting = materialsReducer(listed, actions.deleteMaterialRequested('11', null))
       const result = materialsReducer(deleting, actions.deleteMaterialFailed('11', 'in use'))
       expect(result.deletingIds).not.toContain('11')
-      expect(result.actionError).toBe('in use')
+      // The error is NOT put on the slice — the saga's toast reports it, so the
+      // raw backend text never lands above the list.
+      expect(result.actionError).toBeNull()
     })
   })
 
@@ -705,18 +707,18 @@ describe('materialsReducer', () => {
     })
   })
 
-  // Both of these actions were dispatched by the saga and handled by nobody, so
-  // the failure never reached the screen: a failed row-click left the panel on the
-  // previous material with no error, and a failed delete left the row in place.
+  // A failed row-click used to be dispatched into the void, leaving the panel on
+  // the previous material with no error. It still reports inline; a failed DELETE
+  // reports through the saga's toast instead, so it deliberately leaves no banner.
   describe('list-level action failures', () => {
     it('OPEN_SAVED_MATERIAL_FAILED records the error', () => {
       const result = materialsReducer(initialState, actions.openSavedMaterialFailed('7', 'boom'))
       expect(result.actionError).toBe('boom')
     })
 
-    it('DELETE_MATERIAL_FAILED records the error', () => {
+    it('DELETE_MATERIAL_FAILED does NOT record the error (the toast owns it)', () => {
       const result = materialsReducer(initialState, actions.deleteMaterialFailed('7', 'nope'))
-      expect(result.actionError).toBe('nope')
+      expect(result.actionError).toBeNull()
     })
 
     it('a material that then opens clears the error', () => {
@@ -728,8 +730,8 @@ describe('materialsReducer', () => {
       expect(result.actionError).toBeNull()
     })
 
-    it('a delete that then lands clears the error', () => {
-      const failed = materialsReducer(initialState, actions.deleteMaterialFailed('7', 'nope'))
+    it('a delete that lands clears a stale open-failure banner', () => {
+      const failed = materialsReducer(initialState, actions.openSavedMaterialFailed('7', 'boom'))
       expect(materialsReducer(failed, actions.removeMaterial('7')).actionError).toBeNull()
     })
   })

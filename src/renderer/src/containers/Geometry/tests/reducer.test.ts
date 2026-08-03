@@ -468,6 +468,96 @@ describe('geometryReducer', () => {
     expect(r.byScope[KEY].nodesById['g']).toBeUndefined() // pruned
   })
 
+  // The delete is pessimistic, so the row survives the whole request. Marking the
+  // node in flight is what disables its trash — without it a second confirm fired a
+  // duplicate DELETE that 404'd, reporting a failure for a delete that worked.
+  describe('in-flight delete marks (deletingIds)', () => {
+    const seeded = (): ReturnType<typeof geometryReducer> =>
+      geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('a', 'Ground.001'), ground('b', 'Ground.002')])
+      )
+
+    it('DELETE_NODE_REQUESTED marks the node, and does not double-add', () => {
+      let r = geometryReducer(seeded(), actions.deleteNodeRequested(P, S, 'a'))
+      expect(r.byScope[KEY].deletingIds).toEqual(['a'])
+      r = geometryReducer(r, actions.deleteNodeRequested(P, S, 'a'))
+      expect(r.byScope[KEY].deletingIds).toEqual(['a'])
+    })
+
+    it('only the requested node is marked', () => {
+      const r = geometryReducer(seeded(), actions.deleteNodeRequested(P, S, 'a'))
+      expect(r.byScope[KEY].deletingIds).not.toContain('b')
+    })
+
+    it('DELETE_NODE_SUCCEEDED clears the mark (delete landed)', () => {
+      let r = geometryReducer(seeded(), actions.deleteNodeRequested(P, S, 'a'))
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'a'))
+      expect(r.byScope[KEY].deletingIds).toEqual([])
+    })
+
+    it('DELETE_NODE_FAILED clears the mark so the delete can be retried', () => {
+      let r = geometryReducer(seeded(), actions.deleteNodeRequested(P, S, 'a'))
+      r = geometryReducer(r, actions.deleteNodeFailed(P, S, 'a', 'boom'))
+      expect(r.byScope[KEY].deletingIds).toEqual([])
+      expect(r.byScope[KEY].nodesById['a']).toMatchObject({ id: 'a' }) // row stays
+    })
+
+    // A group delete purges its members server-side, so their rows are in flight
+    // too. Leaving them unlocked let a second confirm on a CHILD fire a DELETE the
+    // group purge was about to make 404 — a failure toast for a row that was
+    // already on its way out.
+    const withGroup = (): ReturnType<typeof geometryReducer> =>
+      geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [
+          group('g', 'Group.001', ['c1', 'c2']),
+          ground('c1', 'Ground.003', 'g'),
+          ground('c2', 'Ground.004', 'g')
+        ])
+      )
+
+    it('DELETE_NODE_REQUESTED on a group marks its members too', () => {
+      const r = geometryReducer(withGroup(), actions.deleteNodeRequested(P, S, 'g'))
+      // Copy before sorting — immer freezes the produced state.
+      expect([...r.byScope[KEY].deletingIds].sort()).toEqual(['c1', 'c2', 'g'])
+    })
+
+    it('DELETE_NODE_FAILED on a group releases its members as well', () => {
+      let r = geometryReducer(withGroup(), actions.deleteNodeRequested(P, S, 'g'))
+      r = geometryReducer(r, actions.deleteNodeFailed(P, S, 'g', 'boom'))
+      // All three rows survive a failed group delete, so all three trashes must
+      // come back — a stranded member mark would lock its row for good.
+      expect(r.byScope[KEY].deletingIds).toEqual([])
+    })
+
+    it('a group delete clears marks left on its members', () => {
+      // The member's own delete was still in flight when the group went — nothing
+      // will ever report on it, so its mark must not be stranded.
+      const grouped = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [
+          group('g', 'Group.001', ['c1', 'c2']),
+          ground('c1', 'Ground.003', 'g'),
+          ground('c2', 'Ground.004', 'g')
+        ])
+      )
+      let r = geometryReducer(grouped, actions.deleteNodeRequested(P, S, 'c1'))
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'g'))
+      expect(r.byScope[KEY].deletingIds).toEqual([])
+    })
+
+    it('a SUCCEEDED for an already-gone node still releases its mark', () => {
+      // Duplicate SUCCEEDED (or one arriving after a refetch dropped the row): the
+      // early return must not skip the release, or the id sits there forever.
+      let r = geometryReducer(seeded(), actions.deleteNodeRequested(P, S, 'a'))
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'a'))
+      r = geometryReducer(r, actions.deleteNodeRequested(P, S, 'a'))
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'a'))
+      expect(r.byScope[KEY].deletingIds).toEqual([])
+    })
+  })
+
   describe('edit-object draft', () => {
     // +Ground POSTs first; CREATE_OBJECT_SUCCEEDED inserts the node AND opens the
     // edit form populated from the persisted object's values.
@@ -742,23 +832,11 @@ describe('geometryReducer', () => {
       expect(r.createDraftNonce).toBe(1)
     })
 
-    it('SET_ACTIVE_SCENARIO discards a draft left open on a deleted object (scope switch)', () => {
-      // Repro: create a ground (draft opens) → delete it from the tree (the form
-      // stays open in its read-only "deleted" state) → switch project/scenario.
-      // The draft must not survive the switch, or the Properties panel keeps
-      // showing the previous scope's deleted ground.
-      let r = created()
-      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, '27'))
-      expect(r.createDraft).not.toBeNull() // delete alone leaves the form open…
+    it('SET_ACTIVE_SCENARIO clears an open draft (it belongs to the scope it was opened in)', () => {
+      // A draft belongs to the scenario it was opened in and must not survive a
+      // switch, or the Properties panel keeps showing the previous scope's ground.
       // Cast: the store dispatches every action to every reducer, but the typed
       // signature only knows GeometryAction (matches `as never` on line 35).
-      r = geometryReducer(r, setActiveScenario('s2') as never)
-      expect(r.createDraft).toBeNull() // …the scope switch is what resets it
-    })
-
-    it('SET_ACTIVE_SCENARIO clears a plain open draft too (not just deleted-object drafts)', () => {
-      // The leak isn't specific to deleted objects: any draft belongs to the
-      // scenario it was opened in and must not survive a switch.
       const r = geometryReducer(created(), setActiveScenario('s2') as never)
       expect(r.createDraft).toBeNull()
     })
@@ -772,13 +850,49 @@ describe('geometryReducer', () => {
       expect(r.byScope[KEY].nodesById['27']).toMatchObject({ id: '27' }) // tree kept
     })
 
-    it('DELETE_NODE_SUCCEEDED on the drafted object keeps the form open (read-only deleted state)', () => {
-      // Deleting from the tree intentionally does NOT close the form — it locks to
-      // a "this geometry was deleted" state; only CLOSE_CREATE_FORM or a scope
-      // switch clears it. Guards that deliberate behavior against a future change.
+    it('DELETE_NODE_SUCCEEDED on the drafted object closes the form', () => {
+      // Deleting the ground the panel is showing closes the panel, the same way
+      // deleting a material closes the material form (Materials' REMOVE_MATERIAL).
+      // Before this, the form stayed open in a read-only "this geometry was
+      // deleted" state the user had to dismiss by hand.
       const r = geometryReducer(created(), actions.deleteNodeSucceeded(P, S, '27'))
       expect(r.byScope[KEY].nodesById['27']).toBeUndefined() // gone from the tree…
-      expect(r.createDraft?.objectId).toBe('27') // …but the form stays open
+      expect(r.createDraft).toBeNull() // …and the panel goes with it
+    })
+
+    it('DELETE_NODE_SUCCEEDED on a GROUP closes a form open on one of its children', () => {
+      // The group delete takes its members with it, so the drafted object is gone
+      // even though the deleted id isn't its own — the check has to cover childIds.
+      const seeded = geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [
+          group('g', 'Group.001', ['27']),
+          ground('27', 'Ground.001', 'g')
+        ])
+      )
+      let r = geometryReducer(
+        seeded,
+        actions.loadObjectSucceeded(P, S, {
+          node: ground('27', 'Ground.001', 'g'),
+          values: { length: '10', breadth: '10' },
+          objectTypeId: 1,
+          objectName: 'Ground',
+          materialGroups: []
+        })
+      )
+      expect(r.createDraft?.objectId).toBe('27')
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'g'))
+      expect(r.createDraft).toBeNull()
+    })
+
+    it('DELETE_NODE_SUCCEEDED on a DIFFERENT object leaves the form alone', () => {
+      const seeded = geometryReducer(
+        created(),
+        actions.listNodesSucceeded(P, S, [ground('27', 'Ground.001'), ground('28', 'Ground.002')])
+      )
+      // listNodesSucceeded re-seeds the tree but not the draft, which is still '27'.
+      const r = geometryReducer(seeded, actions.deleteNodeSucceeded(P, S, '28'))
+      expect(r.createDraft?.objectId).toBe('27')
     })
   })
 })

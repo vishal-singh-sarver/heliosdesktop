@@ -114,18 +114,27 @@ function* cleanupDissolvedGroups(
 // (min 2).
 export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator {
   const { projectId, scenarioId, id } = action
+  // Read outside the try so the failure toast can still name the node.
+  const before = (yield select(selectNodesById)) as Record<string, GeoNode>
+  const node = before[id]
   try {
-    const before = (yield select(selectNodesById)) as Record<string, GeoNode>
-    const node = before[id]
     const sourceGroupId = node?.parentId ?? null
     const deleteFn = node?.kind === 'group' ? service.deleteGroup : service.deleteNode
     yield call(deleteFn, projectId, scenarioId, id)
     yield put(actions.deleteNodeSucceeded(projectId, scenarioId, id))
+    // Raised before the dissolved-group cleanup so the confirmation isn't held
+    // back by calls the user never asked for (and that are allowed to fail).
+    yield put(showSnackbar(messages.deleteSuccess(node?.name ?? 'geometry'), 'success'))
     if (sourceGroupId) {
       yield* cleanupDissolvedGroups(projectId, scenarioId, before, [sourceGroupId], [id])
     }
   } catch (err) {
     yield put(actions.deleteNodeFailed(projectId, scenarioId, id, (err as Error).message))
+    // The reducer only releases the in-flight mark on DELETE_NODE_FAILED — the
+    // slice has no error field, so this toast is the whole report. Without it the
+    // row just stayed with nothing explaining why, and now that the form closes
+    // only on success, the panel would sit there unexplained too.
+    yield put(showSnackbar(messages.deleteFailure(node?.name ?? 'geometry'), 'error'))
   }
 }
 

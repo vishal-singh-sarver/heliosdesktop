@@ -88,7 +88,13 @@ const messages = {
   deleteHeading: (name: string): string => `Delete "${name}"?`,
   deleteBody: 'This action cannot be undone.',
   deleteCancel: 'Cancel',
-  deleteConfirm: 'Delete'
+  deleteConfirm: 'Delete',
+  // Delete outcome toasts, matching Geometry's copy. Success confirms which
+  // material went; failure says why nothing happened (the row stays — the delete
+  // is pessimistic). The failure toast is the ONLY report: the raw backend text is
+  // deliberately not put on the slice for a delete.
+  deleteSuccess: (name: string): string => `Deleted "${name}"`,
+  deleteFailure: (name: string): string => `Failed to delete "${name}"`
 } as const
 
 export default messages
