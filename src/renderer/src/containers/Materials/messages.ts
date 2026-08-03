@@ -86,7 +86,9 @@ const messages = {
   // Delete confirmation (matches the Geometry object-form copy).
   deleteTitle: 'Delete material',
   deleteHeading: (name: string): string => `Delete "${name}"?`,
-  deleteBody: 'This action cannot be undone.',
+  // Word-for-word the Geometry delete body (Geometry/messages.ts deleteBody), so
+  // the confirm dialog reads identically whichever thing is being deleted.
+  deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteCancel: 'Cancel',
   deleteConfirm: 'Delete',
   // Delete outcome toasts, matching Geometry's copy. Success confirms which
