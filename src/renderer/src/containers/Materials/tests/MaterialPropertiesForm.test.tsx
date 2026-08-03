@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import messages from '../messages'
 import { Provider } from 'react-redux'
 import { createStore, Reducer, UnknownAction } from 'redux'
 import { initialState as projectScreenInitialState } from 'containers/ProjectScreen/reducer'
@@ -1199,7 +1200,11 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
 
   // The upload is a step BEFORE Save: picking a file POSTs it right away, so its
   // stored URL is in the draft by the time the user presses Save.
-  it('uploads the picked texture immediately, on pick (not on Save)', () => {
+  // Real PNG magic bytes — the picker reads a file's header to confirm it is
+  // actually an image, so test files need genuine content, not a placeholder.
+  const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+  it('uploads the picked texture immediately, on pick (not on Save)', async () => {
     Element.prototype.scrollIntoView = vi.fn()
     const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
     const dispatch = vi.spyOn(store, 'dispatch')
@@ -1213,15 +1218,48 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
     fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
 
-    // Picking a file fires the upload right away — no Save click.
+    // Picking a file fires the upload right away — no Save click. Awaited because
+    // validation reads the file's header before the upload is dispatched.
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File(['x'], 'grass.png', { type: 'image/png' })
+    const file = new File([PNG_BYTES], 'grass.png', { type: 'image/png' })
     fireEvent.change(input, { target: { files: [file] } })
 
+    await waitFor(() => {
+      const uploads = dispatch.mock.calls
+        .map((c) => c[0] as { type?: string })
+        .filter((a) => a.type === UPLOAD_TEXTURE_REQUESTED)
+      expect(uploads).toHaveLength(1)
+    })
+  })
+
+  it('refuses to upload a non-image renamed to .png', async () => {
+    // Name and reported type both say PNG; the bytes say PDF. Before the content
+    // check this uploaded happily, got stored, and then rendered as a blank white
+    // surface with nothing explaining why.
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    const { container } = render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const pdf = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'fake.png', {
+      type: 'image/png'
+    })
+    fireEvent.change(input, { target: { files: [pdf] } })
+
+    // The user is told why, and nothing is sent.
+    expect(await screen.findByText(messages.textureFileContentError)).toBeInTheDocument()
     const uploads = dispatch.mock.calls
       .map((c) => c[0] as { type?: string })
       .filter((a) => a.type === UPLOAD_TEXTURE_REQUESTED)
-    expect(uploads).toHaveLength(1)
+    expect(uploads).toHaveLength(0)
   })
 
   // The upload endpoint now only STORES the file and returns its path — it does
