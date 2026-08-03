@@ -106,20 +106,9 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          # ══════════════════ TEMPORARY — REVERT THIS ══════════════════
-          # Windows-only while the renderer-backgrounding switches (2f8804b)
-          # are verified. The signal is the STALL COUNT, not pass/fail:
-          # windows has logged exactly 2 "Timed out receiving message from
-          # renderer" across four runs spanning many code changes, so a
-          # structural cause. If the switches work that goes to 0.
-          #
-          # ubuntu and macos both hit 0 stalls on run 30780330034 and are not
-          # under investigation - re-running them here would spend ~10x
-          # (macos) to re-prove a known result.
-          # RESTORE ALL THREE before tagging a release.
           - windows-2022
-          # - macos-latest
-          # - ubuntu-latest
+          - macos-latest
+          - ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -226,14 +215,8 @@ jobs:
 
   package:
     name: Package & Sign ${{ matrix.label }}
-    # ══════════════════════ TEMPORARY — REVERT THIS ══════════════════════
-    # `&& false` disables all six package jobs while the windows renderer
-    # stalls are verified. Six targets (both mac arches at 10x, three ubuntu
-    # containers, windows) is the most expensive thing in this repo and none
-    # of it is under investigation. Restore by deleting the `&& false`.
-    #
     # Installer/package build: only on push/dispatch, never on PRs.
-    if: github.event_name != 'pull_request' && false
+    if: github.event_name != 'pull_request'
     # Gated on test-integration, matching ci-release.yml. This was deliberately
     # UNgated while e2e could not pass - a suite that is always red is not a
     # gate, it is a blocker - but run 30753157914 went green on all three
