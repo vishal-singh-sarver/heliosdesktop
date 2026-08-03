@@ -48,8 +48,9 @@ const BAND_INPUT_CLASSES =
   'bg-[#121212] disabled:bg-[#424242] disabled:border-[#424242] disabled:text-neutral-300 disabled:placeholder-neutral-400 disabled:cursor-not-allowed'
 
 // The filename shown for a stored spectral path ("uploads/materials/8/leaf.xml" →
-// "leaf.xml").
-const basename = (path: string): string => path.split('/').pop() ?? path
+// "leaf.xml"). Splits on BOTH separators: a Windows backend stores native paths
+// with '\', which have no '/' to split on, so the whole path would be shown.
+const basename = (path: string): string => path.split(/[\\/]/).pop() ?? path
 
 export function MaterialRadiationEditor({
   idPrefix,
@@ -111,7 +112,7 @@ export function MaterialRadiationEditor({
     return (
       <FormField
         key={property}
-        labelProps={{ label, optional: true, helpText: field.description }}
+        labelProps={{ label, optional: !field.required, helpText: field.description }}
         inputProps={{
           name: `${idPrefix}-${property}`,
           value: values[property] ?? '',

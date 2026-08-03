@@ -9,6 +9,7 @@ import {
   rgbToHex,
   rgbToHsv,
   type HsvColor,
+  type RecentColor,
   type RgbColor
 } from 'utils/color'
 
@@ -33,12 +34,18 @@ export interface ColorPickerFieldControl {
 export interface ColorPickerProps {
   rgb: RgbColor
   opacity: number
-  recentColors: RgbColor[]
+  // Each history entry carries the opacity it was saved at; picking one restores
+  // that too (see the swatch row below).
+  recentColors: RecentColor[]
   onChangeColor: (rgb: RgbColor) => void
   onChangeOpacity: (opacity: number) => void
   // The R/G/B and opacity number boxes, each controlled + validated by the caller.
   channelFields: Record<keyof RgbColor, ColorPickerFieldControl>
   opacityField: ColorPickerFieldControl
+  // Mark the colour as a required entry: a red star on the "RGB Values" heading.
+  // On the HEADING rather than each box, because the four boxes are the channels
+  // of ONE value — the same rule the Geometry form's group headings follow.
+  required?: boolean
   // Accessible labels (passed in so copy stays with the feature, not the
   // component).
   labels: {
@@ -183,6 +190,7 @@ function ColorPicker({
   onChangeOpacity,
   channelFields,
   opacityField,
+  required = false,
   labels
 }: ColorPickerProps): React.JSX.Element {
   // HSV is the picker's internal source of truth for the area + hue (RGB↔HSV
@@ -245,10 +253,17 @@ function ColorPicker({
   const fieldClass = (error?: string): string =>
     // The placeholder is the channel's own letter, so an empty box still says
     // WHICH channel it is — greyed, so it never reads as an entered value.
-    `h-8 w-full rounded border bg-[#121212] pl-2 ${error ? 'pr-7' : 'pr-2'} text-center text-sm text-white outline-none placeholder:text-[#424242] ${
+    //
+    // `outline-none` lives in the ERROR-FREE branch only, never in the base. Both
+    // it and the red `outline` utilities set outline-style, so carrying both at
+    // once left the winner to Tailwind's emit order rather than to this string —
+    // and the red ring silently lost. FormField has always split them this way;
+    // this is the same recipe, so an errored channel rings red exactly like an
+    // errored field in the Geometry panel.
+    `h-8 w-full rounded border border-app-border bg-[#121212] pl-2 ${error ? 'pr-7' : 'pr-2'} text-center text-sm text-white placeholder:text-[#424242] ${
       error
-        ? 'border-app-border outline outline-1 -outline-offset-1 outline-[#D92D20] focus:border-[#D92D20]'
-        : 'border-app-border focus:border-neutral-500'
+        ? 'outline outline-1 -outline-offset-1 outline-[#D92D20] focus:border-[#D92D20]'
+        : 'outline-none focus:border-neutral-500'
     }`
 
   // The validation error as an in-cell info-icon tooltip — the same Tooltip the
@@ -352,6 +367,7 @@ function ColorPicker({
       <div>
         <p className="mb-1 text-[13px] font-medium leading-[20px] text-[#D3D3D3]">
           {labels.rgbValues}
+          {required && <span className="text-red-400">*</span>}
         </p>
         <div className="flex items-end gap-2">
           {(['r', 'g', 'b'] as const).map((key) => {
@@ -409,7 +425,14 @@ function ColorPicker({
                   key={swatchHex}
                   type="button"
                   aria-label={labels.swatch(swatchHex)}
-                  onClick={() => onChangeColor(c)}
+                  // A swatch restores the appearance the user saved, which is the
+                  // colour AND the opacity they chose for it — handing back the
+                  // RGB alone left the card on whatever opacity it happened to
+                  // carry, silently changing the picked colour's transparency.
+                  onClick={() => {
+                    onChangeColor({ r: c.r, g: c.g, b: c.b })
+                    onChangeOpacity(c.opacity)
+                  }}
                   // The outline flips with the swatch's own brightness: a dark
                   // swatch on this dark panel has no visible edge of its own (a
                   // black one disappeared entirely), so it gets a LIGHT ring;

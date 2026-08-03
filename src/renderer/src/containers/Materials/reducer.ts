@@ -1,5 +1,5 @@
 import { produce, type Draft } from 'immer'
-import type { RgbColor } from 'utils/color'
+import type { RecentColor } from 'utils/color'
 import type { MaterialsAction } from './actions'
 import {
   ADD_PARAMETER_GROUP,
@@ -186,8 +186,10 @@ export interface MaterialsState {
   // unexplained. Cleared as soon as one of them next succeeds.
   actionError: string | null
   // The visualisation colour picker's "Used colors" — a GLOBAL, most-recent-first
-  // history seeded from localStorage; a saga mirrors changes back to it.
-  recentColors: RgbColor[]
+  // history seeded from localStorage; a saga mirrors changes back to it. Each
+  // entry carries the opacity its colour was saved at, so a swatch click restores
+  // the whole appearance and not just the RGB.
+  recentColors: RecentColor[]
 }
 
 export const initialState: MaterialsState = {

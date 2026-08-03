@@ -85,7 +85,7 @@ export const GROUND_FORM_BLUEPRINT: ObjectFormBlueprint = [
   {
     heading: 'Rotation',
     columns: 1,
-    fields: [{ property: 'rotation_z', label: 'degree', defaultValue: '0' }]
+    fields: [{ property: 'rotation_z', label: 'Degree', defaultValue: '0' }]
   },
   {
     heading: 'Number of Textures',
@@ -246,6 +246,18 @@ function rangeMessage(min: number | null, max: number | null): string {
   return messages.invalidInput
 }
 
+// Below the field's lower bound. `Number("-0")` is negative zero, and `-0 < 0`
+// is false, so a minus-signed zero ("-0", "-0.00", "-0e5") used to pass the range
+// check on a field whose range starts at 0 and commit as a negative-looking
+// value. A sign the user typed is a sign they meant: on a non-negative range it
+// is out of range and gets the range message, same as "-5" does. A range that
+// genuinely admits negatives (e.g. position, -180..180) is unaffected — there
+// -0 is just zero.
+function isBelowMin(num: number, min: number | null): boolean {
+  if (min == null) return false
+  return num < min || (Object.is(num, -0) && min >= 0)
+}
+
 // Validate one field's raw input against its catalog metadata. Returns an error
 // message, or null when valid. Empty is an error only for required fields.
 //
@@ -261,10 +273,7 @@ export function validateFieldValue(field: ResolvedFormField, raw: string): strin
 
   const num = Number(trimmed)
   if (!Number.isFinite(num)) return messages.invalidInput
-  if (
-    (field.min != null && num < field.min) ||
-    (field.max != null && num > field.max)
-  ) {
+  if (isBelowMin(num, field.min) || (field.max != null && num > field.max)) {
     return rangeMessage(field.min, field.max)
   }
   if (field.datatype === 'integer' && !Number.isInteger(num)) return messages.invalidInput

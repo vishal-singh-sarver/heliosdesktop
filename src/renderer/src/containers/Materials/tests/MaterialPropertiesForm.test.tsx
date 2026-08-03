@@ -64,6 +64,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 255,
+      required: true,
       display_order: 90
     },
     {
@@ -73,6 +74,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 255,
+      required: true,
       display_order: 91
     },
     {
@@ -82,6 +84,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 255,
+      required: true,
       display_order: 92
     },
     {
@@ -91,6 +94,7 @@ const visualizer: MaterialTypeDef = {
       datatype: 'integer',
       min: 0,
       max: 100,
+      required: true,
       display_order: 93
     },
     {
@@ -972,7 +976,7 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
-  it('collapses the card once its save lands', () => {
+  it('keeps the card open once its save lands', () => {
     Element.prototype.scrollIntoView = vi.fn()
     const store = liveStoreWith([card(1, { typeId: 1 })], [radiation])
     render(
@@ -991,9 +995,11 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       store.dispatch(saveParameterGroupSucceeded('12', 1))
     })
 
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    // The type still reads from the collapsed header — that's what says WHICH
-    // material type this card holds.
+    // A successful save leaves the card exactly as it was — folding it away hid
+    // the values the user had just committed, at the point they'd want to check
+    // them. Collapsing stays a manual act (the header toggle).
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByLabelText('Surface Albedo')).toHaveValue('0.5')
     expect(screen.getByRole('combobox', { name: 'Material Type.01' })).toHaveValue('Radiation')
   })
 
@@ -1062,6 +1068,53 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     fireEvent.change(screen.getByLabelText('G'), { target: { value: 'x' } })
     expect(screen.getByLabelText('G')).toHaveValue('')
     expect(screen.getByLabelText(/This input is not supported/)).toBeInTheDocument()
+  })
+
+  // The catalog marks the Visualiser's colour channels + opacity required, and
+  // blanking one already killed Save — with nothing on screen saying why. The copy
+  // is the Geometry form's, word for word: the two right-panel forms are the same
+  // control to the user.
+  it('shows "Required Field" when a required colour channel is blanked', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Fill it, then clear it — an untouched empty field stays quiet, exactly as in
+    // the Geometry form.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '120' } })
+    expect(screen.queryByLabelText(/Required Field/)).not.toBeInTheDocument()
+
+    // Cleared but still focused: quiet, like Geometry (showError = touched || value).
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '' } })
+    expect(screen.queryByLabelText(/Required Field/)).not.toBeInTheDocument()
+
+    // Leaving the field is what surfaces it.
+    fireEvent.blur(screen.getByLabelText('R'))
+    expect(screen.getByLabelText(/Required Field/)).toBeInTheDocument()
+    expect(screen.getByLabelText('R')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('shows it for opacity too, and stars the RGB Values heading', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    render(
+      <Provider store={liveStoreWith([card(1, { typeId: 7 })], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The star sits on the heading, not on each box — the four channels are one
+    // value, the same rule the Geometry group headings follow.
+    expect(screen.getByText(/RGB Values/).textContent).toBe('RGB Values*')
+
+    // Role-scoped: the slider carries an "Opacity" label too.
+    const opacityBox = screen.getByRole('textbox', { name: 'Opacity' })
+    fireEvent.change(opacityBox, { target: { value: '' } })
+    fireEvent.blur(opacityBox)
+    expect(screen.getByLabelText(/Required Field/)).toBeInTheDocument()
   })
 
   it('shows the range message for a channel above 255', () => {
@@ -1196,6 +1249,55 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('')
     // Nothing was written, so the card is still clean and Save stays shut.
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  // Reopening a saved texture member must say WHICH texture it holds. The
+  // highlight used to come only from the session's transient pick, which is null
+  // on a fresh open — so a saved card showed the grid with nothing marked and the
+  // user had no way to tell which tile was applied.
+  it('highlights the stored library texture on a saved card, with no pick made', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const savedTextureCard = card(1, {
+      typeId: 7,
+      saved: true,
+      values: { texture_toggle: 'true', texture_file: 'uploads/grass.png' },
+      savedValues: { texture_toggle: 'true', texture_file: 'uploads/grass.png' }
+    })
+    render(
+      <Provider store={liveStoreWith([savedTextureCard], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const tile = await screen.findByRole('button', { name: 'Use texture grass' })
+    expect(tile).toHaveAttribute('aria-pressed', 'true')
+
+    // …and the Upload tab must NOT claim it as an upload: the two tabs are
+    // independent, and this texture came from the library.
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    expect(screen.queryByAltText('Selected texture')).not.toBeInTheDocument()
+  })
+
+  // The other half of that rule: a texture the user really did upload is not in
+  // the library list, so reopening the member still previews it.
+  it('previews a stored UPLOADED texture in the Upload tab', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const uploadedCard = card(1, {
+      typeId: 7,
+      saved: true,
+      values: { texture_toggle: 'true', texture_file: 'uploads/my-photo.png' },
+      savedValues: { texture_toggle: 'true', texture_file: 'uploads/my-photo.png' }
+    })
+    render(
+      <Provider store={liveStoreWith([uploadedCard], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Wait for the library list to land — until it does, nothing can be classified.
+    await screen.findByRole('button', { name: 'Use texture grass' })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    expect(screen.getByAltText('Selected texture')).toBeInTheDocument()
   })
 
   // The upload is a step BEFORE Save: picking a file POSTs it right away, so its

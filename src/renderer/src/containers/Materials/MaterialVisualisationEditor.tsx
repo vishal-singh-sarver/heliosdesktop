@@ -184,6 +184,12 @@ export function MaterialVisualisationEditor({
           onChangeOpacity={handleOpacity}
           channelFields={{ r: control(COLOR_R), g: control(COLOR_G), b: control(COLOR_B) }}
           opacityField={control(OPACITY)}
+          // The catalog marks the colour channels + opacity required on the
+          // Visualiser, so the heading carries the star — read from the fields
+          // rather than hard-coded, so it follows the catalog if that changes.
+          required={[COLOR_R, COLOR_G, COLOR_B, OPACITY].some(
+            (p) => fieldByProp.get(p)?.required === true
+          )}
           labels={{
             rgbValues: messages.rgbValues,
             opacity: messages.opacityLabel,

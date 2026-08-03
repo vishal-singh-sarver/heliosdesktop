@@ -75,7 +75,7 @@ describe('resolveObjectForm (Ground)', () => {
         columns: 3,
         fields: ['position_x:X', 'position_y:Y', 'position_z:Z']
       },
-      { heading: 'Rotation', columns: 1, fields: ['rotation_z:degree'] },
+      { heading: 'Rotation', columns: 1, fields: ['rotation_z:Degree'] },
       { heading: 'Number of Textures', columns: 2, fields: ['texture_x:R', 'texture_y:C'] }
     ])
   })
@@ -171,6 +171,21 @@ describe('validateFieldValue', () => {
     expect(validateFieldValue(field({ min: -1000000, max: 1000000 }), '2000000')).toBe(
       'Values should be between (-1000000 - 1000000)'
     )
+  })
+
+  it('rejects a minus-signed zero on a range that starts at 0', () => {
+    // Number("-0") is -0 and -0 < 0 is false, so "-0" used to slip past the range
+    // check on a non-negative field and commit as a negative-looking value.
+    expect(validateFieldValue(field({ min: 0 }), '-0')).toBe(
+      'Values should be greater than or equal to 0'
+    )
+    expect(validateFieldValue(field({ min: 0, max: 1 }), '-0.00')).toBe(
+      'Values should be between (0 - 1)'
+    )
+    // Unsigned zero is legitimate; and on a range that admits negatives (e.g.
+    // position), -0 is just zero and stays valid.
+    expect(validateFieldValue(field({ min: 0 }), '0')).toBeNull()
+    expect(validateFieldValue(field({ min: -90, max: 90 }), '-0')).toBeNull()
   })
 
   it('enforces integer datatype with the standard Invalid Input copy', () => {

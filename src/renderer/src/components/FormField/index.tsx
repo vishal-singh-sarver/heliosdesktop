@@ -122,8 +122,14 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
         htmlFor={restInputProps.name}
         className={`flex items-center gap-1${hideLabel ? ' sr-only' : ''}`}
       >
-        {label}
-        {!optional && <span className="text-red-400">*</span>}
+        {/* Label + star are ONE flex item: the row's gap-1 exists to space the
+            help icon off the label, and it was pushing the asterisk a space to
+            the right too ("Number of Rows *"). Grouping them keeps the gap for
+            the tooltip alone, so the star sits flush against the text. */}
+        <span>
+          {label}
+          {!optional && <span className="text-red-400">*</span>}
+        </span>
         {helpText && helpAriaLabel && (
           <Tooltip text={helpText} ariaLabel={helpAriaLabel} place={helpPlace} />
         )}

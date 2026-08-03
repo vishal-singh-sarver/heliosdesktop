@@ -43,10 +43,18 @@ function Dialog({
       dialog.showModal()
       // Focus the first field if the dialog has one; otherwise focus the primary
       // action button so Enter triggers the success action right away.
+      //
+      // Real form controls are searched FIRST, and only then anything else
+      // focusable. One combined selector would return whichever matched earliest
+      // in DOM order — and a field's help tooltip is a focusable <span> inside
+      // the LABEL, which sits above the input. So opening the New Project dialog
+      // focused the "?" icon rather than the Project Name box, and react-tooltip
+      // (whose default open events include focus) popped the help text open with
+      // nobody having hovered it.
       const body = bodyRef.current
-      const field = body?.querySelector<HTMLElement>(
-        'input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
+      const field =
+        body?.querySelector<HTMLElement>('input, select, textarea') ??
+        body?.querySelector<HTMLElement>('[tabindex]:not([tabindex="-1"])')
       if (field) {
         field.focus()
       } else {

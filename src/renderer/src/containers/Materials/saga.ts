@@ -1,6 +1,6 @@
 import type { Task } from 'redux-saga'
 import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
-import type { RgbColor } from 'utils/color'
+import type { RecentColor } from 'utils/color'
 import type {
   CreateMaterialRequestedAction,
   DeleteMaterialRequestedAction,
@@ -24,7 +24,7 @@ import {
   SAVE_PARAMETER_GROUP_REQUESTED,
   UPLOAD_TEXTURE_REQUESTED
 } from './constants'
-import { saveRecentColors } from './recentColors'
+import { DEFAULT_RECENT_OPACITY, saveRecentColors } from './recentColors'
 import { selectMaterialDetailsById, selectRecentColors } from './selectors'
 import * as service from './service'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
@@ -214,12 +214,20 @@ export function* saveWatcher(): Generator {
   }
 }
 
-// Pull an {r,g,b} out of a save payload when it carries all three colour
-// channels as numbers — otherwise null (nothing to record).
-function colorFromProperties(properties: MaterialPropertyValues): RgbColor | null {
-  const { color_r: r, color_g: g, color_b: b } = properties
+// Pull an {r,g,b,opacity} out of a save payload when it carries all three colour
+// channels as numbers — otherwise null (nothing to record). The opacity rides
+// along so the history entry can restore it; a payload without one (the field
+// was left empty) falls back to the picker's fully-opaque default rather than
+// blocking the record — the colour is still worth remembering.
+function colorFromProperties(properties: MaterialPropertyValues): RecentColor | null {
+  const { color_r: r, color_g: g, color_b: b, opacity } = properties
   if (typeof r === 'number' && typeof g === 'number' && typeof b === 'number') {
-    return { r, g, b }
+    return {
+      r,
+      g,
+      b,
+      opacity: typeof opacity === 'number' ? opacity : DEFAULT_RECENT_OPACITY
+    }
   }
   return null
 }
@@ -227,7 +235,7 @@ function colorFromProperties(properties: MaterialPropertyValues): RgbColor | nul
 // Mirror the (already-updated) "Used colors" list to localStorage after each
 // record — the reducer holds the source of truth; this only persists it.
 export function* persistRecentColorsWorker(): Generator {
-  const colors = (yield select(selectRecentColors)) as RgbColor[]
+  const colors = (yield select(selectRecentColors)) as RecentColor[]
   yield call(saveRecentColors, colors)
 }
 

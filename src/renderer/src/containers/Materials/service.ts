@@ -234,6 +234,47 @@ export function uploadMaterialFile(
     .then(uploadedPath)
 }
 
+// Make a picked file's name safe to round-trip as a backend path.
+//
+// The case that forced this: macOS names screenshots
+// "Screenshot 2026-07-21 at 2.07.21 PM.png", where the gap before "PM" is NOT a
+// space — it is U+202F NARROW NO-BREAK SPACE (bytes e2 80 af). It survives the
+// upload, then has to travel back through `?path=…` on every texture fetch, and
+// anything on that route that isn't byte-exact about UTF-8 mangles it — so the
+// texture uploads but never renders. Accented names hit the same wall via macOS's
+// decomposed (NFD) form.
+//
+// So: strip accents to their base letters and replace every remaining unsafe
+// character (that includes U+202F and U+00A0) with '_'. The name is not shortened
+// — the full one stays recognisable in the backend's uploads folder. The
+// extension is kept: the backend and the <img> both key off it.
+//
+// A trailing AM/PM is then dropped rather than kept as "_PM": it is the tail of
+// the very clock reading that carried the problem character, and the timestamp
+// before it already identifies the file. Only a TRAILING token goes, so a texture
+// genuinely named "spam.png" or "am.png" is untouched.
+export function sanitizeUploadFileName(name: string): string {
+  const dot = name.lastIndexOf('.')
+  const rawBase = dot > 0 ? name.slice(0, dot) : name
+  const rawExt = dot > 0 ? name.slice(dot + 1) : ''
+
+  // NFD splits "é" into "e" + a combining accent, so dropping the combining marks
+  // leaves the plain letter rather than an underscore.
+  const toAscii = (s: string): string =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z0-9._-]+/g, '_')
+
+  const base =
+    toAscii(rawBase)
+      .replace(/_+/g, '_')
+      .replace(/[_-](?:AM|PM)$/i, '')
+      .replace(/^[_.-]+|[_.-]+$/g, '') || 'texture'
+  const ext = toAscii(rawExt).toLowerCase()
+  return ext ? `${base}.${ext}` : base
+}
+
 // The Visualiser texture upload — the property is always 'texture_file'.
 export function uploadTextureFile(
   groupId: string,
@@ -241,7 +282,14 @@ export function uploadTextureFile(
   file: File,
   scenarioId: string | null
 ): Promise<string> {
-  return uploadMaterialFile(groupId, materialTypeId, 'texture_file', file, scenarioId)
+  const safeName = sanitizeUploadFileName(file.name)
+  // Pass the original through untouched when it needs no fixing — no pointless
+  // copy of the bytes, and callers comparing identity still see their own File.
+  const safeFile =
+    safeName === file.name
+      ? file
+      : new File([file], safeName, { type: file.type, lastModified: file.lastModified })
+  return uploadMaterialFile(groupId, materialTypeId, 'texture_file', safeFile, scenarioId)
 }
 
 // The Radiation spectral-data upload — its own endpoint rather than the generic

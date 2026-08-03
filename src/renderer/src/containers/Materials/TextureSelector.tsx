@@ -1,7 +1,7 @@
 import uploadIcon from '@renderer/assets/Upload.svg'
 import React from 'react'
 import messages from './messages'
-import { listDefaultTextures } from './service'
+import { listDefaultTextures, textureServeUrl } from './service'
 import { TEXTURE_ACCEPT_ATTR, validateTextureFile } from './validation'
 
 // The "Select Texture" body of the Visualiser editor: two sub-tabs —
@@ -40,15 +40,21 @@ export function TextureSelector({
   pendingFileUrl,
   onPickLibrary,
   onPickFile,
-  uploading,
+  uploading
 }: {
-  // The highlighted library path (transient — the current pick), or null.
+  // The library path to highlight: the current pick if there is one, else the
+  // texture already stored on the member — so a saved texture still shows which
+  // tile it is when the material is reopened. Null when neither applies (or when
+  // the stored texture was uploaded, which has no tile in this grid).
   selectedPath: string | null
   // Object URL of a freshly-picked (not-yet-uploaded) file, for the preview.
+  // Nothing else: a stored texture's preview is derived below, so that a LIBRARY
+  // texture can be told apart from an uploaded one.
   pendingFileUrl?: string
   // Toggle a library texture's highlight (parent clears if it's already the pick).
-  // Pressing the highlighted tile again deselects it — that is the only way to
-  // drop a pick, and it works with both pointer and keyboard.
+  // Pressing the highlighted tile again drops the PICK — if the member already has
+  // a stored texture, the highlight falls back to that rather than clearing, since
+  // the material still carries it until a different one is saved.
   onPickLibrary: (path: string) => void
   onPickFile: (file: File) => void
   uploading: boolean
@@ -84,9 +90,23 @@ export function TextureSelector({
         : 'border-app-border text-neutral-400 hover:text-neutral-200'
     }`
 
-  // The Upload preview shows ONLY a file freshly picked in this tab — a library
-  // selection must never leak in here (they are independent).
-  const previewSrc = pendingFileUrl
+  // The Upload preview: a file freshly picked in this tab, else the member's
+  // STORED texture — but only when that texture was uploaded. A library pick must
+  // never leak in here (the two tabs are independent), and the library list is the
+  // only authority on which is which: both kinds are just backend paths, and the
+  // library's live under an assets directory the frontend can't hard-code.
+  //
+  // While the list is still loading we can't classify the stored path, so we show
+  // nothing rather than risk flashing a library texture as "your upload". A failed
+  // list leaves the library tab unusable anyway, so there we fall back to showing
+  // it — better than hiding a genuine upload.
+  const storedIsLibrary =
+    selectedPath != null && textures.some((t) => servePathOf(t.url) === selectedPath)
+  const storedPreview =
+    selectedPath != null && !storedIsLibrary && status !== 'loading'
+      ? textureServeUrl(selectedPath)
+      : undefined
+  const previewSrc = pendingFileUrl ?? storedPreview
 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0]

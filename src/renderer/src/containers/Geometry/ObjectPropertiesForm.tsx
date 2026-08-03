@@ -106,24 +106,29 @@ function textureDepErrors(values: Record<string, string>): Record<string, string
 const asDisplay = (v: number | string | boolean | null | undefined): string =>
   v == null ? '' : String(v)
 
-// A texture member's display name, derived from its stored `texture_file` path
-// (there is no separately stored name): basename → URL-decode → drop extension →
-// title-case. e.g. "uploads/materials/7/dirt.jpg" → "Dirt".
+// A texture member's file name, taken from its stored `texture_file` path — the
+// last segment, exactly as the backend holds it. e.g.
+// "uploads/groups/77/Screenshot_2026-07-21_at_2.21.13_PM.png" →
+// "Screenshot_2026-07-21_at_2.21.13_PM.png".
+//
+// Deliberately NOT prettified. This used to title-case the stem and swap '_'/'-'
+// for spaces, which turned the stored name into something that matched nothing on
+// disk or in the API response ("Screenshot 2026 07 21 At 2.21.13 PM.png"). It is
+// a file name, so it reads as one — the same rule the Radiation spectral row uses.
+//
+// BOTH separators are split on. A backend running on Windows stores native paths
+// ("C:\Program Files\Helios\…\assets\grass.jpg"), which contain no '/' at all —
+// so splitting on '/' alone returned the WHOLE path, and the user saw the
+// installation directory instead of the texture's name.
 function textureDisplayName(path: string): string {
-  const base = path.split('/').pop() ?? path
-  let name = base
+  const base = path.split(/[\\/]/).pop() ?? path
+  // A stored path may be percent-encoded; show the decoded form, and fall back to
+  // the raw one when it isn't valid encoding (a literal '%' in the name).
   try {
-    name = decodeURIComponent(base)
+    return decodeURIComponent(base)
   } catch {
-    name = base
+    return base
   }
-  const dot = name.lastIndexOf('.')
-  if (dot > 0) name = name.slice(0, dot)
-  return name
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
 }
 
 // The Visualiser's persisted mode discriminator. Tolerates both the string form
@@ -625,6 +630,15 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             {group.heading && (
               <p className="mb-1.5 text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">
                 {group.heading}
+                {/* The required marker sits on the HEADING, not the fields: the
+                    heading is the group's name ("Position"), and its fields are
+                    the axes of one value (X, Y, Z) whose own labels are sr-only.
+                    Starring each box would repeat the same claim three times for
+                    what the user reads as a single required entry. Shown when the
+                    group holds any required field. */}
+                {group.fields.some((field) => field.required) && (
+                  <span className="text-red-400">*</span>
+                )}
               </p>
             )}
             <div

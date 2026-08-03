@@ -89,6 +89,37 @@ describe('<Dialog />', () => {
     expect(screen.getByLabelText('Close dialog')).toHaveTextContent('×')
   })
 
+  // Opening focuses the first real FIELD, not a focusable help icon that happens
+  // to sit above it in the label — that icon stealing focus popped its tooltip
+  // open (react-tooltip opens on focus) before anyone hovered it.
+  it('focuses the first input, not a focusable element preceding it', () => {
+    render(
+      <Dialog {...defaultProps}>
+        <label>
+          Project Name
+          <span tabIndex={0} data-testid="help">
+            ?
+          </span>
+        </label>
+        <input aria-label="Project Name" />
+      </Dialog>
+    )
+    expect(document.activeElement).toBe(screen.getByLabelText('Project Name'))
+    expect(document.activeElement).not.toBe(screen.getByTestId('help'))
+  })
+
+  // With no form control at all, any other focusable element is still used.
+  it('falls back to a focusable non-input when the body has no field', () => {
+    render(
+      <Dialog {...defaultProps}>
+        <span tabIndex={0} data-testid="help">
+          ?
+        </span>
+      </Dialog>
+    )
+    expect(document.activeElement).toBe(screen.getByTestId('help'))
+  })
+
   // Snapshot regression guard — open state
   it('should match the snapshot (open)', () => {
     const { container } = render(<Dialog {...defaultProps} />)

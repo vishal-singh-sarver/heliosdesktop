@@ -12,8 +12,10 @@ import {
   toNativeProperties,
   toRadiationProperties,
   toVisualisationProperties,
+  validateMaterialFieldValue,
   visibleParameterGroups
 } from '../materialBlueprint'
+import type { ResolvedMaterialField } from '../materialBlueprint'
 
 // The live Visualiser type (id 7) — colour channels + opacity + texture_file, all
 // top-level (no groups).
@@ -368,6 +370,41 @@ describe('resolveParameterGroups', () => {
     expect(resolveParameterGroups([unlabeled])[0].fields[0].label).toBe('Surface Temperature')
   })
 
+  it('carries the catalog required flag through, defaulting to optional', () => {
+    // The material-type payload carries no `required` today (the API sends it on
+    // object types only), so a field resolves as optional and its label shows no
+    // star — but a marked property drives one without further wiring.
+    const mixed: MaterialTypeDef = {
+      id: 98,
+      materialtype: 'X',
+      description: '',
+      properties: [
+        {
+          property_type_id: 1,
+          property: 'density',
+          description: '',
+          datatype: 'float',
+          min: 0,
+          max: 1,
+          display_order: 1,
+          required: true
+        },
+        {
+          property_type_id: 2,
+          property: 'emissivity',
+          description: '',
+          datatype: 'float',
+          min: 0,
+          max: 1,
+          display_order: 2
+        }
+      ],
+      groups: []
+    }
+    const [top] = resolveParameterGroups([mixed])
+    expect(top.fields.map((f) => f.required)).toEqual([true, false])
+  })
+
   it('carries each group selector through', () => {
     const groups = resolveParameterGroups([stomatal])
     const bwb = groups.find((g) => g.name === 'Ball-woodrow-berry')
@@ -399,6 +436,62 @@ describe('visibleParameterGroups', () => {
 
   it('hides every conditional group when the selector is unset', () => {
     expect(visibleParameterGroups(groups, {}).map((g) => g.name)).toEqual([null])
+  })
+})
+
+describe('validateMaterialFieldValue', () => {
+  const field = (overrides: Partial<ResolvedMaterialField> = {}): ResolvedMaterialField => ({
+    property: 'reflectivity',
+    label: 'Reflectivity',
+    datatype: 'float',
+    description: '',
+    min: 0,
+    max: 1,
+    required: false,
+    ...overrides
+  })
+
+  it('flags an empty REQUIRED field, and only a required one', () => {
+    // Same copy and same rule as the Geometry form's validateFieldValue.
+    expect(validateMaterialFieldValue(field({ required: true }), '')).toBe('Required Field')
+    expect(validateMaterialFieldValue(field({ required: true }), '   ')).toBe('Required Field')
+    expect(validateMaterialFieldValue(field({ required: false }), '')).toBeNull()
+  })
+
+  it('flags an empty required field of ANY datatype, not just numbers', () => {
+    // The datatype gate used to run first, so a required enum/file read as valid
+    // when blank.
+    expect(validateMaterialFieldValue(field({ datatype: 'enum', required: true }), '')).toBe(
+      'Required Field'
+    )
+    expect(validateMaterialFieldValue(field({ datatype: 'file', required: true }), '')).toBe(
+      'Required Field'
+    )
+    // A filled non-numeric field still skips the numeric checks entirely.
+    expect(validateMaterialFieldValue(field({ datatype: 'enum', required: true }), 'BWB')).toBeNull()
+  })
+
+  it('rejects a minus-signed zero on a range that starts at 0', () => {
+    // Number("-0") is -0 and -0 < 0 is false, so these used to slip past the
+    // range check and commit as negative-looking values on a 0–1 band optic.
+    const band = field()
+    expect(validateMaterialFieldValue(band, '-0')).toBe('Values should be between 0-1')
+    expect(validateMaterialFieldValue(band, '-0.00')).toBe('Values should be between 0-1')
+    // The unsigned zero is a legitimate value and still passes.
+    expect(validateMaterialFieldValue(band, '0')).toBeNull()
+    expect(validateMaterialFieldValue(band, '0.5')).toBeNull()
+  })
+
+  it('rejects a minus-signed zero in an integer channel too', () => {
+    const channel = field({ property: 'color_r', datatype: 'integer', min: 0, max: 255 })
+    expect(validateMaterialFieldValue(channel, '-0')).toBe('Values should be between 0-255')
+    expect(validateMaterialFieldValue(channel, '0')).toBeNull()
+  })
+
+  it('leaves -0 alone on a range that genuinely admits negatives', () => {
+    // There -0 is just zero, which is in range.
+    expect(validateMaterialFieldValue(field({ min: -1, max: 1 }), '-0')).toBeNull()
+    expect(validateMaterialFieldValue(field({ min: null, max: 1 }), '-0')).toBeNull()
   })
 })
 

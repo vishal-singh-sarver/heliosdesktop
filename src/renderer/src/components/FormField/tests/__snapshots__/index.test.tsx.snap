@@ -8,11 +8,13 @@ exports[`<FormField /> > should match the snapshot 1`] = `
     class="flex items-center gap-1"
     for="projectName"
   >
-    Project Name
-    <span
-      class="text-red-400"
-    >
-      *
+    <span>
+      Project Name
+      <span
+        class="text-red-400"
+      >
+        *
+      </span>
     </span>
     <span
       aria-label="Show project name help"
@@ -46,11 +48,13 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
     class="flex items-center gap-1"
     for="projectName"
   >
-    Project Name
-    <span
-      class="text-red-400"
-    >
-      *
+    <span>
+      Project Name
+      <span
+        class="text-red-400"
+      >
+        *
+      </span>
     </span>
     <span
       aria-label="Show project name help"
