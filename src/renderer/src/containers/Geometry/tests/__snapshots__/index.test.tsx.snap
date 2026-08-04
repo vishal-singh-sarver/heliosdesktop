@@ -83,7 +83,8 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
     </div>
   </div>
   <p
-    class="py-2 text-[13px] text-neutral-500"
+    class="py-2 text-[13px]"
+    style="color: rgb(125, 125, 125);"
   >
     No saved geometries yet.
   </p>

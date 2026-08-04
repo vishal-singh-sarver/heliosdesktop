@@ -6,7 +6,10 @@ const messages = {
   loading: 'Loading materials…',
   openingMaterial: 'Opening material…',
   empty: 'No saved materials yet.',
-  noMatches: 'No materials match your search.',
+  // Shown wherever a material search comes back empty: the Saved Materials list
+  // AND the right panel's Select Materials popup. One string so the two boxes
+  // can't drift apart.
+  noMatches: 'No materials found',
   loadError: 'Unable to load materials',
   // Rename validation / errors (match the backend §7 / §9 copy).
   nameRequired: 'Name is required',

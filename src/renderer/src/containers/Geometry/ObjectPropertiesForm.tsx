@@ -5,6 +5,7 @@ import AnchoredPopup from '@renderer/components/AnchoredPopup'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Tooltip from '@renderer/components/Tooltip'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import { loadMaterialDetailRequested } from 'containers/Materials/actions'
 import {
   isVisualisationFieldSet,
@@ -280,12 +281,26 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // the list rather than appending). Client-side only: Save is what unassigns the
   // material this one displaced and PATCHes the new pick, so abandoning the form
   // leaves the previously saved material untouched.
-  const handleSelectMaterial = (m: { id: string; name: string }): void => {
+  const applyMaterialPick = (m: { id: string; name: string }): void => {
     dispatch(addDraftMaterial(m.id, m.name))
     // The pick is done, so dismiss the picker — the new row is already showing
     // under the Materials heading behind it. Lives here rather than in the popup
     // so the popup stays a dumb list and the open/closed state has a single owner.
     closeMaterialPopup()
+  }
+
+  const handleSelectMaterial = (m: { id: string; name: string }): void => {
+    // Re-picking the row that's already ticked changes nothing — report it
+    // rather than letting the click vanish.
+    if (selectedMaterialIds.has(m.id)) {
+      dispatch(showSnackbar(messages.materialAlreadyAssigned(draft.name), 'info'))
+      closeMaterialPopup()
+      return
+    }
+    // Picking is free: the swap is client-side and costs nothing until Save.
+    // The replace confirmation belongs on Save, which is what actually unassigns
+    // the displaced material on the backend.
+    applyMaterialPick(m)
   }
 
   // The per-material trash icon. A material only in the draft (picked this session,
@@ -528,10 +543,33 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     }
   }
 
+  // Saving would unassign a material the ground actually carries and put another
+  // in its place — the same pair the save saga acts on (a newly picked group ∧ a
+  // baseline group no longer in the draft). Picking is reversible until this
+  // point, so this is where the replace is confirmed.
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = React.useState(false)
+  const saveReplacesMaterial =
+    draft.materials.some((m) => !draft.materialBaseline.includes(m.groupId)) &&
+    draft.materialBaseline.some((id) => !draft.materials.some((m) => m.groupId === id))
+
+  const performSave = (): void => {
+    if (!projectId || !scenarioId) return
+    dispatch(updateObjectRequested(projectId, scenarioId))
+  }
+
   const onSave = (): void => {
     // Save is disabled while the form is invalid; this guard is defensive.
     if (!valid || objectDeleted || !projectId || !scenarioId) return
-    dispatch(updateObjectRequested(projectId, scenarioId))
+    if (saveReplacesMaterial) {
+      setConfirmReplaceOpen(true)
+      return
+    }
+    performSave()
+  }
+
+  const confirmReplaceMaterial = (): void => {
+    setConfirmReplaceOpen(false)
+    performSave()
   }
 
   // Trash icon. Always confirm first — for both brand-new (in-progress) and
@@ -916,6 +954,34 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.unassignConfirm}
+          </button>
+        </div>
+      </Dialog>
+
+      {/* Replace-material confirmation — raised by SAVE, the point at which the
+          material already on the ground is actually unassigned. Cancel returns
+          to the form with the pick intact, so nothing is lost either way. */}
+      <Dialog
+        isOpen={confirmReplaceOpen}
+        title={messages.replaceMaterialTitle}
+        onClose={() => setConfirmReplaceOpen(false)}
+      >
+        <p className="text-sm text-neutral-200">{messages.replaceMaterialHeading(draft.name)}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setConfirmReplaceOpen(false)}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.replaceMaterialCancel}
+          </button>
+          <button
+            type="button"
+            onClick={confirmReplaceMaterial}
+            className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-500"
+          >
+            {messages.replaceMaterialConfirm}
           </button>
         </div>
       </Dialog>

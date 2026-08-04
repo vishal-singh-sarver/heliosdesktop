@@ -1,6 +1,8 @@
 import checkIcon from '@renderer/assets/CheckIcon.svg'
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import React from 'react'
+import { createPortal } from 'react-dom'
+import { useAnchoredPosition, type AnchorRect } from 'utils/useAnchoredPosition'
 
 // The app's dropdown, replacing the native <select> everywhere.
 //
@@ -13,6 +15,41 @@ import React from 'react'
 //   • searchable  — a text input you type into to filter, with the chevron as a
 //                   separate toggle button (the material-type picker).
 //   • plain       — a button showing the selected label (FormField's enums).
+
+// Distance from the control to the list, its clearance from the window edges, and
+// the tallest it may get before scrolling internally. The max is also capped by
+// the room on whichever side it opens, so it never runs off the screen.
+const LIST_GAP = 4
+const LIST_PADDING = 8
+const LIST_MAX_HEIGHT = 240
+// Far enough out that an unplaced list is never seen, while staying in the DOM
+// (and the accessibility tree) so it can be read and clicked.
+const OFFSCREEN = -9999
+
+// True when a press landed on an element's scrollbar rather than its content.
+// `clientWidth`/`clientHeight` exclude the scrollbars, so a coordinate past that
+// edge but still inside the border box is the gutter — the only way to tell,
+// since a scrollbar is not an element and cannot be hit-tested.
+function isScrollbarPress(e: MouseEvent): boolean {
+  const el = e.target
+  if (!(el instanceof HTMLElement)) return false
+  const rect = el.getBoundingClientRect()
+  return e.clientX > rect.left + el.clientWidth || e.clientY > rect.top + el.clientHeight
+}
+
+// The nearest ancestor that can actually scroll — the panel a control sits in.
+// `document.scrollingElement` is the last resort so a control on an unscrolled
+// page still works.
+function scrollableAncestorOf(el: HTMLElement): Element | null {
+  let node: HTMLElement | null = el.parentElement
+  while (node) {
+    const { overflowY } = window.getComputedStyle(node)
+    const scrollable = overflowY === 'auto' || overflowY === 'scroll'
+    if (scrollable && node.scrollHeight > node.clientHeight) return node
+    node = node.parentElement
+  }
+  return document.scrollingElement
+}
 
 export interface SelectOption {
   value: string
@@ -73,6 +110,9 @@ export default function Select({
   const [highlight, setHighlight] = React.useState(0)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  // The list lives in a portal (see below), so it is NOT inside rootRef — every
+  // "did this happen inside the control?" check has to consult it separately.
+  const listElRef = React.useRef<HTMLElement | null>(null)
   const listId = React.useId()
 
   // The clear row and the real options share one index space, so the keyboard
@@ -87,6 +127,87 @@ export default function Select({
   const filtered = q === '' ? rows : rows.filter((o) => o.label.toLowerCase().includes(q))
 
   const isTaken = (opt: SelectOption): boolean => disabledValues?.has(opt.value) ?? false
+
+  // ── Where the list is drawn ────────────────────────────────────────────────
+  //
+  // In a PORTAL, positioned against the control, rather than absolutely inside
+  // it. An absolute list is clipped by any scrolling ancestor, and this control
+  // lives inside two of them (the Material Type cards list and the right panel).
+  // A card low in that list opened its options inside the clip region, where they
+  // could not be seen — and scrolling to reach them moved the control by the same
+  // amount, so they never came into view.
+  //
+  // The hook re-measures on ancestor scroll, so the list stays glued to the
+  // control as the panel scrolls under it.
+  const listOpen = open && filtered.length > 0
+  const getAnchorRect = React.useCallback((): AnchorRect | null => {
+    const el = rootRef.current
+    if (!el) return null
+    const { top, left, width, height } = el.getBoundingClientRect()
+    return { top, left, width, height }
+  }, [])
+  const { floatingRef, measurement } = useAnchoredPosition({
+    open: listOpen,
+    getAnchorRect,
+    placement: 'bottom-start',
+    gap: LIST_GAP,
+    padding: LIST_PADDING
+  })
+  const setListEl = React.useCallback(
+    (el: HTMLElement | null): void => {
+      listElRef.current = el
+      floatingRef(el)
+    },
+    [floatingRef]
+  )
+
+  // A list opening near the bottom of a panel has only a sliver of room, so it is
+  // capped to that and shows a couple of rows behind its own scrollbar. On the
+  // LAST card there is no way out of that: the panel is already at its scroll end,
+  // so the outer scrollbar has nowhere to travel and the list can never be brought
+  // into view.
+  //
+  // The panel is therefore given that much extra room at the bottom while the list
+  // is open — enough for its scrollbar to move. It does NOT scroll on the user's
+  // behalf: they scroll as much or as little as they want, the list follows its
+  // control (the hook re-measures on scroll), and it grows as room opens up
+  // beneath it. The borrowed space is handed back the moment the list closes.
+  //
+  // Runs once per open. `scrollHeight` is read rather than the rendered height
+  // because the rendered one is already capped — it would under-report how much
+  // room is missing.
+  React.useEffect(() => {
+    if (!listOpen) return
+    const anchor = rootRef.current
+    const list = listElRef.current
+    if (!anchor || !list) return
+
+    const wanted = Math.min(LIST_MAX_HEIGHT, list.scrollHeight)
+    const bottom = anchor.getBoundingClientRect().bottom + LIST_GAP + wanted
+    const shortfall = bottom - (window.innerHeight - LIST_PADDING)
+    if (shortfall <= 0) return
+
+    const panel = scrollableAncestorOf(anchor)
+    if (!(panel instanceof HTMLElement)) return
+
+    // What the panel can still scroll through on its own. If that already covers
+    // the shortfall, the scrollbar can reach it — nothing to add.
+    const remaining = panel.scrollHeight - panel.clientHeight - panel.scrollTop
+    if (remaining >= shortfall) return
+
+    const previousPadding = panel.style.paddingBottom
+    const existing = parseFloat(window.getComputedStyle(panel).paddingBottom) || 0
+    panel.style.paddingBottom = `${existing + (shortfall - remaining)}px`
+
+    // Give the panel its shape back on close. Wherever the user scrolled to is
+    // clamped by the browser as the content shrinks, so they are left looking at
+    // real content rather than the blank space we borrowed.
+    return () => {
+      panel.style.paddingBottom = previousPadding
+    }
+    // Keyed on `listOpen` alone: re-running on every render would fight the user's
+    // own scrolling.
+  }, [listOpen])
 
   // Open from a closed state with a fresh (empty) query, so the full list shows;
   // no-op if already open, so clicking to reposition the caret keeps the text.
@@ -133,10 +254,18 @@ export default function Select({
   React.useEffect(() => {
     if (!open) return undefined
     const onDown = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false)
-        onBlur?.()
-      }
+      const target = e.target as Node
+      // The list is portalled to <body>, so a press on an option is NOT inside
+      // rootRef. Without the second check every option click read as an outside
+      // press and closed the list before the click could land on it.
+      if (rootRef.current?.contains(target) || listElRef.current?.contains(target)) return
+      // Grabbing a SCROLLBAR is not leaving the field. The press lands on the
+      // scrolling element, which is outside the control, so without this the list
+      // shut the instant the panel's scrollbar was dragged — the one gesture a
+      // user makes to bring the rest of the options into view.
+      if (isScrollbarPress(e)) return
+      setOpen(false)
+      onBlur?.()
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
@@ -191,7 +320,8 @@ export default function Select({
   // Focus leaving the control closes the list and reports the blur — but moving
   // between the control and its own list must not.
   const handleBlur = (e: React.FocusEvent): void => {
-    if (rootRef.current?.contains(e.relatedTarget as Node)) return
+    const next = e.relatedTarget as Node | null
+    if (rootRef.current?.contains(next) || listElRef.current?.contains(next)) return
     setOpen(false)
     onBlur?.()
   }
@@ -283,15 +413,34 @@ export default function Select({
         </button>
       )}
 
-      {open && filtered.length > 0 && (
-        // `top-full` is the point: the list is pinned to the control's bottom
-        // edge, so it never shifts with the selection the way a native popup did.
-        <div
-          id={listId}
-          role="listbox"
-          aria-label={ariaLabel ?? name}
-          className={`scrollbar-custom-thin absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded border border-app-border py-1 shadow-lg ${listClassName}`}
-        >
+      {listOpen &&
+        createPortal(
+          // Portalled to <body> and positioned against the control, so no
+          // scrolling ancestor can clip it. Pinned to the control's bottom edge —
+          // it never shifts with the selection the way a native popup did.
+          //
+          // Parked OFF-SCREEN until the first measurement lands (one pre-paint
+          // pass), so it can't flash at the top-left corner on the way in. Off
+          // screen rather than `visibility: hidden` on purpose: hiding it would
+          // pull it out of the accessibility tree, and it is an open listbox — a
+          // screen reader should find it, and so should a test.
+          //
+          // Width matches the control; height is capped by the room actually
+          // below it, so the list can never run off the bottom of the window.
+          <div
+            ref={setListEl}
+            id={listId}
+            role="listbox"
+            aria-label={ariaLabel ?? name}
+            style={{
+              position: 'fixed',
+              top: measurement?.position?.top ?? OFFSCREEN,
+              left: measurement?.position?.left ?? OFFSCREEN,
+              width: measurement?.anchorRect.width,
+              maxHeight: Math.min(LIST_MAX_HEIGHT, measurement?.available.height ?? LIST_MAX_HEIGHT)
+            }}
+            className={`scrollbar-custom-thin z-30 overflow-y-auto rounded border border-app-border py-1 shadow-lg ${listClassName}`}
+          >
           {filtered.map((opt, i) => {
             // Already used elsewhere: still listed (so the user can see it
             // exists) but greyed out and unselectable.
@@ -331,8 +480,9 @@ export default function Select({
               </button>
             )
           })}
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

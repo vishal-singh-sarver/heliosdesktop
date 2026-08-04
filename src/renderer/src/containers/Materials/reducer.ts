@@ -39,6 +39,7 @@ import {
 } from './constants'
 import {
   ALL_BAND_PROPERTIES,
+  MATERIAL_WIDE_PROPERTIES,
   SPECTRAL_DATA_PROPERTY,
   TEXTURE_PROPERTY,
   TEXTURE_TOGGLE_PROPERTY,
@@ -49,6 +50,22 @@ import { loadRecentColors, prependRecentColor } from './recentColors'
 import type { Material, MaterialDraft, MaterialGroupDetail, MaterialParameterGroup } from './types'
 
 export type { Material }
+
+// The material-wide values (see MATERIAL_WIDE_PROPERTIES) as the OTHER cards
+// currently hold them — what a card swapping its type must keep, and what a card
+// picking a type for the first time starts from. Skips blanks so an untouched
+// card can't erase an answer another card already carries.
+const materialWideValues = (
+  groups: MaterialParameterGroup[],
+  exceptId: number
+): Record<string, string> => {
+  const out: Record<string, string> = {}
+  for (const property of MATERIAL_WIDE_PROPERTIES) {
+    const source = groups.find((g) => g.id !== exceptId && (g.values[property] ?? '') !== '')
+    if (source) out[property] = source.values[property]
+  }
+  return out
+}
 
 // A brand-new, unsaved "Parameter Group.0N" card.
 const emptyCard = (id: number, number: number): MaterialParameterGroup => ({
@@ -491,7 +508,11 @@ const materialsReducer = (
         // meaningless — drop them. (A saved card's type is locked in the UI.)
         if (card && !card.saved) {
           card.typeId = action.typeId
-          card.values = {}
+          // …except the material-wide ones, which outlive the swap because they
+          // describe the MATERIAL. Picking a second type that also shows the Heat
+          // Transfer Flag must show the answer already given for this material,
+          // not a blank the user has to give twice.
+          card.values = materialWideValues(draft.editDraft?.groups ?? [], card.id)
           card.saveStatus = 'idle'
           card.saveError = null
           // The old type's failed upload (e.g. a texture 404) is meaningless for
@@ -506,6 +527,16 @@ const materialsReducer = (
         const card = draft.editDraft?.groups.find((g) => g.id === action.groupId)
         if (card) {
           card.values[action.property] = action.value
+          // A material-wide property is ONE value for the whole material, so
+          // answering it on one card answers it everywhere — otherwise the same
+          // question, asked once per material type, could be given contradictory
+          // answers. The other cards go dirty, which is honest: each still has to
+          // be saved for the backend to agree with what's on screen.
+          if (MATERIAL_WIDE_PROPERTIES.has(action.property)) {
+            for (const other of draft.editDraft?.groups ?? []) {
+              if (other.id !== card.id) other.values[action.property] = action.value
+            }
+          }
           // Editing answers the failure — the message described the values as
           // they were, and pinning it under the card until the next round-trip
           // left the user correcting a field while still being told it was wrong.

@@ -120,15 +120,32 @@ describe('decimalValidation utilities', () => {
 
   describe('isPartialNumericInput', () => {
     it('accepts complete numbers (positive, negative, float)', () => {
-      for (const v of ['0', '1', '12', '-1', '+1', '1.5', '-12.34', '.5', '100000']) {
+      for (const v of ['0', '1', '12', '-1', '1.5', '-12.34', '.5', '100000']) {
         expect(isPartialNumericInput(v)).toBe(true)
       }
     })
 
     it('accepts in-progress states so typing is not blocked', () => {
-      for (const v of ['', '-', '+', '1.', '.', '-1.']) {
+      for (const v of ['', '-', '1.', '.', '-1.']) {
         expect(isPartialNumericInput(v)).toBe(true)
       }
+    })
+
+    it('rejects a leading + , which would silently normalise away', () => {
+      // "+5" passes every validation, and Number("+5") is 5 — so it saves as 5
+      // and the field reads back "5" on the next load, with nothing having told
+      // the user their keystroke was dropped. Blocked at the keystroke instead,
+      // where '*' and '/' already are.
+      for (const v of ['+', '+5', '+1.5', '+.5', '+0']) {
+        expect(isPartialNumericInput(v)).toBe(false)
+      }
+    })
+
+    it("still accepts the exponent's sign, which does carry meaning", () => {
+      // '+' is only meaningless in the LEADING position: 1e+5 ≠ 1e-5.
+      expect(isPartialNumericInput('1e+5')).toBe(true)
+      expect(isPartialNumericInput('1e+')).toBe(true)
+      expect(isPartialNumericInput('-2.5e+3')).toBe(true)
     })
 
     it('accepts scientific notation and its intermediate states', () => {

@@ -14,6 +14,7 @@ import type {
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
+import snackbarReducer, { initialState as snackbarInitialState } from 'store/snackbarReducer'
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
 import geometryReducer, {
   emptyScenarioGeometry,
@@ -106,6 +107,10 @@ function makeStore(
   materials: Material[] = [],
   opts: {
     draftMaterials?: DraftMaterialGroup[]
+    // Which of `draftMaterials` are already saved on the object. Defaults to all
+    // of them; pass [] for a material only PICKED this session (never saved), so
+    // replacing it needs no confirmation.
+    materialBaseline?: string[]
     materialTypes?: MaterialTypeDef[]
     materialDetails?: MaterialGroupDetail[]
   } = {}
@@ -117,10 +122,14 @@ function makeStore(
       geometry: geometryReducer,
       projectScreen: projectScreenReducer,
       materials: materialsReducer,
+      // Always-combined in the real app; included so the form's info toast
+      // ("already assigned") lands somewhere the tests can read.
+      snackbar: snackbarReducer,
       ...injected
     }) as unknown as Reducer
 
   const preloaded = {
+    snackbar: snackbarInitialState,
     materials: {
       ...materialsInitialState,
       byId: Object.fromEntries(materials.map((m) => [m.id, m])),
@@ -143,7 +152,8 @@ function makeStore(
         name: 'Ground.001',
         values: {},
         materials: opts.draftMaterials ?? [],
-        materialBaseline: (opts.draftMaterials ?? []).map((m) => m.groupId),
+        materialBaseline:
+          opts.materialBaseline ?? (opts.draftMaterials ?? []).map((m) => m.groupId),
         isNew: true,
         saving: false,
         saveError: null,
@@ -183,6 +193,16 @@ function makeStore(
   store.createReducer = (injected?: Record<string, Reducer>) => rootReducer(injected)
   return store
 }
+
+// True once the save PATCH has been dispatched (the reducer flips this the
+// moment UPDATE_OBJECT_REQUESTED lands), which is how these tests tell "Save
+// actually ran" from "Save was blocked by the confirmation".
+//
+// Cast because the geometry slice is INJECTED at runtime, so the app's RootState
+// type — which only knows the always-combined slices — has no `geometry` on it.
+const isSaving = (store: InjectableStore): boolean =>
+  (store.getState() as unknown as { geometry: { createDraft: { saving: boolean } } }).geometry
+    .createDraft.saving
 
 const fieldInput = (container: HTMLElement, name: string): HTMLInputElement => {
   const el = container.querySelector(`input[name="${name}"]`)
@@ -364,15 +384,14 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     )
   })
 
-  it('re-clicking the ticked material is a no-op and leaves the popup open', () => {
-    // There is nothing to toggle off — clearing the material is the trash icon's
-    // job — so the row must not dismiss the picker or change the selection.
+  it('reports "already assigned" when the ticked material is picked again', () => {
+    // Nothing to toggle off and nothing to replace — the pick must leave the
+    // selection alone and say why, instead of the click vanishing silently.
+    const store = makeStore([material('m1', 'Cotton')], {
+      draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+    })
     const { container } = render(
-      <Provider
-        store={makeStore([material('m1', 'Cotton')], {
-          draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
-        })}
-      >
+      <Provider store={store}>
         <ObjectPropertiesForm />
       </Provider>
     )
@@ -380,12 +399,130 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
 
     fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
 
-    expect(screen.getByText('Select Materials')).toBeInTheDocument()
-    expect(within(popup).getByRole('radio', { name: 'Cotton' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    )
+    expect(store.getState().snackbar).toMatchObject({
+      message: 'This material is already assigned to Ground.001',
+      variant: 'info'
+    })
+    // No confirmation — nothing is being replaced.
+    expect(document.querySelector('dialog[open]')).toBeNull()
     expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+  })
+
+  // Save is gated on a valid form; fill every required field so it's clickable.
+  const fillRequired = (container: HTMLElement): void => {
+    for (const [name, value] of [
+      ['length', '5'],
+      ['breadth', '5'],
+      ['resolution_x', '10'],
+      ['resolution_y', '10'],
+      ['texture_x', '2'],
+      ['texture_y', '2']
+    ] as const) {
+      fireEvent.change(fieldInput(container, name), { target: { value } })
+    }
+  }
+
+  it('swaps the pick without confirming — nothing is committed until Save', () => {
+    const store = makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+      draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+    })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Steel' }))
+
+    expect(document.querySelector('dialog[open]')).toBeNull()
+    expect(within(container).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+  })
+
+  it('confirms on Save when the pick displaces the material saved on the ground', () => {
+    const store = makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+      draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+    })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fillRequired(container)
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Steel' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // The dialog is up and nothing has been sent — the form is still idle.
+    expect(
+      screen.getByText(
+        'Are you sure you want to replace the material already assigned to Ground.001?'
+      )
+    ).toBeInTheDocument()
+    expect(isSaving(store)).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace' }))
+
+    expect(isSaving(store)).toBe(true)
+  })
+
+  it('does not save when the replace confirmation is cancelled', () => {
+    const store = makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+      draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+    })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fillRequired(container)
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Steel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // Nothing sent, and the pick survives so Save can be retried.
+    expect(isSaving(store)).toBe(false)
+    expect(document.querySelector('dialog[open]')).toBeNull()
+    expect(within(container).getByRole('button', { name: 'Steel' })).toBeInTheDocument()
+  })
+
+  it('saves a draft-only pick without confirming', () => {
+    // Picked this session, never saved: no backend assignment is displaced, so
+    // there is no progress to lose. Matches how the trash icon treats it.
+    const store = makeStore([material('m1', 'Cotton'), material('m2', 'Steel')], {
+      draftMaterials: [{ groupId: 'm1', name: 'Cotton' }],
+      materialBaseline: []
+    })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fillRequired(container)
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Steel' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(document.querySelector('dialog[open]')).toBeNull()
+    expect(isSaving(store)).toBe(true)
+  })
+
+  it('saves a first-time material pick without confirming', () => {
+    // The ground carries nothing yet — adding a material displaces no progress.
+    const store = makeStore([material('m1', 'Cotton')])
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fillRequired(container)
+    fireEvent.click(within(openPopup()).getByRole('radio', { name: 'Cotton' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(document.querySelector('dialog[open]')).toBeNull()
+    expect(isSaving(store)).toBe(true)
   })
 
   it('filters the material list by the search query', () => {
@@ -703,6 +840,56 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close material properties' }))
 
     expect(screen.queryByRole('dialog', { name: 'Cotton properties' })).not.toBeInTheDocument()
+  })
+})
+
+describe('<ObjectPropertiesForm /> — numeric keystroke guard', () => {
+  it('rejects a leading + in Ground Size instead of silently dropping it', () => {
+    // "+5" used to pass every check: it saved as 5, so the field read back "5"
+    // on the next load and the '+' vanished with nothing having flagged it.
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const length = fieldInput(container, 'length')
+
+    fireEvent.change(length, { target: { value: '+5' } })
+
+    // The keystroke never reached the value, and the field says why — the same
+    // treatment '*' and '/' already get.
+    expect(length).toHaveValue('')
+    expect(screen.getByLabelText(/This input is not supported/)).toBeInTheDocument()
+  })
+
+  it('rejects the other operators the same way', () => {
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const length = fieldInput(container, 'length')
+
+    for (const value of ['*', '/', '5*2', '+']) {
+      fireEvent.change(length, { target: { value } })
+      expect(length).toHaveValue('')
+    }
+  })
+
+  it('still accepts a negative value, which the range rule judges', () => {
+    // '-' is not an operator here: Position takes negatives, and where the
+    // catalog forbids them (Ground Size starts at 0) the range message says so.
+    // Blocking the keystroke would make a legal number untypeable.
+    const { container } = render(
+      <Provider store={makeStore()}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const positionX = fieldInput(container, 'position_x')
+
+    fireEvent.change(positionX, { target: { value: '-5' } })
+
+    expect(positionX).toHaveValue('-5')
   })
 })
 

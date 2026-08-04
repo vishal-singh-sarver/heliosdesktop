@@ -24,6 +24,11 @@ describe('snackbarReducer', () => {
     expect(next.variant).toBe('error')
   })
 
+  it('carries an info variant for a neutral, no-op outcome', () => {
+    const next = snackbarReducer(initialState, showSnackbar('Already assigned', 'info'))
+    expect(next.variant).toBe('info')
+  })
+
   it('bumps the key on every show so a repeat toast restarts its timer', () => {
     const first = snackbarReducer(initialState, showSnackbar('Again'))
     const second = snackbarReducer(first, showSnackbar('Again'))

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'react-redux'
 import GeometryTree from '../GeometryTree'
+import { SPRING_OPEN_MS } from '../TreeRow'
 import { emptyScenarioGeometry, scopeKey } from '../reducer'
 import type { GeoNode, ScenarioGeometry } from '../types'
 import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
@@ -12,6 +13,13 @@ const materialDataTransfer = (
   name: string
 ): { getData: (type: string) => string } => ({
   getData: (type) => (type === MATERIAL_DND_MIME ? JSON.stringify({ groupId, name }) : '')
+})
+
+// During dragover the payload is unreadable — only the mime LIST is exposed,
+// and that is what the row reads to recognise an incoming material.
+const materialDragOverTransfer = (): { types: string[]; dropEffect: string } => ({
+  types: [MATERIAL_DND_MIME],
+  dropEffect: ''
 })
 
 // jsdom doesn't implement HTMLDialogElement — mock showModal/close so the
@@ -454,6 +462,330 @@ describe('<GeometryTree />', () => {
         groupId: '7',
         materialName: 'Grass',
         targetName: 'Group.001'
+      })
+    )
+  })
+
+  describe('spring-loaded groups', () => {
+    // The dwell is timer-driven; drive the clock rather than waiting on it.
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    const collapsedGroup = (): ScenarioGeometry => ({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['a'], false),
+        a: ground('a', 'Ground.001', 'g')
+      },
+      rootOrder: ['g']
+    })
+
+    it('opens a collapsed group once a material has hovered it for the full dwell', () => {
+      renderTree(collapsedGroup())
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS))
+
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND', id: 'g' })
+      )
+    })
+
+    it('leaves the group closed until the full dwell has elapsed', () => {
+      renderTree(collapsedGroup())
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS - 1))
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND' })
+      )
+    })
+
+    it('does not restart the dwell on every dragover', () => {
+      // dragover repeats several times a second while the pointer sits still —
+      // if each one reset the timer the group would never open.
+      renderTree(collapsedGroup())
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS - 100))
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(100))
+
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND', id: 'g' })
+      )
+    })
+
+    it('cancels the spring-open when the material leaves before the dwell', () => {
+      renderTree(collapsedGroup())
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+
+      fireEvent.dragEnter(target)
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS - 100))
+      fireEvent.dragLeave(target)
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS))
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND' })
+      )
+    })
+
+    it("keeps the dwell running when the cursor crosses the row's own children", () => {
+      // Grazing the group's name fires a bubbled enter/leave pair, but the
+      // pointer never left the row — the dwell must survive it.
+      renderTree(collapsedGroup())
+      const label = screen.getByText('Group.001')
+      const target = label.closest('[role="button"]')!
+
+      fireEvent.dragEnter(target)
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS - 100))
+      // Moving onto the name: the browser fires dragenter on the child (which
+      // bubbles here) before dragleave on the row.
+      fireEvent.dragEnter(label)
+      fireEvent.dragLeave(target)
+      act(() => vi.advanceTimersByTime(100))
+
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND', id: 'g' })
+      )
+    })
+
+    it('never springs an already-expanded group (that would collapse it)', () => {
+      renderTree({
+        ...collapsedGroup(),
+        nodesById: {
+          g: group('g', 'Group.001', ['a'], true),
+          a: ground('a', 'Ground.001', 'g')
+        }
+      })
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS * 2))
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND' })
+      )
+    })
+
+    it('never springs a leaf row', () => {
+      renderTree({
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: { a: ground('a', 'Ground.001') },
+        rootOrder: ['a']
+      })
+      const target = screen.getByText('Ground.001').closest('[role="button"]')!
+
+      fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS * 2))
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND' })
+      )
+    })
+
+    it('does not spring for a geometry row drag, only a material', () => {
+      renderTree(collapsedGroup())
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+
+      // A row drag exposes the tree's own mime, not the material one.
+      fireEvent.dragOver(target, {
+        dataTransfer: { types: ['application/x-geo'], dropEffect: '' },
+        clientY: 0
+      })
+      act(() => vi.advanceTimersByTime(SPRING_OPEN_MS * 2))
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND' })
+      )
+    })
+  })
+
+  it('confirms before a dropped material replaces the one already on a leaf', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: { ...ground('a', 'Ground.001'), materialGroupIds: ['9'] } },
+      rootOrder: ['a']
+    })
+    const target = screen.getByText('Ground.001').closest('[role="button"]')!
+    fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+
+    // Nothing committed yet — the existing material stands until Replace.
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED' })
+    )
+    expect(
+      screen.getByText(
+        'Are you sure you want to replace the material already assigned to Ground.001?'
+      )
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace' }))
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['a'],
+        groupId: '7',
+        targetName: 'Ground.001'
+      })
+    )
+  })
+
+  it('cancelling the replace confirmation leaves the existing material alone', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: { ...ground('a', 'Ground.001'), materialGroupIds: ['9'] } },
+      rootOrder: ['a']
+    })
+    fireEvent.drop(screen.getByText('Ground.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED' })
+    )
+    expect(document.querySelector('dialog[open]')).toBeNull()
+  })
+
+  it('reports "already assigned" when the dropped material is the one the leaf carries', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: { ...ground('a', 'Ground.001'), materialGroupIds: ['7'] } },
+      rootOrder: ['a']
+    })
+    fireEvent.drop(screen.getByText('Ground.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+
+    // No confirmation and no POST — there is nothing to replace.
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'app/snackbar/SHOW',
+      payload: { message: 'This material is already assigned to Ground.001', variant: 'info' }
+    })
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED' })
+    )
+    expect(document.querySelector('dialog[open]')).toBeNull()
+  })
+
+  it('confirms a group drop when ANY member would lose a different material', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['a', 'b']),
+        a: ground('a', 'Ground.001', 'g'),
+        b: { ...ground('b', 'Ground.002', 'g'), materialGroupIds: ['9'] }
+      },
+      rootOrder: ['g']
+    })
+    fireEvent.drop(screen.getByText('Group.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+
+    // The message names the row the material landed on — the group.
+    expect(
+      screen.getByText(
+        'Are you sure you want to replace the material already assigned to Group.001?'
+      )
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace' }))
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['a', 'b'],
+        targetName: 'Group.001'
+      })
+    )
+  })
+
+  it('reports "already assigned" when every group member already carries the material', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['a', 'b']),
+        a: { ...ground('a', 'Ground.001', 'g'), materialGroupIds: ['7'] },
+        b: { ...ground('b', 'Ground.002', 'g'), materialGroupIds: ['7'] }
+      },
+      rootOrder: ['g']
+    })
+    fireEvent.drop(screen.getByText('Group.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'app/snackbar/SHOW',
+      payload: { message: 'This material is already assigned to Group.001', variant: 'info' }
+    })
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED' })
+    )
+  })
+
+  it('assigns only the members that lack it when a group mixes bare and already-assigned', () => {
+    // Nothing is displaced, and the member that already carries the material is
+    // left out of the request entirely rather than being reassigned.
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['a', 'b']),
+        a: { ...ground('a', 'Ground.001', 'g'), materialGroupIds: ['7'] },
+        b: ground('b', 'Ground.002', 'g')
+      },
+      rootOrder: ['g']
+    })
+    fireEvent.drop(screen.getByText('Group.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+
+    expect(document.querySelector('dialog[open]')).toBeNull()
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['b'],
+        groupId: '7'
+      })
+    )
+  })
+
+  it('leaves a member that already carries the material out of a replacing group drop', () => {
+    // One member has the dropped material, one has a different one: only the
+    // second is touched, and the first is never reassigned.
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: {
+        g: group('g', 'Group.001', ['a', 'b']),
+        a: { ...ground('a', 'Ground.001', 'g'), materialGroupIds: ['7'] },
+        b: { ...ground('b', 'Ground.002', 'g'), materialGroupIds: ['9'] }
+      },
+      rootOrder: ['g']
+    })
+    fireEvent.drop(screen.getByText('Group.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Replace' }))
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['b'],
+        groupId: '7'
       })
     )
   })

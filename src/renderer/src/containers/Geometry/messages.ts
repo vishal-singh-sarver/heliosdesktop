@@ -3,7 +3,7 @@
 const messages = {
   loadError: 'Unable to load Geometries',
   emptyTree: 'No saved geometries yet.',
-  noMatches: 'No geometries match your search.',
+  noMatches: 'No geometries found',
   // Rename validation / errors
   nameRequired: 'Name is required',
   nameTooLong: 'Character limit exceeded',
@@ -48,6 +48,19 @@ const messages = {
   assignMaterialSuccess: (materialName: string, targetName: string) =>
     `${materialName} is added in ${targetName}`,
   assignMaterialFailure: (name: string) => `Failed to assign "${name}"`,
+  // Replace-material confirmation — a geometry (or a group's members) already
+  // carries a DIFFERENT material and an assignment would displace it. `target` is
+  // the row the material landed on: the geometry's name for a leaf, the group's
+  // own name for a group drop (the same name the success toast uses).
+  replaceMaterialTitle: 'Replace Material',
+  replaceMaterialHeading: (target: string) =>
+    `Are you sure you want to replace the material already assigned to ${target}?`,
+  replaceMaterialConfirm: 'Replace',
+  replaceMaterialCancel: 'Cancel',
+  // Re-assigning the material a target ALREADY carries: nothing to replace and
+  // nothing to POST, so it's an info toast rather than a success one — no change
+  // was made.
+  materialAlreadyAssigned: (target: string) => `This material is already assigned to ${target}`,
   // Unassign-material confirmation — shown by the per-material trash icon ONLY for
   // a material already saved on the ground (unassigning it deletes backend
   // progress). A draft-only pick is removed silently.

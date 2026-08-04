@@ -1,9 +1,10 @@
 import chevronIcon from '@renderer/assets/chevron.svg'
 import Dialog from '@renderer/components/Dialog'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
+import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import React from 'react'
 import { useDispatch } from 'react-redux'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
-import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import {
   assignMaterialRequested,
   deleteNodeRequested,
@@ -21,6 +22,11 @@ import type { GeoNode } from './types'
 
 // Custom DnD mime so we only react to our own row drags, not arbitrary drops.
 const DND_MIME = 'application/x-geo'
+
+// How long a material must hover a COLLAPSED group before it springs open. Long
+// enough that merely dragging ACROSS a group on the way somewhere else doesn't
+// expand it, short enough not to feel stuck — the Finder/Explorer idiom.
+export const SPRING_OPEN_MS = 400
 
 function readDraggedIds(e: React.DragEvent): string[] {
   const raw = e.dataTransfer.getData(DND_MIME)
@@ -105,6 +111,35 @@ function TreeRow({
   // drag over this row.
   const [dropZone, setDropZone] = React.useState<'before' | 'into' | 'after' | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  // A dropped material whose target(s) already carry a DIFFERENT material: held
+  // here while the replace confirmation is open, so Replace can commit the same
+  // drop the user made. null = nothing pending.
+  const [replaceDrop, setReplaceDrop] = React.useState<{
+    groupId: string
+    name: string
+    targetIds: string[]
+  } | null>(null)
+
+  // Pending spring-open for THIS row (a material is dwelling on this collapsed
+  // group). A ref, not state: it only coordinates the timer, and re-rendering on
+  // every dragover would be pointless churn mid-drag.
+  const springTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelSpringOpen = (): void => {
+    if (springTimer.current === null) return
+    clearTimeout(springTimer.current)
+    springTimer.current = null
+  }
+  // A drag can end anywhere — including on a row that unmounts (a group being
+  // dropped into dissolves, a filtered tree re-renders). Drop the pending timer
+  // so it can't expand a node that is no longer on screen.
+  React.useEffect(() => cancelSpringOpen, [])
+
+  // How deep the drag currently is inside this row. dragenter/dragleave bubble,
+  // so crossing onto one of the row's OWN children (the name, the chevron, the
+  // kebab) fires a leave that does NOT mean the pointer left the row. The usual
+  // `relatedTarget` check can't tell them apart — browsers leave it null on drag
+  // events — so count enters against leaves instead: back to zero = really gone.
+  const dragDepth = React.useRef(0)
 
   const childCount = isGroup ? node.childIds.length : 0
   const confirmMessage = isGroup
@@ -114,6 +149,19 @@ function TreeRow({
   const confirmDelete = (): void => {
     if (projectId && scenarioId) dispatch(deleteNodeRequested(projectId, scenarioId, node.id))
     setConfirmOpen(false)
+  }
+
+  // Commit a material assignment onto the given objects. The toast names this
+  // row (the geometry for a leaf drop, the group for a group drop), not the
+  // individual member objects.
+  const assignMaterial = (groupId: string, name: string, targetIds: string[]): void => {
+    if (!projectId || !scenarioId) return
+    dispatch(assignMaterialRequested(projectId, scenarioId, targetIds, groupId, name, node.name))
+  }
+
+  const confirmReplace = (): void => {
+    if (replaceDrop) assignMaterial(replaceDrop.groupId, replaceDrop.name, replaceDrop.targetIds)
+    setReplaceDrop(null)
   }
 
   // Drag the multi-selection (leaves only) when this row is part of it,
@@ -135,6 +183,17 @@ function TreeRow({
     if (isMaterialDrag(e)) {
       e.dataTransfer.dropEffect = 'copy'
       setDropZone('into')
+      // Hold the material over a collapsed group and it springs open, so its
+      // members become drop targets without aborting the drag to click the
+      // chevron. Started once per hover — dragover repeats several times a
+      // second (even with the pointer still), so restarting it here would mean
+      // the dwell never elapses. dragleave is what cancels it.
+      if (isGroup && !node.expanded && springTimer.current === null && projectId && scenarioId) {
+        springTimer.current = setTimeout(() => {
+          springTimer.current = null
+          dispatch(toggleExpand(projectId, scenarioId, node.id))
+        }, SPRING_OPEN_MS)
+      }
       return
     }
     e.dataTransfer.dropEffect = 'move'
@@ -148,11 +207,27 @@ function TreeRow({
     setDropZone(zone)
   }
 
+  const handleDragEnter = (): void => {
+    dragDepth.current += 1
+  }
+
+  // Genuinely leaving the row (not just crossing between its own children)
+  // clears the drop cue and the pending spring-open.
+  const handleDragLeave = (): void => {
+    dragDepth.current -= 1
+    if (dragDepth.current > 0) return
+    dragDepth.current = 0
+    setDropZone(null)
+    cancelSpringOpen()
+  }
+
   const handleDrop = (e: React.DragEvent): void => {
     e.preventDefault()
     e.stopPropagation() // don't also trigger the root (ungroup) drop zone
     const zone = dropZone
     setDropZone(null)
+    cancelSpringOpen()
+    dragDepth.current = 0
 
     // A dropped material assigns to this row. A leaf takes just itself; a group
     // fans out over its member objects (groups don't nest, so childIds are all
@@ -163,18 +238,30 @@ function TreeRow({
       const targetIds = isGroup
         ? node.childIds.filter((id) => nodesById[id]?.kind !== 'group')
         : [node.id]
-      if (targetIds.length) {
-        dispatch(
-          assignMaterialRequested(
-            projectId,
-            scenarioId,
-            targetIds,
-            material.groupId,
-            material.name,
-            node.name
-          )
-        )
+      if (!targetIds.length) return
+
+      const groupsOn = (id: string): string[] => nodesById[id]?.materialGroupIds ?? []
+      // Members that already carry this exact material are dropped from the
+      // assignment entirely — for them the drop asks for what they already have.
+      // Re-sending them would POST a duplicate the backend rejects and would
+      // restyle geometry in the viewport that never changed.
+      const needsAssign = targetIds.filter((id) => !groupsOn(id).includes(material.groupId))
+      // Nothing left → every target already had it. Say so, rather than firing a
+      // success toast for an assignment that never happened.
+      if (!needsAssign.length) {
+        dispatch(showSnackbar(messages.materialAlreadyAssigned(node.name), 'info'))
+        return
       }
+      // An object carries ONE material, so a remaining target that already holds
+      // one holds a DIFFERENT one, and assigning destroys it (along with any
+      // progress made using it) — confirm first. For a group drop it's enough
+      // that ONE member would be displaced.
+      if (needsAssign.some((id) => groupsOn(id).length > 0)) {
+        setReplaceDrop({ groupId: material.groupId, name: material.name, targetIds: needsAssign })
+        return
+      }
+      // Otherwise every remaining target is bare — nothing is displaced.
+      assignMaterial(material.groupId, material.name, needsAssign)
       return
     }
 
@@ -269,7 +356,8 @@ function TreeRow({
           draggable={!isGroup && !editing}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
-          onDragLeave={() => setDropZone(null)}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           // The "just created" cue sits under the error/editing states (both of
           // which are about the name being wrong right now, and must win) but
@@ -382,6 +470,34 @@ function TreeRow({
             className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.deleteConfirm}
+          </button>
+        </div>
+      </Dialog>
+
+      {/* Replace-material confirmation — shown when a dropped material would
+          displace a different one already on this row's target(s). Cancel leaves
+          the existing assignment untouched; Replace runs the normal assign flow
+          (which unassigns the displaced material first). */}
+      <Dialog
+        isOpen={replaceDrop !== null}
+        title={messages.replaceMaterialTitle}
+        onClose={() => setReplaceDrop(null)}
+      >
+        <p className="text-sm text-neutral-200">{messages.replaceMaterialHeading(node.name)}</p>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setReplaceDrop(null)}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.replaceMaterialCancel}
+          </button>
+          <button
+            type="button"
+            onClick={confirmReplace}
+            className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-500"
+          >
+            {messages.replaceMaterialConfirm}
           </button>
         </div>
       </Dialog>

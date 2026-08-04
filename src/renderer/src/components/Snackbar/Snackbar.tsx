@@ -1,5 +1,10 @@
 import React from 'react'
-import { AlertTriangleIcon, CheckCircleIcon, CloseIcon } from '@renderer/components/ImportWizard/Icons'
+import {
+  AlertTriangleIcon,
+  CheckCircleIcon,
+  CloseIcon,
+  InfoIcon
+} from '@renderer/components/ImportWizard/Icons'
 import type { SnackbarVariant } from '@renderer/store/snackbarReducer'
 
 // Presentational toast banner — the app's single reusable snackbar. Colour and
@@ -8,7 +13,10 @@ import type { SnackbarVariant } from '@renderer/store/snackbarReducer'
 //
 // The success styling matches the Weather import banner (green #effcf4 /
 // #0f6e3e), so toasts read the same wherever they appear; `error` mirrors it in
-// the red the forms use for invalid fields (#D92D20).
+// the red the forms use for invalid fields (#D92D20). `info` mirrors both in
+// amber: #B54708 for everything that carries the message (text, icon, dismiss),
+// over the matching light tint. The amber is the design's; the tint and border
+// around it are provisional until the designer specifies them.
 
 const VARIANT_STYLES: Record<
   SnackbarVariant,
@@ -23,6 +31,12 @@ const VARIANT_STYLES: Record<
     container: 'border-[#f3b4ac] bg-[#fef3f2] text-[#b42318]',
     icon: <AlertTriangleIcon className="h-4 w-4 shrink-0" />,
     dismiss: 'text-[#b42318]'
+  },
+  info: {
+    // The icon strokes with currentColor, so the text colour carries it too.
+    container: 'border-[#f9dbaf] bg-[#fffaeb] text-[#B54708]',
+    icon: <InfoIcon className="h-4 w-4 shrink-0" />,
+    dismiss: 'text-[#B54708]'
   }
 }
 

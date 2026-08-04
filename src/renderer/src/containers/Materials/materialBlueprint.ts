@@ -68,6 +68,17 @@ export const TEXTURE_TOGGLE_PROPERTY = 'texture_toggle'
 // The texture path property.
 export const TEXTURE_PROPERTY = 'texture_file'
 
+// Properties that belong to the MATERIAL, not to the material type that happens
+// to declare them. Several types carry the Heat Transfer Flag, but a material is
+// one-sided or two-sided as a whole — so every card showing it shows the same
+// answer, and setting it on one sets it on all. Cards whose type doesn't declare
+// the property never render it, and `toNativeProperties` only writes a type's own
+// definitions, so carrying the value on them is inert.
+export const TWO_SIDED_HEAT_TRANSFER_PROPERTY = 'two_sided_heat_transfer'
+export const MATERIAL_WIDE_PROPERTIES: ReadonlySet<string> = new Set([
+  TWO_SIDED_HEAT_TRANSFER_PROPERTY
+])
+
 // The Visualiser's two mutually-exclusive appearance modes.
 export type VisualisationMode = 'custom' | 'texture'
 
