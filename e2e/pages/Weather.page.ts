@@ -21,6 +21,7 @@
  */
 
 import { selectAll } from '../support/harness'
+import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
@@ -288,13 +289,41 @@ class WeatherPage {
     )
   }
 
+  /**
+   * Click a toolbar button by its exact label, in-page.
+   *
+   * A WebDriver coordinate click on the toolbar is NOT safe once the table has
+   * grown. CI run 30703357707 failed "adds 30 columns ..." on windows-2022 with
+   *   element click intercepted: Element is not clickable at point (1103, 226)
+   * and webdriverio could not recover, because its scrollIntoView fallback needs
+   * Browser.getWindowForTarget — a CDP command this Electron build does not
+   * implement. Same reasoning, and the same fix, as deleteColumn / focusInput /
+   * openHeaderPicker / pickerPick above; the toolbar was simply the last set of
+   * coordinate clicks left in this file.
+   *
+   * NOTE: this makes the TEST deterministic, it does not prove the UI is fine.
+   * "Click intercepted" means something is painted over the button at that
+   * point, so if a real user can be left unable to reach the toolbar once the
+   * table scrolls, that is a product bug and wants its own investigation — this
+   * change would hide it from the suite.
+   */
+  private async clickToolbarButton(label: string): Promise<void> {
+    await browser.execute((text: string) => {
+      const btn = Array.from(document.querySelectorAll('button')).find(
+        (b) => (b.textContent ?? '').trim() === text
+      ) as HTMLElement | undefined
+      if (!btn) throw new Error(`clickToolbarButton: no button labelled "${text}"`)
+      btn.click()
+    }, label)
+  }
+
   async openAddColumns(): Promise<void> {
-    await this.addColumnsButton.click()
-    await this.addColumnDialog.waitForDisplayed({ timeout: 10000 })
+    await this.clickToolbarButton('Add Columns')
+    await this.addColumnDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
   }
   async openAddRows(): Promise<void> {
-    await this.addRowsButton.click()
-    await this.addRowsDialog.waitForDisplayed({ timeout: 10000 })
+    await this.clickToolbarButton('Add Rows')
+    await this.addRowsDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
   }
 
   /**
@@ -313,9 +342,11 @@ class WeatherPage {
     await this.setReactInput('[data-testid="input-startTime"]', startTime)
     await this.setReactInput('[data-testid="input-deltaHours"]', deltaHours)
     await this.arSubmit.click()
-    await this.addRowsDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    // Both waits sit behind the same add-rows POST — MUTATION for the same
+    // reason as addColumn above.
+    await this.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MUTATION })
     await browser.waitUntil(async () => (await this.rowCount()) > 0, {
-      timeout: 20000,
+      timeout: TIMEOUTS.MUTATION,
       timeoutMsg: 'no rows appeared after Add Rows'
     })
   }
@@ -368,7 +399,12 @@ class WeatherPage {
     if (opts.defaultValue != null)
       await this.setReactInput('[data-testid="input-defaultValue"]', opts.defaultValue)
     await this.acSubmit.click()
-    await this.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
+    // MUTATION, not 20s: the dialog closes on the loading->idle edge of the
+    // create POST, so this wait is really "how long may the backend take". CI
+    // run 30824713568 failed exactly here on windows-2022 —
+    //   element ("[data-testid="add-column-dialog"]") still displayed after 20000ms
+    // — on a runner already documented to stall >30s. See TIMEOUTS.MUTATION.
+    await this.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MUTATION })
   }
 
   /**

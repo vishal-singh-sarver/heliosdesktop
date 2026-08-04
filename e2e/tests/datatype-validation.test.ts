@@ -180,9 +180,29 @@ async function withCellDiagnostic<T>(colId: string, fn: () => Promise<T>): Promi
   }
 }
 
-/** Set a cell and assert it flags aria-invalid with the EXACT unit message. */
+/**
+ * Set a cell and assert it flags aria-invalid with the EXACT unit message.
+ *
+ * The value is RE-DISPATCHED on every poll, not set once. validateCellValue runs
+ * off the change event, so a single dispatch that lands while the column is
+ * mid-unit-conversion (updateColumnWorker -> buildConvertedColumnValues rewrites
+ * every cell, then PATCHes, then revalidates) can be swallowed: the value sticks
+ * but nothing re-validates it, and a set-once probe then waits out its whole
+ * budget against a cell that will never change again. Re-dispatching turns that
+ * deadlock into a retry.
+ *
+ * This is the m5 failure (CI run 30780330034, windows-2022):
+ *   cell[3] never showed "Value should be between 0 and 1.5" ... for -1
+ *   cell state at failure: {"value":"-1","invalid":null,"tip":null}
+ *   header unit: kW/m^2
+ * -1 is out of range for BOTH W/m^2 (0..1500) and kW/m^2 (0..1.5), so no
+ * ordering of the unit switch explains an unflagged cell — validation simply
+ * never ran for that keystroke.
+ */
 async function assertOutOfRange(colId: string, value: number, message: string): Promise<void> {
-  await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
+  const setValue = () =>
+    Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
+  await setValue()
   // Wait for BOTH asserted facts together, read from one DOM snapshot. Polling
   // the message and then reading aria-invalid separately still races the
   // render: the wait can settle and the tooltip re-render before the second
@@ -193,24 +213,28 @@ async function assertOutOfRange(colId: string, value: number, message: string): 
     browser.waitUntil(
       async () => {
         const v = await Weather.cellValidation(SHARED_ROW, colId)
-        return v.message === message && v.invalid === 'true'
+        if (v.message === message && v.invalid === 'true') return true
+        // Nothing is re-validating on its own — nudge the value again.
+        await setValue()
+        return false
       },
       {
-        // XLONG, not MEDIUM. This must outlast a wedged renderer, not just a
-        // slow one. On CI run 30763052415 chromedriver logged
+        // CORRECTION (2026-08-03): the previous comment here claimed the dumped
+        // cell state was "a snapshot of a frozen renderer, NOT proof that
+        // validation failed to run", on the strength of chromedriver logging
         //   SEVERE: Timed out receiving message from renderer: 10.000
-        // three times inside this spec, immediately before this wait expired -
-        // so a 10s budget was being consumed entirely by a 10s renderer stall
-        // and the assertion never got a live sample. The cell state dumped at
-        // failure ({"value":"-1","invalid":null,"tip":null}) is a snapshot of a
-        // frozen renderer, NOT proof that validation failed to run:
-        // validateCellValue returns the right message for these exact units,
-        // and CellInput takes `col` live from redux, so nothing here is stale.
+        // three times inside this spec on run 30763052415. That reasoning is
+        // void: those lines are emitted by the failure-screenshot hook AFTER a
+        // test has already failed (see e2e/config/reporting.ts, hook now
+        // removed), so they were three EARLIER failures being screenshotted,
+        // not a renderer freezing this assertion. There is no wedged renderer.
         //
-        // This spec is one of the two whose working set spikes (~51G vs a 36G
-        // baseline); the load that produces is the real cause and is tracked
-        // separately. Raising the budget is what stops that load from reading
-        // as a product bug.
+        // Which means the dump was real evidence all along: the cell genuinely
+        // held -1, unflagged, for the full budget. Hence the re-dispatch above;
+        // the budget alone was never the problem.
+        //
+        // Kept at XLONG regardless — a unit switch rewrites and re-PATCHes every
+        // cell in the column, which is a real backend round-trip.
         timeout: TIMEOUTS.XLONG,
         timeoutMsg: `cell[${colId}] never showed "${message}" + aria-invalid for out-of-range ${value}`
       }
@@ -220,17 +244,26 @@ async function assertOutOfRange(colId: string, value: number, message: string): 
 
 /** Set an in-range value and assert the flag clears (no false positive). */
 async function assertInRange(colId: string, value: number): Promise<void> {
-  await Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
-  // Same discipline as assertOutOfRange: both facts, one snapshot.
+  const setValue = () =>
+    Weather.setReactInput(`[aria-label="${SHARED_ROW} ${colId}"]`, String(value))
+  await setValue()
+  // Same discipline as assertOutOfRange: both facts, one snapshot, and
+  // re-dispatch so a swallowed change event cannot deadlock the wait.
+  //
+  // Caveat worth knowing when reading a failure here: "no message + no flag" is
+  // ALSO what a cell looks like while validation is not running at all, so this
+  // helper cannot by itself distinguish "validated, in range" from "never
+  // validated". It is used to settle after a unit change for that reason — see
+  // the call site in the alt-unit branch.
   await withCellDiagnostic(colId, () =>
     browser.waitUntil(
       async () => {
         const v = await Weather.cellValidation(SHARED_ROW, colId)
-        return v.message === null && v.invalid === null
+        if (v.message === null && v.invalid === null) return true
+        await setValue()
+        return false
       },
       {
-        // See assertOutOfRange: XLONG so a renderer stall cannot consume the
-        // whole budget.
         timeout: TIMEOUTS.XLONG,
         timeoutMsg: `in-range ${value} did not clear the validation message + flag on ${colId}`
       }
