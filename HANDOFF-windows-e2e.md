@@ -81,20 +81,47 @@ Two further checks:
 throttling a test renderer is reasonable hygiene) but their comments no longer
 claim they fix this stall.
 
+## The "one flaky test per run" — three unrelated bugs
+
+Resolved separately by reading the actual job logs (`gh run view <job> --log`)
+rather than inferring from test names. Only one of the three was a timeout.
+
+| Run | Real error | Cause |
+|---|---|---|
+| r3 / 30703357707 | `element click intercepted ... at point (1103, 226)` | toolbar unreachable once the table scrolls |
+| m5 / 30780330034 | `{"value":"-1","invalid":null,"tip":null}`, unit `kW/m^2` | a change event swallowed mid unit-conversion — validation never ran |
+| m7 / 30824713568 | `add-column-dialog still displayed after 20000ms` | create POST slower than the 20s budget |
+
+Fixes: toolbar buttons now click in-page (matching the four conversions already
+in `Weather.page.ts` for the same reason); `TIMEOUTS.MUTATION` (60s) for backend
+writes; and the range probes re-dispatch the value on each poll so a lost change
+event retries instead of deadlocking.
+
+`-1` is out of range for **both** W/m^2 (0-1500) and kW/m^2 (0-1.5), so m5 cannot
+be explained by which unit was active — that cell was genuinely never validated.
+The comment guarding it claimed the dump was "a snapshot of a frozen renderer",
+citing the SEVERE lines; that inference died with the stall theory above.
+
 ## What is still open
 
-**The actual red build is one ordinary flaky test per run**, a different one each
-time, caused by `windows-2022` runner slowness. That is the real remaining issue,
-and it is unaffected by this change — the fix removes the misleading 20s stall
-and the SEVERE line, not the flake.
+**Neither of these reproduces locally.** Five load models were tried — 4 cores,
+2 cores, 2 cores + busy loops, periodic 25s whole-machine freezes, and the
+unconstrained baseline. They produced either nothing or the *wrong* failure mode
+(mocha per-test timeouts, which none of the CI failures are). The fixes come from
+CI logs; CI is the only real test of them.
 
-Corroboration that these runners genuinely freeze for tens of seconds: see the
-comment in `src/main/backend-manager.ts` — on CI run 30765040961, one of seven
-sessions took **32.4s** to answer `/health` while the other six took 2.0-3.6s.
+**Two may be masking product bugs, and both deserve their own investigation:**
 
-Suggested next step: treat it as tolerance/flake management (widen the tightest
-waits on Windows, or add bounded spec retries), and judge it on **failed-test
-count**, not on stall lines — those are now a strict function of failures.
+- *Toolbar interception.* "Click intercepted" means something is painted over the
+  button at that point. If a real user can be blocked from the toolbar once the
+  table scrolls horizontally, that is a UI defect — and the in-page click now
+  hides it from the suite.
+- *Validation after a unit change.* If `validateCellValue` genuinely does not
+  re-run for a keystroke that lands during `updateColumnWorker`, then a user
+  typing an out-of-range value at that moment sees no error at all.
+
+Judge future runs on **failed-test count**, never on stall lines — those were only
+ever a function of failures, and the hook that produced them is gone.
 
 ## Reproducing the stall on demand
 
