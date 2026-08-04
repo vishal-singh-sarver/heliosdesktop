@@ -187,6 +187,16 @@ export default function MaterialPropertiesPopup({
                                 // (the same source the visualiser editor uses). Fixed
                                 // 54×54 per the design; rotate/opacity are explicit
                                 // no-op seams should a stored value ever exist.
+                                //
+                                // `contain`, not `cover`. The box is square but
+                                // textures rarely are, and `cover` fills it by
+                                // centre-cropping: a 2.6:1 logo showed only its
+                                // middle third, both ends clipped away with nothing
+                                // to suggest the picture continued. `contain` fits
+                                // the whole image and letterboxes the leftover space,
+                                // so the preview is always the complete texture —
+                                // matching TextureSelector's own preview, so the
+                                // read-only view and the editor agree.
                                 <dd className="mt-0.5">
                                   <img
                                     src={row.image.src}
@@ -197,7 +207,7 @@ export default function MaterialPropertiesPopup({
                                       height: 54,
                                       transform: 'rotate(0deg)',
                                       opacity: 1,
-                                      objectFit: 'cover'
+                                      objectFit: 'contain'
                                     }}
                                   />
                                 </dd>

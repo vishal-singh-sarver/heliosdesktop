@@ -217,5 +217,11 @@ describe('<MaterialPropertiesPopup />', () => {
     const img = screen.getByRole('img', { name: 'Dirt' })
     expect(img).toHaveAttribute('src', 'http://127.0.0.1:8000/api/textures/serve?path=dirt.jpg')
     expect(img).toHaveStyle({ width: '54px', height: '54px' })
+    // `contain`, not `cover`: the box is square but textures are not, and `cover`
+    // filled it by centre-cropping — a 2.6:1 logo showed only its middle third,
+    // with both ends clipped away. Nothing is cropped now; a non-square image
+    // letterboxes inside the 54×54 instead. Matches the texture editor's own
+    // preview (TextureSelector), so both views show the same picture.
+    expect(img).toHaveStyle({ objectFit: 'contain' })
   })
 })
