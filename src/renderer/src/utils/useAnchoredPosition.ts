@@ -170,10 +170,13 @@ function same(a: Measurement | null, b: Measurement): boolean {
  * props.
  *
  * It deliberately does NOT poll. Nothing here tracks a popup through a CSS
- * transition or an ancestor scroll — no current caller needs it (their panels
- * unmount rather than animate, and their popups lay down a full-screen overlay
- * that stops the page scrolling). A caller that does need it should add the
- * observer here rather than measuring on its own.
+ * transition or an ancestor scroll — no current caller needs it, and their
+ * popups lay down a full-screen overlay that stops the page scrolling. Note the
+ * right panel DOES animate its width rather than unmounting: it declares itself
+ * hidden as it collapses (AnchoredPopup's PanelVisibilityProvider) and every
+ * popup inside it closes on the spot, so none is ever open during the
+ * transition. A caller that does need tracking should add the observer here
+ * rather than measuring on its own.
  *
  * Measurement settles over two pre-paint passes: the first reads the anchor (so
  * the caller can size its popup against it), the second reads the resulting popup
