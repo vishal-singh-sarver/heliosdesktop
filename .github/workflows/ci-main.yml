@@ -181,6 +181,25 @@ jobs:
         timeout-minutes: 60
         run: npm run e2e
 
+      # Keep the e2e evidence. Until now a red run left NOTHING behind: the only
+      # upload-artifact in this workflow is the installer one in `package`, so
+      # allure-results (which holds each failure's message, stack and attached
+      # DOM) died with the runner and the error text survived only as scrollback
+      # in the job log. That is a large part of why the "windows renderer stall"
+      # took three attempts to diagnose - each new investigation had to pay for a
+      # fresh $8-12 run just to see what failed.
+      #
+      # if: always() because the interesting case is exactly when e2e failed.
+      # Retention is short: this is debugging evidence, not a release artifact.
+      - name: Upload e2e results (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: e2e-results-${{ matrix.os }}
+          path: allure-results
+          retention-days: 7
+          if-no-files-found: ignore
+
       # "Timeout exceeded to get the ContextId" is NOT itself proof of a crash.
       # wdio-electron-service races a Runtime.executionContextCreated listener
       # against an uncancelled setTimeout(cdpBridgeTimeout, default 10s); the

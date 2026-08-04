@@ -1,12 +1,7 @@
 import { join } from 'node:path'
 import { rmSync, mkdirSync } from 'node:fs'
 import type { Options } from '@wdio/types'
-import type { Frameworks } from '@wdio/types'
-import {
-  allureReporter,
-  attachFailureScreenshot,
-  writeAllureEnvironment
-} from './e2e/config/reporting'
+import { allureReporter, writeAllureEnvironment } from './e2e/config/reporting'
 
 // VS Code / Electron hosts set ELECTRON_RUN_AS_NODE=1; clear it so the Electron
 // binary launches the app instead of running as Node.
@@ -69,10 +64,7 @@ export const config: Options.Testrunner = {
     mkdirSync(PERSIST_PROFILE, { recursive: true })
   },
 
-  // Attach a screenshot to the Allure result whenever a test fails.
-  afterTest: async function (_test, _context, result: Frameworks.TestResult) {
-    await attachFailureScreenshot(result.passed)
-  },
+  // No afterTest failure-capture hook — see e2e/config/reporting.ts.
   onComplete() {
     try {
       rmSync(PERSIST_PROFILE, { recursive: true, force: true })

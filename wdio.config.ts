@@ -1,12 +1,7 @@
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import type { Options } from '@wdio/types'
-import type { Frameworks } from '@wdio/types'
-import {
-  allureReporter,
-  attachFailureScreenshot,
-  writeAllureEnvironment
-} from './e2e/config/reporting'
+import { allureReporter, writeAllureEnvironment } from './e2e/config/reporting'
 
 // VS Code and other Electron-based hosts set ELECTRON_RUN_AS_NODE=1 in their environment.
 // Child processes inherit this, causing the Electron binary to run as Node.js instead of
@@ -276,10 +271,13 @@ export const config: Options.Testrunner = {
     writeAllureEnvironment()
   },
 
-  // Attach a screenshot to the Allure result whenever a test fails.
-  afterTest: async function (_test, _context, result: Frameworks.TestResult) {
-    await attachFailureScreenshot(result.passed)
-  },
+  // No afterTest failure-capture hook — see the block comment in
+  // e2e/config/reporting.ts. Attaching from `afterTest` cannot work (the allure
+  // result is already closed, so every attachment was orphaned), and taking a
+  // screenshot of the never-shown e2e window is what produced the bogus
+  // "Timed out receiving message from renderer" stalls on the Windows runner.
+  // The failure reason already lives in the allure result's statusDetails, and
+  // ci-main.yml uploads allure-results as an artifact.
 
   // After each spec's session ends, kill any orphaned backend the app left behind.
   // maxInstances is 1, so no other session is active — a lingering backend is dead
