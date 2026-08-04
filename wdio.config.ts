@@ -279,6 +279,63 @@ export const config: Options.Testrunner = {
   // The failure reason already lives in the allure result's statusDetails, and
   // ci-main.yml uploads allure-results as an artifact.
 
+  /**
+   * Name the element that actually swallowed an intercepted click.
+   *
+   * chromedriver has two shapes for this. When the target is COVERED it names
+   * both sides:
+   *   Element <button ...> is not clickable at point (926, 22).
+   *   Other element would receive the click: <div id="probe-overlay" ...>
+   * But CI run 30703357707 (30-columns test, windows-2022) produced the bare
+   * form, with neither clause:
+   *   element click intercepted: Element is not clickable at point (1103, 226)
+   * which is what you get when the point is not in the viewport at all. A sweep
+   * of seven viewport widths (1024-1600) plus full-spec runs did not reproduce
+   * it locally, so that remains an inference from the message shape.
+   *
+   * `inViewport` is therefore the field that matters: it separates "something is
+   * painted over the control" from "the control scrolled off-screen", which need
+   * completely different fixes. elementFromPoint names the culprit in the first
+   * case and returns null in the second.
+   *
+   * Runs only on the intercepted-click path, so a healthy run pays nothing.
+   * Best-effort and never throws: this must not convert a click failure into a
+   * hook failure and bury the original error.
+   */
+  afterCommand: async function (commandName, _args, _result, error) {
+    if (!error || !/element click intercepted/i.test(error.message ?? '')) return
+    const m = /at point \((\d+),\s*(\d+)\)/.exec(error.message ?? '')
+    if (!m) return
+    const [x, y] = [Number(m[1]), Number(m[2])]
+    try {
+      const info = await browser.execute(
+        (px: number, py: number) => {
+          const el = document.elementFromPoint(px, py)
+          const describe = (n: Element | null): string =>
+            n
+              ? `<${n.tagName.toLowerCase()}${n.id ? ` id="${n.id}"` : ''}` +
+                `${n.className && typeof n.className === 'string' ? ` class="${n.className}"` : ''}>`
+              : 'null'
+          return {
+            atPoint: describe(el),
+            parent: describe(el?.parentElement ?? null),
+            viewport: `${window.innerWidth}x${window.innerHeight}`,
+            inViewport: px <= window.innerWidth && py <= window.innerHeight
+          }
+        },
+        x,
+        y
+      )
+      console.log(
+        `[click-intercepted] ${commandName} at (${x},${y}) — viewport ${info.viewport} ` +
+          `(point in viewport: ${info.inViewport}); element at point: ${info.atPoint} ` +
+          `inside ${info.parent}`
+      )
+    } catch {
+      /* diagnostics only — never mask the real click error */
+    }
+  },
+
   // After each spec's session ends, kill any orphaned backend the app left behind.
   // maxInstances is 1, so no other session is active — a lingering backend is dead
   // weight. Prevents backends piling up across a full-suite run.

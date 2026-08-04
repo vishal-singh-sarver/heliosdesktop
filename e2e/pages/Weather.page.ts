@@ -292,20 +292,38 @@ class WeatherPage {
   /**
    * Click a toolbar button by its exact label, in-page.
    *
-   * A WebDriver coordinate click on the toolbar is NOT safe once the table has
-   * grown. CI run 30703357707 failed "adds 30 columns ..." on windows-2022 with
-   *   element click intercepted: Element is not clickable at point (1103, 226)
-   * and webdriverio could not recover, because its scrollIntoView fallback needs
-   * Browser.getWindowForTarget — a CDP command this Electron build does not
-   * implement. Same reasoning, and the same fix, as deleteColumn / focusInput /
-   * openHeaderPicker / pickerPick above; the toolbar was simply the last set of
-   * coordinate clicks left in this file.
+   * Position-agnostic, for the same reason as deleteColumn / focusInput /
+   * openHeaderPicker / pickerPick above: a WebDriver coordinate click cannot be
+   * recovered once a target is off-screen, because webdriverio's scrollIntoView
+   * fallback needs Browser.getWindowForTarget — a CDP command this Electron
+   * build does not implement. The toolbar was the last set of coordinate clicks
+   * left in this file.
    *
-   * NOTE: this makes the TEST deterministic, it does not prove the UI is fine.
-   * "Click intercepted" means something is painted over the button at that
-   * point, so if a real user can be left unable to reach the toolbar once the
-   * table scrolls, that is a product bug and wants its own investigation — this
-   * change would hide it from the suite.
+   * HONESTY NOTE — this is hardening, NOT a proven fix. CI run 30703357707
+   * failed "adds 30 columns ..." on windows-2022 with
+   *   element click intercepted: Element is not clickable at point (1103, 226)
+   * A sweep at 1024/1104/1120/1152/1200/1366/1600 with the original coordinate
+   * click reproduced nothing (7/7 passed), as did full-spec runs, so the failing
+   * click has never been identified directly.
+   *
+   * What the error SHAPE says, though: chromedriver emits
+   *   Element <tag ...> is not clickable at point (x, y).
+   *   Other element would receive the click: <tag ...>
+   * when the target is COVERED (verified locally with a deliberate overlay). CI's
+   * message carries neither clause — no target element, no interceptor — which is
+   * the shape for a point that is not in the viewport at all. With x=1103 against
+   * a ~1024-wide runner window, the target was most likely scrolled OFF-SCREEN
+   * horizontally rather than painted over.
+   *
+   * That is consistent with the older note in this file that the toolbar itself
+   * drifts once the table scrolls — which, if true of the product and not just
+   * the test, is a layout bug (the toolbar should not scroll out with the table)
+   * that this change now hides from the suite. Worth a product-side look.
+   *
+   * Either way the in-page click is position-agnostic, so it is correct
+   * regardless of which element was off-screen. The afterCommand hook in
+   * wdio.config.ts logs elementFromPoint + an in-viewport flag on the next
+   * interception, which will settle covered-vs-off-screen definitively.
    */
   private async clickToolbarButton(label: string): Promise<void> {
     await browser.execute((text: string) => {
