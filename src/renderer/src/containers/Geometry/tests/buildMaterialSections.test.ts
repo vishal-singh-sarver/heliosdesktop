@@ -198,3 +198,70 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
     expect(rows.find((r) => r.property === 'color_r')?.value).toBe('128')
   })
 })
+
+// A Radiation-shaped type carrying the spectral data FILE property. The stored
+// value is a path; the popup must show the file's name, exactly as the Materials
+// editor does once it's uploaded.
+const radiation: MaterialTypeDef = {
+  id: 1,
+  materialtype: 'Radiation',
+  description: '',
+  properties: [
+    float('specular_scale', 6, 'Specular scale'),
+    {
+      property_type_id: 22,
+      property: 'spectral_data',
+      label: 'Spectral Data File',
+      description: '',
+      datatype: 'file',
+      min: null,
+      max: null,
+      display_order: 8
+    }
+  ],
+  groups: []
+}
+
+const spectralRow = (
+  properties: PopupMaterialMember['properties']
+): { value: string } | undefined =>
+  buildMaterialSections([{ materialTypeId: 1, properties }], [radiation])[0]
+    .groups.flatMap((g) => g.rows)
+    .find((r) => r.property === 'spectral_data')
+
+describe('buildMaterialSections — file properties', () => {
+  it('shows the spectral file NAME, not the path it is stored at', () => {
+    expect(spectralRow({ spectral_data: 'uploads/materials/8/leaf_optics.xml' })?.value).toBe(
+      'leaf_optics.xml'
+    )
+  })
+
+  it('handles a Windows path, which has no forward slash to split on', () => {
+    expect(
+      spectralRow({ spectral_data: 'C:\\Program Files\\Helios\\assets\\leaf.xml' })?.value
+    ).toBe('leaf.xml')
+  })
+
+  it('decodes a percent-encoded name', () => {
+    expect(spectralRow({ spectral_data: 'uploads/8/leaf%20optics.xml' })?.value).toBe(
+      'leaf optics.xml'
+    )
+  })
+
+  it('leaves a bare filename alone', () => {
+    expect(spectralRow({ spectral_data: 'leaf.xml' })?.value).toBe('leaf.xml')
+  })
+
+  it('leaves an unset file blank rather than inventing a name', () => {
+    expect(spectralRow({ spectral_data: '' })?.value).toBe('')
+    expect(spectralRow({})?.value).toBe('')
+  })
+
+  it('does not touch non-file values that happen to contain a slash', () => {
+    const rows = buildMaterialSections(
+      [{ materialTypeId: 1, properties: { specular_scale: '1/2' } }],
+      [radiation]
+    )[0].groups.flatMap((g) => g.rows)
+    expect(rows.find((r) => r.property === 'specular_scale')?.value).toBe('1/2')
+  })
+})

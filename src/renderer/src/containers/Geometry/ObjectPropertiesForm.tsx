@@ -108,10 +108,14 @@ function textureDepErrors(values: Record<string, string>): Record<string, string
 const asDisplay = (v: number | string | boolean | null | undefined): string =>
   v == null ? '' : String(v)
 
-// A texture member's file name, taken from its stored `texture_file` path — the
-// last segment, exactly as the backend holds it. e.g.
-// "uploads/groups/77/Screenshot_2026-07-21_at_2.21.13_PM.png" →
+// A stored file property's name — the last segment, exactly as the backend holds
+// it. e.g. "uploads/groups/77/Screenshot_2026-07-21_at_2.21.13_PM.png" →
 // "Screenshot_2026-07-21_at_2.21.13_PM.png".
+//
+// Used for EVERY file-typed property in this popup, not just the texture: a
+// spectral data file is stored the same way and was showing its whole path here,
+// while the Materials editor it came from shows just the name. A path tells the
+// user nothing they can act on and pushes the actual name out of the column.
 //
 // Deliberately NOT prettified. This used to title-case the stem and swap '_'/'-'
 // for spaces, which turned the stored name into something that matched nothing on
@@ -122,7 +126,7 @@ const asDisplay = (v: number | string | boolean | null | undefined): string =>
 // ("C:\Program Files\Helios\…\assets\grass.jpg"), which contain no '/' at all —
 // so splitting on '/' alone returned the WHOLE path, and the user saw the
 // installation directory instead of the texture's name.
-function textureDisplayName(path: string): string {
+function fileDisplayName(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? path
   // A stored path may be percent-encoded; show the decoded form, and fall back to
   // the raw one when it isn't valid encoding (a literal '%' in the name).
@@ -182,7 +186,7 @@ export function buildMaterialSections(
           // mapping below.
           if (isVisualisationFieldSet(pg.fields) && isTextureMode(member.properties)) {
             const path = asDisplay(member.properties[TEXTURE_PROPERTY])
-            const name = textureDisplayName(path)
+            const name = fileDisplayName(path)
             return {
               group: 'visualisation',
               label: 'Visualisation properties (Texture)',
@@ -204,11 +208,18 @@ export function buildMaterialSections(
             // their catalog name as the section heading.
             group: pg.name ?? 'general',
             label: pg.name ?? 'General',
-            rows: pg.fields.map((f) => ({
-              property: f.property,
-              label: f.label,
-              value: asDisplay(member.properties[f.property])
-            }))
+            rows: pg.fields.map((f) => {
+              const value = asDisplay(member.properties[f.property])
+              return {
+                property: f.property,
+                label: f.label,
+                // A file property (the Radiation spectral data file) holds a
+                // stored PATH; show the file's name, the same thing the Materials
+                // editor shows once it's uploaded and the same treatment the
+                // texture row above already gets.
+                value: f.datatype === 'file' && value !== '' ? fileDisplayName(value) : value
+              }
+            })
           }
         }
       )
