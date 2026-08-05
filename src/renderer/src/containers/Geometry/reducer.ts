@@ -10,6 +10,8 @@ import {
   CREATE_OBJECT_FAILED,
   CREATE_OBJECT_REQUESTED,
   CREATE_OBJECT_SUCCEEDED,
+  DELETE_NODE_FAILED,
+  DELETE_NODE_REQUESTED,
   DELETE_NODE_SUCCEEDED,
   GROUP_NODES_SUCCEEDED,
   LIST_NODES_FAILED,
@@ -54,6 +56,7 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   searchQuery: '',
   nameErrors: {},
   detailsById: {},
+  deletingIds: [],
   lastCreatedId: null,
   loadStatus: 'idle',
   loadError: null
@@ -106,6 +109,16 @@ function dissolveUndersizedGroups(s: ScenarioGeometry): void {
     s.selectedIds = s.selectedIds.filter((sid) => sid !== id)
     delete s.nodesById[id]
   }
+}
+
+// Every node a delete of `id` will take with it: a group takes its members, so
+// their rows are in flight too and must lock alongside it. Without this a second
+// confirm on a CHILD row (still visible, trash still live) fired a DELETE that the
+// group purge was about to make 404 — the same duplicate-delete hole the mark
+// closes for the node itself. Falls back to just `id` when the node is unknown.
+function deleteScope(s: ScenarioGeometry, id: string): string[] {
+  const node = s.nodesById[id]
+  return node?.kind === 'group' ? [id, ...node.childIds] : [id]
 }
 
 // Apply a mutation to a node and, when it's a group, to each of its children —
@@ -398,9 +411,36 @@ const geometryReducer = (
         break
       }
 
+      case DELETE_NODE_REQUESTED: {
+        // Mark the delete in flight so both trashes (tree row + right-panel form)
+        // disable. The row stays visible until the DELETE lands, and without this a
+        // second confirm in that window fired a duplicate DELETE — the first
+        // succeeded and removed the row, the second 404'd, so the user got a
+        // "Deleted" toast immediately followed by a "Failed to delete" one.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        for (const id of deleteScope(s, action.id)) {
+          if (!s.deletingIds.includes(id)) s.deletingIds.push(id)
+        }
+        break
+      }
+
+      case DELETE_NODE_FAILED: {
+        // The node is still there — release its trash so the delete can be retried.
+        // A group releases its members too, or their rows would stay locked with
+        // nothing left to unlock them. The failure itself is reported by the saga's
+        // error toast.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        const ids = deleteScope(s, action.id)
+        s.deletingIds = s.deletingIds.filter((i) => !ids.includes(i))
+        break
+      }
+
       case DELETE_NODE_SUCCEEDED: {
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const node = s.nodesById[action.id]
+        // Released even when the node is already gone, so a duplicate SUCCEEDED
+        // can't strand the id and leave the trash disabled on a surviving row.
+        s.deletingIds = s.deletingIds.filter((i) => i !== action.id)
         if (!node) break
         // A group takes its children with it.
         const toRemove = node.kind === 'group' ? [action.id, ...node.childIds] : [action.id]
@@ -410,6 +450,20 @@ const geometryReducer = (
         s.selectedIds = s.selectedIds.filter((sid) => !toRemove.includes(sid))
         for (const id of toRemove) delete s.nameErrors[id]
         for (const id of toRemove) delete s.detailsById[id]
+        // A member whose own delete was still in flight when its group was deleted
+        // is gone with the group — drop its mark too, or it would sit in the list
+        // forever (nothing will ever report on a node that no longer exists).
+        s.deletingIds = s.deletingIds.filter((i) => !toRemove.includes(i))
+        // The right-panel form was showing one of the removed objects (the ground
+        // itself, or a ground inside a deleted group) — close it rather than leave
+        // it in the read-only "deleted" state the user then has to dismiss by hand.
+        // Mirrors Materials' REMOVE_MATERIAL, which closes editDraft when the
+        // deleted material was the one on screen. createDraft is slice-global (one
+        // at a time, always the active scope's — SET_ACTIVE_SCENARIO clears it), so
+        // no scope gating is needed here.
+        if (draft.createDraft && toRemove.includes(draft.createDraft.objectId)) {
+          draft.createDraft = null
+        }
         // Removing a leaf may leave its parent group empty.
         dissolveUndersizedGroups(s)
         break

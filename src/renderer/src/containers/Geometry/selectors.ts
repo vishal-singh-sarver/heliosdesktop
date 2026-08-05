@@ -53,6 +53,9 @@ export const selectSearchQuery = createSelector(selectActiveGeometry, (g) => g.s
 export const selectLoadStatus = createSelector(selectActiveGeometry, (g) => g.loadStatus)
 export const selectLoadError = createSelector(selectActiveGeometry, (g) => g.loadError)
 export const selectNameErrors = createSelector(selectActiveGeometry, (g) => g.nameErrors)
+// Nodes whose DELETE is in flight — the row and the right-panel form disable their
+// trash while an id is here, so a pessimistic delete can't be fired twice.
+export const selectDeletingIds = createSelector(selectActiveGeometry, (g) => g.deletingIds)
 // The row +Ground just created — drives its transient "just appeared" cue.
 export const selectLastCreatedId = createSelector(selectActiveGeometry, (g) => g.lastCreatedId)
 

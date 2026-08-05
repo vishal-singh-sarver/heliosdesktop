@@ -57,6 +57,7 @@ import SelectMaterialsPopup from './SelectMaterialsPopup'
 import {
   selectCreateDraft,
   selectCreateDraftNonce,
+  selectDeletingIds,
   selectDetailsById,
   selectNodesById
 } from './selectors'
@@ -256,6 +257,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   const scenarioId = useSelector(selectActiveScenarioId)
   const objectTypes = useSelector(selectAllObjectTypes)
   const nodesById = useSelector(selectNodesById)
+  const deletingIds = useSelector(selectDeletingIds)
   const detailsById = useSelector(selectDetailsById)
   // Saved-library materials (already loaded by the left panel's <Materials/>).
   const libraryMaterials = useSelector(selectAllMaterials)
@@ -329,6 +331,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // saving it would 404 — lock the form down to a read-only "deleted" state and
   // let the user only dismiss it.
   const objectDeleted = !nodesById[draft.objectId]
+
+  // This object's DELETE is in flight. The form now closes on DELETE_NODE_SUCCEEDED
+  // rather than on the click, so it is still on screen while the request runs —
+  // locking the trash keeps that from becoming a second, duplicate DELETE.
+  const deleting = deletingIds.includes(draft.objectId)
 
   // Track which fields have been touched so "Required" errors only appear after
   // interaction rather than on first open.
@@ -537,18 +544,23 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Trash icon. Always confirm first — for both brand-new (in-progress) and
   // already-saved grounds — so a stray tap can't silently wipe a geometry, and
   // the delete is always an explicit, visible action rather than an instant
-  // close. Confirming runs performDelete (delete + close the panel).
+  // close. Confirming runs performDelete, which only fires the delete.
   const onDeleteClick = (): void => {
-    if (objectDeleted) return
+    if (objectDeleted || deleting) return
     setConfirmDeleteOpen(true)
   }
 
+  // The panel is NOT closed here: the delete is pessimistic, and closing up front
+  // left a failed delete with the row still in the tree and the panel gone. The
+  // reducer closes this form on DELETE_NODE_SUCCEEDED instead — so the panel goes
+  // only once the object is really gone, whether the delete came from here or from
+  // the left-panel tree row. Mirrors the Materials form's header trash.
   const performDelete = (): void => {
+    if (deleting) return
     if (!objectDeleted && projectId && scenarioId) {
       dispatch(deleteNodeRequested(projectId, scenarioId, draft.objectId))
     }
     setConfirmDeleteOpen(false)
-    dispatch(closeCreateForm())
   }
 
   return (
@@ -608,7 +620,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           <button
             type="button"
             aria-label="Delete geometry"
-            disabled={objectDeleted}
+            disabled={objectDeleted || deleting}
             onClick={onDeleteClick}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
           >

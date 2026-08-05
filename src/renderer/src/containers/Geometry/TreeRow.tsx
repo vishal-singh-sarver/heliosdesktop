@@ -1,7 +1,7 @@
 import chevronIcon from '@renderer/assets/chevron.svg'
 import Dialog from '@renderer/components/Dialog'
 import React from 'react'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
 import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import {
@@ -17,6 +17,7 @@ import {
 import messages from './messages'
 import NameEditor from './NameEditor'
 import RowActions, { KebabMenu } from './RowActions'
+import { selectDeletingIds } from './selectors'
 import type { GeoNode } from './types'
 
 // Custom DnD mime so we only react to our own row drags, not arbitrary drops.
@@ -105,6 +106,10 @@ function TreeRow({
   // drag over this row.
   const [dropZone, setDropZone] = React.useState<'before' | 'into' | 'after' | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  // This node's DELETE is in flight — the delete is pessimistic, so the row is
+  // still here; locking the trash stops a second confirm firing a duplicate DELETE
+  // that would 404 and report a failure for a delete that actually worked.
+  const deleting = useSelector(selectDeletingIds).includes(node.id)
 
   const childCount = isGroup ? node.childIds.length : 0
   const confirmMessage = isGroup
@@ -112,6 +117,7 @@ function TreeRow({
     : `Delete "${node.name}"?`
 
   const confirmDelete = (): void => {
+    if (deleting) return
     if (projectId && scenarioId) dispatch(deleteNodeRequested(projectId, scenarioId, node.id))
     setConfirmOpen(false)
   }
@@ -348,6 +354,7 @@ function TreeRow({
                 scenarioId={scenarioId}
                 selected={selected}
                 onDelete={() => setConfirmOpen(true)}
+                deleting={deleting}
               />
             </>
           )}

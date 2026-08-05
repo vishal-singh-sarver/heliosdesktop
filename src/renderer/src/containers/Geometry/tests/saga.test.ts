@@ -128,6 +128,9 @@ describe('deleteNodeWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(before).value).toEqual(call(service.deleteGroup, P, S, 'g'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'g')))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(messages.deleteSuccess('Group.001'), 'success'))
+    )
     expect(gen.next().done).toBe(true)
   })
 
@@ -137,6 +140,7 @@ describe('deleteNodeWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(before).value).toEqual(call(service.deleteNode, P, S, 'a'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'a')))
+    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteSuccess('a'), 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -162,18 +166,35 @@ describe('deleteNodeWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(before).value).toEqual(call(service.deleteNode, P, S, 'c1'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'c1')))
+    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteSuccess('c1'), 'success')))
     expect(gen.next().value).toEqual(select(selectNodesById)) // cleanup re-reads state
     expect(gen.next(after).value).toEqual(call(service.moveNodes, P, S, ['c2'], null))
     expect(gen.next().value).toEqual(call(service.deleteGroup, P, S, 'g'))
     expect(gen.next().done).toBe(true)
   })
 
-  it('puts deleteNodeFailed when the service throws', () => {
+  it('puts deleteNodeFailed AND an error toast when the service throws', () => {
+    // The failure has no reducer case, so the toast is the only feedback the user
+    // gets — the row (and the open form) stay put on a failed delete.
+    const before: Record<string, GeoNode> = { a: leaf('a', null) }
+    const gen = deleteNodeWorker(actions.deleteNodeRequested(P, S, 'a'))
+    gen.next() // select
+    gen.next(before) // advance to call(deleteNode)
+    expect(gen.throw(new Error('nope')).value).toEqual(
+      put(actions.deleteNodeFailed(P, S, 'a', 'nope'))
+    )
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(messages.deleteFailure('a'), 'error'))
+    )
+  })
+
+  it('falls back to a generic name in the toast when the node is already gone', () => {
     const gen = deleteNodeWorker(actions.deleteNodeRequested(P, S, 'g'))
     gen.next() // select
-    gen.next({}) // advance to call(deleteNode)
-    expect(gen.throw(new Error('nope')).value).toEqual(
-      put(actions.deleteNodeFailed(P, S, 'g', 'nope'))
+    gen.next({}) // no node under that id
+    gen.throw(new Error('nope'))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(messages.deleteFailure('geometry'), 'error'))
     )
   })
 })

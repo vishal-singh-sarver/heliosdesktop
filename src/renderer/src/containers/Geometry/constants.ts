@@ -63,8 +63,10 @@ export const DELETE_NODE_FAILED = 'app/Geometry/DELETE_NODE_FAILED' as const
 
 // ── Create-then-edit object (right-panel Properties form). +Ground POSTs an
 //    object with default values immediately (CREATE_OBJECT), which opens the
-//    form populated from the response; Save PATCHes it (UPDATE_OBJECT); Cancel
-//    DELETEs it (reuses DELETE_NODE + CLOSE_CREATE_FORM). ─
+//    form populated from the response; Save PATCHes it (UPDATE_OBJECT); the
+//    trash DELETEs it (DELETE_NODE — whose SUCCEEDED closes the form, so the
+//    panel goes only once the object is really gone). CLOSE_CREATE_FORM is the
+//    plain dismiss (the panel's Close button). ─
 export const SET_DRAFT_VALUE = 'app/Geometry/SET_DRAFT_VALUE' as const
 export const SET_DRAFT_NAME = 'app/Geometry/SET_DRAFT_NAME' as const
 export const ADD_DRAFT_MATERIAL = 'app/Geometry/ADD_DRAFT_MATERIAL' as const

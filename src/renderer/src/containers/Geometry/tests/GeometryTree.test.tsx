@@ -478,6 +478,49 @@ describe('<GeometryTree />', () => {
     )
   })
 
+  // The delete is pessimistic, so the row is still on screen while the request
+  // runs. The trash has to lock, or a second confirm fires a duplicate DELETE that
+  // 404s — reporting a failure for a delete that actually worked.
+  it('disables the trash while this node is being deleted', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a'],
+      deletingIds: ['a']
+    })
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+  })
+
+  it('leaves the trash enabled for a node that is NOT being deleted', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a'],
+      deletingIds: ['99']
+    })
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled()
+  })
+
+  it("locks a group's children too while the group's delete is in flight", () => {
+    // The group purge takes the members with it, so their rows must not offer a
+    // delete of their own mid-flight.
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { g: group('g', 'Group.001', ['c'], true), c: ground('c', 'Ground.003', 'g') },
+      rootOrder: ['g'],
+      selectedIds: ['g', 'c'],
+      deletingIds: ['g', 'c']
+    })
+    const trashes = screen.getAllByRole('button', { name: 'Delete' })
+    expect(trashes).toHaveLength(2) // the group row and its expanded child
+    trashes.forEach((trash) => expect(trash).toBeDisabled())
+  })
+
   it('dispatches toggleExpand (not select) when a group chevron is clicked', () => {
     renderTree({
       ...emptyScenarioGeometry(),
