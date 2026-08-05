@@ -72,9 +72,19 @@ const MODEL_TYPES = [
   { id: 6, model: 'Stomatal Conductance', description: '' }
 ]
 
-const makeStore = (scenario: ScenarioGeometry): never => {
+// The material library the drop handler checks a node's group ids against — an
+// id missing from here is a material that was DELETED, so it must not count as
+// "this ground already has a material". Both ids the drop tests use are present
+// by default; the deleted-material case passes a library without '9'.
+const LIBRARY = { '7': { id: '7', name: 'Grass' }, '9': { id: '9', name: 'Soil' } }
+
+const makeStore = (
+  scenario: ScenarioGeometry,
+  materialsById: Record<string, unknown> = LIBRARY
+): never => {
   const state = {
     geometry: { byScope: { [scopeKey('p1', 's1')]: scenario } },
+    materials: { byId: materialsById, order: Object.keys(materialsById) },
     projectScreen: {
       activeProjectId: 'p1',
       activeScenarioId: 's1',
@@ -95,9 +105,9 @@ const makeStore = (scenario: ScenarioGeometry): never => {
   } as never
 }
 
-const renderTree = (scenario: ScenarioGeometry) =>
+const renderTree = (scenario: ScenarioGeometry, materialsById?: Record<string, unknown>) =>
   render(
-    <Provider store={makeStore(scenario)}>
+    <Provider store={makeStore(scenario, materialsById)}>
       <GeometryTree />
     </Provider>
   )
@@ -630,6 +640,35 @@ describe('<GeometryTree />', () => {
     ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace' }))
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+        objectIds: ['a'],
+        groupId: '7',
+        targetName: 'Ground.001'
+      })
+    )
+  })
+
+  it('does not confirm a replace when the material on the leaf was deleted', () => {
+    // Group 9 is gone from the library: the delete already unassigned it server-
+    // side, and the node only kept the id for the viewport's refetch gate. The
+    // ground is bare, so there is nothing to replace — assign straight away
+    // instead of asking the user to confirm replacing a material that is gone.
+    renderTree(
+      {
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: { a: { ...ground('a', 'Ground.001'), materialGroupIds: ['9'] } },
+        rootOrder: ['a']
+      },
+      { '7': { id: '7', name: 'Grass' } }
+    )
+    fireEvent.drop(screen.getByText('Ground.001').closest('[role="button"]')!, {
+      dataTransfer: materialDataTransfer('7', 'Grass')
+    })
+
+    expect(document.querySelector('dialog[open]')).toBeNull()
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',

@@ -2,6 +2,7 @@ import chevronIcon from '@renderer/assets/chevron.svg'
 import Dialog from '@renderer/components/Dialog'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
+import { selectMaterialsById } from 'containers/Materials/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
@@ -145,6 +146,10 @@ function TreeRow({
   // still here; locking the trash stops a second confirm firing a duplicate DELETE
   // that would 404 and report a failure for a delete that actually worked.
   const deleting = useSelector(selectDeletingIds).includes(node.id)
+  // The library, to tell a real assignment from a dangling one — a node keeps the
+  // group id of a DELETED material (the viewport's refetch gate needs it), and the
+  // drop handler must not read that ghost as "this ground already has a material".
+  const materialsById = useSelector(selectMaterialsById)
 
   const childCount = isGroup ? node.childIds.length : 0
   const confirmMessage = isGroup
@@ -246,7 +251,11 @@ function TreeRow({
         : [node.id]
       if (!targetIds.length) return
 
-      const groupsOn = (id: string): string[] => nodesById[id]?.materialGroupIds ?? []
+      // The materials REALLY on this object: a group the library no longer has was
+      // already unassigned server-side by the delete, so counting it would ask the
+      // user to confirm replacing a material that no longer exists.
+      const groupsOn = (id: string): string[] =>
+        (nodesById[id]?.materialGroupIds ?? []).filter((gid) => materialsById[gid])
       // Members that already carry this exact material are dropped from the
       // assignment entirely — for them the drop asks for what they already have.
       // Re-sending them would POST a duplicate the backend rejects and would
