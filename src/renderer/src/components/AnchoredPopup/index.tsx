@@ -7,6 +7,40 @@ import {
   type Size
 } from 'utils/useAnchoredPosition'
 
+/**
+ * Whether the panel hosting a popup is currently showing its content.
+ *
+ * A popup portals to document.body, so it lives OUTSIDE the panel that owns it.
+ * A panel that collapses by UNMOUNTING its content takes its popups with it; a
+ * panel that collapses by HIDING its content with CSS does not — `display:none`
+ * can't reach through a portal. The popup would keep floating over the app,
+ * anchored to a trigger that no longer renders (and so measures zero), and its
+ * invisible full-screen click-catcher would keep swallowing every click in the
+ * app.
+ *
+ * So a panel that hides rather than unmounts has to say so, and its popups take
+ * themselves down. Wrap the panel's content in <PanelVisibilityProvider> and
+ * every popup beneath it is handled — including ones added later, which is the
+ * point of putting the rule here rather than in each popup's owner.
+ *
+ * Defaults to `true`, so a popup outside any panel behaves exactly as before.
+ */
+const PanelVisibilityContext = React.createContext(true)
+
+export function PanelVisibilityProvider({
+  visible,
+  children
+}: {
+  visible: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  // The value is a primitive, so there's nothing to memoise — its identity
+  // changes only when the visibility actually changes.
+  return (
+    <PanelVisibilityContext.Provider value={visible}>{children}</PanelVisibilityContext.Provider>
+  )
+}
+
 /** What the render prop gets, re-derived on every measure pass. */
 export interface AnchoredPopupContext {
   /** The trigger's current viewport rect. */
@@ -58,6 +92,8 @@ export default function AnchoredPopup({
   padding,
   children
 }: AnchoredPopupProps): React.JSX.Element | null {
+  const panelVisible = React.useContext(PanelVisibilityContext)
+
   const { floatingRef, measurement } = useAnchoredPosition({
     open,
     getAnchorRect,
@@ -75,7 +111,20 @@ export default function AnchoredPopup({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
 
-  if (!open) return null
+  // The host panel has hidden its content, so this popup — which sits outside it
+  // in a portal — takes itself down. CLOSING rather than merely not rendering is
+  // what the panel's unmount used to do for us: the popup is gone for good,
+  // instead of springing back the next time the panel is expanded, long after
+  // the user has forgotten they opened it.
+  React.useEffect(() => {
+    if (open && !panelVisible) onClose()
+  }, [open, panelVisible, onClose])
+
+  // Bail out of the WHOLE portal, not just the popup body. The overlay below is
+  // invisible and covers the viewport, so rendering it against a hidden panel
+  // would silently swallow every click in the app — a worse failure than the
+  // misplaced popup it was meant to prevent.
+  if (!open || !panelVisible) return null
 
   const position = measurement?.position
 

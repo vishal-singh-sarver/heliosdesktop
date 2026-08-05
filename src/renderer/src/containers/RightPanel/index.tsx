@@ -1,3 +1,4 @@
+import { PanelVisibilityProvider } from '@renderer/components/AnchoredPopup'
 import CollapseButton from '@renderer/components/CollapseButton'
 import ObjectPropertiesForm from '@renderer/containers/Geometry/ObjectPropertiesForm'
 import { selectCreateDraftNonce } from '@renderer/containers/Geometry/selectors'
@@ -62,16 +63,31 @@ export function RightPanel(): React.JSX.Element {
         )}
         <CollapseButton collapsed={collapsed} side="right" onToggle={toggle} />
       </div>
-      {!collapsed && (
-        // The form hugs its content (no inner scroll). This wrapper only scrolls
-        // as a fallback when the window is too short to show the whole form.
-        <>
+      {/* The form stays mounted at all times — collapsing only hides it with CSS
+          (display:none) instead of unmounting, mirroring the LeftPanel. The
+          chevron is a VISUAL control, so it must not destroy state: unmounting
+          discarded the form's own record of which fields had been touched, which
+          is what gates the "Required Field" errors. A cleared field therefore
+          came back after a reopen with no error and a disabled Save that nothing
+          explained — the values live in Redux and survived, the explanation
+          didn't. `contents` keeps the divider and the body as flex children of
+          the aside while expanded, and display:none keeps the hidden form out of
+          the layout, the tab order and the accessibility tree. */}
+      {/* display:none can't reach through a portal, so the form's popups — which
+          portal to document.body — would keep floating over the app beside the
+          collapsed strip. Declaring the panel hidden makes them close themselves,
+          which is what the unmount used to do. The provider renders no DOM, so
+          the wrapper below stays a direct flex child of the aside. */}
+      <PanelVisibilityProvider visible={!collapsed}>
+        <div className={collapsed ? 'hidden' : 'contents'}>
           <div className="shrink-0 border-t border-app-border" />
+          {/* The form hugs its content (no inner scroll). This wrapper only scrolls
+              as a fallback when the window is too short to show the whole form. */}
           <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto p-3">
             {activeForm === 'material' ? <MaterialPropertiesForm /> : <ObjectPropertiesForm />}
           </div>
-        </>
-      )}
+        </div>
+      </PanelVisibilityProvider>
     </aside>
   )
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import AnchoredPopup from '../index'
+import React from 'react'
+import AnchoredPopup, { PanelVisibilityProvider } from '../index'
 import type { AnchorRect } from 'utils/useAnchoredPosition'
 
 // A stand-in for the right-hand panel: 340 wide, 700 tall, near the right edge.
@@ -79,6 +80,58 @@ describe('AnchoredPopup', () => {
     )
     // jsdom's window is 1024×768. left placement → width 1252-8-8, height 768-16.
     expect(screen.getByText('h=700 maxH=752 maxW=1236')).toBeInTheDocument()
+  })
+
+  it('renders nothing — popup AND overlay — while its host panel is hidden', () => {
+    // A panel that hides its content with CSS keeps this popup MOUNTED, and the
+    // popup portals to document.body, so hiding the panel doesn't hide it. It
+    // would float beside the collapsed panel, mispositioned (its anchor is now
+    // an unrendered element measuring zero).
+    //
+    // The overlay is the half that really matters: it is invisible and covers
+    // the whole viewport to catch outside clicks, so leaving it behind would
+    // silently swallow every click in the app — far worse than a stray popup.
+    // Hence the bail-out skips the entire portal, not just the popup body.
+    render(
+      <PanelVisibilityProvider visible={false}>
+        <AnchoredPopup open onClose={vi.fn()} getAnchorRect={getAnchorRect} placement="left">
+          <p>Popup body</p>
+        </AnchoredPopup>
+      </PanelVisibilityProvider>
+    )
+    expect(screen.queryByText('Popup body')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('anchored-popup-overlay')).not.toBeInTheDocument()
+  })
+
+  it('closes the popup when its host panel becomes hidden', () => {
+    // Closing, not merely hiding: this is what the panel's unmount used to do.
+    // Left open, the popup would spring back the next time the panel is expanded
+    // — long after the user has forgotten they opened it.
+    const onClose = vi.fn()
+    const popup = (visible: boolean): React.JSX.Element => (
+      <PanelVisibilityProvider visible={visible}>
+        <AnchoredPopup open onClose={onClose} getAnchorRect={getAnchorRect} placement="left">
+          <p>Popup body</p>
+        </AnchoredPopup>
+      </PanelVisibilityProvider>
+    )
+    const { rerender } = render(popup(true))
+    expect(onClose).not.toHaveBeenCalled()
+
+    rerender(popup(false))
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders normally when no panel declares its visibility', () => {
+    // The default is "visible", so a popup outside any panel (and every existing
+    // caller) is unaffected by the gate above.
+    render(
+      <AnchoredPopup open onClose={vi.fn()} getAnchorRect={getAnchorRect} placement="left">
+        <p>Popup body</p>
+      </AnchoredPopup>
+    )
+    expect(screen.getByText('Popup body')).toBeInTheDocument()
   })
 
   it('re-measures when the anchor moves', () => {
