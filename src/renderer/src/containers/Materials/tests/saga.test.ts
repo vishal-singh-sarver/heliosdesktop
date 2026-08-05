@@ -423,6 +423,10 @@ describe('deleteParameterGroupWorker', () => {
     )
     expect(gen.next().value).toEqual(call(service.removeGroupMaterial, '12', 2, 's1'))
     expect(gen.next().value).toEqual(put(actions.removeParameterGroup('12', 1)))
+    // …and announce that the STORED material changed, so the 3D scene reloads the
+    // objects using it. Without this, deleting a Visualiser left the ground
+    // rendering a texture the material no longer has.
+    expect(gen.next().value).toEqual(put(actions.deleteParameterGroupSucceeded('12', 1)))
     expect(gen.next().done).toBe(true)
   })
 
@@ -437,6 +441,8 @@ describe('deleteParameterGroupWorker', () => {
       })
     )
     expect(gen.next().value).toEqual(put(actions.removeParameterGroup('12', 1)))
+    // No `succeeded` here: nothing was ever stored, so the 3D scene has nothing to
+    // repaint and must not be sent off to re-fetch geometry for a no-op.
     expect(gen.next().done).toBe(true)
   })
 

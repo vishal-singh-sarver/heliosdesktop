@@ -264,6 +264,11 @@ export function* deleteParameterGroupWorker(
   try {
     yield call(service.removeGroupMaterial, groupId, materialTypeId, scenarioId)
     yield put(actions.removeParameterGroup(groupId, cardId))
+    // Announce that the STORED material changed. Removing a Visualiser strips the
+    // colour/texture off every object the material is assigned to, and without
+    // this nothing told the 3D scene — the ground kept rendering a texture that no
+    // longer existed until something else forced a reload.
+    yield put(actions.deleteParameterGroupSucceeded(groupId, cardId))
   } catch (err) {
     yield put(actions.deleteParameterGroupFailed(groupId, cardId, (err as Error).message))
   }

@@ -280,7 +280,9 @@ describe('<FormField />', () => {
   it('keeps the list anchored below the field regardless of what is selected', () => {
     // The whole point of replacing the native <select>: the OS anchored its popup
     // to the SELECTED option, so the list jumped upward once anything but the
-    // first entry was chosen. Ours is pinned to the control's bottom edge.
+    // first entry was chosen. Ours is pinned to the control's bottom edge, and is
+    // now PORTALLED there with fixed positioning so no scrolling ancestor can clip
+    // it (an absolute list was unreachable inside the right panel).
     const { rerender } = render(
       <FormField
         {...defaultProps}
@@ -296,7 +298,9 @@ describe('<FormField />', () => {
       />
     )
     fireEvent.click(screen.getByRole('combobox'))
-    expect(screen.getByRole('listbox')).toHaveClass('absolute', 'top-full')
+    const list = screen.getByRole('listbox')
+    expect(list.parentElement).toBe(document.body)
+    expect(list.style.position).toBe('fixed')
 
     // Re-render with the 2nd entry selected — the anchoring must not change.
     rerender(
@@ -313,8 +317,186 @@ describe('<FormField />', () => {
         }}
       />
     )
-    expect(screen.getByRole('listbox')).toHaveClass('absolute', 'top-full')
+    // Anchoring is unchanged by the selection — still portalled, still fixed.
+    const reselected = screen.getByRole('listbox')
+    expect(reselected.parentElement).toBe(document.body)
+    expect(reselected.style.position).toBe('fixed')
     expect(screen.getByRole('option', { name: 'Beta' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('escapes a scrolling ancestor, and follows the control when it scrolls', () => {
+    // The reported bug: a Material Type card low in the right panel opened its
+    // options INSIDE the panel's overflow, where they could not be seen — and
+    // scrolling to reach them moved the control by the same amount, so they never
+    // came into view.
+    const { container } = render(
+      <div style={{ overflowY: 'auto', height: 100 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const combo = screen.getByRole('combobox')
+    // Give the control a measurable box — jsdom has no layout of its own.
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 300, left: 40, width: 200, height: 36, right: 240, bottom: 336 }) as DOMRect
+
+    fireEvent.click(combo)
+    const list = screen.getByRole('listbox')
+    // Portalled OUT of the scrolling wrapper — that is what stops it being clipped.
+    expect(container.contains(list)).toBe(false)
+    expect(list.parentElement).toBe(document.body)
+    expect(list.style.position).toBe('fixed')
+
+    // The list needs a box of its own before it can be placed (it is measured
+    // against the anchor), so give it one and let the next measure pass run —
+    // the same two-pass settle the real component goes through pre-paint.
+    list.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, width: 200, height: 80, right: 200, bottom: 80 }) as DOMRect
+    fireEvent.scroll(container.firstChild as HTMLElement)
+
+    expect(list.style.width).toBe('200px')
+    // Sits just under the control (36px tall at y=300, plus the 4px gap).
+    expect(list.style.top).toBe('340px')
+    expect(list.style.left).toBe('40px')
+
+    // Now scroll the panel: the control moves up, and the list must go with it.
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 220, left: 40, width: 200, height: 36, right: 240, bottom: 256 }) as DOMRect
+    fireEvent.scroll(container.firstChild as HTMLElement)
+    expect(screen.getByRole('listbox').style.top).toBe('260px')
+  })
+
+  it('leaves a panel that can already scroll far enough completely alone', () => {
+    // Room is only borrowed when the panel cannot reach the list on its own. Here
+    // it has 800px left to travel, so nothing is touched.
+    const { container } = render(
+      <div style={{ overflowY: 'scroll', height: 200 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const panel = container.firstChild as HTMLElement
+    Object.defineProperty(panel, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(panel, 'clientHeight', { value: 200, configurable: true })
+    Object.defineProperty(panel, 'scrollTop', { value: 0, configurable: true })
+    panel.scrollBy = vi.fn()
+
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(240)
+    const combo = screen.getByRole('combobox')
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 664, left: 40, width: 200, height: 36, right: 240, bottom: 700 }) as DOMRect
+
+    fireEvent.click(combo)
+
+    expect(panel.style.paddingBottom).toBe('')
+    expect(panel.scrollBy).not.toHaveBeenCalled()
+    scrollHeight.mockRestore()
+  })
+
+  it('borrows room at the panel bottom when it has none left, and gives it back', () => {
+    // The last card: the panel is already scrolled to its end, so scrollBy alone
+    // does nothing — the outer scrollbar refuses to move and the list stays
+    // clipped at the window edge. It needs somewhere to scroll TO first.
+    const { container } = render(
+      <div style={{ overflowY: 'scroll', height: 200 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const panel = container.firstChild as HTMLElement
+    // Scrollable, but sitting at the very bottom: nothing left to scroll through.
+    Object.defineProperty(panel, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(panel, 'clientHeight', { value: 200, configurable: true })
+    Object.defineProperty(panel, 'scrollTop', { value: 800, configurable: true })
+    panel.scrollBy = vi.fn()
+
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(240)
+    const combo = screen.getByRole('combobox')
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 664, left: 40, width: 200, height: 36, right: 240, bottom: 700 }) as DOMRect
+
+    fireEvent.click(combo)
+
+    // 184px short with 0 left to scroll → the panel is given the whole 184px, so
+    // its scrollbar has somewhere to travel.
+    expect(panel.style.paddingBottom).toBe('184px')
+    // …and nothing is scrolled ON THE USER'S BEHALF. They scroll as much as they
+    // want; the list follows its control and grows as room opens beneath it.
+    expect(panel.scrollBy).not.toHaveBeenCalled()
+
+    // Closing hands it straight back — the borrowed space is never left behind.
+    fireEvent.click(combo)
+    expect(panel.style.paddingBottom).toBe('')
+    scrollHeight.mockRestore()
+  })
+
+  it('stays open when the panel SCROLLBAR is grabbed, but closes on a real outside click', () => {
+    // Dragging the scrollbar is a mousedown on the scrolling element — outside the
+    // control — so it read as "the user left the field" and shut the list on the
+    // one gesture meant to bring the rest of the options into view.
+    const { container } = render(
+      <div style={{ overflowY: 'scroll', height: 200 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const panel = container.firstChild as HTMLElement
+    panel.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, width: 300, height: 200, right: 300, bottom: 200 }) as DOMRect
+    // Content stops at 285; 285–300 is the scrollbar gutter.
+    Object.defineProperty(panel, 'clientWidth', { value: 285, configurable: true })
+    Object.defineProperty(panel, 'clientHeight', { value: 200, configurable: true })
+
+    fireEvent.click(screen.getByRole('combobox'))
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    // Grab the scrollbar: past the content edge, still inside the panel.
+    fireEvent.mouseDown(panel, { clientX: 292, clientY: 100 })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    // A press on the panel's actual content is still "left the field".
+    fireEvent.mouseDown(panel, { clientX: 100, clientY: 100 })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('marks the selected option with a leading tick, in a slot every row reserves', () => {

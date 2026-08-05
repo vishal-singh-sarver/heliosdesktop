@@ -140,7 +140,7 @@ export function Materials(): React.JSX.Element {
 
       <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1">
         {showEmpty ? (
-          <p className="px-1 py-2 text-[13px] text-neutral-500">
+          <p className="px-1 py-2 text-[13px]" style={{ color: '#7D7D7D' }}>
             {loadStatus === 'loading'
               ? messages.loading
               : query.trim()

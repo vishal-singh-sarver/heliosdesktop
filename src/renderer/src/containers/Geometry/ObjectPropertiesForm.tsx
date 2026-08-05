@@ -5,6 +5,7 @@ import AnchoredPopup from '@renderer/components/AnchoredPopup'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Tooltip from '@renderer/components/Tooltip'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import { loadMaterialDetailRequested } from 'containers/Materials/actions'
 import {
   isVisualisationFieldSet,
@@ -107,10 +108,14 @@ function textureDepErrors(values: Record<string, string>): Record<string, string
 const asDisplay = (v: number | string | boolean | null | undefined): string =>
   v == null ? '' : String(v)
 
-// A texture member's file name, taken from its stored `texture_file` path — the
-// last segment, exactly as the backend holds it. e.g.
-// "uploads/groups/77/Screenshot_2026-07-21_at_2.21.13_PM.png" →
+// A stored file property's name — the last segment, exactly as the backend holds
+// it. e.g. "uploads/groups/77/Screenshot_2026-07-21_at_2.21.13_PM.png" →
 // "Screenshot_2026-07-21_at_2.21.13_PM.png".
+//
+// Used for EVERY file-typed property in this popup, not just the texture: a
+// spectral data file is stored the same way and was showing its whole path here,
+// while the Materials editor it came from shows just the name. A path tells the
+// user nothing they can act on and pushes the actual name out of the column.
 //
 // Deliberately NOT prettified. This used to title-case the stem and swap '_'/'-'
 // for spaces, which turned the stored name into something that matched nothing on
@@ -121,7 +126,7 @@ const asDisplay = (v: number | string | boolean | null | undefined): string =>
 // ("C:\Program Files\Helios\…\assets\grass.jpg"), which contain no '/' at all —
 // so splitting on '/' alone returned the WHOLE path, and the user saw the
 // installation directory instead of the texture's name.
-function textureDisplayName(path: string): string {
+function fileDisplayName(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? path
   // A stored path may be percent-encoded; show the decoded form, and fall back to
   // the raw one when it isn't valid encoding (a literal '%' in the name).
@@ -181,7 +186,7 @@ export function buildMaterialSections(
           // mapping below.
           if (isVisualisationFieldSet(pg.fields) && isTextureMode(member.properties)) {
             const path = asDisplay(member.properties[TEXTURE_PROPERTY])
-            const name = textureDisplayName(path)
+            const name = fileDisplayName(path)
             return {
               group: 'visualisation',
               label: 'Visualisation properties (Texture)',
@@ -203,11 +208,18 @@ export function buildMaterialSections(
             // their catalog name as the section heading.
             group: pg.name ?? 'general',
             label: pg.name ?? 'General',
-            rows: pg.fields.map((f) => ({
-              property: f.property,
-              label: f.label,
-              value: asDisplay(member.properties[f.property])
-            }))
+            rows: pg.fields.map((f) => {
+              const value = asDisplay(member.properties[f.property])
+              return {
+                property: f.property,
+                label: f.label,
+                // A file property (the Radiation spectral data file) holds a
+                // stored PATH; show the file's name, the same thing the Materials
+                // editor shows once it's uploaded and the same treatment the
+                // texture row above already gets.
+                value: f.datatype === 'file' && value !== '' ? fileDisplayName(value) : value
+              }
+            })
           }
         }
       )
@@ -282,12 +294,26 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // the list rather than appending). Client-side only: Save is what unassigns the
   // material this one displaced and PATCHes the new pick, so abandoning the form
   // leaves the previously saved material untouched.
-  const handleSelectMaterial = (m: { id: string; name: string }): void => {
+  const applyMaterialPick = (m: { id: string; name: string }): void => {
     dispatch(addDraftMaterial(m.id, m.name))
     // The pick is done, so dismiss the picker — the new row is already showing
     // under the Materials heading behind it. Lives here rather than in the popup
     // so the popup stays a dumb list and the open/closed state has a single owner.
     closeMaterialPopup()
+  }
+
+  const handleSelectMaterial = (m: { id: string; name: string }): void => {
+    // Re-picking the row that's already ticked changes nothing — report it
+    // rather than letting the click vanish.
+    if (selectedMaterialIds.has(m.id)) {
+      dispatch(showSnackbar(messages.materialAlreadyAssigned(draft.name), 'info'))
+      closeMaterialPopup()
+      return
+    }
+    // Picking is free: the swap is client-side and costs nothing until Save.
+    // The replace confirmation belongs on Save, which is what actually unassigns
+    // the displaced material on the backend.
+    applyMaterialPick(m)
   }
 
   // The per-material trash icon. A material only in the draft (picked this session,
@@ -535,10 +561,33 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     }
   }
 
+  // Saving would unassign a material the ground actually carries and put another
+  // in its place — the same pair the save saga acts on (a newly picked group ∧ a
+  // baseline group no longer in the draft). Picking is reversible until this
+  // point, so this is where the replace is confirmed.
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = React.useState(false)
+  const saveReplacesMaterial =
+    draft.materials.some((m) => !draft.materialBaseline.includes(m.groupId)) &&
+    draft.materialBaseline.some((id) => !draft.materials.some((m) => m.groupId === id))
+
+  const performSave = (): void => {
+    if (!projectId || !scenarioId) return
+    dispatch(updateObjectRequested(projectId, scenarioId))
+  }
+
   const onSave = (): void => {
     // Save is disabled while the form is invalid; this guard is defensive.
     if (!valid || objectDeleted || !projectId || !scenarioId) return
-    dispatch(updateObjectRequested(projectId, scenarioId))
+    if (saveReplacesMaterial) {
+      setConfirmReplaceOpen(true)
+      return
+    }
+    performSave()
+  }
+
+  const confirmReplaceMaterial = (): void => {
+    setConfirmReplaceOpen(false)
+    performSave()
   }
 
   // Trash icon. Always confirm first — for both brand-new (in-progress) and
@@ -928,6 +977,34 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
           >
             {messages.unassignConfirm}
+          </button>
+        </div>
+      </Dialog>
+
+      {/* Replace-material confirmation — raised by SAVE, the point at which the
+          material already on the ground is actually unassigned. Cancel returns
+          to the form with the pick intact, so nothing is lost either way. */}
+      <Dialog
+        isOpen={confirmReplaceOpen}
+        title={messages.replaceMaterialTitle}
+        onClose={() => setConfirmReplaceOpen(false)}
+      >
+        <p className="text-sm text-neutral-200">{messages.replaceMaterialHeading(draft.name)}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setConfirmReplaceOpen(false)}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.replaceMaterialCancel}
+          </button>
+          <button
+            type="button"
+            onClick={confirmReplaceMaterial}
+            className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-500"
+          >
+            {messages.replaceMaterialConfirm}
           </button>
         </div>
       </Dialog>

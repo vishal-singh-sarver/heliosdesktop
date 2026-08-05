@@ -81,15 +81,17 @@ describe('SelectMaterialsPopup single-select', () => {
     expect(onSelectMaterial).toHaveBeenCalledWith({ id: 'm1', name: 'Cotton' })
   })
 
-  it('is a no-op when the already-selected material is clicked again', async () => {
-    // Nothing to toggle off — clearing the material is the trash icon's job back
-    // in the Materials section, so a re-click must not fire a pointless replace.
+  it('reports a re-click of the already-selected material to the parent', async () => {
+    // The row never toggles off — clearing the material is the trash icon's job
+    // back in the Materials section. It still reports up, so the parent can say
+    // the material is already assigned instead of the click vanishing.
     const onSelectMaterial = vi.fn()
     renderPopup(undefined, onSelectMaterial)
 
     await userEvent.click(screen.getByRole('radio', { name: /Grass/ }))
 
-    expect(onSelectMaterial).not.toHaveBeenCalled()
+    expect(onSelectMaterial).toHaveBeenCalledTimes(1)
+    expect(onSelectMaterial).toHaveBeenCalledWith({ id: 'm2', name: 'Grass' })
   })
 })
 
@@ -112,5 +114,32 @@ describe('SelectMaterialsPopup keyboard focus', () => {
     const popup = renderPopup()
     const list = popup.querySelector('.overflow-y-auto') as HTMLElement
     expect(list).toHaveClass('px-2')
+  })
+})
+
+describe('SelectMaterialsPopup search', () => {
+  it('says no materials were found when the query matches nothing', async () => {
+    // The library is NOT empty, so the "add a new material" empty state would be
+    // wrong here — the user just needs to widen the search.
+    renderPopup()
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search materials' }), 'zzz')
+
+    expect(screen.getByText('No materials found')).toBeInTheDocument()
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    // Not the whole-popup empty state — the search field stays put.
+    expect(screen.queryByText('No Material Found')).not.toBeInTheDocument()
+  })
+
+  it('brings the rows back when the query matches again', async () => {
+    renderPopup()
+    const search = screen.getByRole('textbox', { name: 'Search materials' })
+
+    await userEvent.type(search, 'zzz')
+    await userEvent.clear(search)
+    await userEvent.type(search, 'cot')
+
+    expect(screen.getByRole('radio', { name: /Cotton/ })).toBeInTheDocument()
+    expect(screen.queryByText('No materials found')).not.toBeInTheDocument()
   })
 })

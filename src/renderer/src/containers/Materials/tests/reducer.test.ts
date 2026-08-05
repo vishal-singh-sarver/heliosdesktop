@@ -797,6 +797,86 @@ describe('materialsReducer', () => {
     expect(result.editDraft?.groups[0].saveError).toBeNull()
   })
 
+  // The Heat Transfer Flag is declared by several material types, but a material
+  // is one-sided or two-sided as a WHOLE — so it is one answer per material, not
+  // one per type, and every card that shows it must agree.
+  describe('the material-wide Heat Transfer Flag', () => {
+    const FLAG = 'two_sided_heat_transfer'
+
+    // A material with two cards: card 1 (Radiation) and card 2 (Photosynthesis).
+    const twoCards = (): ReturnType<typeof materialsReducer> => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
+      const added = materialsReducer(typed, actions.addParameterGroup())
+      return materialsReducer(added, actions.setParameterGroupType(2, 4))
+    }
+
+    it('writes the answer onto every card, not just the one edited', () => {
+      const result = materialsReducer(
+        twoCards(),
+        actions.setParameterGroupValue(1, FLAG, 'Two Sided')
+      )
+
+      expect(result.editDraft?.groups[0].values[FLAG]).toBe('Two Sided')
+      expect(result.editDraft?.groups[1].values[FLAG]).toBe('Two Sided')
+    })
+
+    it('reflects a change made from ANY card back onto the others', () => {
+      const set = materialsReducer(twoCards(), actions.setParameterGroupValue(1, FLAG, 'Two Sided'))
+      const changed = materialsReducer(set, actions.setParameterGroupValue(2, FLAG, 'One Sided'))
+
+      expect(changed.editDraft?.groups[0].values[FLAG]).toBe('One Sided')
+      expect(changed.editDraft?.groups[1].values[FLAG]).toBe('One Sided')
+    })
+
+    it('leaves ordinary per-type values on the card they were typed into', () => {
+      const result = materialsReducer(
+        twoCards(),
+        actions.setParameterGroupValue(1, 'emissivity', '0.9')
+      )
+
+      expect(result.editDraft?.groups[0].values.emissivity).toBe('0.9')
+      expect(result.editDraft?.groups[1].values.emissivity).toBeUndefined()
+    })
+
+    it('seeds a card that picks its type AFTER the flag was answered', () => {
+      // The reported flow: set the flag on the first type, then add a second
+      // type — it must open with the answer already given, not a blank.
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
+      const set = materialsReducer(typed, actions.setParameterGroupValue(1, FLAG, 'Two Sided'))
+      const added = materialsReducer(set, actions.addParameterGroup())
+      const result = materialsReducer(added, actions.setParameterGroupType(2, 4))
+
+      expect(result.editDraft?.groups[1].values[FLAG]).toBe('Two Sided')
+    })
+
+    it('keeps the flag when a card SWAPS its type, dropping everything else', () => {
+      const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
+      const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
+      const added = materialsReducer(typed, actions.addParameterGroup())
+      const typed2 = materialsReducer(added, actions.setParameterGroupType(2, 4))
+      const filled = materialsReducer(typed2, actions.setParameterGroupValue(2, FLAG, 'Two Sided'))
+      const withOther = materialsReducer(
+        filled,
+        actions.setParameterGroupValue(2, 'stomatal_sidedness', '0.5')
+      )
+
+      const swapped = materialsReducer(withOther, actions.setParameterGroupType(2, 6))
+
+      expect(swapped.editDraft?.groups[1].values[FLAG]).toBe('Two Sided')
+      expect(swapped.editDraft?.groups[1].values.stomatal_sidedness).toBeUndefined()
+    })
+
+    it('does not let an unanswered card blank an answer another card holds', () => {
+      const set = materialsReducer(twoCards(), actions.setParameterGroupValue(1, FLAG, 'Two Sided'))
+      // Card 1 swaps type; card 2 still carries the answer, so it survives.
+      const swapped = materialsReducer(set, actions.setParameterGroupType(1, 6))
+
+      expect(swapped.editDraft?.groups[0].values[FLAG]).toBe('Two Sided')
+    })
+  })
+
   it('does not mutate the original state', () => {
     materialsReducer(initialState, actions.listMaterialsSucceeded([make('9', 'Grass')]))
     expect(initialState.order).toHaveLength(0)

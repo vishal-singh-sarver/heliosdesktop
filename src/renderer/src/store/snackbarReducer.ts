@@ -11,7 +11,10 @@
  * restarts even when two identical messages fire back-to-back.
  */
 
-export type SnackbarVariant = 'success' | 'error'
+// `info` is for a neutral, no-op outcome — nothing succeeded or failed, the
+// action simply had nothing to do (e.g. re-assigning the material a geometry
+// already carries). Green would claim a change that never happened.
+export type SnackbarVariant = 'success' | 'error' | 'info'
 
 export interface SnackbarState {
   message: string | null

@@ -607,7 +607,8 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
   // XML only, at most 5 MB. The backend enforces the extension but not the size,
   // so the size guard is the client's — and rejecting here avoids pushing a large
   // file over the wire only to have it refused.
-  it('rejects a non-XML file and one over 5 MB, without uploading either', () => {
+  // Now async — the check PARSES the file rather than trusting its name.
+  it('rejects a non-XML file and one over 5 MB, without uploading either', async () => {
     const { container } = render(
       <Provider store={liveStoreWith([card(1, { typeId: 1, saved: true })], [radiationType])}>
         <MaterialPropertiesForm />
@@ -618,13 +619,40 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
 
     const wrongType = new File(['x'], 'leaf.txt', { type: 'text/plain' })
     fireEvent.change(input, { target: { files: [wrongType] } })
-    expect(screen.getByText('Only XML files are allowed')).toBeInTheDocument()
+    expect(await screen.findByText('Only XML files are allowed')).toBeInTheDocument()
 
     const tooBig = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'leaf.xml', {
       type: 'text/xml'
     })
     fireEvent.change(input, { target: { files: [tooBig] } })
-    expect(screen.getByText('File must be 5 MB or smaller')).toBeInTheDocument()
+    expect(await screen.findByText('File must be 5 MB or smaller')).toBeInTheDocument()
+  })
+
+  it('rejects a renamed archive that only LOOKS like XML, and uploads nothing', async () => {
+    // The backend checks the extension and nothing else, so this used to be stored
+    // happily and only blow up later inside a simulation.
+    const store = liveStoreWith([card(1, { typeId: 1, saved: true })], [radiationType])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    const { container } = render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('switch'))
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+
+    // "PK\x03\x04" — a zip, renamed.
+    const zip = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])], 'leaf.xml', {
+      type: 'text/xml'
+    })
+    fireEvent.change(input, { target: { files: [zip] } })
+
+    expect(await screen.findByText(messages.spectralFileContentError)).toBeInTheDocument()
+    const uploads = dispatch.mock.calls
+      .map((c) => c[0] as { type?: string })
+      // The spectral upload rides the same action, tagged with its property.
+      .filter((a) => a.type === UPLOAD_TEXTURE_REQUESTED)
+    expect(uploads).toHaveLength(0)
   })
 
   it('enables the spectral upload on an unsaved card (upload no longer needs the member)', () => {
@@ -1362,6 +1390,44 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       .map((c) => c[0] as { type?: string })
       .filter((a) => a.type === UPLOAD_TEXTURE_REQUESTED)
     expect(uploads).toHaveLength(0)
+  })
+
+  it('refuses a CORRUPTED image, and shows no broken preview', async () => {
+    // The header is a real PNG signature, so every check short of an actual decode
+    // waves it through. jsdom has no decoder, so stub the failure a real one gives.
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => {
+        throw new Error('decode failed')
+      })
+    )
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    const { container } = render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const corrupt = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'shot.png', {
+      type: 'image/png'
+    })
+    fireEvent.change(input, { target: { files: [corrupt] } })
+
+    expect(await screen.findByText(messages.textureFileCorruptError)).toBeInTheDocument()
+    // Nothing uploaded…
+    const uploads = dispatch.mock.calls
+      .map((c) => c[0] as { type?: string })
+      .filter((a) => a.type === UPLOAD_TEXTURE_REQUESTED)
+    expect(uploads).toHaveLength(0)
+    // …and no broken-image placeholder, because the pick never reached the parent.
+    expect(screen.queryByAltText('Selected texture')).not.toBeInTheDocument()
+    vi.unstubAllGlobals()
   })
 
   // The upload endpoint now only STORES the file and returns its path — it does

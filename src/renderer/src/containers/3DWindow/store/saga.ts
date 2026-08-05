@@ -18,8 +18,13 @@ import type {
 } from 'containers/Geometry/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
 import type { GeoNode, LoadStatus } from 'containers/Geometry/types'
-import { REMOVE_MATERIAL, SAVE_PARAMETER_GROUP_SUCCEEDED } from 'containers/Materials/constants'
+import {
+  DELETE_PARAMETER_GROUP_SUCCEEDED,
+  REMOVE_MATERIAL,
+  SAVE_PARAMETER_GROUP_SUCCEEDED
+} from 'containers/Materials/constants'
 import type {
+  DeleteParameterGroupSucceededAction,
   RemoveMaterialAction,
   SaveParameterGroupSucceededAction
 } from 'containers/Materials/actions'
@@ -158,6 +163,14 @@ function* refetchObjectsUsingGroup(groupId: string): Generator {
 // A material member was SAVED (Visualiser colour/texture edit). Restyle only the
 // objects that use it. `materialId` is the material GROUP id.
 export function* onMaterialSaved(action: SaveParameterGroupSucceededAction): Generator {
+  yield* refetchObjectsUsingGroup(action.materialId)
+}
+
+// ONE material type was removed from a material (e.g. its Visualiser). Every
+// object the material is assigned to loses that type's contribution — deleting the
+// Visualiser strips the colour/texture, so the ground must stop rendering it. Same
+// refresh as a save: the objects using this material re-fetch their geometry.
+export function* onMaterialTypeDeleted(action: DeleteParameterGroupSucceededAction): Generator {
   yield* refetchObjectsUsingGroup(action.materialId)
 }
 
@@ -430,5 +443,6 @@ export default function* threeDWindowSaga(): Generator {
   yield takeEvery(ASSIGN_MATERIAL_SUCCEEDED, onMaterialAssigned)
   yield takeEvery(UNASSIGN_MATERIAL_SUCCEEDED, onMaterialUnassigned)
   yield takeEvery(SAVE_PARAMETER_GROUP_SUCCEEDED, onMaterialSaved)
+  yield takeEvery(DELETE_PARAMETER_GROUP_SUCCEEDED, onMaterialTypeDeleted)
   yield takeEvery(REMOVE_MATERIAL, onMaterialDeleted)
 }

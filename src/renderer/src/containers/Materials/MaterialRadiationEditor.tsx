@@ -12,6 +12,7 @@ import {
   type ResolvedMaterialField
 } from './materialBlueprint'
 import messages from './messages'
+import { SPECTRAL_ACCEPT_ATTR, validateSpectralFile } from './validation'
 
 // The body the Radiation type's card renders instead of the plain field grid: the
 // curated specular / Heat-Transfer fields, an "Apply spectral data" toggle, the
@@ -23,11 +24,9 @@ import messages from './messages'
 // Save persists (manual bands vs a spectral file); the band inputs disable while a
 // spectral file supersedes them.
 
-// Spectral upload constraints: XML only, at most 5 MB. The backend enforces the
-// extension but not the size, so the size check is ours — rejecting it here also
-// saves pushing a large file over the wire just to have it refused.
-const ACCEPT_ATTR = '.xml'
-const MAX_SPECTRAL_BYTES = 5 * 1024 * 1024
+// Spectral upload constraints (XML only, at most 5 MB, and it must actually PARSE
+// as XML) live in ./validation, so they can be unit-tested without a DOM and stay
+// in one place next to the texture rules.
 
 // A band field greyed out because a spectral file supersedes it. FormField gives a
 // disabled INPUT no styling of its own (only its <select> branch fades), so the
@@ -146,19 +145,17 @@ export function MaterialRadiationEditor({
   // in flight — no save-first requirement.
   const canUpload = applySpectral && !uploading
 
-  const handlePick = (e: React.ChangeEvent<HTMLInputElement>): void => {
+  // Async: the check parses the file. The backend enforces the .xml EXTENSION and
+  // nothing else, so a renamed archive is stored happily and only fails later,
+  // inside a simulation, where nothing points back at this upload.
+  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0]
     e.target.value = '' // let the same file be re-picked after a clear
     if (!file) return
-    if (!file.name.toLowerCase().endsWith('.xml')) {
-      setFileError(messages.spectralFileTypeError)
-      return
-    }
-    if (file.size > MAX_SPECTRAL_BYTES) {
-      setFileError(messages.spectralFileSizeError)
-      return
-    }
-    setFileError(null)
+
+    const error = await validateSpectralFile(file)
+    setFileError(error)
+    if (error) return
     onPickSpectralFile(file)
   }
 
@@ -227,7 +224,7 @@ export function MaterialRadiationEditor({
             <input
               ref={fileInputRef}
               type="file"
-              accept={ACCEPT_ATTR}
+              accept={SPECTRAL_ACCEPT_ATTR}
               className="hidden"
               disabled={!canUpload}
               onChange={handlePick}

@@ -24,9 +24,10 @@ export interface Position {
  * - `left`        — beside the anchor, vertically centred on it
  * - `bottom-start`— below the anchor, left edges aligned
  *
- * There is deliberately no flip/auto-placement: the popups using this all live
- * on a fixed strip beside the right-hand panel, where clamping to the viewport
- * is what actually matters. Add a placement here when a caller needs one.
+ * There is deliberately no flip/auto-placement. A popup stays on the side its
+ * caller asked for: the dropdown must open BELOW its control, and when there is
+ * not enough room it scrolls its panel to make room rather than jumping above the
+ * control — which would move the options out from under the pointer.
  */
 export type Placement = 'left-start' | 'left' | 'bottom-start'
 
@@ -169,6 +170,15 @@ function same(a: Measurement | null, b: Measurement): boolean {
  * resized out from under an open popup, and the popup being re-sized by its own
  * props.
  *
+ * Re-measures on an ancestor's scroll too, so a popup anchored to a control
+ * inside a scrolling panel stays glued to it (see the capture-phase listener
+ * below) — the dropdown case, where the list must follow its control as the panel
+ * scrolls under it.
+ *
+ * It deliberately does NOT poll: nothing here tracks a popup through a CSS
+ * transition. No current caller needs that (their panels unmount rather than
+ * animate). A caller that does should add the observer here rather than measuring
+ * on its own.
  * It deliberately does NOT poll. Nothing here tracks a popup through a CSS
  * transition or an ancestor scroll — no current caller needs it, and their
  * popups lay down a full-screen overlay that stops the page scrolling. Note the
@@ -210,6 +220,7 @@ export function useAnchoredPosition({
 
     const viewport = { width: window.innerWidth, height: window.innerHeight }
     const rect = el.getBoundingClientRect()
+
     const next: Measurement = {
       anchorRect,
       available: availableSpace(anchorRect, placement, viewport, gap, padding),
@@ -244,10 +255,19 @@ export function useAnchoredPosition({
 
   // The trigger moves when the window does — that's the case this exists for.
   // Only while open, so a closed popup costs nothing.
+  //
+  // `scroll` is listened for in the CAPTURE phase, which is the only way to hear
+  // about a scroll inside an ancestor: scroll events on an element do not bubble.
+  // Without it, a popup anchored to a control inside a scrolling panel stayed
+  // where it was first placed while its trigger slid away underneath.
   React.useEffect(() => {
     if (!open) return
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
   }, [open, measure])
 
   return { floatingRef, measurement }

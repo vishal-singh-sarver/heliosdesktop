@@ -27,7 +27,14 @@ function normalizeNumericInput(value: string): string | null {
 // ".5") so a keystroke gate can reject non-numeric input without blocking a
 // user mid-number. Scientific notation is permitted. Final NaN leftovers like
 // "-" or "1e" are caught on commit by validateCellValue, not here.
-const PARTIAL_NUMERIC_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d*)?([eE][+-]?\d*)?$/
+//
+// A LEADING '+' is deliberately rejected (the exponent's sign in "1e+5" is
+// not — that one carries meaning). "+5" is not wrong so much as invisible:
+// every validation passes, Number("+5") is 5, and the backend stores 5 — so the
+// field silently reads back "5" on the next load and the user's keystroke has
+// vanished with nothing having flagged it. Rejecting it at the keystroke puts
+// '+' where '*' and '/' already are.
+const PARTIAL_NUMERIC_PATTERN = /^-?(\d+(\.\d*)?|\.\d*)?([eE][+-]?\d*)?$/
 
 export function isPartialNumericInput(value: string): boolean {
   return PARTIAL_NUMERIC_PATTERN.test(value.trim())
