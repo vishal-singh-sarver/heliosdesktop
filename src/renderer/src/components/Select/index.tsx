@@ -161,6 +161,26 @@ export default function Select({
     [floatingRef]
   )
 
+  // Where the portal lands. <body> normally — but a control inside a MODAL
+  // dialog needs the list inside that dialog instead.
+  //
+  // Dialog opens with showModal(), which puts the <dialog> in the browser's TOP
+  // LAYER: a surface painted above the entire normal document. A list portalled
+  // to <body> is in the normal document, so it renders BEHIND the dialog no
+  // matter how high its z-index goes — this is not a z-index race, and raising
+  // it cannot win. Portalling into the dialog puts the list on the same layer,
+  // where it paints above as expected.
+  //
+  // Still `position: fixed`, so it escapes the dialog's own scrolling the same
+  // way it escapes a panel's. Resolved when the list opens (not at mount) —
+  // that's the first moment the control is definitely in the DOM, and it's
+  // cheap: one closest() per open.
+  const [portalHost, setPortalHost] = React.useState<HTMLElement | null>(null)
+  React.useEffect(() => {
+    if (!listOpen) return
+    setPortalHost(rootRef.current?.closest('dialog') ?? document.body)
+  }, [listOpen])
+
   // A list opening near the bottom of a panel has only a sliver of room, so it is
   // capped to that and shows a couple of rows behind its own scrollbar. On the
   // LAST card there is no way out of that: the panel is already at its scroll end,
@@ -415,8 +435,8 @@ export default function Select({
 
       {listOpen &&
         createPortal(
-          // Portalled to <body> and positioned against the control, so no
-          // scrolling ancestor can clip it. Pinned to the control's bottom edge —
+          // Portalled OUT of the control (see portalHost) and positioned against
+          // it, so no scrolling ancestor can clip it. Pinned to the control's bottom edge —
           // it never shifts with the selection the way a native popup did.
           //
           // Parked OFF-SCREEN until the first measurement lands (one pre-paint
@@ -481,7 +501,7 @@ export default function Select({
             )
           })}
           </div>,
-          document.body
+          portalHost ?? document.body
         )}
     </div>
   )

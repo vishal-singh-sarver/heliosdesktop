@@ -3,6 +3,8 @@ import type { GetProjectResponse } from 'containers/Weather/service'
 import { getProjectRequest } from 'containers/Weather/service'
 import { call, put, race, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { navigate } from 'store/navigationReducer'
+import { showSnackbar } from 'store/snackbarReducer'
+import toastMessages from 'store/toastMessages'
 import { api, ApiError } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
 import type { SseMessage } from 'utils/sse'
@@ -94,12 +96,14 @@ export function* createProjectWorker(action: ReturnType<typeof actions.createPro
 // ── Delete project worker ─────────────────────────────────────────────────────
 
 export function* deleteProjectWorker(action: ReturnType<typeof actions.deleteProject>): Generator {
-  const { projectId } = action.payload
+  const { projectId, name } = action.payload
   try {
     yield call(api.delete<string>, API_ROUTES.project.delete(projectId))
     yield put(actions.deleteProjectSuccess(projectId))
+    yield put(showSnackbar(toastMessages.projectDeleted(name), 'success'))
   } catch (err) {
     yield put(actions.deleteProjectFailure(projectId, toErrorPayload(err)))
+    yield put(showSnackbar(toastMessages.projectDeleteFailed(name), 'error'))
   }
 }
 
@@ -121,8 +125,12 @@ export function* renameProjectWorker(action: ReturnType<typeof actions.renamePro
 
     yield put(actions.renameProjectSuccess(projectId, name))
     yield put(actions.fetchRecentProjects())
+    // The GET above ran BEFORE the PATCH, so it still holds the old name — the
+    // only moment it is available to report.
+    yield put(showSnackbar(toastMessages.projectRenamed(response.project.name, name), 'success'))
   } catch (err) {
     yield put(actions.renameProjectFailure(projectId, toErrorPayload(err)))
+    yield put(showSnackbar(toastMessages.projectRenameFailed(name), 'error'))
   }
 }
 

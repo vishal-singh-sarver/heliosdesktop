@@ -2,6 +2,7 @@ import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
+import toastMessages from '@renderer/store/toastMessages'
 import * as actions from './actions'
 import messages from './messages'
 import type {
@@ -124,7 +125,7 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
     yield put(actions.deleteNodeSucceeded(projectId, scenarioId, id))
     // Raised before the dissolved-group cleanup so the confirmation isn't held
     // back by calls the user never asked for (and that are allowed to fail).
-    yield put(showSnackbar(messages.deleteSuccess(node?.name ?? 'geometry'), 'success'))
+    yield put(showSnackbar(toastMessages.groundDeleted(node?.name ?? 'geometry'), 'success'))
     if (sourceGroupId) {
       yield* cleanupDissolvedGroups(projectId, scenarioId, before, [sourceGroupId], [id])
     }
@@ -134,7 +135,7 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
     // slice has no error field, so this toast is the whole report. Without it the
     // row just stayed with nothing explaining why, and now that the form closes
     // only on success, the panel would sit there unexplained too.
-    yield put(showSnackbar(messages.deleteFailure(node?.name ?? 'geometry'), 'error'))
+    yield put(showSnackbar(toastMessages.groundDeleteFailed(node?.name ?? 'geometry'), 'error'))
   }
 }
 
@@ -162,8 +163,10 @@ export function* createObjectWorker(action: CreateObjectRequestedAction): Genera
         objectName
       })
     )
+    yield put(showSnackbar(toastMessages.groundCreated(created.node.name), 'success'))
   } catch (err) {
     yield put(actions.createObjectFailed((err as Error).message))
+    yield put(showSnackbar(toastMessages.groundCreateFailed, 'error'))
   }
 }
 
@@ -237,8 +240,10 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
         materialsChanged: newMaterials.length > 0 || removedMaterialIds.length > 0
       })
     )
+    yield put(showSnackbar(toastMessages.changesSaved, 'success'))
   } catch (err) {
     yield put(actions.updateObjectFailed((err as Error).message))
+    yield put(showSnackbar(toastMessages.changesSaveFailed, 'error'))
   }
 }
 
@@ -429,9 +434,9 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
     // binary geometry, and the open object form so it lists the new group —
     // without this the material only shows after a refresh.
     yield put(actions.assignMaterialSucceeded(projectId, scenarioId, objectIds, groupId, materialName))
-    yield put(showSnackbar(messages.assignMaterialSuccess(materialName, targetName), 'success'))
+    yield put(showSnackbar(toastMessages.materialAssigned(materialName, targetName), 'success'))
   } catch {
-    yield put(showSnackbar(messages.assignMaterialFailure(materialName), 'error'))
+    yield put(showSnackbar(toastMessages.materialAssignFailed(materialName, targetName), 'error'))
   }
 }
 

@@ -29,6 +29,7 @@ import materialsSaga, {
   uploadTextureWorker
 } from '../saga'
 import messages from '../messages'
+import toastMessages from '@renderer/store/toastMessages'
 import { selectMaterialDetailsById, selectMaterialsById, selectRecentColors } from '../selectors'
 import { saveRecentColors } from '../recentColors'
 import * as service from '../service'
@@ -65,6 +66,7 @@ describe('createMaterialWorker', () => {
     expect(gen.next('12').value).toEqual(put(actions.createMaterialSucceeded('12', 'Material.001')))
     // The reducer inserts the row + seeds the cache from the response, so there is
     // no follow-up GET (a re-list would also wipe the detail cache).
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.materialCreated('Material.001'), 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -140,7 +142,7 @@ describe('deleteMaterialWorker', () => {
     expect(gen.next().value).toEqual(select(selectMaterialsById))
     expect(gen.next(byId).value).toEqual(call(service.deleteGroup, '7', 's1'))
     expect(gen.next().value).toEqual(put(actions.removeMaterial('7')))
-    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteSuccess('Grass'), 'success')))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.materialDeleted('Grass'), 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -153,7 +155,7 @@ describe('deleteMaterialWorker', () => {
     )
     // The reducer records no error for a failed delete, so this toast is the only
     // thing that tells the user the material is still there and why.
-    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteFailure('Grass'), 'error')))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.materialDeleteFailed('Grass'), 'error')))
   })
 
   it('falls back to a generic name in the toast when the row is already gone', () => {
@@ -161,7 +163,7 @@ describe('deleteMaterialWorker', () => {
     gen.next()
     gen.next({}) // no row under that id
     gen.throw(new Error('boom'))
-    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteFailure('material'), 'error')))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.materialDeleteFailed('material'), 'error')))
   })
 })
 
@@ -248,6 +250,7 @@ describe('saveParameterGroupWorker', () => {
       call(service.addGroupMaterial, '12', 2, { radiation_flux: 55 }, 's1')
     )
     expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -259,6 +262,7 @@ describe('saveParameterGroupWorker', () => {
       call(service.updateGroupMaterial, '12', 2, { radiation_flux: 55 }, 's1')
     )
     expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -287,6 +291,7 @@ describe('saveParameterGroupWorker', () => {
     expect(gen.next().value).toEqual(
       put(actions.recordRecentColor({ r: 10, g: 20, b: 30, opacity: 40 }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -312,6 +317,7 @@ describe('saveParameterGroupWorker', () => {
     gen.next() // add call
     expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
     // No color_r/g/b → the worker finishes without a record.
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -331,6 +337,7 @@ describe('saveParameterGroupWorker', () => {
       call(service.deleteMaterialFile, '12', 'uploads/groups/12/old.xml')
     )
     expect(gen.next().value).toEqual(put(actions.saveParameterGroupSucceeded('12', 1)))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -349,6 +356,7 @@ describe('saveParameterGroupWorker', () => {
     expect(gen.throw(new Error('CONFLICT')).value).toEqual(
       put(actions.saveParameterGroupSucceeded('12', 1))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 })

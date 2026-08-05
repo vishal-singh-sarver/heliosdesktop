@@ -14,11 +14,11 @@ import type {
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
-<<<<<<< HEAD
-import snackbarReducer, { initialState as snackbarInitialState } from 'store/snackbarReducer'
-=======
+import snackbarReducer, {
+  initialState as snackbarInitialState,
+  selectSnackbarStack
+} from 'store/snackbarReducer'
 import * as actions from '../actions'
->>>>>>> M2
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
 import geometryReducer, {
   emptyScenarioGeometry,
@@ -403,7 +403,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
 
     fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
 
-    expect(store.getState().snackbar).toMatchObject({
+    expect(selectSnackbarStack(store.getState())[0]).toMatchObject({
       message: 'This material is already assigned to Ground.001',
       variant: 'info'
     })

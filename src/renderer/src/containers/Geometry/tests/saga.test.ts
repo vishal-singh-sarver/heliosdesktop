@@ -2,6 +2,7 @@ import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
+import toastMessages from '@renderer/store/toastMessages'
 import geometrySaga, {
   assignMaterialWorker,
   createObjectWorker,
@@ -129,7 +130,7 @@ describe('deleteNodeWorker', () => {
     expect(gen.next(before).value).toEqual(call(service.deleteGroup, P, S, 'g'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'g')))
     expect(gen.next().value).toEqual(
-      put(showSnackbar(messages.deleteSuccess('Group.001'), 'success'))
+      put(showSnackbar(toastMessages.groundDeleted('Group.001'), 'success'))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -140,7 +141,7 @@ describe('deleteNodeWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(before).value).toEqual(call(service.deleteNode, P, S, 'a'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'a')))
-    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteSuccess('a'), 'success')))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.groundDeleted('a'), 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -166,7 +167,7 @@ describe('deleteNodeWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(before).value).toEqual(call(service.deleteNode, P, S, 'c1'))
     expect(gen.next().value).toEqual(put(actions.deleteNodeSucceeded(P, S, 'c1')))
-    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteSuccess('c1'), 'success')))
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.groundDeleted('c1'), 'success')))
     expect(gen.next().value).toEqual(select(selectNodesById)) // cleanup re-reads state
     expect(gen.next(after).value).toEqual(call(service.moveNodes, P, S, ['c2'], null))
     expect(gen.next().value).toEqual(call(service.deleteGroup, P, S, 'g'))
@@ -184,7 +185,7 @@ describe('deleteNodeWorker', () => {
       put(actions.deleteNodeFailed(P, S, 'a', 'nope'))
     )
     expect(gen.next().value).toEqual(
-      put(showSnackbar(messages.deleteFailure('a'), 'error'))
+      put(showSnackbar(toastMessages.groundDeleteFailed('a'), 'error'))
     )
   })
 
@@ -194,7 +195,7 @@ describe('deleteNodeWorker', () => {
     gen.next({}) // no node under that id
     gen.throw(new Error('nope'))
     expect(gen.next().value).toEqual(
-      put(showSnackbar(messages.deleteFailure('geometry'), 'error'))
+      put(showSnackbar(toastMessages.groundDeleteFailed('geometry'), 'error'))
     )
   })
 })
@@ -222,6 +223,7 @@ describe('createObjectWorker', () => {
         })
       )
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.groundCreated('Ground.001'), 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -267,6 +269,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next().value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -289,6 +292,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next().value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -304,6 +308,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next({ '27': original }).value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -317,6 +322,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next({ '27': original }).value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -349,6 +355,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next().value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -372,6 +379,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next({ '27': original }).value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -408,6 +416,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next().value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -431,6 +440,7 @@ describe('updateObjectWorker', () => {
     expect(gen.next().value).toEqual(
       put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
     )
+    expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
   })
 
@@ -720,7 +730,7 @@ describe('assignMaterialWorker', () => {
     // Tells the 3D viewport to re-fetch the restyled objects' binary geometry.
     expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded('p', 's', ['1', '2'], '7', 'Grass')))
     expect(gen.next().value).toEqual(
-      put(showSnackbar(messages.assignMaterialSuccess('Grass', 'Group.001'), 'success'))
+      put(showSnackbar(toastMessages.materialAssigned('Grass', 'Group.001'), 'success'))
     )
     expect(gen.next().done).toBe(true)
   })
@@ -763,7 +773,7 @@ describe('assignMaterialWorker', () => {
     gen.next() // select(selectNodesById)
     gen.next({ '1': { materialGroupIds: [] } }) // all(...)
     expect(gen.throw(new Error('boom')).value).toEqual(
-      put(showSnackbar(messages.assignMaterialFailure('Grass'), 'error'))
+      put(showSnackbar(toastMessages.materialAssignFailed('Grass', 'Ground.001'), 'error'))
     )
     expect(gen.next().done).toBe(true)
   })
