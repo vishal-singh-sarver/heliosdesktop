@@ -1,4 +1,5 @@
 import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import * as actions from '../actions'
 import {
   CREATE_MATERIAL_REQUESTED,
@@ -27,7 +28,8 @@ import materialsSaga, {
   trackedSave,
   uploadTextureWorker
 } from '../saga'
-import { selectMaterialDetailsById, selectRecentColors } from '../selectors'
+import messages from '../messages'
+import { selectMaterialDetailsById, selectMaterialsById, selectRecentColors } from '../selectors'
 import { saveRecentColors } from '../recentColors'
 import * as service from '../service'
 import type { Material, MaterialGroupDetail } from '../types'
@@ -131,19 +133,35 @@ describe('renameWatcher', () => {
 })
 
 describe('deleteMaterialWorker', () => {
+  const byId = { '7': { ...material, id: '7', name: 'Grass' } }
+
   it('DELETEs the group then removes the row', () => {
     const gen = deleteMaterialWorker(actions.deleteMaterialRequested('7', 's1'))
-    expect(gen.next().value).toEqual(call(service.deleteGroup, '7', 's1'))
+    expect(gen.next().value).toEqual(select(selectMaterialsById))
+    expect(gen.next(byId).value).toEqual(call(service.deleteGroup, '7', 's1'))
     expect(gen.next().value).toEqual(put(actions.removeMaterial('7')))
+    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteSuccess('Grass'), 'success')))
     expect(gen.next().done).toBe(true)
   })
 
-  it('puts deleteMaterialFailed on error (row stays)', () => {
+  it('puts deleteMaterialFailed AND an error toast on error (row stays)', () => {
     const gen = deleteMaterialWorker(actions.deleteMaterialRequested('7', null))
-    gen.next()
+    gen.next() // select
+    gen.next(byId) // advance to call(deleteGroup)
     expect(gen.throw(new Error('boom')).value).toEqual(
       put(actions.deleteMaterialFailed('7', 'boom'))
     )
+    // The reducer records no error for a failed delete, so this toast is the only
+    // thing that tells the user the material is still there and why.
+    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteFailure('Grass'), 'error')))
+  })
+
+  it('falls back to a generic name in the toast when the row is already gone', () => {
+    const gen = deleteMaterialWorker(actions.deleteMaterialRequested('7', null))
+    gen.next()
+    gen.next({}) // no row under that id
+    gen.throw(new Error('boom'))
+    expect(gen.next().value).toEqual(put(showSnackbar(messages.deleteFailure('material'), 'error')))
   })
 })
 

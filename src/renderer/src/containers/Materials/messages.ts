@@ -117,17 +117,20 @@ const messages = {
   createError: 'Unable to create material. Please try again',
   noMaterialTypes: 'No material types available',
   allTypesAdded: 'All material types added',
-  // Delete confirmation — word for word the Geometry object-form copy, for BOTH
-  // the whole material and a single Material Type card. The comment here always
-  // claimed to match Geometry while the strings didn't: the title said "Delete
-  // material", the heading quoted and question-marked the name, and the body
-  // dropped the "Are you sure…" the design asks for. Two confirm dialogs a click
-  // apart in the same app must not be phrased differently.
-  deleteTitle: 'Delete',
-  deleteHeading: (name: string): string => `Delete ${name}`,
+  // Delete confirmation (matches the Geometry object-form copy).
+  deleteTitle: 'Delete material',
+  deleteHeading: (name: string): string => `Delete "${name}"?`,
+  // Word-for-word the Geometry delete body (Geometry/messages.ts deleteBody), so
+  // the confirm dialog reads identically whichever thing is being deleted.
   deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
   deleteCancel: 'Cancel',
-  deleteConfirm: 'Delete'
+  deleteConfirm: 'Delete',
+  // Delete outcome toasts, matching Geometry's copy. Success confirms which
+  // material went; failure says why nothing happened (the row stays — the delete
+  // is pessimistic). The failure toast is the ONLY report: the raw backend text is
+  // deliberately not put on the slice for a delete.
+  deleteSuccess: (name: string): string => `Deleted "${name}"`,
+  deleteFailure: (name: string): string => `Failed to delete "${name}"`
 } as const
 
 export default messages

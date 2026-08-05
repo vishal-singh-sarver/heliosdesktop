@@ -24,6 +24,7 @@ interface IconButtonProps {
   children: React.ReactNode
   className?: string
   active?: boolean
+  disabled?: boolean
   // Suppresses the hover background tint (icon still brightens via text colour).
   noHoverBg?: boolean
   onClick?: () => void
@@ -36,6 +37,7 @@ function IconButton({
   children,
   className = '',
   active = false,
+  disabled = false,
   noHoverBg = false,
   onClick,
   buttonRef
@@ -46,11 +48,12 @@ function IconButton({
       type="button"
       aria-label={label}
       aria-pressed={active}
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation()
         onClick?.()
       }}
-      className={`flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:text-neutral-100 ${
+      className={`flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 ${
         noHoverBg ? '' : 'hover:bg-neutral-600/50'
       } ${className}`}
     >
@@ -214,6 +217,9 @@ interface RowActionsProps {
   selected: boolean
   // Opens the delete confirmation (owned by the row).
   onDelete: () => void
+  // This node's DELETE is in flight — the trash locks so a second confirm can't
+  // fire a duplicate onto the already-gone node.
+  deleting?: boolean
 }
 
 // The action cluster pinned to the right edge of the row: render, viewport,
@@ -225,7 +231,8 @@ export default function RowActions({
   projectId,
   scenarioId,
   selected,
-  onDelete
+  onDelete,
+  deleting = false
 }: RowActionsProps): React.JSX.Element | null {
   const dispatch = useDispatch()
   // The render icon is a master switch over every catalog model, so it needs the
@@ -271,7 +278,7 @@ export default function RowActions({
       >
         {node.visibleInViewport ? <EyeIcon /> : <EyeOffIcon />}
       </IconButton>
-      <IconButton label="Delete" onClick={onDelete}>
+      <IconButton label="Delete" disabled={deleting} onClick={onDelete}>
         <TrashIcon />
       </IconButton>
       <span

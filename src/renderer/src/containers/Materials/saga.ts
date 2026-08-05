@@ -1,5 +1,6 @@
 import type { Task } from 'redux-saga'
 import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
+import { showSnackbar } from '@renderer/store/snackbarReducer'
 import type { RecentColor } from 'utils/color'
 import type {
   CreateMaterialRequestedAction,
@@ -24,8 +25,9 @@ import {
   SAVE_PARAMETER_GROUP_REQUESTED,
   UPLOAD_TEXTURE_REQUESTED
 } from './constants'
+import messages from './messages'
 import { DEFAULT_RECENT_OPACITY, saveRecentColors } from './recentColors'
-import { selectMaterialDetailsById, selectRecentColors } from './selectors'
+import { selectMaterialDetailsById, selectMaterialsById, selectRecentColors } from './selectors'
 import * as service from './service'
 import type { Material, MaterialGroupDetail, MaterialPropertyValues } from './types'
 
@@ -90,11 +92,20 @@ export function* renameWatcher(): Generator {
 // only on success, so a failed delete leaves it in the list.
 export function* deleteMaterialWorker(action: DeleteMaterialRequestedAction): Generator {
   const { id, scenarioId } = action
+  // Read the name up front — the row is still in the list here, but the toast is
+  // built in the catch, so grab it before anything can change underneath.
+  const byId = (yield select(selectMaterialsById)) as Record<string, Material>
+  const name = byId[id]?.name ?? 'material'
   try {
     yield call(service.deleteGroup, id, scenarioId)
     yield put(actions.removeMaterial(id))
+    yield put(showSnackbar(messages.deleteSuccess(name), 'success'))
   } catch (err) {
     yield put(actions.deleteMaterialFailed(id, (err as Error).message))
+    // Mirrors the geometry delete. The reducer only releases the in-flight mark on
+    // DELETE_MATERIAL_FAILED — it deliberately no longer banners the raw backend
+    // text — so this toast is the whole report.
+    yield put(showSnackbar(messages.deleteFailure(name), 'error'))
   }
 }
 

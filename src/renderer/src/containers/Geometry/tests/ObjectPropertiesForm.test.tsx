@@ -14,14 +14,18 @@ import type {
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
+<<<<<<< HEAD
 import snackbarReducer, { initialState as snackbarInitialState } from 'store/snackbarReducer'
+=======
+import * as actions from '../actions'
+>>>>>>> M2
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
 import geometryReducer, {
   emptyScenarioGeometry,
   initialState as geometryInitialState,
   scopeKey
 } from '../reducer'
-import type { DraftMaterialGroup, GeoNode } from '../types'
+import type { DraftMaterialGroup, GeoNode, GeometryState } from '../types'
 
 // jsdom doesn't implement <dialog>.showModal()/close(); polyfill them (reflecting
 // the `open` attribute) so the confirm dialogs can actually open in tests.
@@ -1009,5 +1013,65 @@ describe('<ObjectPropertiesForm /> — Save gating', () => {
     expect(saveButton()).toBeDisabled()
     expect(fieldInput(container, 'texture_y')).toHaveAttribute('aria-invalid', 'true')
     expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'false')
+  })
+})
+
+// The form's own trash. The delete is pessimistic, so the panel is NOT closed on
+// the click any more: the reducer closes it when DELETE_NODE_SUCCEEDED lands, so a
+// rejected delete leaves the form (and the row) in place instead of blanking the
+// panel on a delete that never happened. Mirrors the Materials header trash.
+describe('<ObjectPropertiesForm /> — delete', () => {
+  // The geometry slice is injected, so RootState doesn't statically know the key
+  // (same cast the container's own selectors use).
+  const geometryState = (store: InjectableStore): GeometryState =>
+    (store.getState() as unknown as { geometry: GeometryState }).geometry
+
+  const openConfirm = (store: InjectableStore): void => {
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Delete geometry' }))
+  }
+
+  it('confirming dispatches the delete and leaves the form open until it lands', () => {
+    const store = makeStore()
+    openConfirm(store)
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+    // Still open: nothing dispatched CLOSE_CREATE_FORM, which would null the draft.
+    expect(geometryState(store).createDraft).not.toBeNull()
+    expect(screen.getByLabelText('Object name')).toBeInTheDocument()
+    // …and the object is marked in flight, which locks the trash.
+    expect(geometryState(store).byScope[scopeKey(PROJECT, SCENARIO)].deletingIds).toEqual([
+      OBJECT_ID
+    ])
+    expect(screen.getByRole('button', { name: 'Delete geometry' })).toBeDisabled()
+  })
+
+  it('closes the form once the delete succeeds', () => {
+    const store = makeStore()
+    openConfirm(store)
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+
+    act(() => {
+      store.dispatch(actions.deleteNodeSucceeded(PROJECT, SCENARIO, OBJECT_ID))
+    })
+    expect(geometryState(store).createDraft).toBeNull()
+    expect(screen.queryByLabelText('Object name')).not.toBeInTheDocument()
+  })
+
+  it('a failed delete keeps the form open and releases the trash for a retry', () => {
+    const store = makeStore()
+    openConfirm(store)
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+
+    act(() => {
+      store.dispatch(actions.deleteNodeFailed(PROJECT, SCENARIO, OBJECT_ID, 'boom'))
+    })
+    expect(geometryState(store).createDraft).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Delete geometry' })).toBeEnabled()
   })
 })

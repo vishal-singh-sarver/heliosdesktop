@@ -101,6 +101,12 @@ export interface ScenarioGeometry {
   searchQuery: string
   nameErrors: Record<string, string> // inline rename validation, keyed by node id
   detailsById: Record<string, ObjectDetail> // cached property values per object
+  // Nodes whose DELETE is in flight. The delete is pessimistic, so the row (and
+  // the right-panel form) stay on screen until it lands — without this, a second
+  // confirm in that window fired a second DELETE that 404'd on the already-gone
+  // object, so one action produced both a success AND a failure toast. Scoped per
+  // scenario because object ids are scenario-local. Mirrors Materials' deletingIds.
+  deletingIds: string[]
   // The node +Ground just created, so its row can flash the "just appeared" cue.
   // Cleared once the cue has run (the tree dispatches it), so a remount can't
   // replay it.

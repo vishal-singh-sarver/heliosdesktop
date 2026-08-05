@@ -255,7 +255,7 @@ const materialsReducer = (
         draft.lastCreatedId = null
         draft.nameErrors = {} // ids are reloaded; any pending rename error is stale
         draft.detailsById = {} // a fresh load invalidates the cached group details
-        draft.actionError = null // an open/delete failure can't outlive the list it referred to
+        draft.actionError = null // an open failure can't outlive the list it referred to
         // A failed create belongs to the list as it was BEFORE this load — leaving
         // it set kept the banner up across a tab switch, complaining about an
         // attempt the user had long since moved on from.
@@ -381,15 +381,15 @@ const materialsReducer = (
         break
 
       case DELETE_MATERIAL_FAILED:
-        // The material is still there — release its trash and surface why. (The
-        // failure was previously dispatched into the void: the row silently stayed
-        // with no explanation.)
+        // The material is still there — release its trash so it can be retried.
+        // The failure itself is reported by the saga's error toast, NOT here: the
+        // raw backend text ("Internal Server Error") is not something to put in
+        // front of the user, and showing both read as two separate problems.
         draft.deletingIds = draft.deletingIds.filter((i) => i !== action.id)
-        draft.actionError = action.payload
         break
 
       case REMOVE_MATERIAL: {
-        // A delete that landed clears the banner from any earlier failed attempt.
+        // The list just changed under it, so any stale open-failure banner goes.
         draft.actionError = null
         draft.deletingIds = draft.deletingIds.filter((i) => i !== action.id)
         delete draft.byId[action.id]
