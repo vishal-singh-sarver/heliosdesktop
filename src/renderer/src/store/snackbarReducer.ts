@@ -13,6 +13,11 @@
  * it. Each carries a unique `id` — the host runs one dismiss timer per toast and
  * removes that toast by id, so they expire independently and two identical
  * messages back-to-back are still two toasts.
+ *
+ * Nothing here removes a toast on its own. Both ways out — the dwell expiring and
+ * being crowded out past MAX_VISIBLE — end in the host dispatching DISMISS once
+ * the exit animation has played, so a toast is never yanked off screen between
+ * two frames.
  */
 
 // `info` is for a neutral, no-op outcome — nothing succeeded or failed, the
@@ -24,6 +29,10 @@ export interface SnackbarItem {
   id: number
   message: string
   variant: SnackbarVariant
+  // Crowded out by a newer arrival. It no longer counts against MAX_VISIBLE and
+  // has given up its place in the stack, but it stays in the list until the host
+  // has played its exit and dispatched DISMISS — see the SHOW case.
+  evicted?: boolean
 }
 
 export interface SnackbarState {
@@ -34,9 +43,10 @@ export interface SnackbarState {
   nextId: number
 }
 
-// How many toasts may be on screen at once. A burst — say a save that fails for
+// How many toasts may HOLD A PLACE at once. A burst — say a save that fails for
 // every row — must not paper the window over; past this the OLDEST goes, which
-// is the one that has already had the most time to be read.
+// is the one that has already had the most time to be read. A toast on its way
+// out is briefly still on screen on top of these, playing its exit.
 const MAX_VISIBLE = 3
 
 export const SHOW_SNACKBAR = 'app/snackbar/SHOW' as const
@@ -88,10 +98,21 @@ export default function snackbarReducer(
         ...state.toasts,
         { id: state.nextId, message: action.payload.message, variant: action.payload.variant }
       ]
+      // Only toasts still holding a place count against the cap; an evicted one
+      // is already on its way out.
+      const standing = next.filter((t) => !t.evicted)
+      const overflow = standing.length - MAX_VISIBLE
+      if (overflow <= 0) return { toasts: next, nextId: state.nextId + 1 }
+
+      // Over the cap: the ones that go are the ones that have been up longest.
+      // They are MARKED rather than dropped — deleting them here unmounted the
+      // card in the same frame the new one appeared, so the top message was
+      // swapped out between two frames and read as the text CHANGING rather than
+      // a toast leaving. Marked, it keeps rendering while the host plays its exit
+      // (see SnackbarHost) and is removed by the DISMISS that follows.
+      const evicting = new Set(standing.slice(0, overflow).map((t) => t.id))
       return {
-        // Keep the newest MAX_VISIBLE; the ones that fall off the top are the
-        // ones that have been up longest.
-        toasts: next.slice(-MAX_VISIBLE),
+        toasts: next.map((t) => (evicting.has(t.id) ? { ...t, evicted: true } : t)),
         nextId: state.nextId + 1
       }
     }

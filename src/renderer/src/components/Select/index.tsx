@@ -110,6 +110,10 @@ export default function Select({
   const [highlight, setHighlight] = React.useState(0)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const buttonRef = React.useRef<HTMLButtonElement>(null)
+  // Set while a press that must NOT dismiss the list is in flight — see the
+  // outside-press effect.
+  const pressingRef = React.useRef(false)
   // The list lives in a portal (see below), so it is NOT inside rootRef — every
   // "did this happen inside the control?" check has to consult it separately.
   const listElRef = React.useRef<HTMLElement | null>(null)
@@ -271,25 +275,59 @@ export default function Select({
 
   // Close on an outside click and report the blur — the field is only "left"
   // once the list is dismissed, so validation fires when it used to.
+  //
+  // Grabbing a SCROLLBAR is not leaving the field, and it used to read as one via
+  // TWO independent routes:
+  //   • this handler — the press lands on the scrolling element, which is outside
+  //     the control, so the list shut the instant the panel's scrollbar was
+  //     dragged (the one gesture a user makes to bring the rest of the options
+  //     into view);
+  //   • the control's own blur — a scrollbar gutter belongs to no element and
+  //     cannot take focus, so the browser blurs the control with a null
+  //     relatedTarget, and handleBlur closed the list out from under the drag.
+  //     This is why dragging the LIST's own scrollbar failed even though the
+  //     press is plainly inside it: the option rows escape the blur by
+  //     preventing the mousedown default, the container they sit in does not.
+  //
+  // A two-finger trackpad scroll is a wheel event with no press at all, which is
+  // why only dragging was ever broken. `pressingRef` bridges the two routes: it
+  // is raised for any press that keeps the list open, and tells handleBlur to sit
+  // that one out.
   React.useEffect(() => {
     if (!open) return undefined
     const onDown = (e: MouseEvent): void => {
       const target = e.target as Node
-      // The list is portalled to <body>, so a press on an option is NOT inside
-      // rootRef. Without the second check every option click read as an outside
-      // press and closed the list before the click could land on it.
-      if (rootRef.current?.contains(target) || listElRef.current?.contains(target)) return
-      // Grabbing a SCROLLBAR is not leaving the field. The press lands on the
-      // scrolling element, which is outside the control, so without this the list
-      // shut the instant the panel's scrollbar was dragged — the one gesture a
-      // user makes to bring the rest of the options into view.
-      if (isScrollbarPress(e)) return
+      // The list is portalled out of the control (see portalHost), so a press on
+      // an option — or on the list's own scrollbar — is NOT inside rootRef.
+      // Without the second check every option click read as an outside press and
+      // closed the list before the click could land on it.
+      const inside =
+        rootRef.current?.contains(target) === true || listElRef.current?.contains(target) === true
+      if (inside || isScrollbarPress(e)) {
+        pressingRef.current = true
+        return
+      }
       setOpen(false)
       onBlur?.()
     }
+    // The press is over, so stop swallowing blurs. If it was a scrollbar drag the
+    // gutter took focus off the control and never handed it back — the list is
+    // still open, so arrow keys and Escape have to keep working after the drag.
+    const onUp = (): void => {
+      if (!pressingRef.current) return
+      pressingRef.current = false
+      if (rootRef.current?.contains(document.activeElement)) return
+      const control = searchable ? inputRef.current : buttonRef.current
+      control?.focus({ preventScroll: true })
+    }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open, onBlur])
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('mouseup', onUp)
+      pressingRef.current = false
+    }
+  }, [open, onBlur, searchable])
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (disabled) return
@@ -340,6 +378,9 @@ export default function Select({
   // Focus leaving the control closes the list and reports the blur — but moving
   // between the control and its own list must not.
   const handleBlur = (e: React.FocusEvent): void => {
+    // Mid-press on a scrollbar: the control is losing focus to a gutter that
+    // cannot hold it, which is not the user leaving the field. See the effect above.
+    if (pressingRef.current) return
     const next = e.relatedTarget as Node | null
     if (rootRef.current?.contains(next) || listElRef.current?.contains(next)) return
     setOpen(false)
@@ -405,6 +446,7 @@ export default function Select({
         </>
       ) : (
         <button
+          ref={buttonRef}
           type="button"
           id={id}
           name={name}

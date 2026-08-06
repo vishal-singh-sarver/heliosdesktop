@@ -158,6 +158,76 @@ describe('<SnackbarHost />', () => {
     })
   })
 
+  // A toast crowded off the top by a fourth arrival used to be dropped by the
+  // reducer in the same frame the new one mounted: the top card was replaced by
+  // the one below it between two frames, which reads as the message CHANGING.
+  // It now leaves the way everything else does — visibly.
+  describe('eviction', () => {
+    const fillStack = (): ReturnType<typeof createStore> => {
+      const store = renderHost()
+      show(store, 'First')
+      show(store, 'Second')
+      show(store, 'Third')
+      return store
+    }
+
+    it('keeps the crowded-out toast on screen to play its exit', () => {
+      const store = fillStack()
+      show(store, 'Fourth')
+
+      // Briefly four: the three that fit, plus one on its way out.
+      expect(screen.getByText('First')).toBeInTheDocument()
+      expect(screen.getAllByRole('status')).toHaveLength(4)
+    })
+
+    it('gives it the ordinary exit, not a second animation of its own', () => {
+      const store = fillStack()
+      show(store, 'Fourth')
+
+      const [first, second] = screen.getAllByRole('status')
+      // The same slide-out a toast whose dwell ran out plays: one departure
+      // animation in the app, so leaving always looks like leaving.
+      expect(first.parentElement).toHaveClass('animate-toast-out')
+      // Only the evicted one. Everything still standing keeps its entrance.
+      expect(second.parentElement).toHaveClass('animate-toast-in')
+    })
+
+    it('drops it once that animation has played, and no sooner', () => {
+      const store = fillStack()
+      show(store, 'Fourth')
+
+      advanceBy(EXIT_MS - 1)
+      expect(screen.getByText('First')).toBeInTheDocument()
+
+      advanceBy(1)
+      expect(screen.queryByText('First')).not.toBeInTheDocument()
+      expect(screen.getAllByRole('status')).toHaveLength(3)
+    })
+
+    it('does not make the survivors wait — they keep their own clocks', () => {
+      const store = fillStack()
+      show(store, 'Fourth')
+      advanceBy(EXIT_MS)
+
+      retire()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('retires a toast evicted while it was ALREADY on its way out just once', () => {
+      const store = fillStack()
+      // All three were raised at the same instant, so all three start retiring
+      // together; 'First' is then crowded out mid-exit by 'Fourth'.
+      advanceBy(AUTO_DISMISS_MS)
+      show(store, 'Fourth')
+
+      advanceBy(EXIT_MS)
+      expect(screen.queryByText('First')).not.toBeInTheDocument()
+      // The second dismiss its eviction schedules must not take an unrelated
+      // toast with it — ids are matched, so 'Fourth' survives its own dwell.
+      expect(screen.getByText('Fourth')).toBeInTheDocument()
+    })
+  })
+
   describe('colour', () => {
     // The × used to be an <img> with its fill baked in, so it stayed near-black
     // on every variant while the text beside it took the variant's colour.

@@ -32,6 +32,7 @@ import {
   uploadTextureRequested
 } from './actions'
 import {
+  ALL_BAND_PROPERTIES,
   isMaterialFormValid,
   isRadiationFieldSet,
   isVisualisationComplete,
@@ -773,7 +774,16 @@ function ParameterGroupCard({
   //  - plain type      → every field valid.
   //  - Visualiser Custom → a full, valid colour + opacity.
   //  - Visualiser Texture → a texture is chosen (a picked file or a stored path).
-  const fieldsValid = isMaterialFormValid(parameterGroups, group.values)
+  // Spectral mode drops the band values on save (toRadiationProperties), so an
+  // invalid one left behind from manual mode must not gate Save. The editor hides
+  // those errors while the bands are superseded, so gating on them would stop the
+  // card with nothing on screen saying why. Matches `bandSumInvalid` below, which
+  // has always been scoped to manual mode.
+  const fieldsValid = isMaterialFormValid(
+    parameterGroups,
+    group.values,
+    isRadiation && applySpectral ? ALL_BAND_PROPERTIES : undefined
+  )
   const saving = group.saveStatus === 'saving'
   // A file upload (the picked texture) is in flight — Save waits for its URL.
   const uploading = group.uploadStatus === 'uploading'

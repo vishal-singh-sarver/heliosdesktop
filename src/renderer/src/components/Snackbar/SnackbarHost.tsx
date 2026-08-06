@@ -30,25 +30,36 @@ function TimedSnackbar({
   // Leaving, but still on screen playing its exit. Local, not store state: it
   // describes this element's animation, and nothing outside cares.
   const [leaving, setLeaving] = React.useState(false)
+  // The other way out: crowded off the top of the stack by a newer arrival. That
+  // one is store state — the reducer decides who no longer fits — and the store
+  // holds the toast in the list for exactly as long as the exit takes.
+  //
+  // It leaves by the SAME exit as a toast whose dwell ran out. Giving it its own
+  // was tried and read as a glitch rather than a departure: the one thing a user
+  // has already learned by then is what a toast leaving looks like, and a second
+  // vocabulary for it only invites the question of what went wrong.
+  const exiting = leaving || item.evicted === true
 
-  // The dwell. Ends by starting the exit, not by removing the toast.
+  // The dwell. Ends by starting the exit, not by removing the toast. An evicted
+  // toast has already lost its place, so it doesn't sit out a dwell first.
   React.useEffect(() => {
+    if (item.evicted) return undefined
     const timer = setTimeout(() => setLeaving(true), AUTO_DISMISS_MS)
     return () => clearTimeout(timer)
-  }, [item.id])
+  }, [item.id, item.evicted])
 
   // …and the exit hands it to the store once the animation has played out.
   React.useEffect(() => {
-    if (!leaving) return undefined
+    if (!exiting) return undefined
     const timer = setTimeout(() => onDismiss(item.id), EXIT_MS)
     return () => clearTimeout(timer)
-  }, [leaving, item.id, onDismiss])
+  }, [exiting, item.id, onDismiss])
 
   return (
     // The wrapper animates so the card stays a plain, position-agnostic box.
     // `animate-toast-out` replaces the enter animation outright — same property,
     // so the last one declared wins and the toast can't try to do both.
-    <div className={leaving ? 'animate-toast-out' : 'animate-toast-in'}>
+    <div className={exiting ? 'animate-toast-out' : 'animate-toast-in'}>
       <Snackbar message={item.message} variant={item.variant} onDismiss={() => setLeaving(true)} />
     </div>
   )
@@ -74,6 +85,10 @@ export default function SnackbarHost(): React.JSX.Element | null {
     // cursor. `items-end` keeps every card flush to the right whatever its
     // width; the container ignores pointer events so the gaps between cards
     // don't block the canvas underneath.
+    //
+    // Being pinned by the BOTTOM is also what lets an evicted toast leave without
+    // disturbing anything: it is briefly a fourth card at the TOP, and the space
+    // it gives back shortens the container upward, away from the cards below it.
     <div className="pointer-events-none fixed bottom-7 right-7 z-[100] flex max-w-[calc(100vw-3.5rem)] flex-col items-end gap-2">
       {toasts.map((item) => (
         <TimedSnackbar key={item.id} item={item} onDismiss={handleDismiss} />
