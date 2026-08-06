@@ -1,13 +1,101 @@
 import { describe, expect, it } from 'vitest'
 import {
   exceedsMaxDecimals,
+  expandForDisplay,
   getDecimalCount,
+  isIncompleteExponent,
   isPartialNumericInput,
   truncateToMaxDecimals,
   wouldTruncateAny
 } from '../decimalValidation'
 
 describe('decimalValidation utilities', () => {
+  describe('isIncompleteExponent', () => {
+    it('is true only for a value stopped mid-exponent', () => {
+      expect(isIncompleteExponent('1e')).toBe(true)
+      expect(isIncompleteExponent('1e-')).toBe(true)
+      expect(isIncompleteExponent('1e+')).toBe(true)
+      expect(isIncompleteExponent('1.5E')).toBe(true)
+      expect(isIncompleteExponent(' 1e ')).toBe(true)
+    })
+
+    it('is false once the exponent has a digit, and for values with no exponent', () => {
+      expect(isIncompleteExponent('1e9')).toBe(false)
+      expect(isIncompleteExponent('1e-9')).toBe(false)
+      expect(isIncompleteExponent('1')).toBe(false)
+      expect(isIncompleteExponent('')).toBe(false)
+      expect(isIncompleteExponent('-')).toBe(false)
+    })
+
+    it('does not excuse input that is simply wrong', () => {
+      // "1e" is unfinished; "abc" is invalid. Only the first is suppressed.
+      expect(isIncompleteExponent('abc')).toBe(false)
+    })
+
+    it('covers exactly the states where Number() is NaN but typing could continue', () => {
+      for (const s of ['1e', '1e-', '1e+']) {
+        expect(Number.isNaN(Number(s))).toBe(true)
+        expect(isIncompleteExponent(s)).toBe(true)
+      }
+    })
+  })
+
+  describe('expandForDisplay', () => {
+    it('expands complete scientific notation to plain decimal', () => {
+      expect(expandForDisplay('1e3')).toBe('1000')
+      expect(expandForDisplay('1e5')).toBe('100000')
+      expect(expandForDisplay('1.5e3')).toBe('1500')
+      expect(expandForDisplay('1e-3')).toBe('0.001')
+      expect(expandForDisplay('-2.5e2')).toBe('-250')
+      expect(expandForDisplay('1E3')).toBe('1000')
+      expect(expandForDisplay('1e+3')).toBe('1000')
+    })
+
+    it('leaves plain decimals and in-progress states untouched', () => {
+      expect(expandForDisplay('1000')).toBe('1000')
+      expect(expandForDisplay('0.001')).toBe('0.001')
+      expect(expandForDisplay('-0')).toBe('-0')
+      expect(expandForDisplay('')).toBe('')
+      expect(expandForDisplay('-')).toBe('-')
+      expect(expandForDisplay('1e')).toBe('1e')
+      expect(expandForDisplay('1e-')).toBe('1e-')
+      expect(expandForDisplay('abc')).toBe('abc')
+    })
+
+    it('is value-preserving — Number() is unchanged by expansion', () => {
+      for (const raw of ['1e3', '1.5e3', '1e-3', '-2.5e2', '1e21', '1e-9']) {
+        expect(Number(expandForDisplay(raw))).toBe(Number(raw))
+      }
+    })
+
+    it('does not truncate — an over-precise value stays intact so the guard can flag it', () => {
+      expect(expandForDisplay('1e-9')).toBe('0.000000001')
+      expect(exceedsMaxDecimals(expandForDisplay('1e-9'))).toBe(true)
+    })
+
+    it('expands past the point where JS would re-emit exponent form', () => {
+      // JSON.stringify(1e21) is "1e+21" and String(1e-7) is "1e-7", so a
+      // String(Number(x)) round-trip would reintroduce the notation here.
+      expect(expandForDisplay('1e21')).toBe('1000000000000000000000')
+      expect(expandForDisplay('1e-7')).toBe('0.0000001')
+    })
+  })
+
+  describe('Add Column default-value decimal check', () => {
+    it('catches exponent-form values the old split(".") count missed', () => {
+      for (const v of ['1e-9', '1.23e-6', '1e-8']) {
+        expect((v.split('.')[1]?.length ?? 0) > 7).toBe(false) // old check: passed
+        expect(exceedsMaxDecimals(v)).toBe(true) // new check: caught
+      }
+    })
+
+    it('still allows values at or under the limit', () => {
+      for (const v of ['1e-7', '1e3', '0.1234567', '100']) {
+        expect(exceedsMaxDecimals(v)).toBe(false)
+      }
+    })
+  })
+
   describe('exceedsMaxDecimals', () => {
     it('should return true for values with more than 7 decimals', () => {
       expect(exceedsMaxDecimals('1.123456789')).toBe(true)

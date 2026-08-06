@@ -7,6 +7,7 @@ import type { ColumnDef, DataTypeDef } from 'containers/ProjectScreen/types'
 import { useFormik } from 'formik'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { exceedsMaxDecimals, expandForDisplay, isIncompleteExponent } from 'utils/decimalValidation'
 import messages from './messages'
 import {
   selectActiveProjectId,
@@ -50,6 +51,9 @@ function AddColumnDialog({ isOpen, onClose }: AddColumnDialogProps): React.JSX.E
   const dataTypes = useSelector(selectSelectableDataTypes)
   const loading = useSelector(selectAddColumnLoading)
   const error = useSelector(selectAddColumnError)
+  // True while Default Value sits mid-exponent ("1e", "1e-") because the user is
+  // typing one. Set on keystroke, cleared on blur — see the field's onChange.
+  const [typingExponent, setTypingExponent] = React.useState(false)
 
   const dataTypeOptions: FormFieldOption[] = React.useMemo(
     () => dataTypes.map((dt) => ({ value: String(dt.id), label: dt.data_type })),
@@ -84,7 +88,14 @@ function AddColumnDialog({ isOpen, onClose }: AddColumnDialogProps): React.JSX.E
         // unit is selected; enforce numeric-only here so garbage text can't
         // slip through when Data Type / Unit are left unset.
         errors.defaultValue = 'Default value must be a number.'
-      } else if (trimmedDefault !== '' && (trimmedDefault.split('.')[1]?.length ?? 0) > 7) {
+      } else if (trimmedDefault !== '' && exceedsMaxDecimals(trimmedDefault)) {
+        // exceedsMaxDecimals, not a split('.') character count: it EXPANDS the
+        // value first, so "1e-9" is measured as 0.000000001 — nine places — rather
+        // than as a string containing no '.' at all. The old count returned 0 for
+        // every exponent-form value, so a 9-decimal default sailed through to the
+        // backend, whose weather-side check has the same blind spot, and each cell
+        // then read back as 0 (its read path rounds to 7). The cell editor beside
+        // this dialog has always used this function; this brings the two in line.
         errors.defaultValue = 'Default value can have at most 7 decimal places.'
       } else {
         const defaultValueError = validateCellValue(values.defaultValue, {
@@ -222,8 +233,32 @@ function AddColumnDialog({ isOpen, onClose }: AddColumnDialogProps): React.JSX.E
         }}
         inputProps={{
           ...formik.getFieldProps('defaultValue'),
+          onChange: (e) => {
+            // "1e" / "1e-" is a number still being typed — Number() is NaN, so the
+            // validator would flash "must be a number" between the 'e' and the
+            // exponent digit. Held back until blur ends the run.
+            setTypingExponent(isIncompleteExponent(e.target.value))
+            formik.handleChange(e)
+          },
+          onBlur: (e) => {
+            setTypingExponent(false)
+            formik.handleBlur(e)
+            // Expand on blur so the box shows the value that will be written to
+            // every cell of the new column ("1e3" -> "1000"), matching the cell
+            // editor. Value-preserving, so the validation formik re-runs on
+            // setFieldValue returns the same answer either way.
+            const expanded = expandForDisplay(formik.values.defaultValue)
+            if (expanded !== formik.values.defaultValue) {
+              void formik.setFieldValue('defaultValue', expanded)
+            }
+          },
+          // Suppressed only while the flag AND the value agree that a number is
+          // mid-typing. Requiring both means a flag left set by closing the dialog
+          // without blurring (Escape, the X) cannot hide a later error — the value
+          // has to actually end in a bare exponent for the suppression to apply.
           error:
-            formik.touched.defaultValue || formik.values.defaultValue !== ''
+            !(typingExponent && isIncompleteExponent(formik.values.defaultValue)) &&
+            (formik.touched.defaultValue || formik.values.defaultValue !== '')
               ? (formik.errors.defaultValue as string | undefined)
               : undefined
         }}

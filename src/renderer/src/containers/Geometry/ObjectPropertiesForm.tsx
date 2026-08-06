@@ -28,7 +28,12 @@ import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
-import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
+import {
+  exceedsMaxDecimals,
+  expandForDisplay,
+  isIncompleteExponent,
+  isPartialNumericInput
+} from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
@@ -371,6 +376,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // so this lives in local state — not the Redux value — and clears on blur.
   // Mirrors Weather's CellInput guard, reusing the same decimalValidation util.
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
+  // Properties whose value is mid-exponent ("1e", "1e-") because the user is
+  // typing one. Set on keystroke, cleared on blur — see handleFieldChange.
+  const [typingExponent, setTypingExponent] = React.useState<Record<string, boolean>>({})
   // The name is read-only until the pencil is tapped (spec: "edit icon which
   // should be tapped only to edit the name"); the trash icon's confirmation lives
   // here too (saved objects confirm before delete; brand-new ones discard).
@@ -514,6 +522,13 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
       return
     }
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
+    // "1e" / "1e-" is a number the user is still typing, not a broken one. Record
+    // it so the render below can hold the "This input is not supported" message
+    // back until the run ends — Number("1e") is NaN, so without this an error
+    // flashes the moment 'e' is pressed and clears on the very next keystroke.
+    // Only ever set from a keystroke, and cleared on blur, so a field genuinely
+    // LEFT at "1e" still reports (same lifecycle as guardErrors).
+    setTypingExponent((t) => ({ ...t, [property]: isIncompleteExponent(next) }))
     dispatch(setDraftValue(property, next))
   }
 
@@ -521,6 +536,22 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // Drop the transient guard error; committed-value validation takes over.
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
     setTouched((t) => ({ ...t, [property]: true }))
+    // The typing run is over: an unfinished "1e" now gets its error.
+    setTypingExponent((t) => ({ ...t, [property]: false }))
+    // Show scientific notation in the decimal form it will actually be stored as,
+    // so "1e3" reads back as "1000" HERE rather than silently on the next load
+    // (the saga's Number() already converts it on save — the user just never saw
+    // it happen). Expansion is value-preserving, so the error computed during
+    // render is the same before and after.
+    //
+    // Writes the value directly rather than going through handleFieldChange: that
+    // guard rejects any '.' in an integer field, so an expanded "1e-3" (0.001)
+    // would trip it and be dropped instead of stored. The expanded text is already
+    // known-numeric, and validateFieldValue still runs on it during render — where
+    // Number.isInteger catches a non-integer with the right message.
+    const raw = draft.values[property] ?? ''
+    const expanded = expandForDisplay(raw)
+    if (expanded !== raw) dispatch(setDraftValue(property, expanded))
   }
 
   // Chromium selects the whole value when you TAB into a text input; collapse that
@@ -716,9 +747,13 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 // validation (the rejected character never reached the value),
                 // which in turn falls back to a cross-field dependency error
                 // (texture > resolution) when the value itself is otherwise valid.
+                // Suppressed only while the flag AND the value agree a number is
+                // mid-typing, so a flag that somehow outlived its typing run can
+                // never hide a real error on its own.
+                const midExponent = typingExponent[field.property] && isIncompleteExponent(value)
                 const error =
                   guardErrors[field.property] ??
-                  (showError
+                  (showError && !midExponent
                     ? (validateFieldValue(field, value) ?? depErrors[field.property] ?? null)
                     : null)
                 return (

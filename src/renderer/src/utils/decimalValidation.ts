@@ -69,6 +69,45 @@ function expandScientificNotation(value: string): string | null {
 }
 
 /**
+ * True for the in-progress exponent states a user passes THROUGH on the way to a
+ * complete number: "1e", "1e-", "1e+", "1.5E".
+ *
+ * Number() is NaN for every one of them, so committed-value validation calls them
+ * "not a number" — which means an error flashes the instant the 'e' is typed and
+ * clears again on the next keystroke. The value is not wrong, it is unfinished.
+ * Callers suppress the live error while this is true and let blur (which ends the
+ * typing run) surface it, so a field genuinely LEFT at "1e" still reports.
+ *
+ * Deliberately narrower than "Number() is NaN": "1e" is unfinished, "abc" is
+ * wrong, and only the first deserves the benefit of the doubt.
+ */
+export function isIncompleteExponent(value: string): boolean {
+  return /[eE][+-]?$/.test(value.trim())
+}
+
+/**
+ * Blur-time DISPLAY normalizer: "1e3" -> "1000".
+ *
+ * Value-preserving — it changes how a number is WRITTEN, never what it is. Every
+ * validator in the app funnels through Number(), and Number("1e3") is
+ * Number("1000"), so a field's error state is identical before and after. That's
+ * what lets callers expand on blur without re-deriving validation.
+ *
+ * Deliberately does NOT truncate. truncateToMaxDecimals would turn "1e-9" into
+ * "0.0000000" — silently zero; expanding alone keeps the value intact so
+ * exceedsMaxDecimals can flag it instead.
+ *
+ * Anything that isn't a COMPLETE number in exponent form comes back untouched:
+ * plain decimals, "", "-", and the in-progress states above. So partial input
+ * still fails on commit exactly as it does today.
+ */
+export function expandForDisplay(value: string): string {
+  const trimmed = value.trim()
+  if (!/[eE]/.test(trimmed) || !NUMERIC_PATTERN.test(trimmed)) return value
+  return expandScientificNotation(trimmed) ?? value
+}
+
+/**
  * Check if a string value contains more than the maximum allowed decimal places
  * @param value - String representation of a number
  * @returns true if value exceeds MAX_DECIMALS, false otherwise

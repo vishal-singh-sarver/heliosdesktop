@@ -14,11 +14,8 @@ import type {
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
-<<<<<<< HEAD
 import snackbarReducer, { initialState as snackbarInitialState } from 'store/snackbarReducer'
-=======
 import * as actions from '../actions'
->>>>>>> M2
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
 import geometryReducer, {
   emptyScenarioGeometry,

@@ -11,7 +11,12 @@ import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
-import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
+import {
+  exceedsMaxDecimals,
+  expandForDisplay,
+  isIncompleteExponent,
+  isPartialNumericInput
+} from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
@@ -696,6 +701,9 @@ function ParameterGroupCard({
   // value and clear on blur. Mirrors the Geometry form.
   const [touched, setTouched] = React.useState<Record<string, boolean>>({})
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
+  // Properties whose value is mid-exponent ("1e", "1e-") because the user is
+  // typing one. Set on keystroke, cleared on blur — see handleFieldChange.
+  const [typingExponent, setTypingExponent] = React.useState<Record<string, boolean>>({})
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
   // Collapse state for the named parameter groups (e.g. "Farquhar model"), keyed
   // by group name. Groups default open (matching the mockup); a name lands here
@@ -748,12 +756,28 @@ function ParameterGroupCard({
       }
     }
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
+    // "1e" / "1e-" is unfinished, not invalid — hold fieldError back until the
+    // typing run ends, or an error flashes between pressing 'e' and the exponent
+    // digit (Number("1e") is NaN). Cleared on blur, so a field LEFT at "1e" still
+    // reports. Same lifecycle as guardErrors.
+    setTypingExponent((t) => ({ ...t, [property]: isIncompleteExponent(next) }))
     onChangeValue(property, next)
   }
 
   const handleFieldBlur = (property: string): void => {
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
     setTouched((t) => ({ ...t, [property]: true }))
+    setTypingExponent((t) => ({ ...t, [property]: false }))
+    // See ObjectPropertiesForm.handleFieldBlur: show exponent notation in the
+    // decimal form it will be stored as ("1e3" -> "1000"), so toNativeProperties'
+    // Number() no longer changes the text under the user on the next load.
+    // Bypasses handleFieldChange on purpose — its integer '.' guard would drop an
+    // expanded "1e-3". Non-numeric datatypes are untouched: expandForDisplay
+    // returns anything without a complete exponent unchanged, so a file path or
+    // enum value can never be rewritten here.
+    const raw = group.values[property] ?? ''
+    const expanded = expandForDisplay(raw)
+    if (expanded !== raw) onChangeValue(property, expanded)
   }
 
   // The error shown under a field: the transient keystroke guard if any, else the
@@ -763,6 +787,9 @@ function ParameterGroupCard({
     const guard = guardErrors[field.property]
     if (guard != null) return guard
     const value = group.values[field.property] ?? ''
+    // Unfinished, not wrong. Requires the flag AND the value to agree a number is
+    // mid-typing, so a flag that outlived its typing run can't hide a real error.
+    if (typingExponent[field.property] && isIncompleteExponent(value)) return undefined
     if (touched[field.property] === true || value !== '') {
       return validateMaterialFieldValue(field, value) ?? undefined
     }
