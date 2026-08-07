@@ -28,6 +28,27 @@ const messages = {
   // a bare "Invalid Input").
   textureExceedsResolution: (max: number) =>
     `Texture repeat can't exceed the ground resolution (${max})`,
+  // Texture Repeat snapping. A repeat only tiles cleanly when it DIVIDES the
+  // ground's subdivision count, so a value the user commits is corrected to the
+  // one the engine would actually use. Every correction says both the new value
+  // and the rule behind it — a bare "Snapped to 5" reads as a bug.
+  repeatSnapped: (to: number, count: number) =>
+    `Snapped to ${to} (must divide subdivisions of ${count})`,
+  // The one case that snaps UP rather than down: nothing is valid below 1, so a
+  // 0 or negative entry can't "snap to the nearest valid value at or below" and
+  // lands on the minimum instead. Different copy because the reason differs.
+  repeatSnappedToMin: (min: number) => `Snapped to ${min} (minimum is ${min})`,
+  // The repeat was valid until the subdivision count moved under it — on a
+  // resolution edit, or on opening a ground saved before this rule existed.
+  // Names the old value too: the user didn't touch this field, so "adjusted
+  // 5 → 4" is the only thing telling them what they had.
+  repeatAdjusted: (from: number, to: number, count: number) =>
+    `Repeat adjusted ${from} → ${to} (must divide subdivisions of ${count})`,
+  // The stepper's accessible names. These carry the whole "there is a valid set
+  // and this moves through it" idea for a screen reader — there is no standing
+  // list of valid values on the form to fall back on.
+  repeatStepUp: (axis: string) => `Next valid ${axis} value`,
+  repeatStepDown: (axis: string) => `Previous valid ${axis} value`,
   // Read-only material properties popup, opened from a picked material's name
   // under the Materials row. The heading is the material's own name — it says
   // what you're looking at; a generic "Material Properties" would not.
