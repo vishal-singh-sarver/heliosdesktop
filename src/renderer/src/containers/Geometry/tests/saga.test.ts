@@ -1,3 +1,4 @@
+import { selectMaterialsById } from 'containers/Materials/selectors'
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -711,7 +712,8 @@ describe('assignMaterialWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(
       gen.next({ '1': { materialGroupIds: [] }, '2': { materialGroupIds: [] } }).value
-    ).toEqual(
+    ).toEqual(select(selectMaterialsById))
+    expect(gen.next({ '7': {} }).value).toEqual(
       all([
         call(service.assignMaterialGroup, 'p', 's', '1', '7'),
         call(service.assignMaterialGroup, 'p', 's', '2', '7')
@@ -733,7 +735,8 @@ describe('assignMaterialWorker', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(
       gen.next({ '1': { materialGroupIds: ['4'] }, '2': { materialGroupIds: ['5'] } }).value
-    ).toEqual(
+    ).toEqual(select(selectMaterialsById))
+    expect(gen.next({ '4': {}, '5': {}, '7': {} }).value).toEqual(
       all([
         call(service.unassignMaterial, 'p', 's', '1', '4'),
         call(service.unassignMaterial, 'p', 's', '2', '5')
@@ -753,15 +756,40 @@ describe('assignMaterialWorker', () => {
     const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
     const gen = assignMaterialWorker(action)
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next({ '1': { materialGroupIds: ['7'] } }).value).toEqual(all([]))
+    expect(gen.next({ '1': { materialGroupIds: ['7'] } }).value).toEqual(
+      select(selectMaterialsById)
+    )
+    expect(gen.next({ '7': {} }).value).toEqual(all([]))
     expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded('p', 's', ['1'], '7', 'Grass')))
+  })
+
+  it('does not unassign a group the library no longer has', () => {
+    // The ground's material was DELETED from the library: the backend's eager
+    // reconcile already unassigned it, but the node keeps the dangling id for the
+    // viewport's refetch gate. DELETEing it would 404 and abort the whole drop, so
+    // group 4 is skipped and the newly dropped material is still POSTed.
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next({ '1': { materialGroupIds: ['4'] } }).value).toEqual(
+      select(selectMaterialsById)
+    )
+    expect(gen.next({ '7': {} }).value).toEqual(
+      all([call(service.assignMaterialGroup, 'p', 's', '1', '7')])
+    )
+    expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded('p', 's', ['1'], '7', 'Grass')))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(messages.assignMaterialSuccess('Grass', 'Ground.001'), 'success'))
+    )
+    expect(gen.next().done).toBe(true)
   })
 
   it('raises a failure toast naming the material when a call throws', () => {
     const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
     const gen = assignMaterialWorker(action)
     gen.next() // select(selectNodesById)
-    gen.next({ '1': { materialGroupIds: [] } }) // all(...)
+    gen.next({ '1': { materialGroupIds: [] } }) // select(selectMaterialsById)
+    gen.next({ '7': {} }) // all(...)
     expect(gen.throw(new Error('boom')).value).toEqual(
       put(showSnackbar(messages.assignMaterialFailure('Grass'), 'error'))
     )
