@@ -1,11 +1,13 @@
 import addIcon from '@renderer/assets/add.svg'
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import deleteIcon from '@renderer/assets/delete.svg'
+import infoIcon from '@renderer/assets/info.svg'
 import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Select from '@renderer/components/Select'
 import ToolbarButton from '@renderer/components/ToolbarButton'
+import Tooltip from '@renderer/components/Tooltip'
 import { selectActiveScenarioId, selectAllMaterialTypes } from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
@@ -15,6 +17,7 @@ import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidati
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import {
   HIGHLIGHT_CLASSES,
   useScrollIntoViewWhen,
@@ -369,25 +372,54 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
           error stack, so the error pushes nothing sideways. */}
       <div className="flex shrink-0 flex-col">
       <div className="flex items-center gap-1">
-        <input
-          ref={nameInputRef}
-          aria-label="Material name"
-          aria-invalid={nameError != null}
-          value={draft.name}
-          readOnly={!nameEditing}
-          onChange={(e) => handleNameChange(e.target.value)}
-          onDoubleClick={startNameEdit}
-          onBlur={handleNameBlur}
-          className={`min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm font-medium text-neutral-100 outline-none ${
-            !nameEditing ? 'cursor-default ' : ''
-          }${
-            nameError
-              ? 'border-red-500'
-              : nameEditing
-                ? 'border-neutral-500'
-                : 'border-transparent hover:border-app-border'
-          }`}
-        />
+        <div className="relative min-w-0 flex-1">
+          <input
+            ref={nameInputRef}
+            aria-label="Material name"
+            aria-invalid={nameError != null}
+            value={draft.name}
+            readOnly={!nameEditing}
+            onChange={(e) => handleNameChange(e.target.value)}
+            onDoubleClick={startNameEdit}
+            onBlur={handleNameBlur}
+            onMouseEnter={showFullTextOnHover}
+            // truncate: an input clips a too-long name mid-letter, right up
+            // against the + button beside it. The ellipsis says the name goes
+            // on, and the hover shows the rest of it. (Only the ellipsis half of
+            // `truncate` does anything here — an input never wraps or overflows
+            // visibly — and the browser drops it again while the field is
+            // focused, so a name being edited still scrolls under the caret.)
+            //
+            // The right padding grows to clear the error icon, so a long name is
+            // cut off before it reaches it rather than running underneath.
+            className={`w-full truncate rounded border bg-transparent py-0.5 ${
+              nameError ? 'pl-1 pr-7' : 'px-1'
+            } text-sm font-medium text-neutral-100 outline-none ${
+              !nameEditing ? 'cursor-default ' : ''
+            }${
+              nameError
+                ? 'border-red-500'
+                : nameEditing
+                  ? 'border-neutral-500'
+                  : 'border-transparent hover:border-app-border'
+            }`}
+          />
+          {/* The same in-field error icon the Geometry panel's name carries, so
+              the reason a name is rejected is readable without hunting for the
+              line under the row — which the panel's own scrolling can put out of
+              sight. The message stays below as well; this is a second way to
+              reach it, not a move. */}
+          {nameError && (
+            <Tooltip
+              text={nameError}
+              ariaLabel={`Validation error: ${nameError}`}
+              place="top"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
+            >
+              <img src={infoIcon} alt="" className="h-4 w-4" />
+            </Tooltip>
+          )}
+        </div>
         {/* "+ Material Type" adds another Parameter Group card — the same action
             the footer button used to carry, now sitting with the material's other
             row actions. It stops once there is a card per catalog material type.

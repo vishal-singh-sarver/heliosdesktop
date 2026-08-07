@@ -3,6 +3,7 @@ import fileIcon from '@renderer/assets/file.svg'
 import FormField from '@renderer/components/FormField'
 import React from 'react'
 import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import {
   RADIATION_BANDS,
   radiationBandProperties,
@@ -232,6 +233,7 @@ export function MaterialRadiationEditor({
               />
               <span
                 className={`truncate text-sm ${applySpectral ? 'text-neutral-200' : 'text-neutral-300'}`}
+                onMouseEnter={showFullTextOnHover}
               >
                 {basename(spectralPath)}
               </span>

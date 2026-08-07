@@ -1,6 +1,7 @@
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import closeIcon from '@renderer/assets/close_button_white.svg'
 import React from 'react'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import messages from './messages'
 
 // One property of a material type: the catalog's label and the material's stored
@@ -111,7 +112,10 @@ export default function MaterialPropertiesPopup({
     >
       {/* Header — the material's name, pinned while the body scrolls. */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-app-border px-4 py-3">
-        <p className="min-w-0 truncate text-[13px] font-normal leading-[15px] text-neutral-300">
+        <p
+          className="min-w-0 truncate text-[13px] font-normal leading-[15px] text-neutral-300"
+          onMouseEnter={showFullTextOnHover}
+        >
           {name}
         </p>
         <button
@@ -179,7 +183,10 @@ export default function MaterialPropertiesPopup({
                         >
                           {group.rows.map((row) => (
                             <div key={row.property} className="min-w-0">
-                              <dt className="truncate text-[13px] leading-[18px] text-neutral-400">
+                              <dt
+                                className="truncate text-[13px] leading-[18px] text-neutral-400"
+                                onMouseEnter={showFullTextOnHover}
+                              >
                                 {row.label}
                               </dt>
                               {row.image ? (

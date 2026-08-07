@@ -4,6 +4,7 @@ import searchIcon from '@renderer/assets/search.svg'
 import SearchBar from '@renderer/components/SearchBar'
 import materialMessages from 'containers/Materials/messages'
 import React from 'react'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 
 // A material row: the library id + name plus whether it's the one currently on
 // the ground (selected). The parent owns the selected state (it lives in the
@@ -147,7 +148,9 @@ export default function SelectMaterialsPopup({
                       <img src={checkIcon} alt="" aria-hidden="true" className="w-3" />
                     )}
                   </span>
-                  <span className="min-w-0 truncate">{m.name}</span>
+                  <span className="min-w-0 truncate" onMouseEnter={showFullTextOnHover}>
+                    {m.name}
+                  </span>
                 </button>
               ))}
             </div>

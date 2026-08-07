@@ -32,6 +32,7 @@ import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidati
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import type { AnchorRect } from 'utils/useAnchoredPosition'
 import {
   addDraftMaterial,
@@ -660,7 +661,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 if (!objectDeleted) setNameEditing(true)
               }}
               onBlur={handleNameBlur}
-              className={`w-full rounded border bg-transparent py-0.5 ${
+              onMouseEnter={showFullTextOnHover}
+              // truncate: an input clips a too-long name mid-letter. The
+              // ellipsis says the name goes on, and the hover shows the rest.
+              className={`w-full truncate rounded border bg-transparent py-0.5 ${
                 nameError && !objectDeleted ? 'pl-1 pr-7' : 'px-1'
               } text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
                 !nameEditing ? 'cursor-default ' : ''
@@ -834,7 +838,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   style={{ outline: 'none' }}
                   className="flex min-w-0 flex-1 items-center gap-[5px] py-2 text-left text-[13px] leading-[15px] text-white"
                 >
-                  <span className="min-w-0 flex-1 truncate">{nameFor(m)}</span>
+                  <span className="min-w-0 flex-1 truncate" onMouseEnter={showFullTextOnHover}>
+                    {nameFor(m)}
+                  </span>
                   {(m.stale || m.drift) && (
                     <span
                       aria-hidden="true"

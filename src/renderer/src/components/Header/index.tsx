@@ -3,6 +3,7 @@ import heliosLogo from '@renderer/assets/Helios_logo.svg'
 import scenarioAddIcon from '@renderer/assets/scenerio_add.svg'
 import WindowControls from '@renderer/components/WindowControls'
 import React from 'react'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 
 interface HeaderProps {
   children: React.ReactNode
@@ -94,7 +95,10 @@ function Header({ children, onLogoClick, title }: HeaderProps): React.JSX.Elemen
               >
                 *
               </span>
-              <span className="truncate text-md font-normal leading-[15px] text-[#D3D3D3]">
+              <span
+                className="truncate text-md font-normal leading-[15px] text-[#D3D3D3]"
+                onMouseEnter={showFullTextOnHover}
+              >
                 {title}
               </span>
             </div>

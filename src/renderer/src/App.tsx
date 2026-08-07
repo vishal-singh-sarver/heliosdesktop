@@ -4,6 +4,7 @@ import type { RootState } from './store/reducers'
 import HomePage from './containers/HomePage/Loadable'
 import ProjectScreen from './containers/ProjectScreen/Loadable'
 import SnackbarHost from './components/Snackbar/SnackbarHost'
+import TruncationTooltip from './components/TruncationTooltip'
 
 function App(): React.JSX.Element {
   const screen = useSelector((state: RootState) => state.navigation.screen)
@@ -14,6 +15,8 @@ function App(): React.JSX.Element {
       {screen === 'project' && <ProjectScreen />}
       {/* App-global toast outlet (material-assignment feedback, etc.). */}
       <SnackbarHost />
+      {/* App-global outlet for the full text of any label `truncate` has cut off. */}
+      <TruncationTooltip />
     </div>
   )
 }

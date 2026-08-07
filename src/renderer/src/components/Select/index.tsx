@@ -2,6 +2,7 @@ import checkIcon from '@renderer/assets/CheckIcon.svg'
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import React from 'react'
 import { createPortal } from 'react-dom'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { useAnchoredPosition, type AnchorRect } from 'utils/useAnchoredPosition'
 
 // The app's dropdown, replacing the native <select> everywhere.
@@ -464,7 +465,9 @@ export default function Select({
           onBlur={handleBlur}
           className={`${className} flex items-center justify-between gap-2 text-left`}
         >
-          <span className="min-w-0 truncate">{selected?.label ?? placeholder}</span>
+          <span className="min-w-0 truncate" onMouseEnter={showFullTextOnHover}>
+            {selected?.label ?? placeholder}
+          </span>
           <img
             src={chevronDown}
             alt=""
@@ -538,7 +541,9 @@ export default function Select({
                     )}
                   </span>
                 )}
-                <span className="min-w-0 truncate">{opt.label}</span>
+                <span className="min-w-0 truncate" onMouseEnter={showFullTextOnHover}>
+                  {opt.label}
+                </span>
               </button>
             )
           })}
