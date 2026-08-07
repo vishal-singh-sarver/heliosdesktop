@@ -268,7 +268,16 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
       // is what the reducer snapshots into savedValues and the detail cache — so
       // leaving texture_toggle 'true' here made the card reopen on the Texture tab
       // showing the old image, with the colour just saved nowhere in sight.
-      if (readVisualisationMode(card.values) === 'texture') {
+      //
+      // Written UNCONDITIONALLY (idempotent — a no-op once it already reads
+      // 'false'), mirroring handleSaveTexture's unconditional 'true'. It used to be
+      // gated on the card currently being in TEXTURE mode, so a card that had never
+      // been in texture mode never got the key at all: the payload asserted
+      // texture_toggle: false while the draft said nothing, and the write-through
+      // cache — built from the draft's savedValues — came out missing it. The
+      // read-only material popup on a ground reads that cache first, so it showed a
+      // BLANK "Texture Toggle" until a reload rebuilt the cache from the GET.
+      if ((card.values[TEXTURE_TOGGLE_PROPERTY] ?? '') !== 'false') {
         dispatch(setParameterGroupValue(card.id, TEXTURE_TOGGLE_PROPERTY, 'false'))
       }
       if ((card.values[TEXTURE_PROPERTY] ?? '') !== '') {

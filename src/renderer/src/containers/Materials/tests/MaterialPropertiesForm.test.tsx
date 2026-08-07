@@ -1647,6 +1647,56 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
   })
 })
 
+// ── Mode discriminator reaches the write-through cache ───────────────────────
+//
+// A Visualiser saved in COLOUR mode sends `texture_toggle: false` in its payload
+// (toVisualisationProperties hard-codes it), but handleSaveColour only wrote that
+// 'false' into the DRAFT when the card was switching away from texture mode. A
+// card that had never been in texture mode skipped that branch, so `card.values`
+// carried no texture_toggle at all — and since SAVE_PARAMETER_GROUP_SUCCEEDED
+// snapshots `savedValues = {...values}` and refreshDetailCache builds the cached
+// detail from `savedValues`, the cache came out MISSING the key the backend had
+// just been told about.
+//
+// Visible effect: assign the material to a ground, open the ground's read-only
+// material popup, and the "Texture Toggle" row is BLANK (asDisplay(undefined) is
+// ''). Reload and it reads 'false', because the cache is then rebuilt from the
+// GET. The cache is what the popup reads first, so it must agree with the payload.
+describe('a colour-mode Visualiser save caches its texture_toggle', () => {
+  const cachedProperties = (store: InjectableStore): Record<string, string> | undefined =>
+    (store.getState() as unknown as { materials: MaterialsState }).materials.detailsById['12']
+      ?.members[0]?.properties
+
+  it('writes texture_toggle "false" into the cached detail on a first colour save', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    // A brand-new Visualiser card: never in texture mode, so nothing has ever put
+    // texture_toggle into its values.
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Give it a complete colour (opacity seeds itself to 100), which is what opens Save.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '73' } })
+    fireEvent.change(screen.getByLabelText('G'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('B'), { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // The backend accepted it; the reducer now snapshots the card and rewrites the
+    // cached detail from that snapshot.
+    act(() => {
+      store.dispatch(saveParameterGroupSucceeded('12', 1))
+    })
+
+    // The cache stands in for a GET, and a GET returns texture_toggle: false.
+    expect(cachedProperties(store)?.texture_toggle).toBe('false')
+    // The colour itself is cached too — a regression guard on the same snapshot.
+    expect(cachedProperties(store)?.color_r).toBe('73')
+  })
+})
+
 // ── Blur-on-Save ─────────────────────────────────────────────────────────────
 //
 // This card's Save carried an `onMouseDown` preventDefault, which cancelled the
