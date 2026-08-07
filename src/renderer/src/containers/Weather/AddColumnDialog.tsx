@@ -107,10 +107,24 @@ function AddColumnDialog({ isOpen, onClose }: AddColumnDialogProps): React.JSX.E
 
       return errors
     },
-    onSubmit: (values) => {
+    onSubmit: (values, helpers) => {
       if (loading || !projectId || !scenarioId) return
       const dataTypeId = values.dataTypeId === '' ? null : Number(values.dataTypeId)
       const unitId = values.unitId === '' ? null : Number(values.unitId)
+      // Expand HERE as well as on blur. Dialog reaches its primary button through
+      // .click() (see components/Dialog triggerPrimary), which fires no blur — so
+      // submitting with Enter dispatched the raw "1e3" while a mouse click (whose
+      // mousedown moves focus, and so DOES blur the input) dispatched "1000". That
+      // string is written verbatim into every cell of the new column, both in the
+      // request body and in the reducer's optimistic fill, so the two routes
+      // produced different DATA for the same keystrokes.
+      //
+      // Idempotent — an expanded value has no exponent left to expand.
+      const defaultValue = expandForDisplay(values.defaultValue)
+      // Keep the box honest if the add fails and the dialog stays open.
+      if (defaultValue !== values.defaultValue) {
+        void helpers.setFieldValue('defaultValue', defaultValue)
+      }
       // Don't close here — the toolbar listens for the loading→idle
       // transition and only closes when the request actually succeeded.
       // On failure the dialog stays open with the error banner visible.
@@ -121,7 +135,7 @@ function AddColumnDialog({ isOpen, onClose }: AddColumnDialogProps): React.JSX.E
           values.parameterName.trim(),
           dataTypeId,
           unitId,
-          values.defaultValue
+          defaultValue
         )
       )
     }

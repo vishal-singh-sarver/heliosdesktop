@@ -383,6 +383,21 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Properties whose value is mid-exponent ("1e", "1e-") because the user is
   // typing one. Set on keystroke, cleared on blur — see handleFieldChange.
   const [typingExponent, setTypingExponent] = React.useState<Record<string, boolean>>({})
+  // Properties the user has actually typed into since their last blur. Blur
+  // rewrites only a value the user touched: a stored 0.0000001 loads back as
+  // "1e-7" (String() switches to exponent form below 1e-6, and 7 decimals is
+  // exactly what the keystroke guard permits), and expanding that on a focus/blur
+  // with NO typing rewrote the raw string sameValues compares — lighting Save up
+  // on a form nobody had edited.
+  //
+  // A ref, not state: nothing renders from it, and reading a stale render closure
+  // is precisely the bug it exists to prevent.
+  const editedRef = React.useRef<Record<string, boolean>>({})
+  // A different object is a different set of values; a flag left over from the
+  // last one would expand an untouched field on this one exactly once.
+  React.useEffect(() => {
+    editedRef.current = {}
+  }, [draft.objectId])
   // The name is read-only until the pencil is tapped (spec: "edit icon which
   // should be tapped only to edit the name"); the trash icon's confirmation lives
   // here too (saved objects confirm before delete; brand-new ones discard).
@@ -514,9 +529,16 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     }
 
     // Integer fields (e.g. Ground Resolution) take no decimal point — reject the
-    // '.' keystroke itself rather than letting "1." commit and silently normalize
-    // to a whole number that passes validation.
-    if (isInteger && next.includes('.')) {
+    // '.' KEYSTROKE itself rather than letting "1." commit and silently normalize
+    // to a whole number that passes validation. Which means rejecting a value that
+    // ADDS a '.' the field does not already have: testing next.includes('.') alone
+    // rejected the whole VALUE, so once a '.' was in there (blur expanding a typed
+    // "1e-3" into "0.001" put it there) every later keystroke still contained it
+    // and was refused too — the box could not be edited, or even backspaced,
+    // without a select-all. validateFieldValue still flags the '.'-bearing value
+    // during render, so Save stays disabled the whole time it is there.
+    const current = draft.values[property] ?? ''
+    if (isInteger && next.includes('.') && !current.includes('.')) {
       setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
       return
     }
@@ -533,6 +555,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // Only ever set from a keystroke, and cleared on blur, so a field genuinely
     // LEFT at "1e" still reports (same lifecycle as guardErrors).
     setTypingExponent((t) => ({ ...t, [property]: isIncompleteExponent(next) }))
+    // This keystroke reached the draft, so the blur that ends this run has
+    // something of the user's to normalize. See editedRef.
+    editedRef.current[property] = true
     dispatch(setDraftValue(property, next))
   }
 
@@ -548,11 +573,17 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // it happen). Expansion is value-preserving, so the error computed during
     // render is the same before and after.
     //
-    // Writes the value directly rather than going through handleFieldChange: that
-    // guard rejects any '.' in an integer field, so an expanded "1e-3" (0.001)
-    // would trip it and be dropped instead of stored. The expanded text is already
-    // known-numeric, and validateFieldValue still runs on it during render — where
-    // Number.isInteger catches a non-integer with the right message.
+    // Writes the value directly rather than going through handleFieldChange, which
+    // would re-enter the guard chain on text that is already known-numeric.
+    //
+    // …but ONLY for a field the user actually typed into this time round. A
+    // focus/blur with no typing has to leave the value byte-identical, or the
+    // raw-string dirty check reads the rewrite as an edit. There is nothing to
+    // preview for a value that has already been through the backend anyway.
+    const wasEdited = editedRef.current[property] === true
+    editedRef.current[property] = false
+    if (!wasEdited) return
+
     const raw = draft.values[property] ?? ''
     const expanded = expandForDisplay(raw)
     if (expanded !== raw) dispatch(setDraftValue(property, expanded))

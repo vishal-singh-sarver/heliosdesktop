@@ -1183,3 +1183,101 @@ describe('<ObjectPropertiesForm /> — clicking Save blurs the focused field fir
     expect(isSaving(store)).toBe(false)
   })
 })
+
+// Regressions from the scientific-notation change. Both are edit-state bugs: the
+// value is never wrong, but the field stops being editable, or the form claims an
+// edit that never happened.
+describe('<ObjectPropertiesForm /> — exponent input keeps the field usable', () => {
+  const FILLED = {
+    length: '10',
+    breadth: '10',
+    resolution_x: '1',
+    resolution_y: '1',
+    position_x: '0',
+    position_y: '0',
+    position_z: '0',
+    rotation_z: '0',
+    texture_x: '1',
+    texture_y: '1'
+  }
+
+  it('leaves an integer field editable after a blur expansion introduces a decimal point', () => {
+    const store = makeStore([], { draftValues: FILLED, detailValues: FILLED })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    // resolution_x is an integer field. Typing "1e-3" never types a '.', so every
+    // keystroke passes the guard…
+    const res = fieldInput(container, 'resolution_x')
+    fireEvent.change(res, { target: { value: '1e-3' } })
+    expect(res).toHaveValue('1e-3')
+
+    // …and blur expands it to a value that now DOES contain one.
+    fireEvent.blur(res)
+    expect(res).toHaveValue('0.001')
+
+    // The guard used to refuse every keystroke from here on, because each one
+    // still contained the '.' the blur put there — the box could not even be
+    // backspaced. It must accept a change that does not ADD a decimal point.
+    fireEvent.change(res, { target: { value: '0.00' } })
+    expect(res).toHaveValue('0.00')
+    fireEvent.change(res, { target: { value: '0.0' } })
+    expect(res).toHaveValue('0.0')
+
+    // Invalid throughout — 0.001 is below the 1..25000 range — so Save stays shut.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('still rejects a decimal point typed into a clean integer field', () => {
+    const store = makeStore([], { draftValues: FILLED, detailValues: FILLED })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const res = fieldInput(container, 'resolution_x')
+    fireEvent.change(res, { target: { value: '1.' } })
+    // Refused at the keystroke: the value never changes and the guard error shows.
+    expect(res).toHaveValue('1')
+    expect(screen.getByLabelText(new RegExp(messages.inputNotSupported))).toBeInTheDocument()
+  })
+
+  it('does not rewrite — or dirty — a stored exponent value the user only focused', () => {
+    // 0.0000001 is exactly the 7 decimals the guard allows, and String() prints it
+    // as "1e-7", so this is a value a user can genuinely save and load back.
+    const baseline = { ...FILLED, position_z: '1e-7' }
+    const store = makeStore([], { draftValues: baseline, detailValues: baseline })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const posZ = fieldInput(container, 'position_z')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Focus and leave without typing. Expanding here would rewrite the raw string
+    // the dirty check compares and light Save up on a form nobody edited.
+    posZ.focus()
+    fireEvent.blur(posZ)
+
+    expect(posZ).toHaveValue('1e-7')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('still expands on blur once the user has actually typed', () => {
+    const baseline = { ...FILLED, position_z: '1e-7' }
+    const store = makeStore([], { draftValues: baseline, detailValues: baseline })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const posZ = fieldInput(container, 'position_z')
+    fireEvent.change(posZ, { target: { value: '1e-6' } })
+    fireEvent.blur(posZ)
+    expect(posZ).toHaveValue('0.000001')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+})

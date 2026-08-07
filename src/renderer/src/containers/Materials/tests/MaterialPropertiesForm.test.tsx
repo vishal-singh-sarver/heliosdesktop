@@ -1817,3 +1817,129 @@ describe('clicking a card Save blurs the focused field first', () => {
     ).toBe(false)
   })
 })
+
+// Mirrors the Geometry form's own exponent regressions — the two right-panel
+// forms share this logic, so they get the same coverage.
+describe('exponent input keeps a card field usable', () => {
+  // A type carrying one INTEGER property, to exercise the '.' guard. The plain
+  // field grid renders it (no reflectivity_PAR signature, no colour channels).
+  const counted: MaterialTypeDef = {
+    id: 1,
+    materialtype: 'Radiation',
+    description: '',
+    properties: [
+      {
+        property_type_id: 1,
+        property: 'tile_count',
+        description: '',
+        datatype: 'integer',
+        min: 1,
+        max: 25000,
+        display_order: 1
+      }
+    ],
+    groups: []
+  }
+
+  const tiles = (): HTMLElement => screen.getByLabelText(/Tile Count/)
+  const albedo = (): HTMLElement => screen.getByLabelText(/Surface Albedo/)
+  const save = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
+
+  it('leaves an integer field editable after a blur expansion introduces a decimal point', () => {
+    const store = liveStoreWith(
+      [card(1, { typeId: 1, saved: true, values: { tile_count: '5' }, savedValues: { tile_count: '5' } })],
+      [counted]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    // "1e-3" types no '.', so every keystroke passes the guard…
+    fireEvent.change(tiles(), { target: { value: '1e-3' } })
+    expect(tiles()).toHaveValue('1e-3')
+
+    // …and blur expands it into a value that now contains one.
+    fireEvent.blur(tiles())
+    expect(tiles()).toHaveValue('0.001')
+
+    // The guard used to refuse every keystroke from here on, because each still
+    // contained the '.' the blur had put there. Backspacing must work.
+    fireEvent.change(tiles(), { target: { value: '0.00' } })
+    expect(tiles()).toHaveValue('0.00')
+
+    // Invalid throughout — below the 1..25000 range — so Save stays shut.
+    expect(save()).toBeDisabled()
+  })
+
+  it('still rejects a decimal point typed into a clean integer field', () => {
+    const store = liveStoreWith(
+      [card(1, { typeId: 1, saved: true, values: { tile_count: '5' }, savedValues: { tile_count: '5' } })],
+      [counted]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.change(tiles(), { target: { value: '5.' } })
+    expect(tiles()).toHaveValue('5')
+    expect(screen.getByLabelText(new RegExp(messages.inputNotSupported))).toBeInTheDocument()
+  })
+
+  it('does not dirty a card when a stored exponent value is only focused', () => {
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '5e-7' },
+          savedValues: { surface_albedo: '5e-7' }
+        })
+      ],
+      [radiation]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(save()).toBeDisabled()
+
+    albedo().focus()
+    fireEvent.blur(albedo())
+
+    expect(albedo()).toHaveValue('5e-7')
+    expect(save()).toBeDisabled()
+  })
+
+  it('keeps a save-failure message on screen through an untouched focus and blur', () => {
+    // The reducer clears saveError on any value change, which is right when the
+    // user edits — but a blur that rewrote an untouched field triggered it too,
+    // wiping the message while the user was still reading it.
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '5e-7' },
+          savedValues: { surface_albedo: '5e-7' },
+          saveStatus: 'error',
+          saveError: 'Could not save this material type.'
+        })
+      ],
+      [radiation]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByText('Could not save this material type.')).toBeInTheDocument()
+
+    albedo().focus()
+    fireEvent.blur(albedo())
+
+    expect(screen.getByText('Could not save this material type.')).toBeInTheDocument()
+  })
+})

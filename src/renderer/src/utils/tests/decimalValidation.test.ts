@@ -30,6 +30,26 @@ describe('decimalValidation utilities', () => {
     it('does not excuse input that is simply wrong', () => {
       // "1e" is unfinished; "abc" is invalid. Only the first is suppressed.
       expect(isIncompleteExponent('abc')).toBe(false)
+      // "abc" passes even unanchored, because it happens not to END in 'e'. These
+      // are the cases that matter: ordinary words a user types into a numeric box.
+      // Add Column's Default Value has no keystroke gate in front of this, so a
+      // true here hid "Default value must be a number." and left Add disabled with
+      // nothing on screen.
+      for (const wrong of ['none', 'true', 'false', 'Temperature', 'apple', '5 degree']) {
+        expect(isIncompleteExponent(wrong)).toBe(false)
+      }
+      // Not a number-in-progress either: nothing appended makes these valid.
+      expect(isIncompleteExponent('1e5e')).toBe(false)
+      expect(isIncompleteExponent('1.2.3e')).toBe(false)
+    })
+
+    it('still excuses a mantissa deleted out from under an exponent', () => {
+      // Reachable by backspacing the '1' out of "1e" mid-edit. Suppressed before
+      // the anchor was added, and must stay suppressed — erroring here would be a
+      // new one-keystroke flash, the very thing this function prevents.
+      for (const s of ['e', 'e-', 'E+', '.e', '-e']) {
+        expect(isIncompleteExponent(s)).toBe(true)
+      }
     })
 
     it('covers exactly the states where Number() is NaN but typing could continue', () => {
@@ -71,6 +91,36 @@ describe('decimalValidation utilities', () => {
     it('does not truncate — an over-precise value stays intact so the guard can flag it', () => {
       expect(expandForDisplay('1e-9')).toBe('0.000000001')
       expect(exceedsMaxDecimals(expandForDisplay('1e-9'))).toBe(true)
+    })
+
+    it('does not carry the mantissa leading zeros into the expansion', () => {
+      // "0.5e6" used to build "0500000" — the right number written the wrong way.
+      // For a weather cell and a new column's default that string is PATCHed
+      // verbatim and read back as 500000, which is the silent rewrite the whole
+      // expand-on-blur feature exists to remove.
+      expect(expandForDisplay('0.5e6')).toBe('500000')
+      expect(expandForDisplay('0.12e3')).toBe('120')
+      expect(expandForDisplay('0.5e1')).toBe('5')
+      expect(expandForDisplay('0.05e2')).toBe('5')
+      expect(expandForDisplay('0.125e1')).toBe('1.25')
+      expect(expandForDisplay('-0.5e1')).toBe('-5')
+      expect(expandForDisplay('0e5')).toBe('0')
+      // Signed zero survives: isBelowMin special-cases Object.is(num, -0) to keep
+      // a user-typed "-0" out of a range that starts at 0.
+      expect(expandForDisplay('-0e5')).toBe('-0')
+      expect(Object.is(Number(expandForDisplay('-0e5')), -0)).toBe(true)
+    })
+
+    it('leaves a sub-1 expansion alone — the strip never crosses the decimal point', () => {
+      expect(expandForDisplay('1e-3')).toBe('0.001')
+      expect(expandForDisplay('0.5e-3')).toBe('0.0005')
+      expect(expandForDisplay('-0.5e-2')).toBe('-0.005')
+    })
+
+    it('is value-preserving for leading-zero mantissas too', () => {
+      for (const raw of ['0.5e6', '0.12e3', '0.05e2', '0e5', '0.125e1', '-0.5e1']) {
+        expect(Number(expandForDisplay(raw))).toBe(Number(raw))
+      }
     })
 
     it('expands past the point where JS would re-emit exponent form', () => {
@@ -125,6 +175,36 @@ describe('decimalValidation utilities', () => {
     it('should handle quoted and leading-dot decimals', () => {
       expect(exceedsMaxDecimals('"12.123456789"')).toBe(true)
       expect(exceedsMaxDecimals('.123456789')).toBe(true)
+    })
+
+    it('survives an exponent too large to expand', () => {
+      // Expanding this asks '0'.repeat() for a billion zeros, which throws
+      // RangeError. These run inside formik's validate, which has no .catch — the
+      // throw froze the error map and left Add Column's button enabled but inert.
+      expect(() => exceedsMaxDecimals('1e-999999999')).not.toThrow()
+      expect(() => getDecimalCount('1e-999999999')).not.toThrow()
+      expect(() => truncateToMaxDecimals('1e-999999999')).not.toThrow()
+    })
+
+    it('keeps "too many decimals" and "no decimals at all" apart at the extremes', () => {
+      // A billion decimal places really does exceed the limit…
+      expect(exceedsMaxDecimals('1e-999999999')).toBe(true)
+      expect(getDecimalCount('1e-999999999')).toBe(999999999)
+      // …while a huge POSITIVE exponent has none. Answering true here would put
+      // "Only 7 decimal places supported" under a value with zero of them, and
+      // since these are blocking keystroke gates, refuse the character too.
+      expect(exceedsMaxDecimals('1e1000000')).toBe(false)
+      expect(getDecimalCount('1e1000000')).toBe(0)
+      expect(exceedsMaxDecimals('1e2000')).toBe(false)
+    })
+
+    it('counts decimals without expanding, so the bound cannot clip real precision', () => {
+      // Guards against tying MAX_EXPANSION_DIGITS to MAX_DECIMALS: expansion must
+      // still be able to produce more than 7 decimals for the check to catch them.
+      expect(expandForDisplay('1e-9')).toBe('0.000000001')
+      expect(getDecimalCount('1e-9')).toBe(9)
+      expect(getDecimalCount('1e-300')).toBe(300)
+      expect(exceedsMaxDecimals('1e-300')).toBe(true)
     })
   })
 

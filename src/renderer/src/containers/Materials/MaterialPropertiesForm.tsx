@@ -680,6 +680,9 @@ function ParameterGroupCard({
     prevTypeId.current = group.typeId
     setPending(null) // revokes the object URL
     setPendingLibrary(null)
+    // These values are gone, so the "user typed here" flags that went with them
+    // are too — otherwise the first blur on the new type expands an untouched field.
+    editedRef.current = {}
     setVisualMode(readVisualisationMode(group.values))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.typeId])
@@ -713,6 +716,11 @@ function ParameterGroupCard({
   // Properties whose value is mid-exponent ("1e", "1e-") because the user is
   // typing one. Set on keystroke, cleared on blur — see handleFieldChange.
   const [typingExponent, setTypingExponent] = React.useState<Record<string, boolean>>({})
+  // See ObjectPropertiesForm: blur expands only a field the user typed into, so a
+  // focus/blur on an untouched "1e-7" can neither flip the card dirty nor run the
+  // reducer's saveError clear. A ref because nothing renders from it and a stale
+  // render closure is the bug it prevents.
+  const editedRef = React.useRef<Record<string, boolean>>({})
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
   // Collapse state for the named parameter groups (e.g. "Farquhar model"), keyed
   // by group name. Groups default open (matching the mockup); a name lands here
@@ -755,7 +763,15 @@ function ParameterGroupCard({
   ): void => {
     const numeric = datatype === 'float' || datatype === 'integer'
     if (numeric) {
-      if (!isPartialNumericInput(next) || (datatype === 'integer' && next.includes('.'))) {
+      // See ObjectPropertiesForm.handleFieldChange: reject a '.' the keystroke
+      // ADDS, not any value that happens to contain one. The latter made a box
+      // holding an expanded "0.001" impossible to edit — every further keystroke
+      // still contained the '.' and so was refused in turn.
+      const current = group.values[property] ?? ''
+      if (
+        !isPartialNumericInput(next) ||
+        (datatype === 'integer' && next.includes('.') && !current.includes('.'))
+      ) {
         setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
         return
       }
@@ -770,6 +786,7 @@ function ParameterGroupCard({
     // digit (Number("1e") is NaN). Cleared on blur, so a field LEFT at "1e" still
     // reports. Same lifecycle as guardErrors.
     setTypingExponent((t) => ({ ...t, [property]: isIncompleteExponent(next) }))
+    editedRef.current[property] = true
     onChangeValue(property, next)
   }
 
@@ -780,10 +797,19 @@ function ParameterGroupCard({
     // See ObjectPropertiesForm.handleFieldBlur: show exponent notation in the
     // decimal form it will be stored as ("1e3" -> "1000"), so toNativeProperties'
     // Number() no longer changes the text under the user on the next load.
-    // Bypasses handleFieldChange on purpose — its integer '.' guard would drop an
-    // expanded "1e-3". Non-numeric datatypes are untouched: expandForDisplay
-    // returns anything without a complete exponent unchanged, so a file path or
-    // enum value can never be rewritten here.
+    // Bypasses handleFieldChange, which would re-enter the guard chain on text
+    // that is already known-numeric. Non-numeric datatypes are untouched:
+    // expandForDisplay returns anything without a complete exponent unchanged, so
+    // a file path or enum value can never be rewritten here.
+    //
+    // Only for a field the user actually typed into — an untouched focus/blur must
+    // not flip the card dirty, and must not run onChangeValue at all, because the
+    // reducer clears saveError on it and would wipe a save-failure message the
+    // user is still reading.
+    const wasEdited = editedRef.current[property] === true
+    editedRef.current[property] = false
+    if (!wasEdited) return
+
     const raw = group.values[property] ?? ''
     const expanded = expandForDisplay(raw)
     if (expanded !== raw) onChangeValue(property, expanded)
