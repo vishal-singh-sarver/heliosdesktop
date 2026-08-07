@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import messages from '../messages'
 import { Provider } from 'react-redux'
 import { createStore, Reducer, UnknownAction } from 'redux'
@@ -1643,5 +1644,126 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(
       screen.queryByRole('slider', { name: 'Saturation and brightness' })
     ).not.toBeInTheDocument()
+  })
+})
+
+// ── Blur-on-Save ─────────────────────────────────────────────────────────────
+//
+// This card's Save carried an `onMouseDown` preventDefault, which cancelled the
+// browser's focus transfer — so clicking Save never blurred the focused input and
+// handleFieldBlur was skipped entirely. Two things leaked out of that: a
+// decimal-limit guard error stayed on screen after saving, and "1e3" was saved
+// while the box still read "1e3" (coming back as "1000" on the next load, the
+// exact thing blur expansion exists to prevent).
+//
+// The guard it was written for is now handled by the outside-the-card mousedown
+// listener, so it could go. These mirror the Geometry form's own blur-on-Save
+// tests, so the two right-panel forms can't drift apart again.
+//
+// userEvent, not fireEvent — only userEvent models the browser's focus handling.
+describe('clicking a card Save blurs the focused field first', () => {
+  // `radiation` (id 1) carries a single float, surface_albedo (0-1), and lacks the
+  // reflectivity_PAR signature — so the card renders the plain field grid rather
+  // than the bespoke Radiation body.
+  const albedo = (): HTMLElement => screen.getByLabelText(/Surface Albedo/)
+  const save = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
+
+  it('clears the decimal-limit guard error', async () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [
+            card(1, {
+              typeId: 1,
+              saved: true,
+              values: { surface_albedo: '0.5' },
+              savedValues: { surface_albedo: '0.25' }
+            })
+          ],
+          [radiation]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    albedo().focus()
+
+    // An 8th decimal place is rejected AT the keystroke: the value never changes,
+    // and the guard error shows as the in-cell info-icon tooltip.
+    fireEvent.change(albedo(), { target: { value: '0.12345678' } })
+    expect(albedo()).toHaveValue('0.5')
+    expect(screen.getByLabelText(new RegExp(messages.decimalLimit))).toBeInTheDocument()
+
+    await userEvent.click(save())
+    expect(screen.queryByLabelText(new RegExp(messages.decimalLimit))).not.toBeInTheDocument()
+  })
+
+  it('expands scientific notation before the save reads it', async () => {
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '0.5' },
+          savedValues: { surface_albedo: '0.5' }
+        })
+      ],
+      [radiation]
+    )
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    albedo().focus()
+    fireEvent.change(albedo(), { target: { value: '1e-3' } })
+    expect(albedo()).toHaveValue('1e-3')
+
+    await userEvent.click(save())
+    // Blur ran first, so the box shows the decimal form the value is stored as…
+    expect(albedo()).toHaveValue('0.001')
+    // …and the save still went out, since 0.001 differs from the baseline 0.5.
+    const saved = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { properties?: Record<string, unknown> } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saved?.payload?.properties).toEqual({ surface_albedo: 0.001 })
+  })
+
+  it('disables Save instead when the expansion lands back on the stored value', async () => {
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '0.001' },
+          savedValues: { surface_albedo: '0.001' }
+        })
+      ],
+      [radiation]
+    )
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    albedo().focus()
+    // As raw text "1e-3" differs from the stored "0.001", so the card reads dirty
+    // and Save enables — the only reason the button is clickable at all here.
+    fireEvent.change(albedo(), { target: { value: '1e-3' } })
+    expect(save()).toBeEnabled()
+
+    await userEvent.click(save())
+    // Blur expanded it back onto the baseline, so there is nothing left to save:
+    // the button disables itself and the click never reaches onSave. Quiet, but
+    // correct — what the user typed is what is already stored.
+    expect(albedo()).toHaveValue('0.001')
+    expect(save()).toBeDisabled()
+    expect(
+      dispatch.mock.calls
+        .map((c) => c[0] as { type: string })
+        .some((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    ).toBe(false)
   })
 })

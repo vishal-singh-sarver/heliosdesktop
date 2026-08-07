@@ -1062,9 +1062,15 @@ function ParameterGroupCard({
             <button
               type="button"
               disabled={!canSave}
-              // Don't steal focus from a highlighted library tile on mousedown —
-              // that would blur it and drop the pick before this click reads it.
-              onMouseDown={(e) => e.preventDefault()}
+              // Deliberately NO onMouseDown preventDefault here. It used to guard a
+              // highlighted library tile from being blurred before the click read it,
+              // but the pick is now dropped by a pointer press OUTSIDE the card (see
+              // the mousedown effect above) — and Save is inside it, so `contains`
+              // already protects it. Meanwhile suppressing the focus transfer meant
+              // clicking Save never blurred the focused input, so handleFieldBlur was
+              // skipped: a decimal-limit guard error stayed on screen after saving, and
+              // "1e3" was saved while still reading "1e3" (only to come back as "1000"
+              // on the next load — the very thing blur expansion exists to prevent).
               onClick={onSave}
               // Same look as the Geometry ground Save: a faded-blue disabled state.
               className="flex h-9 w-full items-center justify-center gap-1 rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"

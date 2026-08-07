@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import materialsReducer, {
   initialState as materialsInitialState
 } from 'containers/Materials/reducer'
@@ -16,6 +17,7 @@ import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
 import snackbarReducer, { initialState as snackbarInitialState } from 'store/snackbarReducer'
 import * as actions from '../actions'
+import messages from '../messages'
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
 import geometryReducer, {
   emptyScenarioGeometry,
@@ -114,6 +116,13 @@ function makeStore(
     materialBaseline?: string[]
     materialTypes?: MaterialTypeDef[]
     materialDetails?: MaterialGroupDetail[]
+    // Seeds the OPEN draft's field values. Default {} leaves every required field
+    // empty (and so invalid), which is what most tests here want.
+    draftValues?: Record<string, string>
+    // Seeds the cached GET baseline for this object — what Save's dirty check
+    // compares the draft against. Omit to leave `original` undefined, so the form
+    // reads as dirty without a prior edit.
+    detailValues?: Record<string, string>
   } = {}
 ): InjectableStore {
   // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
@@ -143,7 +152,17 @@ function makeStore(
         [scopeKey(PROJECT, SCENARIO)]: {
           ...emptyScenarioGeometry(),
           nodesById: { [OBJECT_ID]: node },
-          rootOrder: [OBJECT_ID]
+          rootOrder: [OBJECT_ID],
+          detailsById: opts.detailValues
+            ? {
+                [OBJECT_ID]: {
+                  values: opts.detailValues,
+                  objectTypeId: 1,
+                  objectName: 'Ground',
+                  materialGroups: []
+                }
+              }
+            : {}
         }
       },
       createDraft: {
@@ -151,7 +170,7 @@ function makeStore(
         objectTypeId: 1,
         objectName: 'Ground',
         name: 'Ground.001',
-        values: {},
+        values: opts.draftValues ?? {},
         materials: opts.draftMaterials ?? [],
         materialBaseline:
           opts.materialBaseline ?? (opts.draftMaterials ?? []).map((m) => m.groupId),
@@ -1070,5 +1089,97 @@ describe('<ObjectPropertiesForm /> — delete', () => {
     })
     expect(geometryState(store).createDraft).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Delete geometry' })).toBeEnabled()
+  })
+})
+
+// ── Blur-on-Save ─────────────────────────────────────────────────────────────
+//
+// Clicking Save moves focus to the button, which blurs the focused input — so
+// handleFieldBlur runs BEFORE the click handler. That ordering is what clears a
+// transient keystroke-guard error and expands scientific notation on the way out,
+// and it is load-bearing rather than incidental: the Materials card's Save used to
+// cancel the focus transfer with a mousedown preventDefault, and as a result its
+// guard errors survived a save and "1e3" was stored while the box still read
+// "1e3". These pin the Geometry behaviour that fix aligned Materials to.
+//
+// userEvent, not fireEvent — only userEvent models the browser's focus handling.
+describe('<ObjectPropertiesForm /> — clicking Save blurs the focused field first', () => {
+  // Every required Ground field filled, so `valid` holds and Save is reachable.
+  const FILLED = {
+    length: '10',
+    breadth: '10',
+    resolution_x: '1',
+    resolution_y: '1',
+    position_x: '0',
+    position_y: '0',
+    position_z: '0',
+    rotation_z: '0',
+    texture_x: '1',
+    texture_y: '1'
+  }
+
+  it('clears the decimal-limit guard error', async () => {
+    // The draft differs from the baseline, so Save is live before we touch anything.
+    const { container } = render(
+      <Provider
+        store={makeStore([], { draftValues: { ...FILLED, length: '20' }, detailValues: FILLED })}
+      >
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const length = fieldInput(container, 'length')
+    length.focus()
+
+    // An 8th decimal place is rejected AT the keystroke: the value never changes,
+    // and the guard error shows as the in-cell info-icon tooltip.
+    fireEvent.change(length, { target: { value: '0.12345678' } })
+    expect(length).toHaveValue('20')
+    expect(screen.getByLabelText(new RegExp(messages.decimalLimit))).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(screen.queryByLabelText(new RegExp(messages.decimalLimit))).not.toBeInTheDocument()
+  })
+
+  it('expands scientific notation before the save reads it', async () => {
+    const store = makeStore([], { draftValues: FILLED, detailValues: FILLED })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const length = fieldInput(container, 'length')
+    length.focus()
+    fireEvent.change(length, { target: { value: '1e3' } })
+    expect(length).toHaveValue('1e3')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // Blur ran first, so the box shows the decimal form the value is stored as…
+    expect(length).toHaveValue('1000')
+    // …and the save still went out, since 1000 differs from the baseline 10.
+    expect(isSaving(store)).toBe(true)
+  })
+
+  it('disables Save instead when the expansion lands back on the stored value', async () => {
+    const baseline = { ...FILLED, length: '1000' }
+    const store = makeStore([], { draftValues: baseline, detailValues: baseline })
+    const { container } = render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    const length = fieldInput(container, 'length')
+    length.focus()
+    // As raw text "1e3" differs from the stored "1000", so the form reads dirty and
+    // Save enables — the only reason the button is clickable at all here.
+    fireEvent.change(length, { target: { value: '1e3' } })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // Blur expanded it back onto the baseline, so there is nothing left to save:
+    // the button disables itself and the click never reaches onSave. Quiet, but
+    // correct — what the user typed is what is already stored.
+    expect(length).toHaveValue('1000')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(isSaving(store)).toBe(false)
   })
 })

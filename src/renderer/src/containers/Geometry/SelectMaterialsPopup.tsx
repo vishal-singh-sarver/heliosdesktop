@@ -38,7 +38,9 @@ interface SelectMaterialsPopupProps {
 const DEFAULT_HEIGHT = 343
 
 // The "Select Materials" popup. 240 wide × DEFAULT_HEIGHT (shrinking to fit a
-// short window), 8px radius, #313131. A search field filters the list by name;
+// short window), 8px radius, #202020 — the same body colour as the read-only
+// material properties popup it sits beside, so the two read as one surface.
+// A search field filters the list by name;
 // the list is a RADIO group — a ground carries a single material, so the one
 // currently on it shows a blue tick at the left and picking another replaces it.
 // When the library is empty it shows the empty state.
@@ -59,7 +61,7 @@ export default function SelectMaterialsPopup({
   return (
     <div
       style={{ height: Math.min(DEFAULT_HEIGHT, maxHeight ?? DEFAULT_HEIGHT) }}
-      className="flex w-[240px] flex-col overflow-hidden rounded-[8px] bg-[#313131]"
+      className="flex w-[240px] flex-col overflow-hidden rounded-[8px] bg-[#202020]"
     >
       {/* Header */}
       <div className="shrink-0 border-b border-app-border px-4 py-3">

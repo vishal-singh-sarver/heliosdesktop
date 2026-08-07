@@ -12,7 +12,8 @@ import {
   resolveParameterGroups,
   TEXTURE_PROPERTY,
   TEXTURE_TOGGLE_PROPERTY,
-  visibleParameterGroups
+  visibleParameterGroups,
+  VISUALISATION_CHANNEL_LABELS
 } from 'containers/Materials/materialBlueprint'
 import materialsReducer from 'containers/Materials/reducer'
 import materialsSaga from 'containers/Materials/saga'
@@ -217,7 +218,10 @@ export function buildMaterialSections(
               const value = asDisplay(member.properties[f.property])
               return {
                 property: f.property,
-                label: f.label,
+                // The Visualiser's colour channels read "R"/"G"/"B" here, matching
+                // the editable form's ColorPicker. Every other field keeps the
+                // label the catalog gave it (or the humanized property name).
+                label: VISUALISATION_CHANNEL_LABELS[f.property] ?? f.label,
                 // A file property (the Radiation spectral data file) holds a
                 // stored PATH; show the file's name, the same thing the Materials
                 // editor shows once it's uploaded and the same treatment the
