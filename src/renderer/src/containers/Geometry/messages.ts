@@ -57,7 +57,8 @@ const messages = {
   // Shown while `sections` is empty. Deliberately NOT "this material has no
   // properties" — the values aren't fetched yet, so claiming the material is
   // empty would be a lie the user can't act on. Says what's true today.
-  materialDetailEmpty: 'Material properties are not connected yet.',
+  materialDetailEmpty:
+    'No Material type is assigned to this Material. Assign one to see its properties.',
   // Delete confirmation
   deleteTitle: 'Delete',
   deleteHeading: (name: string) => `Delete ${name}`,

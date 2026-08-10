@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { renameMaterialSucceeded } from 'containers/Materials/actions'
 import materialsReducer, {
   initialState as materialsInitialState
 } from 'containers/Materials/reducer'
@@ -14,7 +15,10 @@ import type {
 import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
-import snackbarReducer, { initialState as snackbarInitialState } from 'store/snackbarReducer'
+import snackbarReducer, {
+  selectSnackbarStack,
+  initialState as snackbarInitialState
+} from 'store/snackbarReducer'
 import * as actions from '../actions'
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
 import geometryReducer, {
@@ -333,6 +337,54 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
     )
   })
 
+  // An assigned material stays live-linked to the library, so the panel has to
+  // show the library's CURRENT name. The draft carries a copy taken at assign
+  // time, and renaming from either panel left the geometry showing that stale
+  // copy until the form was closed and reopened.
+  describe('a renamed material', () => {
+    const renamedStore = (): InjectableStore =>
+      makeStore([material('m1', 'Cotton')], {
+        draftMaterials: [{ groupId: 'm1', name: 'Cotton' }]
+      })
+
+    it('shows the new name in the Materials section', () => {
+      const store = renamedStore()
+      const { container } = render(
+        <Provider store={store}>
+          <ObjectPropertiesForm />
+        </Provider>
+      )
+      expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+
+      act(() => {
+        store.dispatch(renameMaterialSucceeded('m1', 'Cotton Renamed'))
+      })
+
+      expect(within(container).getByRole('button', { name: 'Cotton Renamed' })).toBeInTheDocument()
+      expect(within(container).queryByRole('button', { name: 'Cotton' })).not.toBeInTheDocument()
+      // …and on the row's trash, which names what it removes.
+      expect(screen.getByRole('button', { name: 'Remove Cotton Renamed' })).toBeInTheDocument()
+    })
+
+    it('keeps the assigned name when the library has no entry to resolve', () => {
+      // NOT a material deleted in this session — that row is purged from the draft
+      // outright (geometry reducer, on REMOVE_MATERIAL). This is the library list
+      // not having arrived yet, or a row the backend already flagged `stale` from
+      // a deletion in another session. Without the fallback the row renders blank.
+      const { container } = render(
+        <Provider
+          store={makeStore([], {
+            draftMaterials: [{ groupId: 'm1', name: 'Cotton', stale: true }]
+          })}
+        >
+          <ObjectPropertiesForm />
+        </Provider>
+      )
+
+      expect(within(container).getByRole('button', { name: 'Cotton' })).toBeInTheDocument()
+    })
+  })
+
   it('picking a material lists it in the Materials section and ticks it', () => {
     const { container } = render(
       <Provider store={makeStore([material('m1', 'Cotton'), material('m2', 'Steel')])}>
@@ -404,7 +456,7 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
 
     fireEvent.click(within(popup).getByRole('radio', { name: 'Cotton' }))
 
-    expect(store.getState().snackbar).toMatchObject({
+    expect(selectSnackbarStack(store.getState())[0]).toMatchObject({
       message: 'This material is already assigned to Ground.001',
       variant: 'info'
     })
@@ -1053,9 +1105,7 @@ describe('<ObjectPropertiesForm /> — texture repeat divisor constraint', () =>
     fireEvent.blur(input)
 
     expect(input.value).toBe('5')
-    expect(
-      screen.getByText('R: Snapped to 5 (must divide subdivisions of 10)')
-    ).toBeInTheDocument()
+    expect(screen.getByText('R: Snapped to 5 (must divide subdivisions of 10)')).toBeInTheDocument()
   })
 
   it('does NOT snap while the user is still typing', () => {

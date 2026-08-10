@@ -1,6 +1,7 @@
 import type { Task } from 'redux-saga'
 import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
+import toastMessages from '@renderer/store/toastMessages'
 import type { RecentColor } from 'utils/color'
 import type {
   CreateMaterialRequestedAction,
@@ -53,8 +54,10 @@ export function* createMaterialWorker(action: CreateMaterialRequestedAction): Ge
   try {
     const groupId = (yield call(service.createGroup, name)) as string
     yield put(actions.createMaterialSucceeded(groupId, name))
+    yield put(showSnackbar(toastMessages.materialCreated(name), 'success'))
   } catch (err) {
     yield put(actions.createMaterialFailed((err as Error).message))
+    yield put(showSnackbar(toastMessages.materialCreateFailed(name), 'error'))
   }
 }
 
@@ -99,13 +102,13 @@ export function* deleteMaterialWorker(action: DeleteMaterialRequestedAction): Ge
   try {
     yield call(service.deleteGroup, id, scenarioId)
     yield put(actions.removeMaterial(id))
-    yield put(showSnackbar(messages.deleteSuccess(name), 'success'))
+    yield put(showSnackbar(toastMessages.materialDeleted(name), 'success'))
   } catch (err) {
     yield put(actions.deleteMaterialFailed(id, (err as Error).message))
     // Mirrors the geometry delete. The reducer only releases the in-flight mark on
     // DELETE_MATERIAL_FAILED — it deliberately no longer banners the raw backend
     // text — so this toast is the whole report.
-    yield put(showSnackbar(messages.deleteFailure(name), 'error'))
+    yield put(showSnackbar(toastMessages.materialDeleteFailed(name), 'error'))
   }
 }
 
@@ -187,8 +190,10 @@ export function* saveParameterGroupWorker(action: SaveParameterGroupRequestedAct
     // model-type save records nothing.
     const color = colorFromProperties(properties)
     if (color) yield put(actions.recordRecentColor(color))
+    yield put(showSnackbar(toastMessages.changesSaved, 'success'))
   } catch (err) {
     yield put(actions.saveParameterGroupFailed(groupId, cardId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.changesSaveFailed, 'error'))
   }
 }
 

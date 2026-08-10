@@ -174,7 +174,11 @@ describe('<MaterialPropertiesPopup />', () => {
   it('says the properties are not connected yet when it has no sections', () => {
     render(<MaterialPropertiesPopup name="Material.001" sections={[]} onClose={() => {}} />)
 
-    expect(screen.getByText('Material properties are not connected yet.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'No Material type is assigned to this Material. Assign one to see its properties.'
+      )
+    ).toBeInTheDocument()
   })
 
   it('closes when the close button is clicked', () => {
