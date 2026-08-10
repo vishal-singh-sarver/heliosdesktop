@@ -8,7 +8,6 @@ const baseProps: ImportWizardProps = {
   onClose: vi.fn(),
   onRequestPickFile: vi.fn(),
   onSubmit: vi.fn(),
-  onImportWarning: vi.fn(),
   pickedFile: null,
   fileLoading: false,
   fileError: null,
@@ -270,13 +269,11 @@ describe('<ImportWizard />', () => {
       rawText: 'year,month,day,temp\n' + '2026,2,26,12.123456789\n' + '2026,2,27,99.00000004'
     }
     const onSubmit = vi.fn()
-    const onImportWarning = vi.fn()
     render(
       <ImportWizard
         {...baseProps}
         pickedFile={highPrecisionFile}
         onSubmit={onSubmit}
-        onImportWarning={onImportWarning}
       />
     )
 
@@ -299,13 +296,11 @@ describe('<ImportWizard />', () => {
       rawText: 'year,month,day,temp\n' + '2026,2,26,"12.123456789"\n' + '2026,2,27,.123456789'
     }
     const onSubmit = vi.fn()
-    const onImportWarning = vi.fn()
     render(
       <ImportWizard
         {...baseProps}
         pickedFile={quotedPrecisionFile}
         onSubmit={onSubmit}
-        onImportWarning={onImportWarning}
       />
     )
 

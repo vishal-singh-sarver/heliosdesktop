@@ -2,6 +2,8 @@ import { getProjectRequest } from '@renderer/containers/Weather/service'
 import { setActiveProject } from 'containers/ProjectScreen/actions'
 import { call, put, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { navigate } from 'store/navigationReducer'
+import { showSnackbar } from 'store/snackbarReducer'
+import toastMessages from 'store/toastMessages'
 import { api, ApiError } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
 import { STORAGE_KEYS } from 'utils/storageKeys'
@@ -160,15 +162,18 @@ describe('fetchRecentProjectsWorker', () => {
 
 describe('deleteProjectWorker', () => {
   it('DELETEs the project route and puts success with projectId', () => {
-    const gen = deleteProjectWorker(actions.deleteProject({ projectId: 'uuid-1' }))
+    const gen = deleteProjectWorker(actions.deleteProject({ projectId: 'uuid-1', name: 'Project A' }))
 
     expect(gen.next().value).toEqual(call(api.delete, API_ROUTES.project.delete('uuid-1')))
     expect(gen.next().value).toEqual(put(actions.deleteProjectSuccess('uuid-1')))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.projectDeleted('Project A'), 'success'))
+    )
     expect(gen.next().done).toBe(true)
   })
 
   it('puts deleteProjectFailure carrying the projectId when the call fails', () => {
-    const gen = deleteProjectWorker(actions.deleteProject({ projectId: 'uuid-1' }))
+    const gen = deleteProjectWorker(actions.deleteProject({ projectId: 'uuid-1', name: 'Project A' }))
     gen.next()
 
     const apiErr = new ApiError(404, 'not found')
@@ -215,6 +220,10 @@ describe('renameProjectWorker', () => {
 
     expect(gen.next().value).toEqual(put(actions.renameProjectSuccess('uuid-1', 'Beta')))
     expect(gen.next().value).toEqual(put(actions.fetchRecentProjects()))
+    // Named with the OLD name from the GET above and the new one from the action.
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.projectRenamed('Alpha', 'Beta'), 'success'))
+    )
     expect(gen.next().done).toBe(true)
   })
 

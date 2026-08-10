@@ -5,6 +5,7 @@ import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import { selectMaterialsById } from 'containers/Materials/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
 import {
   assignMaterialRequested,
@@ -441,7 +442,11 @@ function TreeRow({
             />
           ) : (
             <>
-              <span className="min-w-0 truncate" onDoubleClick={() => setEditing(true)}>
+              <span
+                className="min-w-0 truncate"
+                onDoubleClick={() => setEditing(true)}
+                onMouseEnter={showFullTextOnHover}
+              >
                 {node.name}
               </span>
               <KebabMenu node={node} projectId={projectId} scenarioId={scenarioId} />

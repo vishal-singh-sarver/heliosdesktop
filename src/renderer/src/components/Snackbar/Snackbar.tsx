@@ -1,11 +1,11 @@
-import React from 'react'
 import {
   AlertTriangleIcon,
-  CheckCircleIcon,
-  CloseIcon,
+  CheckCircleOutlineIcon,
+  CloseGlyphIcon,
   InfoIcon
 } from '@renderer/components/ImportWizard/Icons'
 import type { SnackbarVariant } from '@renderer/store/snackbarReducer'
+import React from 'react'
 
 // Presentational toast banner — the app's single reusable snackbar. Colour and
 // icon switch on `variant`; the caller owns visibility and dismissal (so the
@@ -23,9 +23,11 @@ const VARIANT_STYLES: Record<
   { container: string; icon: React.JSX.Element; dismiss: string }
 > = {
   success: {
-    container: 'border-[#8dd3a8] bg-[#effcf4] text-[#0f6e3e]',
-    icon: <CheckCircleIcon className="h-4 w-4 shrink-0" />,
-    dismiss: 'text-[#0f6e3e]'
+    container: 'border-[#8dd3a8] bg-[#effcf4] text-[#067647]',
+    // Outlined, and strokes with currentColor — so the tick is the same green as
+    // the message beside it, rather than the filled blue of the shared asset.
+    icon: <CheckCircleOutlineIcon className="h-4 w-4 shrink-0" />,
+    dismiss: 'text-[#067647]'
   },
   error: {
     container: 'border-[#f3b4ac] bg-[#fef3f2] text-[#b42318]',
@@ -53,23 +55,28 @@ export default function Snackbar({
 }: SnackbarProps): React.JSX.Element {
   const styles = VARIANT_STYLES[variant]
   return (
-    <div className="pointer-events-none fixed left-1/2 top-2 z-[100] w-full max-w-[520px] -translate-x-1/2 px-4">
-      <div
-        role="status"
-        aria-live="polite"
-        className={`pointer-events-auto flex items-center gap-2 rounded border px-4 py-3 text-sm shadow-lg ${styles.container}`}
+    // Just the card. Where it sits is SnackbarHost's business — several of these
+    // share one stack, so a card that positioned itself would land on top of its
+    // siblings. It hugs its message (per the design) rather than taking a fixed
+    // width, and caps so a long one wraps instead of running off the left edge.
+    <div
+      role="status"
+      aria-live="polite"
+      // h-11 is the design's 44px exactly — the border sits inside it
+      // (border-box), where the old vertical padding pushed the box to 46px.
+      // Content stays centred, so a shorter or taller glyph doesn't move it.
+      className={`pointer-events-auto inline-flex h-11 max-w-[520px] items-center gap-2 rounded border px-4 text-sm shadow-lg ${styles.container}`}
+    >
+      {styles.icon}
+      <div className="min-w-0">{message}</div>
+      <button
+        type="button"
+        aria-label="Dismiss notification"
+        onClick={onDismiss}
+        className={`shrink-0 opacity-80 transition hover:opacity-100 ${styles.dismiss}`}
       >
-        {styles.icon}
-        <div className="min-w-0 flex-1">{message}</div>
-        <button
-          type="button"
-          aria-label="Dismiss notification"
-          onClick={onDismiss}
-          className={`shrink-0 opacity-80 transition hover:opacity-100 ${styles.dismiss}`}
-        >
-          <CloseIcon className="h-3 w-3" />
-        </button>
-      </div>
+        <CloseGlyphIcon className="h-2.5 w-2.5" />
+      </button>
     </div>
   )
 }

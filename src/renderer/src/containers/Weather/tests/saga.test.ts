@@ -10,6 +10,8 @@ import {
   selectDateTimeDataTypeId
 } from 'containers/ProjectScreen/selectors'
 import { call, put, select, take, takeLatest, takeLeading } from 'redux-saga/effects'
+import { showSnackbar } from 'store/snackbarReducer'
+import toastMessages from 'store/toastMessages'
 import { api } from 'utils/api'
 import * as actions from '../actions'
 import {
@@ -25,6 +27,7 @@ import weatherSaga, {
   finalizeImportWorker,
   pickFileWorker
 } from '../saga'
+import { selectDataset } from '../selectors'
 import type { ImportedDataset } from '../types'
 
 describe('fetchStatusWorker', () => {
@@ -185,6 +188,9 @@ describe('finalizeImportWorker', () => {
         }
       }).value
     ).toEqual(put(actions.importFinalizeSucceeded('proj-1', 'sce-1', dataset, true)))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.weatherFileUploaded('sample.csv'), 'success'))
+    )
     expect(gen.next().done).toBe(true)
   })
 
@@ -244,6 +250,9 @@ describe('finalizeImportWorker', () => {
     // Even when the refresh succeeds, the import is still reported as failed.
     const failure = gen.next({ succeeded: { payload: { scenarioId: 'sce-1' } } }).value
     expect(failure).toEqual(put(actions.importFinalizeFailed('Import failed: column conflict')))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.weatherFileUploadFailed('sample.csv'), 'error'))
+    )
     expect(gen.next().done).toBe(true)
   })
 
@@ -376,12 +385,18 @@ describe('finalizeImportWorker', () => {
 describe('clearImportedDataWorker', () => {
   it('DELETEs clear_data, refreshes the scenario, then puts importClearSucceeded', () => {
     const gen = clearImportedDataWorker(actions.importClearRequested('proj-1', 'sce-1'))
-    const clearCall = gen.next().value as ReturnType<typeof call>
+    // The filename is read BEFORE the delete — afterwards there is nothing left
+    // in the store to name in the toast.
+    expect(gen.next().value).toEqual(select(selectDataset))
+    const clearCall = gen.next({ filename: 'sample.csv' }).value as ReturnType<typeof call>
     expect(clearCall.payload.args[0]).toBe('/api/weather/project/proj-1/scenario/sce-1/clear_data')
     expect(gen.next().value).toEqual(put(loadScenarioRequested('proj-1', 'sce-1')))
     gen.next() // race(...)
     expect(gen.next({ succeeded: { payload: { scenarioId: 'sce-1' } } }).value).toEqual(
       put(actions.importClearSucceeded('proj-1', 'sce-1'))
+    )
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.weatherFileDeleted('sample.csv'), 'success'))
     )
   })
 })

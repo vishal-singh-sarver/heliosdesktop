@@ -43,6 +43,7 @@ import {
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import type { AnchorRect } from 'utils/useAnchoredPosition'
 import {
   addDraftMaterial,
@@ -61,9 +62,11 @@ import {
   humanizeProperty,
   isObjectFormValid,
   resolveObjectFormByType,
+  type ResolvedFormGroup,
   validateFieldValue
 } from './propertyBlueprint'
 import reducer from './reducer'
+import RepeatField from './RepeatField'
 import saga from './saga'
 import SelectMaterialsPopup from './SelectMaterialsPopup'
 import {
@@ -73,6 +76,7 @@ import {
   selectDetailsById,
   selectNodesById
 } from './selectors'
+import { divisorsOf, nextValid, prevValid, snapRepeat } from './textureRepeat'
 import type { CreateDraft, DraftMaterialGroup } from './types'
 import { validateGroupName } from './validation'
 
@@ -99,6 +103,56 @@ const POPUP_GAP = 8
 const TEXTURE_RESOLUTION_CAP: Record<string, string> = {
   texture_x: 'resolution_x',
   texture_y: 'resolution_y'
+}
+
+// The same pairing read the other way — resolution property → the repeat that
+// depends on it. Editing a resolution re-checks its repeat (see reconcileRepeat).
+const RESOLUTION_DEPENDENT_REPEAT: Record<string, string> = Object.fromEntries(
+  Object.entries(TEXTURE_RESOLUTION_CAP).map(([texProp, resProp]) => [resProp, texProp])
+)
+
+const isRepeatProperty = (property: string): boolean => property in TEXTURE_RESOLUTION_CAP
+
+// The subdivision count a repeat is measured against, as a number. NaN/0 for a
+// blank or non-numeric resolution, which divisorsOf turns into an empty valid
+// set — the signal that the constraint can't be evaluated yet.
+function subdivisionCount(values: Record<string, string>, texProp: string): number {
+  return Number((values[TEXTURE_RESOLUTION_CAP[texProp]] ?? '').trim())
+}
+
+// Re-check a repeat against its subdivision count and report what the engine
+// would actually use. Returns null when there is nothing to change — no usable
+// resolution, a blank/junk value that per-field validation already owns, or a
+// repeat that is already valid. Shared by the resolution-blur re-check and the
+// open-time correction, so both behave identically.
+function repeatAdjustment(
+  values: Record<string, string>,
+  property: string
+): { value: string; note: string } | null {
+  const count = subdivisionCount(values, property)
+  const divisors = divisorsOf(count)
+  const raw = (values[property] ?? '').trim()
+  if (divisors.length === 0 || raw === '') return null
+  const current = Number(raw)
+  if (!Number.isFinite(current)) return null
+  const snapped = snapRepeat(current, divisors)
+  if (snapped == null || snapped === current) return null
+  return { value: String(snapped), note: messages.repeatAdjusted(current, snapped, count) }
+}
+
+// Every repeat a freshly-opened form needs corrected. A ground saved before the
+// divisor rule (or written by another client) can hold a repeat its resolution
+// never allowed; this is what the form opens with, computed once from the
+// initial values so the note can be rendered without storing it in state.
+export function openTimeRepeatAdjustments(
+  values: Record<string, string>
+): Record<string, { value: string; note: string }> {
+  const adjustments: Record<string, { value: string; note: string }> = {}
+  for (const property of Object.keys(TEXTURE_RESOLUTION_CAP)) {
+    const adjustment = repeatAdjustment(values, property)
+    if (adjustment) adjustments[property] = adjustment
+  }
+  return adjustments
 }
 
 function textureDepErrors(values: Record<string, string>): Record<string, string> {
@@ -371,6 +425,32 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     return undefined
   }
 
+  // …and the NAME to show for one, on exactly the same reasoning. The draft holds
+  // a copy taken when the material was picked (or when the object GET loaded),
+  // and that copy goes stale the moment the material is renamed in the Materials
+  // panel — so the geometry went on showing the old name until the form was
+  // closed and reopened. An assigned material is live-linked to the library, so
+  // the library is the authority for its name just as it already is for its
+  // values above.
+  //
+  // The draft's copy is the fallback for when the library has no answer, which is
+  // NOT the case of a material deleted here — that one never reaches this code,
+  // because the geometry slice purges the row from the draft and every cached
+  // detail the moment REMOVE_MATERIAL lands (see reducer.ts). It covers the two
+  // cases where a row outlives its library entry:
+  //   • the moment before the library list arrives. Only <Materials/> fetches it,
+  //     and though it mounts with the project screen, an object form open across
+  //     that gap would otherwise render every assigned row BLANK for a frame.
+  //   • a row the backend hands us already flagged `stale` (service.ts) — a
+  //     material deleted in another session, which this client never saw removed.
+  // In both, the name the row was assigned under is the only name there is.
+  const libraryNamesById = React.useMemo(
+    () => new Map(libraryMaterials.map((m) => [m.id, m.name])),
+    [libraryMaterials]
+  )
+  const nameFor = (group: DraftMaterialGroup): string =>
+    libraryNamesById.get(group.groupId) ?? group.name
+
   // The form's object was removed from the tree (deleted via the left panel)
   // while this form was open. It no longer exists on the backend, so editing /
   // saving it would 404 — lock the form down to a read-only "deleted" state and
@@ -408,6 +488,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   React.useEffect(() => {
     editedRef.current = {}
   }, [draft.objectId])
+  // Why a Texture Repeat currently reads differently from what the user last
+  // typed, keyed by property — set whenever the value is snapped to a valid one
+  // (on commit, on a resolution change, or on open). Cleared as soon as that
+  // field is edited again, so it always describes the value on screen.
+  const [repeatNotes, setRepeatNotes] = React.useState<Record<string, string | null>>({})
   // The name is read-only until the pencil is tapped (spec: "edit icon which
   // should be tapped only to edit the name"); the trash icon's confirmation lives
   // here too (saved objects confirm before delete; brand-new ones discard).
@@ -542,6 +627,110 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Name changes are excluded — Save is field-only; the name commits on blur.
   const dirty = valuesDirty || materialDirty
 
+  // The valid Texture Repeat values per axis: the divisors of that axis's ground
+  // resolution (10 → 1, 2, 5, 10). Empty while a resolution is blank or
+  // non-numeric — the signal that the constraint can't be evaluated yet, which
+  // disables the steppers and suppresses snapping rather than guessing.
+  const repeatDivisors = React.useMemo(() => {
+    const byProperty: Record<string, readonly number[]> = {}
+    for (const texProp of Object.keys(TEXTURE_RESOLUTION_CAP)) {
+      byProperty[texProp] = divisorsOf(subdivisionCount(draft.values, texProp))
+    }
+    return byProperty
+  }, [draft.values])
+
+  // Re-check a repeat against a subdivision count that moved under it — the
+  // user edited a resolution. The adjustment is applied AND reported: silently
+  // leaving a value the engine would floor is exactly what this prevents.
+  const reconcileRepeat = (values: Record<string, string>, property: string): void => {
+    const adjustment = repeatAdjustment(values, property)
+    if (!adjustment) return
+    dispatch(setDraftValue(property, adjustment.value))
+    setRepeatNotes((n) => ({ ...n, [property]: adjustment.note }))
+  }
+
+  // Repeats the form opened holding an invalid value — computed ONCE from the
+  // values this draft mounted with (DraftForm is keyed by the open-nonce, so a
+  // different object remounts and recomputes). Deliberately not derived on every
+  // render: the effect below rewrites those values, which would make a
+  // render-time derivation erase its own reason for existing.
+  const [openAdjustments] = React.useState(() => openTimeRepeatAdjustments(draft.values))
+
+  // Apply the open-time correction. The form reads as dirty afterwards even
+  // though the user typed nothing — that's honest: the value on the backend is
+  // not the one the engine would use. Dispatch only; the note comes from
+  // `openAdjustments`, so no React state is set here.
+  React.useEffect(() => {
+    for (const [property, adjustment] of Object.entries(openAdjustments)) {
+      dispatch(setDraftValue(property, adjustment.value))
+    }
+    // Open-time only. Later re-checks ride on the resolution field's blur, so
+    // this must not re-run as the user edits.
+  }, [dispatch, openAdjustments])
+
+  // The note under a repeat field. An explicit entry in `repeatNotes` always
+  // wins — including a null one, which is how an edit dismisses the open-time
+  // note that has no other owner.
+  const repeatNoteFor = (property: string): string | null =>
+    property in repeatNotes ? repeatNotes[property] : (openAdjustments[property]?.note ?? null)
+
+  // Snap a repeat to the value the engine would actually use. Runs on COMMIT
+  // (blur / Enter / Save), never per keystroke: the valid set is the divisors of
+  // the resolution, and a prefix of a valid value often isn't one. Across 21
+  // subdivisions valid = 1, 3, 7, 21 — typing "21" passes through "2", so
+  // per-keystroke snapping would rewrite it to 1 and make 21 untypeable.
+  const commitRepeat = (property: string): void => {
+    const divisors = repeatDivisors[property] ?? []
+    const raw = (draft.values[property] ?? '').trim()
+    // Nothing to snap to, or a state per-field validation already owns (blank →
+    // "Required Field", junk → "Invalid Input"). Inventing a value there would
+    // replace a clear error with a number the user never entered.
+    if (divisors.length === 0 || raw === '') return
+    const current = Number(raw)
+    if (!Number.isFinite(current)) return
+    const snapped = snapRepeat(current, divisors)
+    if (snapped == null) return
+
+    if (snapped === current) {
+      // Already valid. Still normalise the text ("05" → "5") so the field shows
+      // one canonical form, and drop any note left by an earlier snap.
+      if (raw !== String(snapped)) dispatch(setDraftValue(property, String(snapped)))
+      setRepeatNotes((n) => (n[property] ? { ...n, [property]: null } : n))
+      return
+    }
+
+    dispatch(setDraftValue(property, String(snapped)))
+    setRepeatNotes((n) => ({
+      ...n,
+      [property]:
+        // Snapping UP happens only below the minimum, where there is no valid
+        // value to come down to — cite the floor, not the divisor rule.
+        current < snapped
+          ? messages.repeatSnappedToMin(snapped)
+          : messages.repeatSnapped(snapped, subdivisionCount(draft.values, property))
+    }))
+  }
+
+  // Move a repeat to the neighbouring VALID value — the stepper chevrons and
+  // ArrowUp/ArrowDown. Stepping by one would walk through values the engine
+  // rejects, which is what makes the valid set undiscoverable in the first place.
+  const stepRepeat = (property: string, direction: 1 | -1): void => {
+    const divisors = repeatDivisors[property] ?? []
+    if (divisors.length === 0) return
+    const raw = (draft.values[property] ?? '').trim()
+    // An empty field steps from below the range, so ▲ lands on the minimum.
+    const current = raw === '' ? 0 : Number(raw)
+    const target = direction === 1 ? nextValid(current, divisors) : prevValid(current, divisors)
+    if (target == null) return
+    dispatch(setDraftValue(property, String(target)))
+    // The user moved it deliberately and can see where it landed — a "snapped"
+    // note would be explaining something that didn't happen. An explicit null
+    // (not a delete) so this also dismisses an open-time note, which lives
+    // outside this map.
+    setRepeatNotes((n) => (n[property] === null ? n : { ...n, [property]: null }))
+    setTouched((t) => ({ ...t, [property]: true }))
+  }
+
   // Block the keystroke when the in-progress value isn't numeric, or would add
   // an 8th decimal place — surfacing the matching message instead of storing it.
   const handleFieldChange = (property: string, next: string, isInteger: boolean): void => {
@@ -580,6 +769,15 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // This keystroke reached the draft, so the blur that ends this run has
     // something of the user's to normalize. See editedRef.
     editedRef.current[property] = true
+    // A snap note describes the value on screen; editing that value makes it
+    // stale, so it goes on the first keystroke rather than lingering over a
+    // number it no longer explains. Writing an explicit null (rather than
+    // deleting the key) is also what dismisses an open-time note, which lives
+    // outside this map. Skipped once already null, so this doesn't re-render on
+    // every subsequent keystroke.
+    if (isRepeatProperty(property) && repeatNotes[property] !== null) {
+      setRepeatNotes((n) => ({ ...n, [property]: null }))
+    }
     dispatch(setDraftValue(property, next))
   }
 
@@ -587,7 +785,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // Drop the transient guard error; committed-value validation takes over.
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
     setTouched((t) => ({ ...t, [property]: true }))
-    // The typing run is over: an unfinished "1e" now gets its error.
+    // The typing run is over: an unfinished "1e" now gets its error. Runs before
+    // the repeat branch below returns — a Texture Repeat left mid-exponent has to
+    // surface its error too, and an early return here would suppress it forever.
     setTypingExponent((t) => ({ ...t, [property]: false }))
     // Show scientific notation in the decimal form it will actually be stored as,
     // so "1e3" reads back as "1000" HERE rather than silently on the next load
@@ -604,11 +804,29 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // preview for a value that has already been through the backend anyway.
     const wasEdited = editedRef.current[property] === true
     editedRef.current[property] = false
-    if (!wasEdited) return
+    if (wasEdited) {
+      const raw = draft.values[property] ?? ''
+      const expanded = expandForDisplay(raw)
+      if (expanded !== raw) dispatch(setDraftValue(property, expanded))
+    }
 
-    const raw = draft.values[property] ?? ''
-    const expanded = expandForDisplay(raw)
-    if (expanded !== raw) dispatch(setDraftValue(property, expanded))
+    // Blur is the commit point for the divisor rule, in both directions:
+    // leaving a REPEAT snaps it, and leaving a RESOLUTION re-checks the repeat
+    // that depends on it. Per keystroke would break both — typing "10" passes
+    // through "1", which would drag the repeat down to 1 mid-edit.
+    //
+    // Runs AFTER the expansion above, and unconditionally — not under `wasEdited`.
+    // A repeat commits on every blur, typed into or not; that is what snaps a
+    // value the backend stored but the engine would floor. commitRepeat reads the
+    // pre-expansion string from this render's closure, but it goes through
+    // Number(), so "1e1" and "10" snap identically — and it writes String(snapped),
+    // which is already the expanded form.
+    if (isRepeatProperty(property)) {
+      commitRepeat(property)
+      return
+    }
+    const dependent = RESOLUTION_DEPENDENT_REPEAT[property]
+    if (dependent) reconcileRepeat(draft.values, dependent)
   }
 
   // Chromium selects the whole value when you TAB into a text input; collapse that
@@ -660,6 +878,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
 
   const performSave = (): void => {
     if (!projectId || !scenarioId) return
+    // Defensive: every real route to Save blurs the focused field first (a
+    // click, Tab, or Enter), so a pending repeat has already snapped. This
+    // covers the routes that don't — and guarantees we never PATCH a repeat the
+    // engine would floor behind the user's back.
+    for (const property of Object.keys(TEXTURE_RESOLUTION_CAP)) commitRepeat(property)
     dispatch(updateObjectRequested(projectId, scenarioId))
   }
 
@@ -700,6 +923,40 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     setConfirmDeleteOpen(false)
   }
 
+  // The note lines under the Texture Repeat row. Rendered FULL WIDTH below the
+  // 2-column grid rather than inside a cell — "Snapped to 5 (must divide
+  // Resolution of 10)" doesn't fit half a panel column. Returns null for every
+  // other group, so the generic layout above is untouched.
+  //
+  // There is deliberately no standing "Valid: 1, 2, 5, 10" helper line: the
+  // stepper is what makes the valid values discoverable, and a permanent list
+  // beside it was only restating what stepping already shows.
+  const renderRepeatFooter = (group: ResolvedFormGroup): React.JSX.Element | null => {
+    const fields = group.fields.filter((f) => isRepeatProperty(f.property))
+    if (fields.length === 0) return null
+
+    const notes = fields
+      .map((field) => ({ label: field.label, note: repeatNoteFor(field.property) }))
+      .filter((entry): entry is { label: string; note: string } => entry.note != null)
+
+    if (notes.length === 0) return null
+
+    return (
+      <div className="mt-1 flex flex-col gap-0.5">
+        {notes.map((n) => (
+          // role="status" (polite) because the value changed without the user
+          // asking — a screen reader gets told what happened, the same as a
+          // sighted user reading the line.
+          <p key={n.label} role="status" className="text-[12px] leading-[16px] text-[#B54708]">
+            {/* Prefixed with the axis whenever the row has both R and C, so the
+                note names the field it belongs to. */}
+            {fields.length > 1 ? `${n.label}: ${n.note}` : n.note}
+          </p>
+        ))}
+      </div>
+    )
+  }
+
   return (
     // Hug content with a 10px vertical rhythm (Figma: Height Hug, Gap 10px) so
     // the form never needs an inner scrollbar — even with every field showing an
@@ -722,7 +979,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 if (!objectDeleted) setNameEditing(true)
               }}
               onBlur={handleNameBlur}
-              className={`w-full rounded border bg-transparent py-0.5 ${
+              onMouseEnter={showFullTextOnHover}
+              // truncate: an input clips a too-long name mid-letter. The
+              // ellipsis says the name goes on, and the hover shows the rest.
+              className={`w-full truncate rounded border bg-transparent py-0.5 ${
                 nameError && !objectDeleted ? 'pl-1 pr-7' : 'px-1'
               } text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
                 !nameEditing ? 'cursor-default ' : ''
@@ -813,6 +1073,33 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   (showError && !midExponent
                     ? (validateFieldValue(field, value) ?? depErrors[field.property] ?? null)
                     : null)
+                // Texture Repeat keeps the same numeric input, plus a stepper
+                // that walks the VALID values. Everything about the constraint —
+                // the valid set, the snap, the note — lives in the parent; the
+                // field only reports blur/Enter and step requests.
+                if (isRepeatProperty(field.property)) {
+                  const divisors = repeatDivisors[field.property] ?? []
+                  const current = value.trim() === '' ? 0 : Number(value.trim())
+                  return (
+                    <RepeatField
+                      key={field.property}
+                      property={field.property}
+                      label={field.label}
+                      value={value}
+                      error={error ?? undefined}
+                      disabled={objectDeleted}
+                      canStepUp={nextValid(current, divisors) != null}
+                      canStepDown={prevValid(current, divisors) != null}
+                      onChange={(next) =>
+                        handleFieldChange(field.property, next, field.datatype === 'integer')
+                      }
+                      onCommit={() => commitRepeat(field.property)}
+                      onStep={(direction) => stepRepeat(field.property, direction)}
+                      onBlur={() => handleFieldBlur(field.property)}
+                      onFocus={caretToEndOnTabFocus}
+                    />
+                  )
+                }
                 return (
                   <FormField
                     key={field.property}
@@ -847,6 +1134,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 )
               })}
             </div>
+            {renderRepeatFooter(group)}
           </div>
         ))}
 
@@ -900,7 +1188,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   style={{ outline: 'none' }}
                   className="flex min-w-0 flex-1 items-center gap-[5px] py-2 text-left text-[13px] leading-[15px] text-white"
                 >
-                  <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                  <span className="min-w-0 flex-1 truncate" onMouseEnter={showFullTextOnHover}>
+                    {nameFor(m)}
+                  </span>
                   {(m.stale || m.drift) && (
                     <span
                       aria-hidden="true"
@@ -917,7 +1207,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 </button>
                 <button
                   type="button"
-                  aria-label={`Remove ${m.name}`}
+                  aria-label={`Remove ${nameFor(m)}`}
                   onClick={() => handleDeleteMaterial(m)}
                   style={{ outline: 'none' }}
                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-white/10"
@@ -973,7 +1263,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           {({ anchorRect, available }) =>
             detailPopup && (
               <MaterialPropertiesPopup
-                name={detailPopup.material.name}
+                name={nameFor(detailPopup.material)}
                 sections={buildMaterialSections(
                   membersFor(detailPopup.material) ?? [],
                   materialTypes
@@ -1051,7 +1341,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         onClose={() => setUnassignTarget(null)}
       >
         <h3 className="text-base font-medium text-white">
-          {messages.unassignHeading(unassignTarget?.name ?? '')}
+          {messages.unassignHeading(unassignTarget ? nameFor(unassignTarget) : '')}
         </h3>
         <p className="text-sm text-neutral-400">{messages.unassignBody}</p>
 

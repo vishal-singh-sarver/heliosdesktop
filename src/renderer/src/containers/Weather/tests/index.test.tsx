@@ -94,21 +94,12 @@ vi.mock('utils/loadable', () => ({
       onClose: () => void
       onRequestPickFile: () => void
       onSubmit: (ds: ImportedDataset, truncatedDecimals: boolean) => void
-      onImportWarning: (message: string | null) => void
     }) {
       if (!props.isOpen) return null
       return (
         <div data-testid="wizard">
           <button data-testid="wizard-close" onClick={props.onClose} />
           <button data-testid="wizard-pick" onClick={props.onRequestPickFile} />
-          <button
-            data-testid="wizard-warning"
-            onClick={() =>
-              props.onImportWarning(
-                'Only 7 decimal places have been taken for decimal values as more are not allowed.'
-              )
-            }
-          />
           <button
             data-testid="wizard-submit"
             onClick={() =>
@@ -321,18 +312,6 @@ describe('<Weather />', () => {
     )
   })
 
-  it('renders the import toast when the wizard reports a precision warning', () => {
-    sel.wizardOpen = true
-    render(<Weather />)
-    fireEvent.click(screen.getByTestId('wizard-warning'))
-    expect(
-      screen.getByText(
-        'Only 7 decimal places have been taken for decimal values as more are not allowed.'
-      )
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText('Dismiss import notification')).toBeInTheDocument()
-  })
-
   it('dispatches importFinalizeRequested with truncatedDecimals=true on a truncated submit', () => {
     // A truncated submit no longer shows the toast immediately — the wizard
     // flags it through importFinalizeRequested, and the toast surfaces after
@@ -353,16 +332,30 @@ describe('<Weather />', () => {
     )
   })
 
-  it('renders the import toast when refreshed backend data was precision-normalized', () => {
+  // Weather no longer renders a toast of its own — it raises one on the app-wide
+  // snackbar queue, which the root SnackbarHost renders. So the assertion is on
+  // the ACTION, not on markup inside this screen.
+  it('clears the precision-normalized flag WITHOUT announcing it', () => {
+    // The 7-decimal cap is a standing rule the user can't change, so an import
+    // that hit it says nothing. The flag is still consumed — left set, it would
+    // fire again for whatever reads it next.
     sel.importPrecisionWarningPending = true
     render(<Weather />)
+
     expect(mockDispatch).toHaveBeenCalledWith(
       weatherActions.importPrecisionWarningConsumed('proj-1', 'sce-1')
     )
-    expect(
-      screen.getByText(
-        'Only 7 decimal places have been taken for decimal values as more are not supported.'
-      )
-    ).toBeInTheDocument()
+    expect(mockDispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/snackbar/SHOW' })
+    )
+  })
+
+  it('renders no toast markup of its own', () => {
+    sel.importPrecisionWarningPending = true
+    render(<Weather />)
+    // The duplicate banner this screen used to hand-roll is gone, dismiss button
+    // and all — one snackbar for the whole app.
+    expect(screen.queryByLabelText('Dismiss import notification')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Dismiss notification')).not.toBeInTheDocument()
   })
 })

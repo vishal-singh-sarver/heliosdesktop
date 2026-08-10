@@ -267,13 +267,22 @@ export function validateMaterialFieldValue(
 // for the current values — the field half of a card's Save gate.
 export function isMaterialFormValid(
   groups: ResolvedParameterGroup[],
-  values: Record<string, string>
+  values: Record<string, string>,
+  // Properties whose validity doesn't matter in the card's CURRENT mode: the
+  // Radiation bands while a spectral file supersedes them. They keep their values
+  // (the toggle may come back) but they are dropped on save, so a stale invalid
+  // one must not gate it — and the editor hides its error there, which would make
+  // the block invisible.
+  ignoreProperties?: readonly string[]
 ): boolean {
+  const ignored = new Set(ignoreProperties ?? [])
   // Only VISIBLE groups gate Save — a hidden sub-model's fields (e.g. the BWB
   // coefficients while Medlyn is selected) must not block a valid form.
   return visibleParameterGroups(groups, values).every((group) =>
     group.fields.every(
-      (field) => validateMaterialFieldValue(field, values[field.property] ?? '') === null
+      (field) =>
+        ignored.has(field.property) ||
+        validateMaterialFieldValue(field, values[field.property] ?? '') === null
     )
   )
 }

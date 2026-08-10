@@ -63,7 +63,6 @@ function ImportWizard({
   onClose,
   onRequestPickFile,
   onSubmit,
-  onImportWarning,
   pickedFile,
   fileLoading,
   fileError,
@@ -111,8 +110,6 @@ function ImportWizard({
           setParsed(result)
           setParseError(null)
 
-          onImportWarning(null)
-
           const auto: DateTimeMapping = {
             year: findHeaderByKeyword(result.headers, ['year']),
             month: findHeaderByKeyword(result.headers, ['month']),
@@ -148,7 +145,7 @@ function ImportWizard({
         }
       }
     }
-  }, [pickedFile, lastSeenPickedFile, onImportWarning])
+  }, [pickedFile, lastSeenPickedFile])
 
   // Close on Esc — the wizard uses a custom <div> overlay (not <dialog>),
   // so we wire up the key handler ourselves. Skipped while importing.
@@ -456,7 +453,6 @@ function ImportWizard({
     disabledColumnIndices,
     columnSelection,
     filename,
-    onImportWarning,
     pickedFile,
     onSubmit
   ])

@@ -1,6 +1,25 @@
 import React, { useMemo } from 'react'
+import { VALIDATION_MESSAGES } from 'utils/decimalValidation'
 import { InfoIcon } from './Icons'
 import type { StepReviewProps } from './types'
+
+// What the user needs to know before importing, in one place at the top of the
+// step: what this screen is for, what the import will do to their decimals, and
+// what happens to their date/time columns. They used to be scattered — the first
+// as loose text above the table, the last as a line below it, and the decimals
+// rule nowhere at all (it was a toast the app no longer raises). All three are
+// standing facts about every import, so none of them is conditional.
+//
+// The 7-decimals wording is the shared constant, so this and the manual-entry
+// paths can't drift apart.
+const IMPORT_NOTES = [
+  'Review columns to import. Uncheck columns you want to exclude.',
+  VALIDATION_MESSAGES.IMPORT_WARNING,
+  // "Date/Time column(s)" is the user's own source columns; "Date-Time" is the
+  // single merged column this step lists first — the same name the row below
+  // carries, so the two read as the same thing.
+  'Date/Time column(s) will be merged into the “Date-Time” column automatically.'
+]
 
 function fmtBritish(d: Date | null): string {
   if (!d) return 'Invalid'
@@ -42,8 +61,17 @@ export default function StepReview({
 
   return (
     <div className="flex flex-col gap-4 overflow-hidden px-6 pb-2">
-      <div className="text-sm text-neutral-300">
-        Review columns to import. Uncheck columns you want to exclude.
+      {/* Left rule rather than a full border: it groups the three lines as one
+          aside without boxing them in like the character-columns warning below,
+          which is a genuine alert and needs to outrank these. */}
+      <div className="rounded-[3px] border-l-2 border-[#245AC5] bg-[#1F2937] px-4 py-3">
+        {/* The discs are tinted blue against the app's standard #D3D3D3 label
+            grey, so they read as marks rather than as part of the sentence. */}
+        <ul className="list-disc space-y-2 pl-4 text-sm text-[#D3D3D3] marker:text-[#B2C9F5]">
+          {IMPORT_NOTES.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
       </div>
 
       {disabledColumnIndices.length > 0 && (
@@ -122,10 +150,6 @@ export default function StepReview({
             })}
           </tbody>
         </table>
-      </div>
-
-      <div className="text-xs text-white">
-        Date/Time column(s) will be merged into the “Date-Time” column automatically.
       </div>
     </div>
   )
