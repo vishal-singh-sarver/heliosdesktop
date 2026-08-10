@@ -1105,7 +1105,7 @@ describe('<ObjectPropertiesForm /> — texture repeat divisor constraint', () =>
     fireEvent.blur(input)
 
     expect(input.value).toBe('5')
-    expect(screen.getByText('R: Snapped to 5 (must divide subdivisions of 10)')).toBeInTheDocument()
+    expect(screen.getByText('R: Snapped to 5 (must divide Resolution of 10)')).toBeInTheDocument()
   })
 
   it('does NOT snap while the user is still typing', () => {
@@ -1233,7 +1233,7 @@ describe('<ObjectPropertiesForm /> — texture repeat divisor constraint', () =>
 
     expect(fieldInput(container, 'texture_x').value).toBe('4')
     expect(
-      screen.getByText('R: Repeat adjusted 5 → 4 (must divide subdivisions of 8)')
+      screen.getByText('R: Repeat adjusted 5 → 4 (must divide Resolution of 8)')
     ).toBeInTheDocument()
     // The other axis is untouched — the rule is per-axis.
     expect(fieldInput(container, 'texture_y').value).toBe('5')
@@ -1260,7 +1260,7 @@ describe('<ObjectPropertiesForm /> — texture repeat divisor constraint', () =>
 
     fireEvent.change(input, { target: { value: '9' } })
     fireEvent.blur(input)
-    expect(screen.getByText('R: Snapped to 5 (must divide subdivisions of 10)')).toBeInTheDocument()
+    expect(screen.getByText('R: Snapped to 5 (must divide Resolution of 10)')).toBeInTheDocument()
 
     // The note explains the value on screen; a new keystroke makes it stale.
     fireEvent.change(input, { target: { value: '2' } })
@@ -1274,7 +1274,7 @@ describe('<ObjectPropertiesForm /> — texture repeat divisor constraint', () =>
 
     expect(fieldInput(container, 'texture_x').value).toBe('2')
     expect(
-      screen.getByText('R: Repeat adjusted 3 → 2 (must divide subdivisions of 10)')
+      screen.getByText('R: Repeat adjusted 3 → 2 (must divide Resolution of 10)')
     ).toBeInTheDocument()
 
     // Tabbing through the field doesn't erase the explanation — only changing

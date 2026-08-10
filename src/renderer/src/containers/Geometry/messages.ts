@@ -33,7 +33,7 @@ const messages = {
   // one the engine would actually use. Every correction says both the new value
   // and the rule behind it — a bare "Snapped to 5" reads as a bug.
   repeatSnapped: (to: number, count: number) =>
-    `Snapped to ${to} (must divide subdivisions of ${count})`,
+    `Snapped to ${to} (must divide Resolution of ${count})`,
   // The one case that snaps UP rather than down: nothing is valid below 1, so a
   // 0 or negative entry can't "snap to the nearest valid value at or below" and
   // lands on the minimum instead. Different copy because the reason differs.
@@ -43,7 +43,7 @@ const messages = {
   // Names the old value too: the user didn't touch this field, so "adjusted
   // 5 → 4" is the only thing telling them what they had.
   repeatAdjusted: (from: number, to: number, count: number) =>
-    `Repeat adjusted ${from} → ${to} (must divide subdivisions of ${count})`,
+    `Repeat adjusted ${from} → ${to} (must divide Resolution of ${count})`,
   // The stepper's accessible names. These carry the whole "there is a valid set
   // and this moves through it" idea for a screen reader — there is no standing
   // list of valid values on the form to fall back on.

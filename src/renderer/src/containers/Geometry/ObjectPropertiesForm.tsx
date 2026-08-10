@@ -827,7 +827,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
 
   // The note lines under the Texture Repeat row. Rendered FULL WIDTH below the
   // 2-column grid rather than inside a cell — "Snapped to 5 (must divide
-  // subdivisions of 10)" doesn't fit half a panel column. Returns null for every
+  // Resolution of 10)" doesn't fit half a panel column. Returns null for every
   // other group, so the generic layout above is untouched.
   //
   // There is deliberately no standing "Valid: 1, 2, 5, 10" helper line: the
