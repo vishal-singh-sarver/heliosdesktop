@@ -6,6 +6,8 @@ import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import {
   exceedsMaxDecimals,
+  expandForDisplay,
+  isIncompleteExponent,
   isPartialNumericInput,
   VALIDATION_MESSAGES
 } from 'utils/decimalValidation'
@@ -132,8 +134,15 @@ function CellInput({
     // update while typing. Re-uses the same validationErrors slot that
     // handleCellBlur writes on commit, so on blur the slot is overwritten
     // with the final result (no stale live error survives).
+    //
+    // "1e" / "1e-" is skipped: Number() is NaN for them, so validateCellValue
+    // reports "must be a number" the instant 'e' is typed and clears again on the
+    // exponent digit. The value is unfinished, not wrong — blur below writes the
+    // real verdict, so a cell LEFT at "1e" still ends up flagged.
     if (scenarioId && col) {
-      const liveError = validateCellValue(newValue, { col, dataTypes })
+      const liveError = isIncompleteExponent(newValue)
+        ? null
+        : validateCellValue(newValue, { col, dataTypes })
       dispatch(setCellValidationError(scenarioId, rowId, colId, liveError))
     }
   }
@@ -144,7 +153,24 @@ function CellInput({
     setDecimalValidationError(null)
     setGlobalBoundError(null)
     setFormatError(null)
-    onCommit(draft)
+    // Commit scientific notation in its decimal form ("1e3" -> "1000") so the cell
+    // shows what will be stored. This is the one path where the raw STRING reaches
+    // the backend and Python's float() converts it, so without this the cell reads
+    // back changed on the next fetch with nothing having said so.
+    const next = expandForDisplay(draft)
+    if (next !== draft) setDraft(next)
+    // Re-validate ONLY when this blur changed what handleChange last dispatched:
+    // an expansion, or an unfinished "1e" whose error was held back. A cell the
+    // user merely focused and left must keep whatever verdict is already in the
+    // slot — a backend error, or one updateColumnWorker wrote after a data-type
+    // change. handleCellBlur early-returns when the value is unchanged, so an
+    // unconditional dispatch here would be the only thing clearing those.
+    if (scenarioId && col && (next !== draft || isIncompleteExponent(draft))) {
+      dispatch(
+        setCellValidationError(scenarioId, rowId, colId, validateCellValue(next, { col, dataTypes }))
+      )
+    }
+    onCommit(next)
   }
 
   return (

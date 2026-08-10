@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import messages from '../messages'
 import { Provider } from 'react-redux'
 import { createStore, Reducer, UnknownAction } from 'redux'
@@ -1732,5 +1733,302 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(
       screen.queryByRole('slider', { name: 'Saturation and brightness' })
     ).not.toBeInTheDocument()
+  })
+})
+
+// ── Mode discriminator reaches the write-through cache ───────────────────────
+//
+// A Visualiser saved in COLOUR mode sends `texture_toggle: false` in its payload
+// (toVisualisationProperties hard-codes it), but handleSaveColour only wrote that
+// 'false' into the DRAFT when the card was switching away from texture mode. A
+// card that had never been in texture mode skipped that branch, so `card.values`
+// carried no texture_toggle at all — and since SAVE_PARAMETER_GROUP_SUCCEEDED
+// snapshots `savedValues = {...values}` and refreshDetailCache builds the cached
+// detail from `savedValues`, the cache came out MISSING the key the backend had
+// just been told about.
+//
+// Visible effect: assign the material to a ground, open the ground's read-only
+// material popup, and the "Texture Toggle" row is BLANK (asDisplay(undefined) is
+// ''). Reload and it reads 'false', because the cache is then rebuilt from the
+// GET. The cache is what the popup reads first, so it must agree with the payload.
+describe('a colour-mode Visualiser save caches its texture_toggle', () => {
+  const cachedProperties = (store: InjectableStore): Record<string, string> | undefined =>
+    (store.getState() as unknown as { materials: MaterialsState }).materials.detailsById['12']
+      ?.members[0]?.properties
+
+  it('writes texture_toggle "false" into the cached detail on a first colour save', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    // A brand-new Visualiser card: never in texture mode, so nothing has ever put
+    // texture_toggle into its values.
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Give it a complete colour (opacity seeds itself to 100), which is what opens Save.
+    fireEvent.change(screen.getByLabelText('R'), { target: { value: '73' } })
+    fireEvent.change(screen.getByLabelText('G'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('B'), { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // The backend accepted it; the reducer now snapshots the card and rewrites the
+    // cached detail from that snapshot.
+    act(() => {
+      store.dispatch(saveParameterGroupSucceeded('12', 1))
+    })
+
+    // The cache stands in for a GET, and a GET returns texture_toggle: false.
+    expect(cachedProperties(store)?.texture_toggle).toBe('false')
+    // The colour itself is cached too — a regression guard on the same snapshot.
+    expect(cachedProperties(store)?.color_r).toBe('73')
+  })
+})
+
+// ── Blur-on-Save ─────────────────────────────────────────────────────────────
+//
+// This card's Save carried an `onMouseDown` preventDefault, which cancelled the
+// browser's focus transfer — so clicking Save never blurred the focused input and
+// handleFieldBlur was skipped entirely. Two things leaked out of that: a
+// decimal-limit guard error stayed on screen after saving, and "1e3" was saved
+// while the box still read "1e3" (coming back as "1000" on the next load, the
+// exact thing blur expansion exists to prevent).
+//
+// The guard it was written for is now handled by the outside-the-card mousedown
+// listener, so it could go. These mirror the Geometry form's own blur-on-Save
+// tests, so the two right-panel forms can't drift apart again.
+//
+// userEvent, not fireEvent — only userEvent models the browser's focus handling.
+describe('clicking a card Save blurs the focused field first', () => {
+  // `radiation` (id 1) carries a single float, surface_albedo (0-1), and lacks the
+  // reflectivity_PAR signature — so the card renders the plain field grid rather
+  // than the bespoke Radiation body.
+  const albedo = (): HTMLElement => screen.getByLabelText(/Surface Albedo/)
+  const save = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
+
+  it('clears the decimal-limit guard error', async () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [
+            card(1, {
+              typeId: 1,
+              saved: true,
+              values: { surface_albedo: '0.5' },
+              savedValues: { surface_albedo: '0.25' }
+            })
+          ],
+          [radiation]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    albedo().focus()
+
+    // An 8th decimal place is rejected AT the keystroke: the value never changes,
+    // and the guard error shows as the in-cell info-icon tooltip.
+    fireEvent.change(albedo(), { target: { value: '0.12345678' } })
+    expect(albedo()).toHaveValue('0.5')
+    expect(screen.getByLabelText(new RegExp(messages.decimalLimit))).toBeInTheDocument()
+
+    await userEvent.click(save())
+    expect(screen.queryByLabelText(new RegExp(messages.decimalLimit))).not.toBeInTheDocument()
+  })
+
+  it('expands scientific notation before the save reads it', async () => {
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '0.5' },
+          savedValues: { surface_albedo: '0.5' }
+        })
+      ],
+      [radiation]
+    )
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    albedo().focus()
+    fireEvent.change(albedo(), { target: { value: '1e-3' } })
+    expect(albedo()).toHaveValue('1e-3')
+
+    await userEvent.click(save())
+    // Blur ran first, so the box shows the decimal form the value is stored as…
+    expect(albedo()).toHaveValue('0.001')
+    // …and the save still went out, since 0.001 differs from the baseline 0.5.
+    const saved = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { properties?: Record<string, unknown> } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saved?.payload?.properties).toEqual({ surface_albedo: 0.001 })
+  })
+
+  it('disables Save instead when the expansion lands back on the stored value', async () => {
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '0.001' },
+          savedValues: { surface_albedo: '0.001' }
+        })
+      ],
+      [radiation]
+    )
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    albedo().focus()
+    // As raw text "1e-3" differs from the stored "0.001", so the card reads dirty
+    // and Save enables — the only reason the button is clickable at all here.
+    fireEvent.change(albedo(), { target: { value: '1e-3' } })
+    expect(save()).toBeEnabled()
+
+    await userEvent.click(save())
+    // Blur expanded it back onto the baseline, so there is nothing left to save:
+    // the button disables itself and the click never reaches onSave. Quiet, but
+    // correct — what the user typed is what is already stored.
+    expect(albedo()).toHaveValue('0.001')
+    expect(save()).toBeDisabled()
+    expect(
+      dispatch.mock.calls
+        .map((c) => c[0] as { type: string })
+        .some((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    ).toBe(false)
+  })
+})
+
+// Mirrors the Geometry form's own exponent regressions — the two right-panel
+// forms share this logic, so they get the same coverage.
+describe('exponent input keeps a card field usable', () => {
+  // A type carrying one INTEGER property, to exercise the '.' guard. The plain
+  // field grid renders it (no reflectivity_PAR signature, no colour channels).
+  const counted: MaterialTypeDef = {
+    id: 1,
+    materialtype: 'Radiation',
+    description: '',
+    properties: [
+      {
+        property_type_id: 1,
+        property: 'tile_count',
+        description: '',
+        datatype: 'integer',
+        min: 1,
+        max: 25000,
+        display_order: 1
+      }
+    ],
+    groups: []
+  }
+
+  const tiles = (): HTMLElement => screen.getByLabelText(/Tile Count/)
+  const albedo = (): HTMLElement => screen.getByLabelText(/Surface Albedo/)
+  const save = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
+
+  it('leaves an integer field editable after a blur expansion introduces a decimal point', () => {
+    const store = liveStoreWith(
+      [card(1, { typeId: 1, saved: true, values: { tile_count: '5' }, savedValues: { tile_count: '5' } })],
+      [counted]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    // "1e-3" types no '.', so every keystroke passes the guard…
+    fireEvent.change(tiles(), { target: { value: '1e-3' } })
+    expect(tiles()).toHaveValue('1e-3')
+
+    // …and blur expands it into a value that now contains one.
+    fireEvent.blur(tiles())
+    expect(tiles()).toHaveValue('0.001')
+
+    // The guard used to refuse every keystroke from here on, because each still
+    // contained the '.' the blur had put there. Backspacing must work.
+    fireEvent.change(tiles(), { target: { value: '0.00' } })
+    expect(tiles()).toHaveValue('0.00')
+
+    // Invalid throughout — below the 1..25000 range — so Save stays shut.
+    expect(save()).toBeDisabled()
+  })
+
+  it('still rejects a decimal point typed into a clean integer field', () => {
+    const store = liveStoreWith(
+      [card(1, { typeId: 1, saved: true, values: { tile_count: '5' }, savedValues: { tile_count: '5' } })],
+      [counted]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.change(tiles(), { target: { value: '5.' } })
+    expect(tiles()).toHaveValue('5')
+    expect(screen.getByLabelText(new RegExp(messages.inputNotSupported))).toBeInTheDocument()
+  })
+
+  it('does not dirty a card when a stored exponent value is only focused', () => {
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '5e-7' },
+          savedValues: { surface_albedo: '5e-7' }
+        })
+      ],
+      [radiation]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(save()).toBeDisabled()
+
+    albedo().focus()
+    fireEvent.blur(albedo())
+
+    expect(albedo()).toHaveValue('5e-7')
+    expect(save()).toBeDisabled()
+  })
+
+  it('keeps a save-failure message on screen through an untouched focus and blur', () => {
+    // The reducer clears saveError on any value change, which is right when the
+    // user edits — but a blur that rewrote an untouched field triggered it too,
+    // wiping the message while the user was still reading it.
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { surface_albedo: '5e-7' },
+          savedValues: { surface_albedo: '5e-7' },
+          saveStatus: 'error',
+          saveError: 'Could not save this material type.'
+        })
+      ],
+      [radiation]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByText('Could not save this material type.')).toBeInTheDocument()
+
+    albedo().focus()
+    fireEvent.blur(albedo())
+
+    expect(screen.getByText('Could not save this material type.')).toBeInTheDocument()
   })
 })

@@ -197,6 +197,27 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
     expect(rows.every((r) => r.image === undefined)).toBe(true)
     expect(rows.find((r) => r.property === 'color_r')?.value).toBe('128')
   })
+
+  // The catalog ships no `label` for the colour channels, so the generic fallback
+  // humanized them into "Color R" / "Color G" / "Color B" — while the editable
+  // form's ColorPicker calls the same three fields "R", "G", "B". The popup exists
+  // to mirror that form, so it now reads the same.
+  it('labels the colour channels R / G / B, not the humanized "Color R"', () => {
+    const sections = buildMaterialSections(
+      [memberWith({ texture_toggle: false, color_r: 73, color_g: 8, color_b: 8, opacity: 100 })],
+      [visualiser]
+    )
+    const rows = sections[0].groups.flatMap((g) => g.rows)
+    const labelOf = (property: string): string | undefined =>
+      rows.find((r) => r.property === property)?.label
+
+    expect(labelOf('color_r')).toBe('R')
+    expect(labelOf('color_g')).toBe('G')
+    expect(labelOf('color_b')).toBe('B')
+    // Opacity already read correctly, so it is left alone — as is every non-colour
+    // property on other material types.
+    expect(labelOf('opacity')).toBe('Opacity')
+  })
 })
 
 // A Radiation-shaped type carrying the spectral data FILE property. The stored

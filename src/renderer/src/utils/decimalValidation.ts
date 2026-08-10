@@ -6,6 +6,18 @@
 const MAX_DECIMALS = 7
 const NUMERIC_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/
 
+// The widest expansion expandExponent will build. Both of its padding branches
+// call '0'.repeat() with a count bounded by |shiftedIndex|, and V8 caps a string
+// at ~2^29 characters: "1e-999999999" asks for a billion zeros and throws
+// RangeError (one digit shorter it merely allocates ~100MB and stalls the
+// renderer). 1000 sits comfortably past IEEE-754 — beyond |exponent| ≈ 324 a
+// double is already ±Infinity or 0, so there is no real value left out there.
+//
+// Deliberately NOT tied to MAX_DECIMALS. Expansion must be able to produce MORE
+// than 7 decimals ("1e-9" -> "0.000000001") so exceedsMaxDecimals can flag them;
+// a MAX_DECIMALS-sized bound would refuse exactly the values it exists to catch.
+const MAX_EXPANSION_DIGITS = 1000
+
 function unwrapQuotedValue(value: string): string {
   const trimmed = value.trim()
   if (
@@ -40,7 +52,7 @@ export function isPartialNumericInput(value: string): boolean {
   return PARTIAL_NUMERIC_PATTERN.test(value.trim())
 }
 
-function expandScientificNotation(value: string): string | null {
+function expandExponent(value: string): string | null {
   const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))[eE]([+-]?\d+)$/.exec(value)
   if (!match) return null
 
@@ -57,6 +69,11 @@ function expandScientificNotation(value: string): string | null {
 
   if (digits === '') return '0'
 
+  // Past this the value is Infinity or 0 as a double anyway, and building the
+  // string would throw. Callers treat null as "leave it alone", which is the
+  // right answer for a value no validator can do anything useful with.
+  if (Math.abs(shiftedIndex) > MAX_EXPANSION_DIGITS) return null
+
   if (shiftedIndex <= 0) {
     return `${sign}0.${'0'.repeat(Math.abs(shiftedIndex))}${digits}`
   }
@@ -68,6 +85,104 @@ function expandScientificNotation(value: string): string | null {
   return `${sign}${digits.slice(0, shiftedIndex)}.${digits.slice(shiftedIndex)}`
 }
 
+// "1.5e3" -> "1500". Null when the value isn't a COMPLETE number in exponent
+// form, or when expanding it would build an absurd string.
+function expandScientificNotation(value: string): string | null {
+  const expanded = expandExponent(value)
+  if (expanded == null) return null
+  // The mantissa's own leading zeros survive the shift: "0.5e6" builds "0500000"
+  // and "0.12e3" builds "0120" — the right NUMBER written the wrong way. Harmless
+  // while this only fed decimal counting, but expandForDisplay puts the result on
+  // screen, into redux, and (weather cells, a new column's default) into the PATCH
+  // body verbatim, so it has to be cleaned here rather than left to the caller.
+  //
+  // Never crosses the decimal point and never empties the string: the lookahead
+  // demands a DIGIT and '.' is not one, so "0.0005" comes back untouched while
+  // "000000" (from "0e5") comes back as "0" and "-000000" as "-0" — the signed
+  // zero isBelowMin relies on is preserved.
+  return expanded.replace(/^([+-]?)0+(?=\d)/, '$1')
+}
+
+/**
+ * True for the in-progress exponent states a user passes THROUGH on the way to a
+ * complete number: "1e", "1e-", "1e+", "1.5E".
+ *
+ * Number() is NaN for every one of them, so committed-value validation calls them
+ * "not a number" — which means an error flashes the instant the 'e' is typed and
+ * clears again on the next keystroke. The value is not wrong, it is unfinished.
+ * Callers suppress the live error while this is true and let blur (which ends the
+ * typing run) surface it, so a field genuinely LEFT at "1e" still reports.
+ *
+ * Deliberately narrower than "Number() is NaN": "1e" is unfinished, "abc" is
+ * wrong, and only the first deserves the benefit of the doubt.
+ */
+// ANCHORED. An unanchored /[eE][+-]?$/ never checked what came BEFORE the 'e',
+// so it was true for every word ending in one — "none", "true", "Temperature",
+// "apple" — and for junk like "1e5e". Where a keystroke gate runs first
+// (isPartialNumericInput, in the Geometry/Materials forms and the weather cell)
+// that never showed. Add Column's Default Value has no such gate, so typing
+// "none" there suppressed "Default value must be a number." and left the user
+// with a disabled Add button and nothing on screen explaining why.
+//
+// The mantissa is \d* rather than \d+ on purpose: a bare "e" (or ".e", "-e") is
+// reachable by deleting the digits out of "1e" mid-edit, and it was suppressed
+// before this change. Requiring a digit would start flashing an error on that
+// keystroke — the exact thing this function exists to prevent — so the anchor
+// only narrows the cases that caused the bug.
+const INCOMPLETE_EXPONENT_PATTERN = /^[+-]?(?:\d*(?:\.\d*)?|\.\d*)[eE][+-]?$/
+
+export function isIncompleteExponent(value: string): boolean {
+  return INCOMPLETE_EXPONENT_PATTERN.test(value.trim())
+}
+
+/**
+ * Blur-time DISPLAY normalizer: "1e3" -> "1000".
+ *
+ * Value-preserving — it changes how a number is WRITTEN, never what it is. Every
+ * validator in the app funnels through Number(), and Number("1e3") is
+ * Number("1000"), so a field's error state is identical before and after. That's
+ * what lets callers expand on blur without re-deriving validation.
+ *
+ * Deliberately does NOT truncate. truncateToMaxDecimals would turn "1e-9" into
+ * "0.0000000" — silently zero; expanding alone keeps the value intact so
+ * exceedsMaxDecimals can flag it instead.
+ *
+ * Anything that isn't a COMPLETE number in exponent form comes back untouched:
+ * plain decimals, "", "-", and the in-progress states above. So partial input
+ * still fails on commit exactly as it does today.
+ */
+export function expandForDisplay(value: string): string {
+  const trimmed = value.trim()
+  if (!/[eE]/.test(trimmed) || !NUMERIC_PATTERN.test(trimmed)) return value
+  return expandScientificNotation(trimmed) ?? value
+}
+
+/**
+ * How many digits land after the decimal point once the exponent is applied,
+ * derived from the exponent ARITHMETIC rather than from the expanded string.
+ *
+ * Counting the expansion cannot answer for "1e-999999999" — that is a billion
+ * decimal places, and building the string throws RangeError. Formik's validate
+ * has no .catch, so the rejection froze Add Column's error map and left the Add
+ * button enabled but inert. This returns 999999999 without allocating anything.
+ *
+ * It also keeps two opposite failures apart. "1e-999999999" genuinely exceeds the
+ * limit; "1e1000000" has ZERO decimals and is merely out of range. A "couldn't
+ * expand it, call it too many decimals" fallback would put "Only 7 decimal places
+ * supported" under a value with none — and because the callers below are blocking
+ * keystroke gates, refuse the character too.
+ *
+ * Exact, not an approximation: for every value that CAN be expanded it agrees
+ * with counting the expanded fraction digit for digit.
+ */
+function decimalPlaces(normalized: string): number {
+  const match = /^[+-]?(?:\d+(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(normalized)
+  if (!match) return 0
+  const fraction = `${match[1] ?? ''}${match[2] ?? ''}`
+  const exponent = match[3] === undefined ? 0 : Number(match[3])
+  return Math.max(0, fraction.length - exponent)
+}
+
 /**
  * Check if a string value contains more than the maximum allowed decimal places
  * @param value - String representation of a number
@@ -76,20 +191,7 @@ function expandScientificNotation(value: string): string | null {
 export function exceedsMaxDecimals(value: string): boolean {
   const normalized = normalizeNumericInput(value)
   if (normalized == null || normalized === '' || normalized === '-') return false
-
-  const str = /[eE]/.test(normalized)
-    ? (expandScientificNotation(normalized) ?? normalized)
-    : normalized
-
-  // Extract decimal part - handle both regular decimals and scientific notation
-  const parts = str.split(/[eE]/)
-  const mainPart = parts[0]
-  const decimalMatch = /\.(\d+)/.exec(mainPart)
-
-  if (!decimalMatch) return false // No decimals
-
-  const decimals = decimalMatch[1]
-  return decimals.length > MAX_DECIMALS
+  return decimalPlaces(normalized) > MAX_DECIMALS
 }
 
 /**
@@ -100,16 +202,7 @@ export function exceedsMaxDecimals(value: string): boolean {
 export function getDecimalCount(value: string): number {
   const normalized = normalizeNumericInput(value)
   if (normalized == null || normalized === '') return 0
-
-  const str = /[eE]/.test(normalized)
-    ? (expandScientificNotation(normalized) ?? normalized)
-    : normalized
-  const parts = str.split(/[eE]/)
-  const mainPart = parts[0]
-  const decimalMatch = /\.(\d+)/.exec(mainPart)
-
-  if (!decimalMatch) return 0
-  return decimalMatch[1].length
+  return decimalPlaces(normalized)
 }
 
 /**

@@ -13,7 +13,12 @@ import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
-import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
+import {
+  exceedsMaxDecimals,
+  expandForDisplay,
+  isIncompleteExponent,
+  isPartialNumericInput
+} from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
@@ -267,7 +272,16 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
       // is what the reducer snapshots into savedValues and the detail cache — so
       // leaving texture_toggle 'true' here made the card reopen on the Texture tab
       // showing the old image, with the colour just saved nowhere in sight.
-      if (readVisualisationMode(card.values) === 'texture') {
+      //
+      // Written UNCONDITIONALLY (idempotent — a no-op once it already reads
+      // 'false'), mirroring handleSaveTexture's unconditional 'true'. It used to be
+      // gated on the card currently being in TEXTURE mode, so a card that had never
+      // been in texture mode never got the key at all: the payload asserted
+      // texture_toggle: false while the draft said nothing, and the write-through
+      // cache — built from the draft's savedValues — came out missing it. The
+      // read-only material popup on a ground reads that cache first, so it showed a
+      // BLANK "Texture Toggle" until a reload rebuilt the cache from the GET.
+      if ((card.values[TEXTURE_TOGGLE_PROPERTY] ?? '') !== 'false') {
         dispatch(setParameterGroupValue(card.id, TEXTURE_TOGGLE_PROPERTY, 'false'))
       }
       if ((card.values[TEXTURE_PROPERTY] ?? '') !== '') {
@@ -699,6 +713,9 @@ function ParameterGroupCard({
     prevTypeId.current = group.typeId
     setPending(null) // revokes the object URL
     setPendingLibrary(null)
+    // These values are gone, so the "user typed here" flags that went with them
+    // are too — otherwise the first blur on the new type expands an untouched field.
+    editedRef.current = {}
     setVisualMode(readVisualisationMode(group.values))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.typeId])
@@ -729,6 +746,14 @@ function ParameterGroupCard({
   // value and clear on blur. Mirrors the Geometry form.
   const [touched, setTouched] = React.useState<Record<string, boolean>>({})
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
+  // Properties whose value is mid-exponent ("1e", "1e-") because the user is
+  // typing one. Set on keystroke, cleared on blur — see handleFieldChange.
+  const [typingExponent, setTypingExponent] = React.useState<Record<string, boolean>>({})
+  // See ObjectPropertiesForm: blur expands only a field the user typed into, so a
+  // focus/blur on an untouched "1e-7" can neither flip the card dirty nor run the
+  // reducer's saveError clear. A ref because nothing renders from it and a stale
+  // render closure is the bug it prevents.
+  const editedRef = React.useRef<Record<string, boolean>>({})
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
   // Collapse state for the named parameter groups (e.g. "Farquhar model"), keyed
   // by group name. Groups default open (matching the mockup); a name lands here
@@ -771,7 +796,15 @@ function ParameterGroupCard({
   ): void => {
     const numeric = datatype === 'float' || datatype === 'integer'
     if (numeric) {
-      if (!isPartialNumericInput(next) || (datatype === 'integer' && next.includes('.'))) {
+      // See ObjectPropertiesForm.handleFieldChange: reject a '.' the keystroke
+      // ADDS, not any value that happens to contain one. The latter made a box
+      // holding an expanded "0.001" impossible to edit — every further keystroke
+      // still contained the '.' and so was refused in turn.
+      const current = group.values[property] ?? ''
+      if (
+        !isPartialNumericInput(next) ||
+        (datatype === 'integer' && next.includes('.') && !current.includes('.'))
+      ) {
         setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
         return
       }
@@ -781,12 +814,38 @@ function ParameterGroupCard({
       }
     }
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
+    // "1e" / "1e-" is unfinished, not invalid — hold fieldError back until the
+    // typing run ends, or an error flashes between pressing 'e' and the exponent
+    // digit (Number("1e") is NaN). Cleared on blur, so a field LEFT at "1e" still
+    // reports. Same lifecycle as guardErrors.
+    setTypingExponent((t) => ({ ...t, [property]: isIncompleteExponent(next) }))
+    editedRef.current[property] = true
     onChangeValue(property, next)
   }
 
   const handleFieldBlur = (property: string): void => {
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
     setTouched((t) => ({ ...t, [property]: true }))
+    setTypingExponent((t) => ({ ...t, [property]: false }))
+    // See ObjectPropertiesForm.handleFieldBlur: show exponent notation in the
+    // decimal form it will be stored as ("1e3" -> "1000"), so toNativeProperties'
+    // Number() no longer changes the text under the user on the next load.
+    // Bypasses handleFieldChange, which would re-enter the guard chain on text
+    // that is already known-numeric. Non-numeric datatypes are untouched:
+    // expandForDisplay returns anything without a complete exponent unchanged, so
+    // a file path or enum value can never be rewritten here.
+    //
+    // Only for a field the user actually typed into — an untouched focus/blur must
+    // not flip the card dirty, and must not run onChangeValue at all, because the
+    // reducer clears saveError on it and would wipe a save-failure message the
+    // user is still reading.
+    const wasEdited = editedRef.current[property] === true
+    editedRef.current[property] = false
+    if (!wasEdited) return
+
+    const raw = group.values[property] ?? ''
+    const expanded = expandForDisplay(raw)
+    if (expanded !== raw) onChangeValue(property, expanded)
   }
 
   // The error shown under a field: the transient keystroke guard if any, else the
@@ -796,6 +855,9 @@ function ParameterGroupCard({
     const guard = guardErrors[field.property]
     if (guard != null) return guard
     const value = group.values[field.property] ?? ''
+    // Unfinished, not wrong. Requires the flag AND the value to agree a number is
+    // mid-typing, so a flag that outlived its typing run can't hide a real error.
+    if (typingExponent[field.property] && isIncompleteExponent(value)) return undefined
     if (touched[field.property] === true || value !== '') {
       return validateMaterialFieldValue(field, value) ?? undefined
     }
@@ -1077,9 +1139,15 @@ function ParameterGroupCard({
             <button
               type="button"
               disabled={!canSave}
-              // Don't steal focus from a highlighted library tile on mousedown —
-              // that would blur it and drop the pick before this click reads it.
-              onMouseDown={(e) => e.preventDefault()}
+              // Deliberately NO onMouseDown preventDefault here. It used to guard a
+              // highlighted library tile from being blurred before the click read it,
+              // but the pick is now dropped by a pointer press OUTSIDE the card (see
+              // the mousedown effect above) — and Save is inside it, so `contains`
+              // already protects it. Meanwhile suppressing the focus transfer meant
+              // clicking Save never blurred the focused input, so handleFieldBlur was
+              // skipped: a decimal-limit guard error stayed on screen after saving, and
+              // "1e3" was saved while still reading "1e3" (only to come back as "1000"
+              // on the next load — the very thing blur expansion exists to prevent).
               onClick={onSave}
               // Same look as the Geometry ground Save: a faded-blue disabled state.
               className="flex h-9 w-full items-center justify-center gap-1 rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"

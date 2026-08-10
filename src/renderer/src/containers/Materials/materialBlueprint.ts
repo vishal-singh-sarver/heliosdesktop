@@ -61,6 +61,20 @@ const VISUALISATION_SIGNATURE_PROPERTY = 'color_r'
 // saved. (The Texture layer, added later, will require texture_file instead.)
 export const VISUALISATION_CUSTOM_PROPERTIES = ['color_r', 'color_g', 'color_b', 'opacity'] as const
 
+// Short labels for the colour channels. The catalog sends no `label` for these,
+// so the generic fallback humanizes the property name into "Color R" / "Color G"
+// / "Color B" — three words where the editable form's ColorPicker says simply
+// "R", "G", "B". The read-only popup exists to mirror that form, so it reads the
+// same here. Keyed by property, so a catalog that later ships real labels wins
+// over neither: this map is consulted only where it's explicitly applied.
+//
+// Opacity is deliberately absent — "Opacity" already reads correctly.
+export const VISUALISATION_CHANNEL_LABELS: Record<string, string> = {
+  color_r: 'R',
+  color_g: 'G',
+  color_b: 'B'
+}
+
 // The backend's mode discriminator, a boolean inside the member's `properties`:
 // false = colour (RGB + opacity), true = texture (texture_file). Required on every
 // Visualiser write.

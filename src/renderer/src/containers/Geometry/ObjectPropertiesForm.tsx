@@ -6,17 +6,23 @@ import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Tooltip from '@renderer/components/Tooltip'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
-import { loadMaterialDetailRequested } from 'containers/Materials/actions'
+import { createMaterialRequested, loadMaterialDetailRequested } from 'containers/Materials/actions'
 import {
   isVisualisationFieldSet,
   resolveParameterGroups,
   TEXTURE_PROPERTY,
   TEXTURE_TOGGLE_PROPERTY,
-  visibleParameterGroups
+  visibleParameterGroups,
+  VISUALISATION_CHANNEL_LABELS
 } from 'containers/Materials/materialBlueprint'
 import materialsReducer from 'containers/Materials/reducer'
 import materialsSaga from 'containers/Materials/saga'
-import { selectAllMaterials, selectMaterialDetailsById } from 'containers/Materials/selectors'
+import {
+  selectAllMaterials,
+  selectCreateStatus as selectMaterialCreateStatus,
+  selectMaterialDetailsById,
+  selectNextMaterialName
+} from 'containers/Materials/selectors'
 import { textureServeUrl } from 'containers/Materials/service'
 import {
   selectActiveProjectId,
@@ -28,7 +34,12 @@ import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
-import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidation'
+import {
+  exceedsMaxDecimals,
+  expandForDisplay,
+  isIncompleteExponent,
+  isPartialNumericInput
+} from 'utils/decimalValidation'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
@@ -266,7 +277,10 @@ export function buildMaterialSections(
               const value = asDisplay(member.properties[f.property])
               return {
                 property: f.property,
-                label: f.label,
+                // The Visualiser's colour channels read "R"/"G"/"B" here, matching
+                // the editable form's ColorPicker. Every other field keeps the
+                // label the catalog gave it (or the humanized property name).
+                label: VISUALISATION_CHANNEL_LABELS[f.property] ?? f.label,
                 // A file property (the Radiation spectral data file) holds a
                 // stored PATH; show the file's name, the same thing the Materials
                 // editor shows once it's uploaded and the same treatment the
@@ -334,6 +348,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Materials container. Reused so a picked material's properties resolve even
   // before the ground is saved.
   const materialDetailsById = useSelector(selectMaterialDetailsById)
+  // Backing for the picker's "+ Add New Material": the next free Material.NNN (the
+  // same label the left panel's +Add Materials would use) and the create's status,
+  // which guards a double click while the POST is in flight.
+  const nextMaterialName = useSelector(selectNextMaterialName)
+  const materialCreateStatus = useSelector(selectMaterialCreateStatus)
 
   // The material currently in the Materials section — the GET baseline, or the
   // one picked this session that replaced it. A ground carries at most one, so
@@ -451,6 +470,24 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // so this lives in local state — not the Redux value — and clears on blur.
   // Mirrors Weather's CellInput guard, reusing the same decimalValidation util.
   const [guardErrors, setGuardErrors] = React.useState<Record<string, string | null>>({})
+  // Properties whose value is mid-exponent ("1e", "1e-") because the user is
+  // typing one. Set on keystroke, cleared on blur — see handleFieldChange.
+  const [typingExponent, setTypingExponent] = React.useState<Record<string, boolean>>({})
+  // Properties the user has actually typed into since their last blur. Blur
+  // rewrites only a value the user touched: a stored 0.0000001 loads back as
+  // "1e-7" (String() switches to exponent form below 1e-6, and 7 decimals is
+  // exactly what the keystroke guard permits), and expanding that on a focus/blur
+  // with NO typing rewrote the raw string sameValues compares — lighting Save up
+  // on a form nobody had edited.
+  //
+  // A ref, not state: nothing renders from it, and reading a stale render closure
+  // is precisely the bug it exists to prevent.
+  const editedRef = React.useRef<Record<string, boolean>>({})
+  // A different object is a different set of values; a flag left over from the
+  // last one would expand an untouched field on this one exactly once.
+  React.useEffect(() => {
+    editedRef.current = {}
+  }, [draft.objectId])
   // Why a Texture Repeat currently reads differently from what the user last
   // typed, keyed by property — set whenever the value is snapped to a valid one
   // (on commit, on a resolution change, or on open). Cleared as soon as that
@@ -473,6 +510,18 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     setMaterialPopupOpen(true)
   }
   const closeMaterialPopup = (): void => setMaterialPopupOpen(false)
+
+  // "+ Add New Material", from the picker's empty state — the same thing +Add
+  // Materials does in the left panel: create an empty Material.NNN group on the
+  // backend. The Materials reducer inserts the row, opens it as a draft and bumps
+  // its open-nonce, which is what makes the right panel swap this form for the
+  // material Properties form. Nothing material-specific is duplicated here.
+  // The popup closes first: this form is about to be swapped out from under it.
+  const handleAddNewMaterial = (): void => {
+    if (materialCreateStatus === 'creating') return
+    closeMaterialPopup()
+    dispatch(createMaterialRequested(nextMaterialName))
+  }
 
   // x from the panel's left edge, y from the Select button: the popup sits on the
   // strip beside the panel, level with the button. Re-read on every measure pass,
@@ -691,9 +740,16 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     }
 
     // Integer fields (e.g. Ground Resolution) take no decimal point — reject the
-    // '.' keystroke itself rather than letting "1." commit and silently normalize
-    // to a whole number that passes validation.
-    if (isInteger && next.includes('.')) {
+    // '.' KEYSTROKE itself rather than letting "1." commit and silently normalize
+    // to a whole number that passes validation. Which means rejecting a value that
+    // ADDS a '.' the field does not already have: testing next.includes('.') alone
+    // rejected the whole VALUE, so once a '.' was in there (blur expanding a typed
+    // "1e-3" into "0.001" put it there) every later keystroke still contained it
+    // and was refused too — the box could not be edited, or even backspaced,
+    // without a select-all. validateFieldValue still flags the '.'-bearing value
+    // during render, so Save stays disabled the whole time it is there.
+    const current = draft.values[property] ?? ''
+    if (isInteger && next.includes('.') && !current.includes('.')) {
       setGuardErrors((g) => ({ ...g, [property]: messages.inputNotSupported }))
       return
     }
@@ -703,6 +759,16 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
       return
     }
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
+    // "1e" / "1e-" is a number the user is still typing, not a broken one. Record
+    // it so the render below can hold the "This input is not supported" message
+    // back until the run ends — Number("1e") is NaN, so without this an error
+    // flashes the moment 'e' is pressed and clears on the very next keystroke.
+    // Only ever set from a keystroke, and cleared on blur, so a field genuinely
+    // LEFT at "1e" still reports (same lifecycle as guardErrors).
+    setTypingExponent((t) => ({ ...t, [property]: isIncompleteExponent(next) }))
+    // This keystroke reached the draft, so the blur that ends this run has
+    // something of the user's to normalize. See editedRef.
+    editedRef.current[property] = true
     // A snap note describes the value on screen; editing that value makes it
     // stale, so it goes on the first keystroke rather than lingering over a
     // number it no longer explains. Writing an explicit null (rather than
@@ -719,10 +785,42 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // Drop the transient guard error; committed-value validation takes over.
     if (guardErrors[property]) setGuardErrors((g) => ({ ...g, [property]: null }))
     setTouched((t) => ({ ...t, [property]: true }))
+    // The typing run is over: an unfinished "1e" now gets its error. Runs before
+    // the repeat branch below returns — a Texture Repeat left mid-exponent has to
+    // surface its error too, and an early return here would suppress it forever.
+    setTypingExponent((t) => ({ ...t, [property]: false }))
+    // Show scientific notation in the decimal form it will actually be stored as,
+    // so "1e3" reads back as "1000" HERE rather than silently on the next load
+    // (the saga's Number() already converts it on save — the user just never saw
+    // it happen). Expansion is value-preserving, so the error computed during
+    // render is the same before and after.
+    //
+    // Writes the value directly rather than going through handleFieldChange, which
+    // would re-enter the guard chain on text that is already known-numeric.
+    //
+    // …but ONLY for a field the user actually typed into this time round. A
+    // focus/blur with no typing has to leave the value byte-identical, or the
+    // raw-string dirty check reads the rewrite as an edit. There is nothing to
+    // preview for a value that has already been through the backend anyway.
+    const wasEdited = editedRef.current[property] === true
+    editedRef.current[property] = false
+    if (wasEdited) {
+      const raw = draft.values[property] ?? ''
+      const expanded = expandForDisplay(raw)
+      if (expanded !== raw) dispatch(setDraftValue(property, expanded))
+    }
+
     // Blur is the commit point for the divisor rule, in both directions:
     // leaving a REPEAT snaps it, and leaving a RESOLUTION re-checks the repeat
     // that depends on it. Per keystroke would break both — typing "10" passes
     // through "1", which would drag the repeat down to 1 mid-edit.
+    //
+    // Runs AFTER the expansion above, and unconditionally — not under `wasEdited`.
+    // A repeat commits on every blur, typed into or not; that is what snaps a
+    // value the backend stored but the engine would floor. commitRepeat reads the
+    // pre-expansion string from this render's closure, but it goes through
+    // Number(), so "1e1" and "10" snap identically — and it writes String(snapped),
+    // which is already the expanded form.
     if (isRepeatProperty(property)) {
       commitRepeat(property)
       return
@@ -849,7 +947,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           // role="status" (polite) because the value changed without the user
           // asking — a screen reader gets told what happened, the same as a
           // sighted user reading the line.
-          <p key={n.label} role="status" className="text-[12px] leading-[16px] text-amber-400">
+          <p key={n.label} role="status" className="text-[12px] leading-[16px] text-[#B54708]">
             {/* Prefixed with the axis whenever the row has both R and C, so the
                 note names the field it belongs to. */}
             {fields.length > 1 ? `${n.label}: ${n.note}` : n.note}
@@ -966,9 +1064,13 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 // validation (the rejected character never reached the value),
                 // which in turn falls back to a cross-field dependency error
                 // (texture > resolution) when the value itself is otherwise valid.
+                // Suppressed only while the flag AND the value agree a number is
+                // mid-typing, so a flag that somehow outlived its typing run can
+                // never hide a real error on its own.
+                const midExponent = typingExponent[field.property] && isIncompleteExponent(value)
                 const error =
                   guardErrors[field.property] ??
-                  (showError
+                  (showError && !midExponent
                     ? (validateFieldValue(field, value) ?? depErrors[field.property] ?? null)
                     : null)
                 // Texture Repeat keeps the same numeric input, plus a stepper
@@ -1138,7 +1240,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 selected: selectedMaterialIds.has(m.id)
               }))}
               onSelectMaterial={handleSelectMaterial}
-              onAddNewMaterial={() => {}}
+              onAddNewMaterial={handleAddNewMaterial}
               // Shrink rather than overflow when the window is too short for the
               // popup's designed height; its list scrolls to absorb it.
               maxHeight={available.height}

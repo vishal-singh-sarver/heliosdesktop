@@ -1,3 +1,4 @@
+import { selectMaterialsById } from 'containers/Materials/selectors'
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -408,9 +409,17 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
     // two. Unlike the right-panel form this commits immediately — a drop has no
     // Save step to defer to.
     const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
+    // A material DELETED from the library was already unassigned server-side by
+    // the eager reconcile, but the node keeps its (now dangling) group id — the
+    // viewport's refetch gate reads it to find the objects the delete restyled,
+    // so the reducer deliberately leaves it. DELETEing that assignment 404s, and
+    // `all` fails fast: the drop aborted before a single POST, so a ground whose
+    // material had been deleted could never take a new one. Displace only groups
+    // the library still has.
+    const libraryById = (yield select(selectMaterialsById)) as Record<string, unknown>
     const displaced = objectIds.flatMap((objectId) =>
       (nodesById[objectId]?.materialGroupIds ?? [])
-        .filter((id) => id !== groupId)
+        .filter((id) => id !== groupId && libraryById[id])
         .map((oldGroupId) => ({ objectId, oldGroupId }))
     )
     if (displaced.length) {

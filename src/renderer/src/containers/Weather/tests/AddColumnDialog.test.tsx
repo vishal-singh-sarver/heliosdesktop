@@ -382,3 +382,92 @@ describe('<AddColumnDialog />', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 })
+
+// Regressions from the scientific-notation change. This is the one numeric field
+// in the app with no isPartialNumericInput keystroke gate in front of it, so a
+// suppression bug here is visible in a way it is not anywhere else.
+describe('<AddColumnDialog /> — Default Value and scientific notation', () => {
+  beforeEach(() => {
+    mockDispatch.mockClear()
+    resetSel()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('keeps the "must be a number" error visible for text that ends in e', async () => {
+    render(<AddColumnDialog isOpen onClose={vi.fn()} />)
+    // The exponent-suppression check used to fire for any value ending in 'e',
+    // so the error vanished on the final keystroke of an ordinary word and the
+    // user was left with a disabled Add and nothing explaining why.
+    for (const wrong of ['none', 'true', 'Temperature']) {
+      fireEvent.change(screen.getByTestId('input-defaultValue'), { target: { value: wrong } })
+      await waitFor(() =>
+        expect(screen.getByTestId('error-defaultValue')).toHaveTextContent(
+          'Default value must be a number.'
+        )
+      )
+    }
+  })
+
+  it('still holds the error back while a real exponent is mid-typing', async () => {
+    render(<AddColumnDialog isOpen onClose={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('input-defaultValue'), { target: { value: '1e' } })
+    await waitFor(() => expect(screen.queryByTestId('error-defaultValue')).not.toBeInTheDocument())
+    // …and reports it once the run ends with the value still unfinished.
+    fireEvent.blur(screen.getByTestId('input-defaultValue'))
+    await waitFor(() =>
+      expect(screen.getByTestId('error-defaultValue')).toHaveTextContent(
+        'Default value must be a number.'
+      )
+    )
+  })
+
+  it('reports an absurd exponent instead of freezing validation', async () => {
+    render(<AddColumnDialog isOpen onClose={vi.fn()} />)
+    // Expanding this threw RangeError out of formik's validate, which has no
+    // .catch — the error map froze and Add rendered enabled but inert.
+    fireEvent.change(screen.getByTestId('input-defaultValue'), {
+      target: { value: '1e-999999999' }
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('error-defaultValue')).toHaveTextContent(
+        'Default value can have at most 7 decimal places.'
+      )
+    )
+    expect(within(screen.getByTestId('dialog')).getByText('Add')).toBeDisabled()
+  })
+
+  it('dispatches the expanded default value when the field was never blurred', async () => {
+    render(<AddColumnDialog isOpen onClose={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('input-parameterName'), { target: { value: 'X' } })
+    fireEvent.change(screen.getByTestId('input-defaultValue'), { target: { value: '1e3' } })
+    // No blur — this is the Enter-to-submit route, where Dialog reaches the button
+    // through .click() and the input never loses focus. It used to dispatch the
+    // raw "1e3" while a mouse click dispatched "1000", writing different data into
+    // the new column's cells for the same keystrokes.
+    fireEvent.click(within(screen.getByTestId('dialog')).getByText('Add'))
+
+    await waitFor(() =>
+      expect(mockDispatch).toHaveBeenCalledWith(
+        projectActions.addColumnRequested('proj-1', 'scen-1', 'X', null, null, '1000')
+      )
+    )
+  })
+
+  it('strips the leading zeros an expansion would otherwise carry', async () => {
+    render(<AddColumnDialog isOpen onClose={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('input-parameterName'), { target: { value: 'X' } })
+    // "0.12e3" expanded to "0120" — the right number written the wrong way, and
+    // written verbatim into every cell of the new column.
+    fireEvent.change(screen.getByTestId('input-defaultValue'), { target: { value: '0.12e3' } })
+    fireEvent.click(within(screen.getByTestId('dialog')).getByText('Add'))
+
+    await waitFor(() =>
+      expect(mockDispatch).toHaveBeenCalledWith(
+        projectActions.addColumnRequested('proj-1', 'scen-1', 'X', null, null, '120')
+      )
+    )
+  })
+})

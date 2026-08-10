@@ -108,7 +108,11 @@ export default function MaterialPropertiesPopup({
       // app-no-drag: this popup is portaled to <body> and can sit over the app's
       // `-webkit-app-region: drag` title bar, which otherwise swallows pointer
       // events — without this the close button (and every control) would go dead.
-      className="app-no-drag flex w-[370px] flex-col overflow-hidden rounded-[8px] bg-[#313131] shadow-lg"
+      // #202020 — the right panel's own colour, so the popup body reads as an
+      // extension of the panel it opens from. Its per-type sections below sit on
+      // #313131, the app's raised-surface shade, so they read as cards ON the body
+      // rather than merging into it.
+      className="app-no-drag flex w-[370px] flex-col overflow-hidden rounded-[8px] bg-[#202020] shadow-lg"
     >
       {/* Header — the material's name, pinned while the body scrolls. */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-app-border px-4 py-3">
@@ -144,7 +148,7 @@ export default function MaterialPropertiesPopup({
             return (
               <div
                 key={section.typeId}
-                className="mb-2 rounded-[5px] border border-app-border last:mb-0"
+                className="mb-2 rounded-[5px] border border-app-border bg-[#313131] last:mb-0"
               >
                 {/* The whole header is the expand/collapse target. */}
                 <button
