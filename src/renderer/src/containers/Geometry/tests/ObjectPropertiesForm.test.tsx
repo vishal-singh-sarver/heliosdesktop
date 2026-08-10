@@ -16,8 +16,8 @@ import { Provider } from 'react-redux'
 import { combineReducers, createStore, type Reducer } from 'redux'
 import type { InjectableStore } from 'store/configureStore'
 import snackbarReducer, {
-  initialState as snackbarInitialState,
-  selectSnackbarStack
+  selectSnackbarStack,
+  initialState as snackbarInitialState
 } from 'store/snackbarReducer'
 import * as actions from '../actions'
 import { ObjectPropertiesForm } from '../ObjectPropertiesForm'
@@ -118,6 +118,10 @@ function makeStore(
     materialBaseline?: string[]
     materialTypes?: MaterialTypeDef[]
     materialDetails?: MaterialGroupDetail[]
+    // Property values the draft OPENS with — the equivalent of a saved ground
+    // loaded by GET. Defaults to {} (every field blank), which is what the
+    // create-form tests below rely on.
+    draftValues?: Record<string, string>
   } = {}
 ): InjectableStore {
   // Cast mirrors store/reducers.ts — combineReducers' inferred type doesn't
@@ -155,7 +159,7 @@ function makeStore(
         objectTypeId: 1,
         objectName: 'Ground',
         name: 'Ground.001',
-        values: {},
+        values: opts.draftValues ?? {},
         materials: opts.draftMaterials ?? [],
         materialBaseline:
           opts.materialBaseline ?? (opts.draftMaterials ?? []).map((m) => m.groupId),
@@ -369,7 +373,9 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
       // a deletion in another session. Without the fallback the row renders blank.
       const { container } = render(
         <Provider
-          store={makeStore([], { draftMaterials: [{ groupId: 'm1', name: 'Cotton', stale: true }] })}
+          store={makeStore([], {
+            draftMaterials: [{ groupId: 'm1', name: 'Cotton', stale: true }]
+          })}
         >
           <ObjectPropertiesForm />
         </Provider>
@@ -1060,6 +1066,249 @@ describe('<ObjectPropertiesForm /> — Save gating', () => {
     expect(saveButton()).toBeDisabled()
     expect(fieldInput(container, 'texture_y')).toHaveAttribute('aria-invalid', 'true')
     expect(fieldInput(container, 'texture_x')).toHaveAttribute('aria-invalid', 'false')
+  })
+})
+
+// A Texture Repeat only tiles cleanly when it DIVIDES the ground's subdivision
+// count, so the valid values for a resolution of 10 are 1, 2, 5 and 10 — not
+// every integer up to 10. The field stays a plain numeric input; the constraint
+// shows up as a stepper that walks the valid values, helper text listing them,
+// and a snap-with-explanation whenever a committed value isn't one of them.
+describe('<ObjectPropertiesForm /> — texture repeat divisor constraint', () => {
+  // A saved 10×10 ground with a valid 5×5 repeat — the starting point for the
+  // editing cases below.
+  const TEN_BY_TEN = {
+    length: '5',
+    breadth: '5',
+    resolution_x: '10',
+    resolution_y: '10',
+    texture_x: '5',
+    texture_y: '5'
+  }
+
+  const openWith = (values: Record<string, string>): HTMLElement =>
+    render(
+      <Provider store={makeStore([], { draftValues: values })}>
+        <ObjectPropertiesForm />
+      </Provider>
+    ).container
+
+  const stepper = (direction: 'Next' | 'Previous', axis: string): HTMLButtonElement =>
+    screen.getByRole('button', { name: `${direction} valid ${axis} value` }) as HTMLButtonElement
+
+  it('snaps a committed value down to the nearest valid one and says why', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    // 9 doesn't divide 10 — the engine would floor it to 5, so the form does too.
+    fireEvent.change(input, { target: { value: '9' } })
+    fireEvent.blur(input)
+
+    expect(input.value).toBe('5')
+    expect(screen.getByText('R: Snapped to 5 (must divide Resolution of 10)')).toBeInTheDocument()
+  })
+
+  it('does NOT snap while the user is still typing', () => {
+    // Across 21 subdivisions the valid values are 1, 3, 7 and 21 — so "2", the
+    // first character of the perfectly valid 21, is itself invalid. Snapping per
+    // keystroke would rewrite it to 1 and make 21 impossible to type.
+    const container = openWith({ ...TEN_BY_TEN, resolution_x: '21', texture_x: '' })
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.change(input, { target: { value: '2' } })
+    expect(input.value).toBe('2')
+
+    fireEvent.change(input, { target: { value: '21' } })
+    fireEvent.blur(input)
+    expect(input.value).toBe('21')
+  })
+
+  it('commits on Enter without waiting for a blur', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.change(input, { target: { value: '7' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(input.value).toBe('5')
+  })
+
+  it('snaps UP to the minimum below the range, citing the floor rather than the rule', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    // Nothing valid exists under 1, so "snap down to the nearest valid value"
+    // has nowhere to go — 0 lands on the minimum instead, with its own copy.
+    fireEvent.change(input, { target: { value: '0' } })
+    fireEvent.blur(input)
+
+    expect(input.value).toBe('1')
+    expect(screen.getByText('R: Snapped to 1 (minimum is 1)')).toBeInTheDocument()
+  })
+
+  it('clamps a value above the subdivision count down to the count', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.change(input, { target: { value: '40' } })
+    fireEvent.blur(input)
+
+    expect(input.value).toBe('10')
+  })
+
+  it('normalises an already-valid value without claiming it snapped', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.change(input, { target: { value: '05' } })
+    fireEvent.blur(input)
+
+    expect(input.value).toBe('5')
+    // 05 IS 5 — nothing was corrected, so there is nothing to explain.
+    expect(screen.queryByText(/Snapped to/)).not.toBeInTheDocument()
+  })
+
+  it('steps to the next and previous VALID value, not by one', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.click(stepper('Next', 'R'))
+    expect(input.value).toBe('10')
+
+    fireEvent.click(stepper('Previous', 'R'))
+    expect(input.value).toBe('5')
+    fireEvent.click(stepper('Previous', 'R'))
+    expect(input.value).toBe('2')
+  })
+
+  it('disables each stepper at its end of the range', () => {
+    const container = openWith({ ...TEN_BY_TEN, texture_x: '10' })
+
+    expect(stepper('Next', 'R')).toBeDisabled()
+    expect(stepper('Previous', 'R')).toBeEnabled()
+
+    fireEvent.change(fieldInput(container, 'texture_x'), { target: { value: '1' } })
+    expect(stepper('Next', 'R')).toBeEnabled()
+    expect(stepper('Previous', 'R')).toBeDisabled()
+  })
+
+  it('moves between valid values with the up and down arrow keys', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input.value).toBe('2')
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(input.value).toBe('5')
+  })
+
+  it('steps out of a half-typed invalid value to the same place a blur would', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.change(input, { target: { value: '7' } })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+
+    expect(input.value).toBe('5')
+  })
+
+  it('shows no standing list of valid values — the stepper is what discovers them', () => {
+    openWith(TEN_BY_TEN)
+    expect(screen.queryByText(/[Vv]alid:/)).not.toBeInTheDocument()
+    // Including the non-square case, where the two axes have different sets.
+    openWith({ ...TEN_BY_TEN, resolution_y: '12', texture_y: '6' })
+    expect(screen.queryByText(/[Vv]alid:/)).not.toBeInTheDocument()
+  })
+
+  it('re-checks the repeat when the subdivision count changes, and reports the adjustment', () => {
+    const container = openWith(TEN_BY_TEN)
+    const resolution = fieldInput(container, 'resolution_x')
+
+    // 5 divided 10 but doesn't divide 8. The user didn't touch the repeat, so
+    // the note names the old value too — otherwise there's no way to tell what
+    // it was.
+    fireEvent.change(resolution, { target: { value: '8' } })
+    fireEvent.blur(resolution)
+
+    expect(fieldInput(container, 'texture_x').value).toBe('4')
+    expect(
+      screen.getByText('R: Repeat adjusted 5 → 4 (must divide Resolution of 8)')
+    ).toBeInTheDocument()
+    // The other axis is untouched — the rule is per-axis.
+    expect(fieldInput(container, 'texture_y').value).toBe('5')
+  })
+
+  it('does not drag the repeat down while a resolution is mid-edit', () => {
+    const container = openWith(TEN_BY_TEN)
+    const resolution = fieldInput(container, 'resolution_x')
+
+    // Typing "20" passes through "2"; re-checking on that would snap the repeat
+    // to 2 before the user finished the number.
+    fireEvent.change(resolution, { target: { value: '2' } })
+    fireEvent.change(resolution, { target: { value: '20' } })
+    expect(fieldInput(container, 'texture_x').value).toBe('5')
+
+    fireEvent.blur(resolution)
+    // 5 still divides 20, so nothing moves.
+    expect(fieldInput(container, 'texture_x').value).toBe('5')
+  })
+
+  it('drops the note as soon as the field is edited again', () => {
+    const container = openWith(TEN_BY_TEN)
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.change(input, { target: { value: '9' } })
+    fireEvent.blur(input)
+    expect(screen.getByText('R: Snapped to 5 (must divide Resolution of 10)')).toBeInTheDocument()
+
+    // The note explains the value on screen; a new keystroke makes it stale.
+    fireEvent.change(input, { target: { value: '2' } })
+    expect(screen.queryByText(/Snapped to/)).not.toBeInTheDocument()
+  })
+
+  it('corrects a stored repeat its resolution never allowed, on open', () => {
+    // A ground saved before this rule (or by another client): 3 never divided
+    // 10, and the engine would have been using 2 all along.
+    const container = openWith({ ...TEN_BY_TEN, texture_x: '3' })
+
+    expect(fieldInput(container, 'texture_x').value).toBe('2')
+    expect(
+      screen.getByText('R: Repeat adjusted 3 → 2 (must divide Resolution of 10)')
+    ).toBeInTheDocument()
+
+    // Tabbing through the field doesn't erase the explanation — only changing
+    // the value does, whether by typing or by stepping.
+    fireEvent.blur(fieldInput(container, 'texture_x'))
+    expect(screen.getByText(/Repeat adjusted 3 → 2/)).toBeInTheDocument()
+
+    fireEvent.click(stepper('Next', 'R'))
+    expect(fieldInput(container, 'texture_x').value).toBe('5')
+    expect(screen.queryByText(/Repeat adjusted/)).not.toBeInTheDocument()
+  })
+
+  it('leaves the field alone while there is no usable resolution', () => {
+    // A blank resolution means the valid set is unknown — not that nothing is
+    // valid. Guessing here would replace the user's value with a number the
+    // constraint can't justify.
+    const container = openWith({ ...TEN_BY_TEN, resolution_x: '', texture_x: '7' })
+    const input = fieldInput(container, 'texture_x')
+
+    expect(stepper('Next', 'R')).toBeDisabled()
+    expect(stepper('Previous', 'R')).toBeDisabled()
+
+    fireEvent.blur(input)
+    expect(input.value).toBe('7')
+    expect(screen.queryByText(/Snapped to/)).not.toBeInTheDocument()
+  })
+
+  it('leaves a blank repeat as a Required error rather than inventing a value', () => {
+    const container = openWith({ ...TEN_BY_TEN, texture_x: '' })
+    const input = fieldInput(container, 'texture_x')
+
+    fireEvent.blur(input)
+    expect(input.value).toBe('')
+    expect(screen.getByLabelText('Validation error: Required Field')).toBeInTheDocument()
   })
 })
 
