@@ -51,6 +51,8 @@ import {
   readVisualisationMode,
   resolveParameterGroups,
   SPECTRAL_DATA_PROPERTY,
+  spectrumChoicesIncomplete,
+  spectrumGroup,
   TEXTURE_PROPERTY,
   TEXTURE_TOGGLE_PROPERTY,
   toNativeProperties,
@@ -63,6 +65,7 @@ import {
   type ResolvedMaterialField,
   type VisualisationMode
 } from './materialBlueprint'
+import { fetchSpectralLabels } from './service'
 import MaterialRadiationEditor from './MaterialRadiationEditor'
 import MaterialVisualisationEditor from './MaterialVisualisationEditor'
 import messages from './messages'
@@ -319,6 +322,13 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   // The Radiation spectral-data upload — reuses the shared file-upload path, keyed
   // by the 'spectral_data' property. Unlike a texture, the endpoint only attaches
   // to an EXISTING member, so the editor gates this on the card already being saved.
+  // Stable across renders: the card runs this inside an effect keyed on the
+  // callback, so an inline arrow would re-fire the lookup on every render.
+  const handleFetchSpectralLabels = React.useCallback(
+    (path: string) => fetchSpectralLabels(draft.groupId, path),
+    [draft.groupId]
+  )
+
   const handleUploadSpectral = (card: MaterialParameterGroup, file: File): void => {
     const type = materialTypes.find((t) => t.id === card.typeId)
     if (!type) return
@@ -499,6 +509,10 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             onSaveRadiation={() => handleSaveRadiation(group)}
             onUploadTexture={(file) => handleUploadTexture(group, file)}
             onUploadSpectral={(file) => handleUploadSpectral(group, file)}
+            // The card owns WHEN to ask (its own spectral path changed); the
+            // library group id stays here, where every other service call reads
+            // it from.
+            onFetchSpectralLabels={handleFetchSpectralLabels}
             onDelete={() => handleDeleteGroup(group)}
           />
         ))}
@@ -632,6 +646,7 @@ function ParameterGroupCard({
   onSaveRadiation,
   onUploadTexture,
   onUploadSpectral,
+  onFetchSpectralLabels,
   onDelete
 }: {
   group: MaterialParameterGroup
@@ -652,6 +667,10 @@ function ParameterGroupCard({
   onSaveRadiation: () => void
   onUploadTexture: (file: File) => void
   onUploadSpectral: (file: File) => void
+  // The spectra held in a STORED spectral file, so the two spectrum choices can
+  // be pickers rather than free text. A promise rather than a value because the
+  // file is on the backend — the card asks whenever its stored path changes.
+  onFetchSpectralLabels: (path: string) => Promise<string[]>
   onDelete: () => void
 }): React.JSX.Element {
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
@@ -673,6 +692,48 @@ function ParameterGroupCard({
   // there rather than mirrored into local state.
   const isRadiation = parameterGroups.some((pg) => isRadiationFieldSet(pg.fields))
   const applySpectral = readApplySpectral(group.values)
+
+  // The gated group carrying the spectrum choices. Rendered INSIDE the Radiation
+  // editor (under the file they describe) rather than as a section of its own
+  // after the band grid, so it is filtered out of the group map below.
+  //
+  // Resolved from the VISIBLE groups, not from all of them: the group is gated on
+  // the spectral toggle, and handing its fields to the editor unconditionally
+  // would draw the pickers in manual mode — the exact gating the backend put in
+  // the catalog to prevent.
+  const spectrumPg = spectrumGroup(visibleParameterGroups(parameterGroups, group.values))
+  // The spectra the stored file holds — the picker's options. Refetched whenever
+  // the stored path changes, which covers both reopening a saved material and a
+  // fresh upload landing its path in the values.
+  const spectralPath = (group.values[SPECTRAL_DATA_PROPERTY] ?? '').trim()
+  // Keyed by the path they came from, so a list is only ever offered for the file
+  // currently stored. That also means no clearing when the path empties — the key
+  // stops matching and the options fall away on their own, which keeps this
+  // effect free of a synchronous setState.
+  const [loadedLabels, setLoadedLabels] = React.useState<{ path: string; labels: string[] }>({
+    path: '',
+    labels: []
+  })
+  React.useEffect(() => {
+    if (spectralPath === '') return
+    // Ignore a response that arrives after the path moved on (a quick re-upload),
+    // so a stale list can't overwrite the current one.
+    let cancelled = false
+    onFetchSpectralLabels(spectralPath)
+      .then((labels) => {
+        if (!cancelled) setLoadedLabels({ path: spectralPath, labels })
+      })
+      .catch(() => {
+        // Unreadable or missing file: nothing to offer. The stored choice is still
+        // shown by the picker itself, so a failed lookup never blanks a value the
+        // user already made.
+        if (!cancelled) setLoadedLabels({ path: spectralPath, labels: [] })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [spectralPath, onFetchSpectralLabels])
+  const spectrumLabels = loadedLabels.path === spectralPath ? loadedLabels.labels : []
   const [visualMode, setVisualMode] = React.useState<VisualisationMode>(() =>
     readVisualisationMode(group.values)
   )
@@ -932,8 +993,20 @@ function ParameterGroupCard({
   const bandSumInvalid =
     isRadiation && !applySpectral && radiationBandSumViolations(group.values).size > 0
 
+  // Spectral mode with a file uploaded needs BOTH spectrum choices made. A label
+  // the engine can't resolve doesn't error — it falls back to a reflectivity of 0
+  // and blackens the surface for the whole run — so an unmade choice is stopped
+  // here. Uses the ordinary disabled Save look; nothing new on screen.
+  const spectrumIncomplete = spectrumChoicesIncomplete(parameterGroups, group.values)
+
   const canSave =
-    group.typeId != null && modeComplete && dirty && !saving && !uploading && !bandSumInvalid
+    group.typeId != null &&
+    modeComplete &&
+    dirty &&
+    !saving &&
+    !uploading &&
+    !bandSumInvalid &&
+    !spectrumIncomplete
 
   // Route Save by type/mode. The Visualiser's texture mode persists the chosen path
   // (uploaded or library); Radiation builds its banded/spectral payload; every other
@@ -1038,7 +1111,13 @@ function ParameterGroupCard({
                 first (no header), then each conditional group whose selector is
                 currently satisfied. The Visualiser's top-level set (recognised by
                 its colour channels) renders the colour editor instead of a grid. */}
-            {visibleParameterGroups(parameterGroups, group.values).map((pg) =>
+            {visibleParameterGroups(parameterGroups, group.values)
+              // The spectrum choices describe the spectral FILE, so the Radiation
+              // editor renders them directly under it. Left in this map they would
+              // land in a section of their own, below the whole band grid, far
+              // from the control they belong to.
+              .filter((pg) => pg !== spectrumPg)
+              .map((pg) =>
               isVisualisationFieldSet(pg.fields) ? (
                 <MaterialVisualisationEditor
                   key="__visualiser"
@@ -1090,6 +1169,8 @@ function ParameterGroupCard({
                   uploadError={group.uploadError}
                   onPickSpectralFile={onUploadSpectral}
                   onClearSpectral={() => onChangeValue(SPECTRAL_DATA_PROPERTY, '')}
+                  spectrumFields={spectrumPg?.fields ?? []}
+                  spectrumLabels={spectrumLabels}
                 />
               ) : pg.name == null ? (
                 <MaterialFieldGrid

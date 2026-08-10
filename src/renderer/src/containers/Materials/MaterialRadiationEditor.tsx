@@ -70,7 +70,9 @@ export function MaterialRadiationEditor({
   uploading,
   uploadError,
   onPickSpectralFile,
-  onClearSpectral
+  onClearSpectral,
+  spectrumFields,
+  spectrumLabels
 }: {
   // Namespaces the field inputs' ids/names so two cards don't collide.
   idPrefix: number
@@ -88,13 +90,23 @@ export function MaterialRadiationEditor({
   uploadError?: string | null
   onPickSpectralFile: (file: File) => void
   onClearSpectral: () => void
+  // The catalog's gated "Spectrum" group — which curve inside the uploaded file
+  // this material uses. Passed in rather than picked out of `fields` because the
+  // backend decides what belongs to the spectral side; whatever arrives here is
+  // rendered, so a third choice added later needs no change in this file.
+  spectrumFields: ResolvedMaterialField[]
+  // The labels the stored file actually holds — the pickers' options. Empty until
+  // a file is uploaded, or when it can't be read.
+  spectrumLabels: string[]
 }): React.JSX.Element {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const [fileError, setFileError] = React.useState<string | null>(null)
 
+  // Both the top-level fields and the spectrum group's, so renderField can draw
+  // either by property name.
   const fieldByProp = React.useMemo(
-    () => new Map(fields.map((f) => [f.property, f])),
-    [fields]
+    () => new Map([...fields, ...spectrumFields].map((f) => [f.property, f])),
+    [fields, spectrumFields]
   )
 
   // Band fields whose reflectivity + transmissivity + emissivity exceed 1 — every
@@ -110,7 +122,7 @@ export function MaterialRadiationEditor({
   // PAR"); `disabled` greys a band while a spectral file supersedes it.
   const renderField = (
     property: string,
-    opts?: { label?: string; disabled?: boolean }
+    opts?: { label?: string; disabled?: boolean; options?: { value: string; label: string }[] }
   ): React.JSX.Element | null => {
     const field = fieldByProp.get(property)
     if (!field) return null
@@ -146,10 +158,14 @@ export function MaterialRadiationEditor({
           errorAsTooltip: true,
           disabled,
           inputClassName: BAND_INPUT_CLASSES,
+          // An explicit list wins: the spectrum choices are catalog `string`
+          // fields whose options aren't in the catalog at all — they come from
+          // the labels inside the material's own uploaded file.
           options:
-            field.datatype === 'enum' && field.enumValues
+            opts?.options ??
+            (field.datatype === 'enum' && field.enumValues
               ? field.enumValues.map((v) => ({ value: v, label: v }))
-              : undefined,
+              : undefined),
           onChange: (e) => onFieldChange(property, e.target.value, field.datatype),
           onBlur: () => onFieldBlur(property)
         }}
@@ -301,6 +317,23 @@ export function MaterialRadiationEditor({
             {fileError ?? uploadError}
           </p>
         )}
+
+        {/* Which spectrum inside the file this material uses. Directly under the
+            file because that is what they index into, and greyed with the toggle
+            like the file row itself — off, they describe a file that isn't in use.
+            Options are the file's own labels, so a value the engine can't resolve
+            can't be chosen: an unresolvable label doesn't error, it falls back to
+            a reflectivity of 0 and blackens the surface for the whole run.
+            A stored choice missing from the current file is added to the list so
+            it stays visible and selected rather than silently blanking. */}
+        {spectrumFields.map((field) => {
+          const current = values[field.property] ?? ''
+          const options = spectrumLabels.map((l) => ({ value: l, label: l }))
+          if (current !== '' && !spectrumLabels.includes(current)) {
+            options.unshift({ value: current, label: messages.spectrumLabelMissing(current) })
+          }
+          return renderField(field.property, { disabled: !applySpectral, options })
+        })}
       </div>
 
       {/* PAR / NIR / LW per-band optics. Disabled while a spectral file supersedes

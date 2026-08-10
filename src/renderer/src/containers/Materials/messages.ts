@@ -83,6 +83,12 @@ const messages = {
   // Radiation bespoke editor (spectral toggle + per-band optics).
   applySpectralData: 'Apply spectral data',
   spectralDataFile: 'Spectral Data File',
+  // A spectrum choice that the CURRENT file doesn't contain — the file was
+  // swapped after the choice was made. Kept in the list (and selected) rather
+  // than dropped, so the user sees what is stored and that it no longer resolves;
+  // silently blanking it would leave the engine falling back to a reflectivity of
+  // 0 with nothing on screen having said so.
+  spectrumLabelMissing: (label: string) => `${label} — not in this file`,
   spectralUploadButton: 'Upload Here',
   spectralUploading: 'Uploading…',
   spectralFileTypeError: 'Only XML files are allowed',

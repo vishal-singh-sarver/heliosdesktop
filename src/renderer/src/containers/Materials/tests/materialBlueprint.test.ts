@@ -9,6 +9,8 @@ import {
   radiationHeaderFields,
   readApplySpectral,
   resolveParameterGroups,
+  spectrumChoicesIncomplete,
+  spectrumGroup,
   toNativeProperties,
   toRadiationProperties,
   toVisualisationProperties,
@@ -208,9 +210,11 @@ const radiation: MaterialTypeDef = {
   id: 1,
   materialtype: 'Radiation',
   description: '',
+  // surface_temperature and the broadband trio are deliberately absent: the
+  // catalog stops returning them (migration 031 tags them 'computed' /
+  // 'superseded'), so a fixture carrying them tests a response the backend can
+  // no longer produce.
   properties: [
-    { ...numeric('surface_temperature', 1), min: 223, max: 5000 },
-    numeric('reflectivity', 2),
     {
       property_type_id: 19,
       property: 'specular_exponent',
@@ -270,7 +274,38 @@ const radiation: MaterialTypeDef = {
     numeric('transmissivity_LW', 17),
     numeric('emissivity_LW', 18)
   ],
-  groups: []
+  // The spectrum choices arrive as a SELECTOR-GATED group (migration 031), not as
+  // top-level properties: use_radiation_bands === 'false' is spectral mode, so
+  // the group is live only then. That gating is what keeps them out of the
+  // header grid and out of the manual-mode payload without any rule here.
+  groups: [
+    {
+      name: 'Spectrum',
+      selector_property: 'use_radiation_bands',
+      selector_value: 'false',
+      display_order: 19,
+      properties: [
+        {
+          property_type_id: 40,
+          property: 'reflectivity_spectrum',
+          description: '',
+          datatype: 'string',
+          min: null,
+          max: null,
+          display_order: 19
+        },
+        {
+          property_type_id: 41,
+          property: 'transmissivity_spectrum',
+          description: '',
+          datatype: 'string',
+          min: null,
+          max: null,
+          display_order: 20
+        }
+      ]
+    }
+  ]
 }
 
 describe('Radiation editor helpers', () => {
@@ -281,12 +316,91 @@ describe('Radiation editor helpers', () => {
     expect(isRadiationFieldSet(resolveParameterGroups([photosynthesis])[0].fields)).toBe(false)
   })
 
-  it('header fields are only specular + heat transfer (bands + hidden props excluded)', () => {
+  it('header fields are only specular + heat transfer (bands + controls excluded)', () => {
     expect(radiationHeaderFields(fields).map((f) => f.property)).toEqual([
       'specular_exponent',
       'specular_scale',
       'two_sided_heat_transfer'
     ])
+  })
+
+  it('keeps the spectrum choices out of the header — they are a gated group', () => {
+    // Not filtered by name: they are simply not top-level, because the backend
+    // put them in a group. Nothing in the frontend mentions them.
+    const header = radiationHeaderFields(fields).map((f) => f.property)
+    expect(header).not.toContain('reflectivity_spectrum')
+    expect(header).not.toContain('transmissivity_spectrum')
+  })
+
+  it('finds the spectrum group by its selector, not by property name', () => {
+    const groups = resolveParameterGroups([radiation])
+    const group = spectrumGroup(groups)
+    expect(group?.name).toBe('Spectrum')
+    expect(group?.fields.map((f) => f.property)).toEqual([
+      'reflectivity_spectrum',
+      'transmissivity_spectrum'
+    ])
+    // A type with no such group — nothing to find, and no crash.
+    expect(spectrumGroup(resolveParameterGroups([photosynthesis]))).toBeUndefined()
+  })
+})
+
+// Spectral mode with a file uploaded requires BOTH spectrum choices before Save.
+// A label the engine can't resolve doesn't error — RadiationModel falls back to a
+// reflectivity of 0 and blackens the surface for the whole run — so an unmade
+// choice is caught here instead.
+describe('spectrumChoicesIncomplete', () => {
+  const groups = resolveParameterGroups([radiation])
+  const spectral = {
+    use_radiation_bands: 'false',
+    spectral_data: 'uploads/leaf.xml',
+    reflectivity_spectrum: 'leaf_r',
+    transmissivity_spectrum: 'leaf_t'
+  }
+
+  it('passes once both choices are made', () => {
+    expect(spectrumChoicesIncomplete(groups, spectral)).toBe(false)
+  })
+
+  it('blocks while either choice is missing', () => {
+    expect(spectrumChoicesIncomplete(groups, { ...spectral, reflectivity_spectrum: '' })).toBe(true)
+    expect(spectrumChoicesIncomplete(groups, { ...spectral, transmissivity_spectrum: '' })).toBe(
+      true
+    )
+    // Whitespace is not a choice.
+    expect(spectrumChoicesIncomplete(groups, { ...spectral, reflectivity_spectrum: '  ' })).toBe(
+      true
+    )
+  })
+
+  it('does not block in manual mode — the choices are not sent at all there', () => {
+    expect(
+      spectrumChoicesIncomplete(groups, {
+        ...spectral,
+        use_radiation_bands: 'true',
+        reflectivity_spectrum: '',
+        transmissivity_spectrum: ''
+      })
+    ).toBe(false)
+  })
+
+  it('does not block before a file is uploaded', () => {
+    // With no file there are no labels to choose from, so requiring a choice
+    // would disable Save with nothing the user could do to satisfy it.
+    expect(
+      spectrumChoicesIncomplete(groups, {
+        use_radiation_bands: 'false',
+        spectral_data: '',
+        reflectivity_spectrum: '',
+        transmissivity_spectrum: ''
+      })
+    ).toBe(false)
+  })
+
+  it('does not block a type that has no spectrum group', () => {
+    expect(spectrumChoicesIncomplete(resolveParameterGroups([photosynthesis]), spectral)).toBe(
+      false
+    )
   })
 
   it('reads "apply spectral data" as use_radiation_bands === false', () => {

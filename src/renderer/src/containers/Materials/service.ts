@@ -316,6 +316,30 @@ export function uploadSpectralFile(
     .then((res) => res.path)
 }
 
+// GET /library/groups/{id}/spectral/labels?path=… — the spectra a STORED spectral
+// file holds, each a <globaldata_vec2 label="…"> block. The upload returns only a
+// path, so once a material is saved and reopened this is the only way to know
+// what the two spectrum choices can be.
+//
+// Worth the round trip: a label that doesn't resolve does NOT fail loudly —
+// RadiationModel warns and falls back to a reflectivity of 0, blackening the
+// surface for the whole simulation. Picking from the file's own labels is what
+// stops a typo becoming a silently wrong run.
+//
+// No scenario param: the endpoint is read-only and session-scoped, unlike the
+// mutating group calls above.
+interface SpectralLabelsResponse {
+  labels?: string[]
+}
+
+export function fetchSpectralLabels(groupId: string, path: string): Promise<string[]> {
+  return api
+    .get<SpectralLabelsResponse>(
+      `${API_ROUTES.materials.groupSpectralLabels(groupId)}?path=${encodeURIComponent(path)}`
+    )
+    .then((res) => res.labels ?? [])
+}
+
 // DELETE /library/groups/{id}/files?path=… — remove an uploaded file from disk by
 // its stored path. Fired after a save drops the reference; the backend 409s while
 // the file is still referenced (e.g. another scenario's frozen snapshot), so the

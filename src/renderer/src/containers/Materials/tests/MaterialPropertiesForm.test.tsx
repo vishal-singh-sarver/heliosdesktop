@@ -32,7 +32,9 @@ vi.mock('../service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../service')>()),
   listDefaultTextures: async () => [
     { name: 'grass.png', url: '/api/materials/library/textures/serve?path=uploads/grass.png' }
-  ]
+  ],
+  // The spectra inside the stored file — what the two spectrum pickers offer.
+  fetchSpectralLabels: async () => ['leaf_reflectivity', 'leaf_transmissivity']
 }))
 
 const card = (id: number, over: Partial<MaterialParameterGroup> = {}): MaterialParameterGroup => ({
@@ -476,7 +478,39 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
       bandProp('transmissivity_LW', 17),
       bandProp('emissivity_LW', 18)
     ],
-    groups: []
+    // Which curve inside the uploaded file this material uses — a SELECTOR-GATED
+    // group (migration 031), live only while use_radiation_bands is 'false'
+    // ("Apply spectral data" ON).
+    groups: [
+      {
+        name: 'Spectrum',
+        selector_property: 'use_radiation_bands',
+        selector_value: 'false',
+        display_order: 19,
+        properties: [
+          {
+            property_type_id: 40,
+            property: 'reflectivity_spectrum',
+            label: 'Reflectivity Spectrum',
+            description: '',
+            datatype: 'string',
+            min: null,
+            max: null,
+            display_order: 19
+          },
+          {
+            property_type_id: 41,
+            property: 'transmissivity_spectrum',
+            label: 'Transmissivity Spectrum',
+            description: '',
+            datatype: 'string',
+            min: null,
+            max: null,
+            display_order: 20
+          }
+        ]
+      }
+    ]
   }
 
   it('renders the spectral toggle and per-band inputs, editable in manual mode', () => {
@@ -662,6 +696,114 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
       fireEvent.click(screen.getByRole('switch'))
       expect(screen.getByLabelText(messages.spectralRemove)).toBeEnabled()
     })
+  })
+
+  // The spectrum choices name which curve inside the uploaded file this material
+  // uses. A label the engine can't resolve does NOT error — RadiationModel warns
+  // and falls back to a reflectivity of 0, blackening the surface for the whole
+  // run — so they are pickers fed by the file's own labels, and both must be made
+  // before Save.
+  const spectralCard = (values: Record<string, string> = {}) =>
+    card(1, {
+      typeId: 1,
+      saved: true,
+      values: {
+        use_radiation_bands: 'false',
+        spectral_data: 'uploads/groups/12/leaf.xml',
+        ...values
+      },
+      savedValues: { use_radiation_bands: 'true' }
+    })
+
+  it('offers the spectrum choices as pickers of the file’s own labels', async () => {
+    render(
+      <Provider store={liveStoreWith([spectralCard()], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Both render (they are a gated group, shown because the toggle is on).
+    // getAllBy — FormField puts the text on the <label> AND an inner <span>.
+    expect(await screen.findAllByText('Reflectivity Spectrum')).not.toHaveLength(0)
+    expect(screen.getAllByText('Transmissivity Spectrum')).not.toHaveLength(0)
+    // …and they are pickers, not free-text boxes. FormField gives the control the
+    // field's name as its id, so this reaches past the two other comboboxes on
+    // the card without depending on their order.
+    const picker = document.getElementById('1-reflectivity_spectrum')
+    expect(picker).toHaveAttribute('role', 'combobox')
+
+    // Its options are the file's OWN labels — which is what stops a value the
+    // engine can't resolve from being chosen at all.
+    fireEvent.click(picker as HTMLElement)
+    expect(await screen.findAllByText('leaf_reflectivity')).not.toHaveLength(0)
+  })
+
+  it('blocks Save until both spectrum choices are made', async () => {
+    const { rerender } = render(
+      <Provider store={liveStoreWith([spectralCard()], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    await screen.findAllByText('Reflectivity Spectrum')
+    // Neither chosen → Save is simply disabled, the same faded look it already
+    // has whenever a card isn't saveable. No new cue.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Only one chosen → still blocked.
+    rerender(
+      <Provider
+        store={liveStoreWith(
+          [spectralCard({ reflectivity_spectrum: 'leaf_reflectivity' })],
+          [radiationType]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Both chosen → Save opens.
+    rerender(
+      <Provider
+        store={liveStoreWith(
+          [
+            spectralCard({
+              reflectivity_spectrum: 'leaf_reflectivity',
+              transmissivity_spectrum: 'leaf_transmissivity'
+            })
+          ],
+          [radiationType]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('does not show or require the spectrum choices in manual mode', () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [
+            card(1, {
+              typeId: 1,
+              saved: true,
+              values: { use_radiation_bands: 'true', reflectivity_PAR: '0.2' },
+              savedValues: { use_radiation_bands: 'false' }
+            })
+          ],
+          [radiationType]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // The group is gated on the selector, so it isn't rendered at all — and with
+    // nothing to choose, Save is not held back.
+    expect(screen.queryAllByText('Reflectivity Spectrum')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
   it('deletes the spectral file on a toggle-OFF (manual) save', () => {
