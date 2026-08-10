@@ -6,7 +6,7 @@ import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Tooltip from '@renderer/components/Tooltip'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
-import { loadMaterialDetailRequested } from 'containers/Materials/actions'
+import { createMaterialRequested, loadMaterialDetailRequested } from 'containers/Materials/actions'
 import {
   isVisualisationFieldSet,
   resolveParameterGroups,
@@ -17,7 +17,12 @@ import {
 } from 'containers/Materials/materialBlueprint'
 import materialsReducer from 'containers/Materials/reducer'
 import materialsSaga from 'containers/Materials/saga'
-import { selectAllMaterials, selectMaterialDetailsById } from 'containers/Materials/selectors'
+import {
+  selectAllMaterials,
+  selectCreateStatus as selectMaterialCreateStatus,
+  selectMaterialDetailsById,
+  selectNextMaterialName
+} from 'containers/Materials/selectors'
 import { textureServeUrl } from 'containers/Materials/service'
 import {
   selectActiveProjectId,
@@ -289,6 +294,11 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // Materials container. Reused so a picked material's properties resolve even
   // before the ground is saved.
   const materialDetailsById = useSelector(selectMaterialDetailsById)
+  // Backing for the picker's "+ Add New Material": the next free Material.NNN (the
+  // same label the left panel's +Add Materials would use) and the create's status,
+  // which guards a double click while the POST is in flight.
+  const nextMaterialName = useSelector(selectNextMaterialName)
+  const materialCreateStatus = useSelector(selectMaterialCreateStatus)
 
   // The material currently in the Materials section — the GET baseline, or the
   // one picked this session that replaced it. A ground carries at most one, so
@@ -415,6 +425,18 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     setMaterialPopupOpen(true)
   }
   const closeMaterialPopup = (): void => setMaterialPopupOpen(false)
+
+  // "+ Add New Material", from the picker's empty state — the same thing +Add
+  // Materials does in the left panel: create an empty Material.NNN group on the
+  // backend. The Materials reducer inserts the row, opens it as a draft and bumps
+  // its open-nonce, which is what makes the right panel swap this form for the
+  // material Properties form. Nothing material-specific is duplicated here.
+  // The popup closes first: this form is about to be swapped out from under it.
+  const handleAddNewMaterial = (): void => {
+    if (materialCreateStatus === 'creating') return
+    closeMaterialPopup()
+    dispatch(createMaterialRequested(nextMaterialName))
+  }
 
   // x from the panel's left edge, y from the Select button: the popup sits on the
   // strip beside the panel, level with the button. Re-read on every measure pass,
@@ -928,7 +950,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 selected: selectedMaterialIds.has(m.id)
               }))}
               onSelectMaterial={handleSelectMaterial}
-              onAddNewMaterial={() => {}}
+              onAddNewMaterial={handleAddNewMaterial}
               // Shrink rather than overflow when the window is too short for the
               // popup's designed height; its list scrolls to absorb it.
               maxHeight={available.height}

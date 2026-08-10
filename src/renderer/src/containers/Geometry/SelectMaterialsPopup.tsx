@@ -24,7 +24,9 @@ interface SelectMaterialsPopupProps {
   // owns the draft, decides what a click means (replace, confirm, or report that
   // the material is already assigned).
   onSelectMaterial: (material: { id: string; name: string }) => void
-  // "+ Add New Material" — dummy for now.
+  // "+ Add New Material", from the empty state below — the parent creates the
+  // material and opens it in the right-panel Properties form, the same as the
+  // left panel's +Add Materials.
   onAddNewMaterial: () => void
   // Cap from the surrounding AnchoredPopup: the room left beside the panel. A
   // short window shrinks the popup instead of pushing it past the viewport edge;
