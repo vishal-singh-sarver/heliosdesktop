@@ -64,12 +64,17 @@ function CellInput({
   // bound, the offending keystroke never reaches `draft`, so it stays out of
   // the redux validationError map.
   const [formatError, setFormatError] = React.useState<string | null>(null)
-  React.useEffect(() => {
+  // Re-sync the draft when the committed value changes underneath us. Adjusting
+  // state during render (rather than in an effect) is React's documented reset
+  // pattern: it re-renders immediately without flushing the stale draft to DOM.
+  const [lastSeenValue, setLastSeenValue] = React.useState(value)
+  if (lastSeenValue !== value) {
+    setLastSeenValue(value)
     setDraft(value)
     setDecimalValidationError(null)
     setGlobalBoundError(null)
     setFormatError(null)
-  }, [value])
+  }
 
   // Per-cell validation error pushed by handleCellBlur (manual edits), by
   // the updateColumnWorker saga (after data type / unit changes), and by

@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Installs the C++ build toolchain needed by backend-api/pyhelios/build_scripts/build_helios.py.
+  Installs the C++ build toolchain needed by helios-desktop-backend/pyhelios/build_scripts/build_helios.py.
 
 .DESCRIPTION
   Installs CMake, Visual Studio 2022 Build Tools (with C++ workload + Windows 11 SDK),
@@ -90,7 +90,7 @@ if ($ninja) {
 
 Write-Host ""
 Write-Host "Done. Open a NEW PowerShell window, then run:" -ForegroundColor Green
-Write-Host "  cd backend-api\pyhelios"
+Write-Host "  cd helios-desktop-backend\pyhelios"
 Write-Host "  python build_scripts\build_helios.py --nogpu"
 Write-Host "  cd .."
 Write-Host "  .\scripts\build_binary.ps1"

@@ -69,11 +69,31 @@ function WeatherToolbar({
     setIsAddRowsOpen(false)
   }
 
-  React.useEffect(() => {
+  // Close the confirm dialog when the clear finishes (loading→idle), matching
+  // the two dialogs above.
+  //
+  // This deliberately does NOT key off `importedFilename` going away. The
+  // dialog opens whenever `hasData` is true, which includes rows added
+  // manually with no import at all — in that case importedFilename is already
+  // null, never transitions, and the dialog could never close: the delete
+  // succeeded server-side while the confirm dialog hung open forever. (Cancel
+  // was unaffected because it closes directly, which is why only the confirm
+  // path failed.) `clearingImport` tracks the actual operation, so it covers
+  // both sources.
+  const clearFinished = useTransitionToFalse(clearingImport)
+  if (clearFinished && isDeleteDialogOpen) {
+    setIsDeleteDialogOpen(false)
+  }
+
+  // Keep the imported-file tracking so an import cleared elsewhere still
+  // dismisses a dialog this component left open.
+  const [lastSeenFilename, setLastSeenFilename] = React.useState(importedFilename)
+  if (lastSeenFilename !== importedFilename) {
+    setLastSeenFilename(importedFilename)
     if (!importedFilename) {
       setIsDeleteDialogOpen(false)
     }
-  }, [importedFilename, clearingImport])
+  }
 
   const handleRequestDeleteImportedFile = (): void => {
     if (!canDelete) return
@@ -137,6 +157,7 @@ function WeatherToolbar({
       <AddRowsDialog isOpen={isAddRowsOpen} onClose={() => setIsAddRowsOpen(false)} />
       <Dialog
         isOpen={isDeleteDialogOpen}
+        data-testid="delete-import-dialog"
         title={messages.deleteImport.dialogTitle}
         onClose={handleCancelDeleteImportedFile}
       >

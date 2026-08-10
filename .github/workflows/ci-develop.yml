@@ -13,30 +13,32 @@ jobs:
     runs-on: ubuntu-latest
     name: Lint Check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm install
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
       
-      # Lint rules check properly. If code has errors, it will print warnings cleanly.
+      # See ci-main.yml: no `|| echo` swallow. eslint fails only on errors
+      # (warnings never fail it), so the previous form reported real errors as a
+      # green build.
       - name: Lint Execution
-        run: npm run lint || echo "Lint warnings detected, please review logs for code standards."
+        run: npm run lint
 
   test-unit:
     runs-on: ubuntu-latest
     name: Unit Tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm install
@@ -57,11 +59,11 @@ jobs:
   #       os: [windows-2022, macos-latest, ubuntu-latest]
   #   runs-on: ${{ matrix.os }}
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v5
   #       with:
   #         submodules: recursive
   #         token: ${{ secrets.PAT }}
-  #     - uses: actions/setup-node@v4
+  #     - uses: actions/setup-node@v5
   #       with:
   #         node-version: 22
   #

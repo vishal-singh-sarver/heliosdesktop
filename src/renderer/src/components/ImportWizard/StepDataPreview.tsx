@@ -21,6 +21,7 @@ export default function StepDataPreview({
         <div>
           <label className="mb-2 block text-sm text-neutral-200">Delimiter</label>
           <Select
+            testId="dt-delimiter"
             value={isXml ? '__xml__' : parsed.delimiter}
             onChange={(v) => {
               if (v) onChangeDelimiter(v)
@@ -33,6 +34,7 @@ export default function StepDataPreview({
         <div>
           <label className="mb-2 block text-sm text-neutral-200">Header Lines to Skip</label>
           <TextInput
+            data-testid="dt-header-skip"
             type="number"
             min={0}
             value={isXml ? 0 : parsed.headerLinesToSkip}

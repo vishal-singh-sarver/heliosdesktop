@@ -138,7 +138,10 @@ export function ProjectScreen(): React.JSX.Element {
     onSubmit: () => {}
   })
 
-  const [utcOffset, setUtcOffset] = React.useState('')
+  // utc_offset is derived by the backend from latitude/longitude and rendered
+  // read-only, so it is computed straight off the project rather than mirrored
+  // into state — no effect can leave it stale after a PATCH.
+  const utcOffset = activeProject?.utc_offset ?? ''
 
   // Seed the header inputs from the project metadata once it lands. Re-seed
   // when the project id flips (so a switch to another project replaces the
@@ -159,15 +162,7 @@ export function ProjectScreen(): React.JSX.Element {
         longitude: String(activeProject.longitude)
       }
     })
-    setUtcOffset(activeProject.utc_offset)
   }, [activeProject])
-
-  // utc_offset is derived by the backend from latitude/longitude. Keep it
-  // synced even when the active project id stays the same after a PATCH.
-  React.useEffect(() => {
-    if (!activeProject) return
-    setUtcOffset(activeProject.utc_offset)
-  }, [activeProject?.utc_offset, activeProject])
 
   // Compute errors synchronously off the current values. Formik's own
   // `errors` map is updated asynchronously (microtask), which would lag

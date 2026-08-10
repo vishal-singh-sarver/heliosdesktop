@@ -167,7 +167,7 @@ const WeatherRow = React.memo(function WeatherRow({
 }: WeatherRowProps): React.JSX.Element {
   const checkValue: CellValue = checkColId != null ? (row[checkColId] ?? null) : null
   return (
-    <tr className="h-9 border-b border-app-border">
+    <tr data-testid={`weather-row-${rowId}`} className="h-9 border-b border-app-border">
       <td className="w-12 border-r border-app-border px-3 py-2">
         <input
           type="checkbox"
@@ -197,7 +197,11 @@ const WeatherRow = React.memo(function WeatherRow({
           ? 'border-r border-app-border outline outline-1 -outline-offset-1 outline-[#F04438]'
           : 'border-r border-app-border focus-within:outline focus-within:outline-1 focus-within:-outline-offset-1 focus-within:outline-blue-500/60'
         return (
-          <td key={colId} className={`${widthCls} h-9 ${borderCls}`}>
+          <td
+            key={colId}
+            data-testid={`weather-cell-${rowId}-${colId}`}
+            className={`${widthCls} h-9 ${borderCls}`}
+          >
             {readOnly ? (
               <span className="block truncate px-3" onMouseEnter={showFullTextOnHover}>
                 {display}
@@ -606,7 +610,8 @@ function WeatherTable(): React.JSX.Element {
                 return (
                   <th
                     key={colId}
-                    className={`${widthCls} ${alignCls} ${headerDivider} px-3 py-2 text-left font-bold text-neutral-300`}
+                    data-testid={`weather-header-${colId}`}
+                    className={`${widthCls} ${alignCls} ${headerDivider} px-3 py-2 text-left font-normal text-neutral-300`}
                   >
                     {managed ? (
                       <HeaderEditor
@@ -630,7 +635,8 @@ function WeatherTable(): React.JSX.Element {
                 )
               })}
               <th
-                className={`w-20 min-w-20 max-w-20 ${headerDivider} px-3 py-2 text-left align-middle font-bold text-neutral-300`}
+                data-testid="weather-header-action"
+                className={`w-20 min-w-20 max-w-20 ${headerDivider} px-3 py-2 text-left align-middle font-normal text-neutral-300`}
               >
                 Action
               </th>
@@ -681,6 +687,7 @@ function WeatherTable(): React.JSX.Element {
 
       <Dialog
         isOpen={pendingDeleteColumn !== null}
+        data-testid="delete-column-dialog"
         title={messages.deleteColumn.dialogTitle}
         onClose={handleCancelHeaderDelete}
       >
@@ -709,6 +716,7 @@ function WeatherTable(): React.JSX.Element {
 
       <Dialog
         isOpen={pendingDeleteRow !== null}
+        data-testid="delete-row-dialog"
         title={messages.deleteRow.dialogTitle}
         onClose={handleCancelRowDelete}
       >

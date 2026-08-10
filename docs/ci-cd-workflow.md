@@ -85,7 +85,7 @@ display name + notes carry the version.
 ## Conventions & secrets
 
 - **Submodules:** every build checks out with `submodules: recursive` and `token: ${{ secrets.PAT }}`.
-  The `backend-api` submodule uses a relative URL so CI auto-follows the repo's account — see
+  The `helios-desktop-backend` submodule uses a relative URL so CI auto-follows the repo's account — see
   [git-submodule-setup.md](git-submodule-setup.md).
 - **`.env`:** each job writes `VITE_BACKEND_URL=http://localhost:8000` before building.
 
@@ -93,7 +93,7 @@ display name + notes carry the version.
 
 | Secret | Required? | Used by | Purpose |
 |--------|-----------|---------|---------|
-| `PAT` | **Yes** | ci-develop, ci-main, ci-release, build-installers, backmerge-main | Checkout token that clones the **private `backend-api` submodule** (and its nested `pyhelios`). Without it, every build fails at checkout. |
+| `PAT` | **Yes** | ci-develop, ci-main, ci-release, build-installers, backmerge-main | Checkout token that clones the **private `helios-desktop-backend` submodule** (and its nested `pyhelios`). Without it, every build fails at checkout. |
 | `GITHUB_TOKEN` | Auto | publish-stable, build-installers, backmerge-main | Built-in token GitHub injects automatically — **nothing to create**. Creates GitHub Releases and deletes the rolling `QA-Release`. |
 | `BACKMERGE_PAT` | Only for backmerge | backmerge-main | Lets the auto back-merge job open PRs whose checks actually run (PRs opened with `GITHUB_TOKEN` don't trigger further workflows). |
 | `UPDATE_FEED_S3_ACCESS_KEY` / `UPDATE_FEED_S3_SECRET_KEY` | Optional | publish-*, emergency | S3 credentials for the update feed (publish steps are placeholders until set). |
@@ -103,7 +103,7 @@ display name + notes carry the version.
 
 ### The `PAT` secret (required)
 
-`PAT` is a **Personal Access Token** for a GitHub account that can read the `backend-api`
+`PAT` is a **Personal Access Token** for a GitHub account that can read the `helios-desktop-backend`
 repository. It is the one secret the pipeline cannot run without. The workflows check this repo
 out with `submodules: recursive`, and the built-in `GITHUB_TOKEN` is scoped to **only this
 repo** — it cannot clone a submodule that lives in a *different* (private) repository. `PAT`
@@ -115,7 +115,7 @@ supplies that cross-repo read access; if it is missing or lacks access, every jo
 1. On GitHub: **Settings → Developer settings → Personal access tokens**.
 2. Either kind works:
    - **Fine-grained token** (recommended): under **Repository access**, select both `helios_gui`
-     and `backend-api`, and grant **Contents: Read-only** (use Read/Write if the same token also
+     and `helios-desktop-backend`, and grant **Contents: Read-only** (use Read/Write if the same token also
      backs `BACKMERGE_PAT`, which additionally needs **Pull requests: Read/Write**). Set an
      expiry and calendar a renewal.
    - **Classic token**: enable the **`repo`** scope.
@@ -124,8 +124,8 @@ supplies that cross-repo read access; if it is missing or lacks access, every jo
 **Add it to the repo:** **Settings → Secrets and variables → Actions → New repository secret**,
 name it exactly **`PAT`**, paste the value, and save.
 
-> The token belongs to a *user account*, so that account must have access to `backend-api`. On a
-> fork, generate `PAT` from an account that can read *your* fork of `backend-api`.
+> The token belongs to a *user account*, so that account must have access to `helios-desktop-backend`. On a
+> fork, generate `PAT` from an account that can read *your* fork of `helios-desktop-backend`.
 
 ## Manual triggers
 
@@ -137,12 +137,12 @@ name it exactly **`PAT`**, paste the value, and save.
 
 To bring the pipeline up in a fresh repo (e.g. after forking to a new account):
 
-1. **Fork/create both repos under the same account.** Fork `backend-api` alongside `helios_gui`,
-   keeping the name `backend-api`. The submodule URL is relative, so CI resolves it to your
+1. **Fork/create both repos under the same account.** Fork `helios-desktop-backend` alongside `helios_gui`,
+   keeping the name `helios-desktop-backend`. The submodule URL is relative, so CI resolves it to your
    account automatically ([git-submodule-setup.md](git-submodule-setup.md)) — no `.gitmodules`
    edit needed.
 2. **Create the `PAT` secret** (see [The `PAT` secret](#the-pat-secret-required) above) from an
-   account that can read your `backend-api`. This is mandatory — nothing builds without it.
+   account that can read your `helios-desktop-backend`. This is mandatory — nothing builds without it.
 3. **(Optional) add the other secrets** you plan to use: `BACKMERGE_PAT` (a PAT with
    **Pull requests: Read/Write**) for the auto back-merge PRs; `UPDATE_FEED_*` /
    `SLACK_WEBHOOK_RELEASES` for the publish/feed jobs; the signing secrets for notarized

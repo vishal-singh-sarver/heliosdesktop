@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: release
 
@@ -42,7 +42,7 @@ jobs:
       # To fetch from another workflow (ci-release), use the dawidd6 action.
       #
       # - name: Download Packaged Installer Artifacts
-      #   uses: actions/download-artifact@v4
+      #   uses: actions/download-artifact@v5
       #   with:
       #     path: ./artifacts
 

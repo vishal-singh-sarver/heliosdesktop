@@ -117,7 +117,10 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
       : `${baseClassName} px-3`
 
   return (
-    <div className="block text-sm text-neutral-300">
+    <div
+      data-testid={`formfield-${restInputProps.name}`}
+      className="block text-sm text-neutral-300"
+    >
       <label
         htmlFor={restInputProps.name}
         className={`flex items-center gap-1${hideLabel ? ' sr-only' : ''}`}
@@ -139,7 +142,10 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
         // Our own dropdown rather than a native <select>: the OS anchors a
         // select's popup to the SELECTED option, so the list jumped around as
         // soon as anything but the first entry was chosen. See components/Select.
-        <div className="mt-1">
+        // The test id sits on the wrapper, not the control: Select renders a
+        // button (or a filter input) rather than a native <select>, so there is
+        // no single element that carries the old `input-<name>` contract.
+        <div data-testid={`input-${restInputProps.name}`} className="mt-1">
           <Select
             id={restInputProps.name}
             name={restInputProps.name}
@@ -185,6 +191,7 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
             ref={inputRef}
             {...restInputProps}
             id={restInputProps.name}
+            data-testid={`input-${restInputProps.name}`}
             type={type}
             placeholder={placeholder}
             disabled={disabled}
@@ -206,7 +213,12 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
       )}
 
       {inlineError && (
-        <p id={errorId} className="form-error-text mt-1" role="alert">
+        <p
+          id={errorId}
+          data-testid={`error-${restInputProps.name}`}
+          className="form-error-text mt-1"
+          role="alert"
+        >
           {error}
         </p>
       )}

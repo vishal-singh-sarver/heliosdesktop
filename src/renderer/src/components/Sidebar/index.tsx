@@ -10,7 +10,7 @@ interface SidebarProps {
 
 function Sidebar({ items, activeLabel, onSelect }: SidebarProps): React.JSX.Element {
   return (
-    <aside className="w-56 border-r border-app-border p-4">
+    <aside data-testid="sidebar" className="w-56 border-r border-app-border p-4">
       <nav className="flex flex-col gap-2">
         {items.map((item) => (
           <SidebarButton
@@ -19,6 +19,7 @@ function Sidebar({ items, activeLabel, onSelect }: SidebarProps): React.JSX.Elem
             icon={item.icon}
             isActive={item.label === activeLabel}
             onClick={() => onSelect(item)}
+            data-testid={`sidebar-${item.label}`}
           />
         ))}
       </nav>

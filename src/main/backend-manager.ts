@@ -5,6 +5,26 @@ import * as net from 'net'
 import * as path from 'path'
 import { setTimeout as delay } from 'timers/promises'
 
+/**
+ * True when ChromeDriver launched this app for e2e (it injects a temp
+ * --user-data-dir and a remote-debugging flag).
+ *
+ * Deliberately duplicated from the identical helper in index.ts rather than
+ * imported: index.ts already imports this module, so importing back would make
+ * the cycle main -> backend-manager -> main. It reads process.argv and nothing
+ * else, so there is no state to keep in sync - but if the detection ever needs
+ * to change, change BOTH.
+ */
+function isUnderTestAutomation(): boolean {
+  return process.argv.some(
+    (arg) =>
+      arg.startsWith('--user-data-dir') ||
+      arg.startsWith('--remote-debugging-port') ||
+      arg.startsWith('--remote-debugging-pipe') ||
+      arg === '--enable-automation'
+  )
+}
+
 // Probe ports starting at `start` and return the first one that bind succeeds on.
 // We try-bind on 127.0.0.1 instead of just checking /etc/services because another
 // process can be holding the port without it being a "well-known" binding.
@@ -39,7 +59,20 @@ export class BackendManager {
   //   - --onedir PyInstaller on first run: ~5-10s startup
   //   - Subsequent runs: ~0.5-2s startup
   //   - Slow systems: 30s provides adequate headroom without being too long
-  private readonly startupTimeoutMs = 30000
+  //
+  // Under e2e automation the budget is raised to 120s. SHIPPED BEHAVIOUR IS
+  // UNCHANGED - a user whose backend is genuinely broken still sees the error
+  // after 30s rather than waiting two minutes.
+  //
+  // Why: on CI run 30765040961 one of seven sessions took 32.4s to answer
+  // /health while the other six took 2.0-3.6s. Missing a 30s cap by 2.4s made
+  // the app quit before opening its window, so the spec died in `before all`
+  // with "Main window with #root never became available ... 0 window handles" -
+  // a failure that reads like Electron never launching, when in fact the
+  // PyInstaller sidecar was just slow to come up on a loaded runner. The poll
+  // returns as soon as /health answers, so a longer cap costs nothing on a
+  // healthy start; it only bounds how long a genuinely dead backend hangs.
+  private readonly startupTimeoutMs = isUnderTestAutomation() ? 120000 : 30000
 
   private getRuntimePaths() {
     const userDataDir = app.getPath('userData')

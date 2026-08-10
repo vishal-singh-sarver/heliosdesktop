@@ -1,0 +1,2316 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cimis_data>
+	<hourly_data>
+		<start_date>5/6/2026</start_date>
+		<end_date>5/13/2026</end_date>
+		<print_date>5/13/2026</print_date>
+		<unit>Metric</unit>
+		<station station_nbr="6" station_name="Davis" region="Sacramento Valley">
+			<date val="5/6/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.8</air_temp>
+				<rel_hum qc=" ">84</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">153</wind_dir>
+				<soil_temp qc=" ">17.4</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.5</air_temp>
+				<rel_hum qc=" ">85</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">154</wind_dir>
+				<soil_temp qc=" ">17.3</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.3</air_temp>
+				<rel_hum qc=" ">87</rel_hum>
+				<dew_point qc=" ">12.1</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">154</wind_dir>
+				<soil_temp qc=" ">17.2</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.2</air_temp>
+				<rel_hum qc=" ">87</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">155</wind_dir>
+				<soil_temp qc=" ">17.1</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">2.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.4</air_temp>
+				<rel_hum qc=" ">92</rel_hum>
+				<dew_point qc=" ">12.1</dew_point>
+				<wind_speed qc=" ">0.9</wind_speed>
+				<wind_dir qc=" ">130</wind_dir>
+				<soil_temp qc=" ">17.0</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0600">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">1.90</precip>
+				<solar_radiation qc=" ">15</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.2</air_temp>
+				<rel_hum qc=" ">94</rel_hum>
+				<dew_point qc=" ">12.3</dew_point>
+				<wind_speed qc=" ">0.7</wind_speed>
+				<wind_dir qc=" ">124</wind_dir>
+				<soil_temp qc=" ">16.8</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0700">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.10</precip>
+				<solar_radiation qc=" ">74</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">13.3</air_temp>
+				<rel_hum qc=" ">96</rel_hum>
+				<dew_point qc=" ">12.7</dew_point>
+				<wind_speed qc=" ">0.5</wind_speed>
+				<wind_dir qc=" ">162</wind_dir>
+				<soil_temp qc=" ">16.6</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0800">
+				<eto qc=" ">0.09</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">183</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">14.2</air_temp>
+				<rel_hum qc=" ">95</rel_hum>
+				<dew_point qc=" ">13.4</dew_point>
+				<wind_speed qc=" ">0.7</wind_speed>
+				<wind_dir qc=" ">182</wind_dir>
+				<soil_temp qc=" ">16.6</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="0900">
+				<eto qc=" ">0.18</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">341</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">16.0</air_temp>
+				<rel_hum qc=" ">88</rel_hum>
+				<dew_point qc=" ">13.9</dew_point>
+				<wind_speed qc=" ">0.8</wind_speed>
+				<wind_dir qc=" ">145</wind_dir>
+				<soil_temp qc=" ">16.7</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1000">
+				<eto qc=" ">0.34</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">546</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">18.6</air_temp>
+				<rel_hum qc=" ">76</rel_hum>
+				<dew_point qc=" ">14.3</dew_point>
+				<wind_speed qc=" ">0.9</wind_speed>
+				<wind_dir qc=" ">280</wind_dir>
+				<soil_temp qc=" ">16.9</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1100">
+				<eto qc=" ">0.43</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">643</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">19.9</air_temp>
+				<rel_hum qc=" ">69</rel_hum>
+				<dew_point qc=" ">14.0</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">321</wind_dir>
+				<soil_temp qc=" ">17.4</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1200">
+				<eto qc=" ">0.51</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">732</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">21.0</air_temp>
+				<rel_hum qc=" ">62</rel_hum>
+				<dew_point qc=" ">13.5</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">349</wind_dir>
+				<soil_temp qc=" ">18.0</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1300">
+				<eto qc=" ">0.64</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">925</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">21.8</air_temp>
+				<rel_hum qc=" ">61</rel_hum>
+				<dew_point qc=" ">13.9</dew_point>
+				<wind_speed qc=" ">2.2</wind_speed>
+				<wind_dir qc=" ">351</wind_dir>
+				<soil_temp qc=" ">18.6</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1400">
+				<eto qc=" ">0.61</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">884</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">22.6</air_temp>
+				<rel_hum qc=" ">60</rel_hum>
+				<dew_point qc=" ">14.5</dew_point>
+				<wind_speed qc=" ">2.3</wind_speed>
+				<wind_dir qc=" ">322</wind_dir>
+				<soil_temp qc=" ">19.2</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1500">
+				<eto qc=" ">0.53</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">788</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">23.0</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">14.4</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">335</wind_dir>
+				<soil_temp qc=" ">19.8</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1600">
+				<eto qc=" ">0.45</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">631</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">23.6</air_temp>
+				<rel_hum qc=" ">57</rel_hum>
+				<dew_point qc=" ">14.7</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">23</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1700">
+				<eto qc=" ">0.31</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">443</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">24.2</air_temp>
+				<rel_hum qc=" ">56</rel_hum>
+				<dew_point qc=" ">14.8</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">130</wind_dir>
+				<soil_temp qc=" ">20.3</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1800">
+				<eto qc=" ">0.18</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">217</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">24.0</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">15.3</dew_point>
+				<wind_speed qc=" ">2.4</wind_speed>
+				<wind_dir qc=" ">161</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="1900">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">24</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">21.7</air_temp>
+				<rel_hum qc=" ">67</rel_hum>
+				<dew_point qc=" ">15.4</dew_point>
+				<wind_speed qc=" ">2.9</wind_speed>
+				<wind_dir qc=" ">175</wind_dir>
+				<soil_temp qc=" ">20.1</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="2000">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">19.0</air_temp>
+				<rel_hum qc=" ">75</rel_hum>
+				<dew_point qc=" ">14.4</dew_point>
+				<wind_speed qc=" ">2.6</wind_speed>
+				<wind_dir qc=" ">164</wind_dir>
+				<soil_temp qc=" ">19.9</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="2100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">16.7</air_temp>
+				<rel_hum qc=" ">81</rel_hum>
+				<dew_point qc=" ">13.5</dew_point>
+				<wind_speed qc=" ">2.6</wind_speed>
+				<wind_dir qc=" ">161</wind_dir>
+				<soil_temp qc=" ">19.6</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="2200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">15.3</air_temp>
+				<rel_hum qc=" ">85</rel_hum>
+				<dew_point qc=" ">12.8</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">163</wind_dir>
+				<soil_temp qc=" ">19.3</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.4</air_temp>
+				<rel_hum qc=" ">87</rel_hum>
+				<dew_point qc=" ">12.3</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">152</wind_dir>
+				<soil_temp qc=" ">19.0</soil_temp>
+			</date>
+			<date val="5/6/2026" hour="2400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.6</air_temp>
+				<rel_hum qc=" ">90</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">141</wind_dir>
+				<soil_temp qc=" ">18.8</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.5</air_temp>
+				<rel_hum qc=" ">90</rel_hum>
+				<dew_point qc=" ">11.9</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">106</wind_dir>
+				<soil_temp qc=" ">18.5</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.0</air_temp>
+				<rel_hum qc=" ">91</rel_hum>
+				<dew_point qc=" ">11.6</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">117</wind_dir>
+				<soil_temp qc=" ">18.2</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.5</air_temp>
+				<rel_hum qc=" ">92</rel_hum>
+				<dew_point qc=" ">11.3</dew_point>
+				<wind_speed qc=" ">0.7</wind_speed>
+				<wind_dir qc=" ">133</wind_dir>
+				<soil_temp qc=" ">18.0</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.0</air_temp>
+				<rel_hum qc=" ">94</rel_hum>
+				<dew_point qc=" ">11.0</dew_point>
+				<wind_speed qc=" ">0.6</wind_speed>
+				<wind_dir qc=" ">154</wind_dir>
+				<soil_temp qc=" ">17.8</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">2.70</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">11.7</air_temp>
+				<rel_hum qc=" ">96</rel_hum>
+				<dew_point qc=" ">11.0</dew_point>
+				<wind_speed qc=" ">0.9</wind_speed>
+				<wind_dir qc=" ">130</wind_dir>
+				<soil_temp qc=" ">17.6</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0600">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">2.70</precip>
+				<solar_radiation qc=" ">48</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">11.7</air_temp>
+				<rel_hum qc=" ">97</rel_hum>
+				<dew_point qc=" ">11.3</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">169</wind_dir>
+				<soil_temp qc=" ">17.2</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0700">
+				<eto qc=" ">0.09</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">179</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">12.7</air_temp>
+				<rel_hum qc=" ">97</rel_hum>
+				<dew_point qc=" ">12.2</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">206</wind_dir>
+				<soil_temp qc=" ">16.8</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0800">
+				<eto qc=" ">0.22</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">414</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">14.8</air_temp>
+				<rel_hum qc=" ">92</rel_hum>
+				<dew_point qc=" ">13.5</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">226</wind_dir>
+				<soil_temp qc=" ">16.7</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="0900">
+				<eto qc=" ">0.36</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">608</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">17.3</air_temp>
+				<rel_hum qc=" ">82</rel_hum>
+				<dew_point qc=" ">14.1</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">242</wind_dir>
+				<soil_temp qc=" ">16.9</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1000">
+				<eto qc=" ">0.47</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">771</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">19.1</air_temp>
+				<rel_hum qc=" ">76</rel_hum>
+				<dew_point qc=" ">14.9</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">288</wind_dir>
+				<soil_temp qc=" ">17.4</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1100">
+				<eto qc=" ">0.59</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">890</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">21.0</air_temp>
+				<rel_hum qc=" ">71</rel_hum>
+				<dew_point qc=" ">15.5</dew_point>
+				<wind_speed qc=" ">2.3</wind_speed>
+				<wind_dir qc=" ">315</wind_dir>
+				<soil_temp qc=" ">18.1</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1200">
+				<eto qc=" ">0.66</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">955</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">22.8</air_temp>
+				<rel_hum qc=" ">67</rel_hum>
+				<dew_point qc=" ">16.4</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">334</wind_dir>
+				<soil_temp qc=" ">18.9</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1300">
+				<eto qc=" ">0.68</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">961</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">24.2</air_temp>
+				<rel_hum qc=" ">63</rel_hum>
+				<dew_point qc=" ">16.7</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">313</wind_dir>
+				<soil_temp qc=" ">19.7</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1400">
+				<eto qc=" ">0.65</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">907</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">25.7</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">16.7</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">325</wind_dir>
+				<soil_temp qc=" ">20.5</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1500">
+				<eto qc=" ">0.58</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">802</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">26.8</air_temp>
+				<rel_hum qc=" ">55</rel_hum>
+				<dew_point qc=" ">17.0</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">143</wind_dir>
+				<soil_temp qc=" ">21.2</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1600">
+				<eto qc=" ">0.46</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">648</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">27.8</air_temp>
+				<rel_hum qc=" ">53</rel_hum>
+				<dew_point qc=" ">17.2</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">160</wind_dir>
+				<soil_temp qc=" ">21.7</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1700">
+				<eto qc=" ">0.37</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">456</solar_radiation>
+				<vapor_pressure qc=" ">2.1</vapor_pressure>
+				<air_temp qc=" ">27.2</air_temp>
+				<rel_hum qc=" ">57</rel_hum>
+				<dew_point qc=" ">17.9</dew_point>
+				<wind_speed qc=" ">3.3</wind_speed>
+				<wind_dir qc=" ">187</wind_dir>
+				<soil_temp qc=" ">21.8</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1800">
+				<eto qc=" ">0.20</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">223</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">25.9</air_temp>
+				<rel_hum qc=" ">60</rel_hum>
+				<dew_point qc=" ">17.6</dew_point>
+				<wind_speed qc=" ">3.1</wind_speed>
+				<wind_dir qc=" ">175</wind_dir>
+				<soil_temp qc=" ">21.7</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="1900">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">22</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">23.2</air_temp>
+				<rel_hum qc=" ">67</rel_hum>
+				<dew_point qc=" ">16.7</dew_point>
+				<wind_speed qc=" ">2.7</wind_speed>
+				<wind_dir qc=" ">168</wind_dir>
+				<soil_temp qc=" ">21.5</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="2000">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">20.0</air_temp>
+				<rel_hum qc=" ">74</rel_hum>
+				<dew_point qc=" ">15.2</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">153</wind_dir>
+				<soil_temp qc=" ">21.2</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="2100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">17.9</air_temp>
+				<rel_hum qc=" ">79</rel_hum>
+				<dew_point qc=" ">14.3</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">167</wind_dir>
+				<soil_temp qc=" ">20.9</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="2200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">16.3</air_temp>
+				<rel_hum qc=" ">82</rel_hum>
+				<dew_point qc=" ">13.3</dew_point>
+				<wind_speed qc=" ">1.7</wind_speed>
+				<wind_dir qc=" ">158</wind_dir>
+				<soil_temp qc=" ">20.6</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.4</air_temp>
+				<rel_hum qc=" ">88</rel_hum>
+				<dew_point qc=" ">12.4</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">157</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/7/2026" hour="2400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.7</air_temp>
+				<rel_hum qc=" ">89</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">159</wind_dir>
+				<soil_temp qc=" ">19.9</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.9</air_temp>
+				<rel_hum qc=" ">90</rel_hum>
+				<dew_point qc=" ">11.4</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">162</wind_dir>
+				<soil_temp qc=" ">19.6</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.3</air_temp>
+				<rel_hum qc=" ">92</rel_hum>
+				<dew_point qc=" ">11.0</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">143</wind_dir>
+				<soil_temp qc=" ">19.3</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">11.8</air_temp>
+				<rel_hum qc=" ">93</rel_hum>
+				<dew_point qc=" ">10.7</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">137</wind_dir>
+				<soil_temp qc=" ">19.0</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">11.6</air_temp>
+				<rel_hum qc=" ">93</rel_hum>
+				<dew_point qc=" ">10.5</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">142</wind_dir>
+				<soil_temp qc=" ">18.7</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">1.20</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">11.5</air_temp>
+				<rel_hum qc=" ">95</rel_hum>
+				<dew_point qc=" ">10.7</dew_point>
+				<wind_speed qc=" ">0.7</wind_speed>
+				<wind_dir qc=" ">115</wind_dir>
+				<soil_temp qc=" ">18.4</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0600">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">1.20</precip>
+				<solar_radiation qc=" ">58</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">11.6</air_temp>
+				<rel_hum qc=" ">96</rel_hum>
+				<dew_point qc=" ">11.0</dew_point>
+				<wind_speed qc=" ">0.9</wind_speed>
+				<wind_dir qc=" ">143</wind_dir>
+				<soil_temp qc=" ">18.0</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0700">
+				<eto qc=" ">0.11</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">227</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">12.6</air_temp>
+				<rel_hum qc=" ">95</rel_hum>
+				<dew_point qc=" ">11.9</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">196</wind_dir>
+				<soil_temp qc=" ">17.6</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0800">
+				<eto qc=" ">0.23</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">426</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">14.9</air_temp>
+				<rel_hum qc=" ">90</rel_hum>
+				<dew_point qc=" ">13.2</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">208</wind_dir>
+				<soil_temp qc=" ">17.4</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="0900">
+				<eto qc=" ">0.37</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">623</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">17.8</air_temp>
+				<rel_hum qc=" ">79</rel_hum>
+				<dew_point qc=" ">14.1</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">231</wind_dir>
+				<soil_temp qc=" ">17.6</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1000">
+				<eto qc=" ">0.49</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">780</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">20.0</air_temp>
+				<rel_hum qc=" ">72</rel_hum>
+				<dew_point qc=" ">14.8</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">135</wind_dir>
+				<soil_temp qc=" ">18.1</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1100">
+				<eto qc=" ">0.59</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">890</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">22.4</air_temp>
+				<rel_hum qc=" ">68</rel_hum>
+				<dew_point qc=" ">16.2</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">292</wind_dir>
+				<soil_temp qc=" ">18.8</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1200">
+				<eto qc=" ">0.67</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">958</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">24.2</air_temp>
+				<rel_hum qc=" ">62</rel_hum>
+				<dew_point qc=" ">16.5</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">320</wind_dir>
+				<soil_temp qc=" ">19.7</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1300">
+				<eto qc=" ">0.70</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">965</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">25.9</air_temp>
+				<rel_hum qc=" ">55</rel_hum>
+				<dew_point qc=" ">16.2</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">249</wind_dir>
+				<soil_temp qc=" ">20.6</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1400">
+				<eto qc=" ">0.68</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">909</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">27.3</air_temp>
+				<rel_hum qc=" ">53</rel_hum>
+				<dew_point qc=" ">16.9</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">305</wind_dir>
+				<soil_temp qc=" ">21.4</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1500">
+				<eto qc=" ">0.60</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">800</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">27.7</air_temp>
+				<rel_hum qc=" ">54</rel_hum>
+				<dew_point qc=" ">17.5</dew_point>
+				<wind_speed qc=" ">2.4</wind_speed>
+				<wind_dir qc=" ">173</wind_dir>
+				<soil_temp qc=" ">22.1</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1600">
+				<eto qc=" ">0.50</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">647</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">27.8</air_temp>
+				<rel_hum qc=" ">53</rel_hum>
+				<dew_point qc=" ">17.5</dew_point>
+				<wind_speed qc=" ">2.6</wind_speed>
+				<wind_dir qc=" ">191</wind_dir>
+				<soil_temp qc=" ">22.5</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1700">
+				<eto qc=" ">0.38</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">459</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">27.5</air_temp>
+				<rel_hum qc=" ">54</rel_hum>
+				<dew_point qc=" ">17.5</dew_point>
+				<wind_speed qc=" ">3.2</wind_speed>
+				<wind_dir qc=" ">191</wind_dir>
+				<soil_temp qc=" ">22.6</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1800">
+				<eto qc=" ">0.21</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">222</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">26.3</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">17.5</dew_point>
+				<wind_speed qc=" ">3.2</wind_speed>
+				<wind_dir qc=" ">177</wind_dir>
+				<soil_temp qc=" ">22.5</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="1900">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">22</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">23.8</air_temp>
+				<rel_hum qc=" ">65</rel_hum>
+				<dew_point qc=" ">16.7</dew_point>
+				<wind_speed qc=" ">2.3</wind_speed>
+				<wind_dir qc=" ">171</wind_dir>
+				<soil_temp qc=" ">22.2</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="2000">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">20.6</air_temp>
+				<rel_hum qc=" ">72</rel_hum>
+				<dew_point qc=" ">15.4</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">157</wind_dir>
+				<soil_temp qc=" ">21.9</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="2100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">18.3</air_temp>
+				<rel_hum qc=" ">77</rel_hum>
+				<dew_point qc=" ">14.2</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">159</wind_dir>
+				<soil_temp qc=" ">21.6</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="2200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">16.7</air_temp>
+				<rel_hum qc=" ">80</rel_hum>
+				<dew_point qc=" ">13.3</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">153</wind_dir>
+				<soil_temp qc=" ">21.2</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">15.6</air_temp>
+				<rel_hum qc=" ">82</rel_hum>
+				<dew_point qc=" ">12.5</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">154</wind_dir>
+				<soil_temp qc=" ">20.9</soil_temp>
+			</date>
+			<date val="5/8/2026" hour="2400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">15.0</air_temp>
+				<rel_hum qc=" ">83</rel_hum>
+				<dew_point qc=" ">12.2</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">156</wind_dir>
+				<soil_temp qc=" ">20.5</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.3</air_temp>
+				<rel_hum qc=" ">86</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">129</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.8</air_temp>
+				<rel_hum qc=" ">86</rel_hum>
+				<dew_point qc=" ">11.6</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">127</wind_dir>
+				<soil_temp qc=" ">19.9</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">13.0</air_temp>
+				<rel_hum qc=" ">89</rel_hum>
+				<dew_point qc=" ">11.3</dew_point>
+				<wind_speed qc=" ">1.0</wind_speed>
+				<wind_dir qc=" ">148</wind_dir>
+				<soil_temp qc=" ">19.6</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.7</air_temp>
+				<rel_hum qc=" ">91</rel_hum>
+				<dew_point qc=" ">11.3</dew_point>
+				<wind_speed qc=" ">0.8</wind_speed>
+				<wind_dir qc=" ">126</wind_dir>
+				<soil_temp qc=" ">19.4</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">1.90</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.3</air_temp>
+				<rel_hum qc=" ">93</rel_hum>
+				<dew_point qc=" ">11.2</dew_point>
+				<wind_speed qc=" ">0.7</wind_speed>
+				<wind_dir qc=" ">137</wind_dir>
+				<soil_temp qc=" ">19.1</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0600">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">2.60</precip>
+				<solar_radiation qc=" ">56</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">12.6</air_temp>
+				<rel_hum qc=" ">96</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">0.6</wind_speed>
+				<wind_dir qc=" ">89</wind_dir>
+				<soil_temp qc=" ">18.7</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0700">
+				<eto qc=" ">0.11</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">218</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">13.6</air_temp>
+				<rel_hum qc=" ">94</rel_hum>
+				<dew_point qc=" ">12.7</dew_point>
+				<wind_speed qc=" ">1.0</wind_speed>
+				<wind_dir qc=" ">236</wind_dir>
+				<soil_temp qc=" ">18.3</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0800">
+				<eto qc=" ">0.24</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">420</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">16.9</air_temp>
+				<rel_hum qc=" ">84</rel_hum>
+				<dew_point qc=" ">14.3</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">244</wind_dir>
+				<soil_temp qc=" ">18.1</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="0900">
+				<eto qc=" ">0.40</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">616</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">20.8</air_temp>
+				<rel_hum qc=" ">73</rel_hum>
+				<dew_point qc=" ">15.7</dew_point>
+				<wind_speed qc=" ">1.7</wind_speed>
+				<wind_dir qc=" ">315</wind_dir>
+				<soil_temp qc=" ">18.3</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1000">
+				<eto qc=" ">0.54</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">782</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">23.6</air_temp>
+				<rel_hum qc=" ">62</rel_hum>
+				<dew_point qc=" ">16.0</dew_point>
+				<wind_speed qc=" ">2.2</wind_speed>
+				<wind_dir qc=" ">314</wind_dir>
+				<soil_temp qc=" ">18.7</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1100">
+				<eto qc=" ">0.66</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">886</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">25.9</air_temp>
+				<rel_hum qc=" ">51</rel_hum>
+				<dew_point qc=" ">15.1</dew_point>
+				<wind_speed qc=" ">2.6</wind_speed>
+				<wind_dir qc=" ">337</wind_dir>
+				<soil_temp qc=" ">19.4</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1200">
+				<eto qc=" ">0.75</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">961</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">27.6</air_temp>
+				<rel_hum qc=" ">45</rel_hum>
+				<dew_point qc=" ">14.7</dew_point>
+				<wind_speed qc=" ">2.6</wind_speed>
+				<wind_dir qc=" ">322</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1300">
+				<eto qc=" ">0.77</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">967</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">28.9</air_temp>
+				<rel_hum qc=" ">42</rel_hum>
+				<dew_point qc=" ">14.7</dew_point>
+				<wind_speed qc=" ">2.4</wind_speed>
+				<wind_dir qc=" ">320</wind_dir>
+				<soil_temp qc=" ">21.0</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1400">
+				<eto qc=" ">0.73</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">914</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">30.0</air_temp>
+				<rel_hum qc=" ">41</rel_hum>
+				<dew_point qc=" ">15.4</dew_point>
+				<wind_speed qc=" ">2.2</wind_speed>
+				<wind_dir qc=" ">275</wind_dir>
+				<soil_temp qc=" ">21.8</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1500">
+				<eto qc=" ">0.64</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">800</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">30.4</air_temp>
+				<rel_hum qc=" ">44</rel_hum>
+				<dew_point qc=" ">16.7</dew_point>
+				<wind_speed qc=" ">2.4</wind_speed>
+				<wind_dir qc=" ">187</wind_dir>
+				<soil_temp qc=" ">22.4</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1600">
+				<eto qc=" ">0.54</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">635</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">31.0</air_temp>
+				<rel_hum qc=" ">44</rel_hum>
+				<dew_point qc=" ">17.4</dew_point>
+				<wind_speed qc=" ">2.6</wind_speed>
+				<wind_dir qc=" ">199</wind_dir>
+				<soil_temp qc=" ">22.8</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1700">
+				<eto qc=" ">0.41</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">448</solar_radiation>
+				<vapor_pressure qc=" ">2.1</vapor_pressure>
+				<air_temp qc=" ">30.3</air_temp>
+				<rel_hum qc=" ">49</rel_hum>
+				<dew_point qc=" ">18.5</dew_point>
+				<wind_speed qc=" ">3.6</wind_speed>
+				<wind_dir qc=" ">183</wind_dir>
+				<soil_temp qc=" ">23.0</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1800">
+				<eto qc=" ">0.23</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">226</solar_radiation>
+				<vapor_pressure qc=" ">2.1</vapor_pressure>
+				<air_temp qc=" ">28.8</air_temp>
+				<rel_hum qc=" ">53</rel_hum>
+				<dew_point qc=" ">18.4</dew_point>
+				<wind_speed qc=" ">3.3</wind_speed>
+				<wind_dir qc=" ">180</wind_dir>
+				<soil_temp qc=" ">22.9</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="1900">
+				<eto qc=" ">0.07</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">26</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">26.0</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">17.1</dew_point>
+				<wind_speed qc=" ">2.9</wind_speed>
+				<wind_dir qc=" ">179</wind_dir>
+				<soil_temp qc=" ">22.7</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="2000">
+				<eto qc=" ">0.02</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">21.5</air_temp>
+				<rel_hum qc=" ">67</rel_hum>
+				<dew_point qc=" ">15.2</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">158</wind_dir>
+				<soil_temp qc=" ">22.4</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="2100">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">19.1</air_temp>
+				<rel_hum qc=" ">71</rel_hum>
+				<dew_point qc=" ">13.7</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">153</wind_dir>
+				<soil_temp qc=" ">22.1</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="2200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">17.9</air_temp>
+				<rel_hum qc=" ">73</rel_hum>
+				<dew_point qc=" ">13.0</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">176</wind_dir>
+				<soil_temp qc=" ">21.8</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">16.5</air_temp>
+				<rel_hum qc=" ">78</rel_hum>
+				<dew_point qc=" ">12.6</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">151</wind_dir>
+				<soil_temp qc=" ">21.4</soil_temp>
+			</date>
+			<date val="5/9/2026" hour="2400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">15.4</air_temp>
+				<rel_hum qc=" ">82</rel_hum>
+				<dew_point qc=" ">12.4</dew_point>
+				<wind_speed qc=" ">1.7</wind_speed>
+				<wind_dir qc=" ">148</wind_dir>
+				<soil_temp qc=" ">21.1</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.6</air_temp>
+				<rel_hum qc=" ">85</rel_hum>
+				<dew_point qc=" ">12.1</dew_point>
+				<wind_speed qc=" ">1.7</wind_speed>
+				<wind_dir qc=" ">138</wind_dir>
+				<soil_temp qc=" ">20.8</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.0</air_temp>
+				<rel_hum qc=" ">86</rel_hum>
+				<dew_point qc=" ">11.7</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">137</wind_dir>
+				<soil_temp qc=" ">20.5</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.3</air_temp>
+				<rel_hum qc=" ">88</rel_hum>
+				<dew_point qc=" ">11.4</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">149</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.7</air_temp>
+				<rel_hum qc=" ">90</rel_hum>
+				<dew_point qc=" ">11.2</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">146</wind_dir>
+				<soil_temp qc=" ">19.9</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.50</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.1</air_temp>
+				<rel_hum qc=" ">93</rel_hum>
+				<dew_point qc=" ">11.0</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">139</wind_dir>
+				<soil_temp qc=" ">19.6</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0600">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">1.60</precip>
+				<solar_radiation qc=" ">57</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">12.1</air_temp>
+				<rel_hum qc=" ">96</rel_hum>
+				<dew_point qc=" ">11.5</dew_point>
+				<wind_speed qc=" ">0.7</wind_speed>
+				<wind_dir qc=" ">131</wind_dir>
+				<soil_temp qc=" ">19.2</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0700">
+				<eto qc=" ">0.11</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">222</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.1</air_temp>
+				<rel_hum qc=" ">94</rel_hum>
+				<dew_point qc=" ">12.2</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">184</wind_dir>
+				<soil_temp qc=" ">18.7</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0800">
+				<eto qc=" ">0.24</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">426</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">15.6</air_temp>
+				<rel_hum qc=" ">84</rel_hum>
+				<dew_point qc=" ">12.9</dew_point>
+				<wind_speed qc=" ">1.4</wind_speed>
+				<wind_dir qc=" ">224</wind_dir>
+				<soil_temp qc=" ">18.6</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="0900">
+				<eto qc=" ">0.38</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">620</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">18.4</air_temp>
+				<rel_hum qc=" ">75</rel_hum>
+				<dew_point qc=" ">14.0</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">223</wind_dir>
+				<soil_temp qc=" ">18.7</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1000">
+				<eto qc=" ">0.51</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">781</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">21.0</air_temp>
+				<rel_hum qc=" ">69</rel_hum>
+				<dew_point qc=" ">15.1</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">186</wind_dir>
+				<soil_temp qc=" ">19.2</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1100">
+				<eto qc=" ">0.62</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">896</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">23.3</air_temp>
+				<rel_hum qc=" ">63</rel_hum>
+				<dew_point qc=" ">15.8</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">160</wind_dir>
+				<soil_temp qc=" ">19.9</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1200">
+				<eto qc=" ">0.69</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">956</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">25.3</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">16.4</dew_point>
+				<wind_speed qc=" ">1.7</wind_speed>
+				<wind_dir qc=" ">116</wind_dir>
+				<soil_temp qc=" ">20.8</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1300">
+				<eto qc=" ">0.72</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">963</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">27.0</air_temp>
+				<rel_hum qc=" ">55</rel_hum>
+				<dew_point qc=" ">17.3</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">161</wind_dir>
+				<soil_temp qc=" ">21.7</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1400">
+				<eto qc=" ">0.69</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">912</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">28.3</air_temp>
+				<rel_hum qc=" ">53</rel_hum>
+				<dew_point qc=" ">17.8</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">204</wind_dir>
+				<soil_temp qc=" ">22.5</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1500">
+				<eto qc=" ">0.62</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">806</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">29.3</air_temp>
+				<rel_hum qc=" ">50</rel_hum>
+				<dew_point qc=" ">17.9</dew_point>
+				<wind_speed qc=" ">2.3</wind_speed>
+				<wind_dir qc=" ">156</wind_dir>
+				<soil_temp qc=" ">23.2</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1600">
+				<eto qc=" ">0.51</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">656</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">29.2</air_temp>
+				<rel_hum qc=" ">48</rel_hum>
+				<dew_point qc=" ">17.2</dew_point>
+				<wind_speed qc=" ">2.7</wind_speed>
+				<wind_dir qc=" ">185</wind_dir>
+				<soil_temp qc=" ">23.6</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1700">
+				<eto qc=" ">0.38</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">468</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">28.9</air_temp>
+				<rel_hum qc=" ">48</rel_hum>
+				<dew_point qc=" ">16.9</dew_point>
+				<wind_speed qc=" ">2.5</wind_speed>
+				<wind_dir qc=" ">176</wind_dir>
+				<soil_temp qc=" ">23.6</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1800">
+				<eto qc=" ">0.22</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">234</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">28.3</air_temp>
+				<rel_hum qc=" ">51</rel_hum>
+				<dew_point qc=" ">17.3</dew_point>
+				<wind_speed qc=" ">2.7</wind_speed>
+				<wind_dir qc=" ">178</wind_dir>
+				<soil_temp qc=" ">23.4</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="1900">
+				<eto qc=" ">0.05</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">23</solar_radiation>
+				<vapor_pressure qc=" ">2.0</vapor_pressure>
+				<air_temp qc=" ">25.6</air_temp>
+				<rel_hum qc=" ">62</rel_hum>
+				<dew_point qc=" ">17.7</dew_point>
+				<wind_speed qc=" ">2.1</wind_speed>
+				<wind_dir qc=" ">155</wind_dir>
+				<soil_temp qc=" ">23.2</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="2000">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.9</vapor_pressure>
+				<air_temp qc=" ">22.2</air_temp>
+				<rel_hum qc=" ">69</rel_hum>
+				<dew_point qc=" ">16.3</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">155</wind_dir>
+				<soil_temp qc=" ">22.9</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="2100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">19.7</air_temp>
+				<rel_hum qc=" ">74</rel_hum>
+				<dew_point qc=" ">15.0</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">170</wind_dir>
+				<soil_temp qc=" ">22.5</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="2200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">18.2</air_temp>
+				<rel_hum qc=" ">76</rel_hum>
+				<dew_point qc=" ">13.8</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">172</wind_dir>
+				<soil_temp qc=" ">22.1</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">16.4</air_temp>
+				<rel_hum qc=" ">80</rel_hum>
+				<dew_point qc=" ">13.0</dew_point>
+				<wind_speed qc=" ">1.0</wind_speed>
+				<wind_dir qc=" ">148</wind_dir>
+				<soil_temp qc=" ">21.8</soil_temp>
+			</date>
+			<date val="5/10/2026" hour="2400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">15.9</air_temp>
+				<rel_hum qc=" ">82</rel_hum>
+				<dew_point qc=" ">12.8</dew_point>
+				<wind_speed qc=" ">1.0</wind_speed>
+				<wind_dir qc=" ">112</wind_dir>
+				<soil_temp qc=" ">21.4</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.8</air_temp>
+				<rel_hum qc=" ">85</rel_hum>
+				<dew_point qc=" ">12.4</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">124</wind_dir>
+				<soil_temp qc=" ">21.0</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.3</air_temp>
+				<rel_hum qc=" ">89</rel_hum>
+				<dew_point qc=" ">11.5</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">138</wind_dir>
+				<soil_temp qc=" ">20.7</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.6</air_temp>
+				<rel_hum qc=" ">91</rel_hum>
+				<dew_point qc=" ">11.2</dew_point>
+				<wind_speed qc=" ">0.9</wind_speed>
+				<wind_dir qc=" ">165</wind_dir>
+				<soil_temp qc=" ">20.4</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.1</air_temp>
+				<rel_hum qc=" ">93</rel_hum>
+				<dew_point qc=" ">11.0</dew_point>
+				<wind_speed qc=" ">0.8</wind_speed>
+				<wind_dir qc=" ">142</wind_dir>
+				<soil_temp qc=" ">20.1</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">2.40</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.0</air_temp>
+				<rel_hum qc=" ">94</rel_hum>
+				<dew_point qc=" ">11.1</dew_point>
+				<wind_speed qc=" ">0.9</wind_speed>
+				<wind_dir qc=" ">258</wind_dir>
+				<soil_temp qc=" ">19.8</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0600">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">2.70</precip>
+				<solar_radiation qc=" ">61</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">12.1</air_temp>
+				<rel_hum qc=" ">96</rel_hum>
+				<dew_point qc=" ">11.5</dew_point>
+				<wind_speed qc=" ">0.8</wind_speed>
+				<wind_dir qc=" ">236</wind_dir>
+				<soil_temp qc=" ">19.3</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0700">
+				<eto qc=" ">0.11</eto>
+				<precip qc=" ">0.10</precip>
+				<solar_radiation qc=" ">216</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">14.2</air_temp>
+				<rel_hum qc=" ">95</rel_hum>
+				<dew_point qc=" ">13.3</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">280</wind_dir>
+				<soil_temp qc=" ">18.9</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0800">
+				<eto qc=" ">0.24</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">414</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">16.6</air_temp>
+				<rel_hum qc=" ">87</rel_hum>
+				<dew_point qc=" ">14.5</dew_point>
+				<wind_speed qc=" ">1.8</wind_speed>
+				<wind_dir qc=" ">307</wind_dir>
+				<soil_temp qc=" ">18.8</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="0900">
+				<eto qc=" ">0.40</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">635</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">19.8</air_temp>
+				<rel_hum qc=" ">73</rel_hum>
+				<dew_point qc=" ">14.9</dew_point>
+				<wind_speed qc=" ">2.5</wind_speed>
+				<wind_dir qc=" ">324</wind_dir>
+				<soil_temp qc=" ">18.9</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1000">
+				<eto qc=" ">0.54</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">784</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">22.8</air_temp>
+				<rel_hum qc=" ">64</rel_hum>
+				<dew_point qc=" ">15.6</dew_point>
+				<wind_speed qc=" ">2.8</wind_speed>
+				<wind_dir qc=" ">337</wind_dir>
+				<soil_temp qc=" ">19.3</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1100">
+				<eto qc=" ">0.68</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">913</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">25.8</air_temp>
+				<rel_hum qc=" ">55</rel_hum>
+				<dew_point qc=" ">16.1</dew_point>
+				<wind_speed qc=" ">2.4</wind_speed>
+				<wind_dir qc=" ">354</wind_dir>
+				<soil_temp qc=" ">20.0</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1200">
+				<eto qc=" ">0.74</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">961</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">28.4</air_temp>
+				<rel_hum qc=" ">48</rel_hum>
+				<dew_point qc=" ">16.2</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">9</wind_dir>
+				<soil_temp qc=" ">20.7</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1300">
+				<eto qc=" ">0.76</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">970</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">30.3</air_temp>
+				<rel_hum qc=" ">40</rel_hum>
+				<dew_point qc=" ">15.2</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">33</wind_dir>
+				<soil_temp qc=" ">21.6</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1400">
+				<eto qc=" ">0.72</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">905</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">31.7</air_temp>
+				<rel_hum qc=" ">37</rel_hum>
+				<dew_point qc=" ">15.4</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">299</wind_dir>
+				<soil_temp qc=" ">22.4</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1500">
+				<eto qc=" ">0.66</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">817</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">32.2</air_temp>
+				<rel_hum qc=" ">30</rel_hum>
+				<dew_point qc=" ">12.3</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">225</wind_dir>
+				<soil_temp qc=" ">23.1</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1600">
+				<eto qc=" ">0.53</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">654</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">32.7</air_temp>
+				<rel_hum qc=" ">30</rel_hum>
+				<dew_point qc=" ">12.9</dew_point>
+				<wind_speed qc=" ">2.1</wind_speed>
+				<wind_dir qc=" ">200</wind_dir>
+				<soil_temp qc=" ">23.5</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1700">
+				<eto qc=" ">0.43</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">453</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">32.7</air_temp>
+				<rel_hum qc=" ">29</rel_hum>
+				<dew_point qc=" ">12.5</dew_point>
+				<wind_speed qc=" ">2.7</wind_speed>
+				<wind_dir qc=" ">197</wind_dir>
+				<soil_temp qc=" ">23.6</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1800">
+				<eto qc=" ">0.29</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">224</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">31.4</air_temp>
+				<rel_hum qc=" ">28</rel_hum>
+				<dew_point qc=" ">10.7</dew_point>
+				<wind_speed qc=" ">3.3</wind_speed>
+				<wind_dir qc=" ">186</wind_dir>
+				<soil_temp qc=" ">23.5</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="1900">
+				<eto qc=" ">0.11</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">30</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">28.8</air_temp>
+				<rel_hum qc=" ">36</rel_hum>
+				<dew_point qc=" ">12.2</dew_point>
+				<wind_speed qc=" ">2.5</wind_speed>
+				<wind_dir qc=" ">180</wind_dir>
+				<soil_temp qc=" ">23.3</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="2000">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">24.5</air_temp>
+				<rel_hum qc=" ">58</rel_hum>
+				<dew_point qc=" ">15.6</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">148</wind_dir>
+				<soil_temp qc=" ">23.0</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="2100">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.8</vapor_pressure>
+				<air_temp qc=" ">21.4</air_temp>
+				<rel_hum qc=" ">70</rel_hum>
+				<dew_point qc=" ">15.6</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">150</wind_dir>
+				<soil_temp qc=" ">22.6</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="2200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">19.9</air_temp>
+				<rel_hum qc=" ">71</rel_hum>
+				<dew_point qc=" ">14.5</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">139</wind_dir>
+				<soil_temp qc=" ">22.3</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">18.9</air_temp>
+				<rel_hum qc=" ">72</rel_hum>
+				<dew_point qc=" ">13.6</dew_point>
+				<wind_speed qc=" ">1.0</wind_speed>
+				<wind_dir qc=" ">137</wind_dir>
+				<soil_temp qc=" ">21.9</soil_temp>
+			</date>
+			<date val="5/11/2026" hour="2400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">17.8</air_temp>
+				<rel_hum qc=" ">73</rel_hum>
+				<dew_point qc=" ">13.0</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">127</wind_dir>
+				<soil_temp qc=" ">21.6</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0100">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">17.2</air_temp>
+				<rel_hum qc=" ">74</rel_hum>
+				<dew_point qc=" ">12.5</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">124</wind_dir>
+				<soil_temp qc=" ">21.3</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0200">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">15.9</air_temp>
+				<rel_hum qc=" ">78</rel_hum>
+				<dew_point qc=" ">12.0</dew_point>
+				<wind_speed qc=" ">1.1</wind_speed>
+				<wind_dir qc=" ">139</wind_dir>
+				<soil_temp qc=" ">21.0</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">14.9</air_temp>
+				<rel_hum qc=" ">80</rel_hum>
+				<dew_point qc=" ">11.5</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">143</wind_dir>
+				<soil_temp qc=" ">20.7</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0400">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">14.3</air_temp>
+				<rel_hum qc=" ">82</rel_hum>
+				<dew_point qc=" ">11.3</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">148</wind_dir>
+				<soil_temp qc=" ">20.5</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.40</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.2</air_temp>
+				<rel_hum qc=" ">90</rel_hum>
+				<dew_point qc=" ">11.6</dew_point>
+				<wind_speed qc=" ">1.2</wind_speed>
+				<wind_dir qc=" ">149</wind_dir>
+				<soil_temp qc=" ">20.2</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0600">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.40</precip>
+				<solar_radiation qc=" ">67</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">13.0</air_temp>
+				<rel_hum qc=" ">93</rel_hum>
+				<dew_point qc=" ">11.9</dew_point>
+				<wind_speed qc=" ">1.3</wind_speed>
+				<wind_dir qc=" ">153</wind_dir>
+				<soil_temp qc=" ">19.8</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0700">
+				<eto qc=" ">0.13</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">245</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">14.6</air_temp>
+				<rel_hum qc=" ">87</rel_hum>
+				<dew_point qc=" ">12.5</dew_point>
+				<wind_speed qc=" ">1.7</wind_speed>
+				<wind_dir qc=" ">173</wind_dir>
+				<soil_temp qc=" ">19.4</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0800">
+				<eto qc=" ">0.26</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">434</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">18.4</air_temp>
+				<rel_hum qc=" ">72</rel_hum>
+				<dew_point qc=" ">13.3</dew_point>
+				<wind_speed qc=" ">1.5</wind_speed>
+				<wind_dir qc=" ">179</wind_dir>
+				<soil_temp qc=" ">19.3</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="0900">
+				<eto qc=" ">0.40</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">588</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">21.7</air_temp>
+				<rel_hum qc=" ">61</rel_hum>
+				<dew_point qc=" ">13.8</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">147</wind_dir>
+				<soil_temp qc=" ">19.4</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1000">
+				<eto qc=" ">0.55</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">790</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">23.9</air_temp>
+				<rel_hum qc=" ">54</rel_hum>
+				<dew_point qc=" ">14.0</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">164</wind_dir>
+				<soil_temp qc=" ">19.8</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1100">
+				<eto qc=" ">0.68</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">913</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">25.7</air_temp>
+				<rel_hum qc=" ">50</rel_hum>
+				<dew_point qc=" ">14.5</dew_point>
+				<wind_speed qc=" ">2.4</wind_speed>
+				<wind_dir qc=" ">162</wind_dir>
+				<soil_temp qc=" ">20.5</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1200">
+				<eto qc=" ">0.77</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">985</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">27.2</air_temp>
+				<rel_hum qc=" ">44</rel_hum>
+				<dew_point qc=" ">14.0</dew_point>
+				<wind_speed qc=" ">2.8</wind_speed>
+				<wind_dir qc=" ">178</wind_dir>
+				<soil_temp qc=" ">21.3</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1300">
+				<eto qc=" ">0.85</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">993</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">28.8</air_temp>
+				<rel_hum qc=" ">38</rel_hum>
+				<dew_point qc=" ">12.9</dew_point>
+				<wind_speed qc=" ">4.1</wind_speed>
+				<wind_dir qc=" ">174</wind_dir>
+				<soil_temp qc=" ">22.1</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1400">
+				<eto qc=" ">0.80</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">896</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">29.5</air_temp>
+				<rel_hum qc=" ">31</rel_hum>
+				<dew_point qc=" ">10.6</dew_point>
+				<wind_speed qc=" ">4.5</wind_speed>
+				<wind_dir qc=" ">176</wind_dir>
+				<soil_temp qc=" ">22.7</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1500">
+				<eto qc=" ">0.70</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">763</solar_radiation>
+				<vapor_pressure qc=" ">1.5</vapor_pressure>
+				<air_temp qc=" ">28.9</air_temp>
+				<rel_hum qc=" ">37</rel_hum>
+				<dew_point qc=" ">12.7</dew_point>
+				<wind_speed qc=" ">4.5</wind_speed>
+				<wind_dir qc=" ">180</wind_dir>
+				<soil_temp qc=" ">23.0</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1600">
+				<eto qc=" ">0.56</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">627</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">27.5</air_temp>
+				<rel_hum qc=" ">44</rel_hum>
+				<dew_point qc=" ">14.1</dew_point>
+				<wind_speed qc=" ">4.4</wind_speed>
+				<wind_dir qc=" ">164</wind_dir>
+				<soil_temp qc=" ">23.1</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1700">
+				<eto qc=" ">0.39</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">441</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">26.4</air_temp>
+				<rel_hum qc=" ">50</rel_hum>
+				<dew_point qc=" ">15.2</dew_point>
+				<wind_speed qc=" ">3.9</wind_speed>
+				<wind_dir qc=" ">166</wind_dir>
+				<soil_temp qc=" ">23.0</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1800">
+				<eto qc=" ">0.25</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">260</solar_radiation>
+				<vapor_pressure qc=" ">1.7</vapor_pressure>
+				<air_temp qc=" ">25.3</air_temp>
+				<rel_hum qc=" ">53</rel_hum>
+				<dew_point qc=" ">15.1</dew_point>
+				<wind_speed qc=" ">3.9</wind_speed>
+				<wind_dir qc=" ">188</wind_dir>
+				<soil_temp qc=" ">22.7</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="1900">
+				<eto qc=" ">0.10</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">42</solar_radiation>
+				<vapor_pressure qc=" ">1.6</vapor_pressure>
+				<air_temp qc=" ">22.2</air_temp>
+				<rel_hum qc=" ">59</rel_hum>
+				<dew_point qc=" ">13.8</dew_point>
+				<wind_speed qc=" ">5.5</wind_speed>
+				<wind_dir qc=" ">190</wind_dir>
+				<soil_temp qc=" ">22.5</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="2000">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">3</solar_radiation>
+				<vapor_pressure qc=" ">1.4</vapor_pressure>
+				<air_temp qc=" ">19.2</air_temp>
+				<rel_hum qc=" ">64</rel_hum>
+				<dew_point qc=" ">12.3</dew_point>
+				<wind_speed qc=" ">4.6</wind_speed>
+				<wind_dir qc=" ">200</wind_dir>
+				<soil_temp qc=" ">22.2</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="2100">
+				<eto qc=" ">0.02</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">17.5</air_temp>
+				<rel_hum qc=" ">66</rel_hum>
+				<dew_point qc=" ">11.1</dew_point>
+				<wind_speed qc=" ">3.3</wind_speed>
+				<wind_dir qc=" ">195</wind_dir>
+				<soil_temp qc=" ">21.8</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="2200">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">15.8</air_temp>
+				<rel_hum qc=" ">72</rel_hum>
+				<dew_point qc=" ">10.8</dew_point>
+				<wind_speed qc=" ">3.9</wind_speed>
+				<wind_dir qc=" ">198</wind_dir>
+				<soil_temp qc=" ">21.5</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="2300">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">15.2</air_temp>
+				<rel_hum qc=" ">74</rel_hum>
+				<dew_point qc=" ">10.7</dew_point>
+				<wind_speed qc=" ">3.3</wind_speed>
+				<wind_dir qc=" ">197</wind_dir>
+				<soil_temp qc=" ">21.2</soil_temp>
+			</date>
+			<date val="5/12/2026" hour="2400">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">15.1</air_temp>
+				<rel_hum qc=" ">73</rel_hum>
+				<dew_point qc=" ">10.3</dew_point>
+				<wind_speed qc=" ">4.1</wind_speed>
+				<wind_dir qc=" ">201</wind_dir>
+				<soil_temp qc=" ">20.9</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0100">
+				<eto qc=" ">0.03</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.2</vapor_pressure>
+				<air_temp qc=" ">15.0</air_temp>
+				<rel_hum qc=" ">73</rel_hum>
+				<dew_point qc=" ">10.2</dew_point>
+				<wind_speed qc=" ">3.4</wind_speed>
+				<wind_dir qc=" ">196</wind_dir>
+				<soil_temp qc=" ">20.6</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0200">
+				<eto qc=" ">0.04</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.2</vapor_pressure>
+				<air_temp qc=" ">15.4</air_temp>
+				<rel_hum qc=" ">69</rel_hum>
+				<dew_point qc=" ">9.7</dew_point>
+				<wind_speed qc=" ">3.1</wind_speed>
+				<wind_dir qc=" ">189</wind_dir>
+				<soil_temp qc=" ">20.3</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0300">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.2</vapor_pressure>
+				<air_temp qc=" ">14.2</air_temp>
+				<rel_hum qc=" ">76</rel_hum>
+				<dew_point qc=" ">10.1</dew_point>
+				<wind_speed qc=" ">1.6</wind_speed>
+				<wind_dir qc=" ">137</wind_dir>
+				<soil_temp qc=" ">20.1</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0400">
+				<eto qc=" ">0.01</eto>
+				<precip qc=" ">0.00</precip>
+				<solar_radiation qc=" ">0</solar_radiation>
+				<vapor_pressure qc=" ">1.2</vapor_pressure>
+				<air_temp qc=" ">13.9</air_temp>
+				<rel_hum qc=" ">78</rel_hum>
+				<dew_point qc=" ">10.2</dew_point>
+				<wind_speed qc=" ">2.0</wind_speed>
+				<wind_dir qc=" ">160</wind_dir>
+				<soil_temp qc=" ">19.9</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0500">
+				<eto qc=" ">0.00</eto>
+				<precip qc=" ">0.10</precip>
+				<solar_radiation qc=" ">1</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.7</air_temp>
+				<rel_hum qc=" ">86</rel_hum>
+				<dew_point qc=" ">10.4</dew_point>
+				<wind_speed qc=" ">2.1</wind_speed>
+				<wind_dir qc=" ">152</wind_dir>
+				<soil_temp qc=" ">19.6</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0600">
+				<eto qc=" ">0.03</eto>
+				<precip qc=" ">0.20</precip>
+				<solar_radiation qc=" ">69</solar_radiation>
+				<vapor_pressure qc=" ">1.3</vapor_pressure>
+				<air_temp qc=" ">12.5</air_temp>
+				<rel_hum qc=" ">89</rel_hum>
+				<dew_point qc=" ">10.7</dew_point>
+				<wind_speed qc=" ">1.9</wind_speed>
+				<wind_dir qc=" ">154</wind_dir>
+				<soil_temp qc=" ">19.3</soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0700">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0800">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="0900">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1000">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1100">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1200">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1300">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1400">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1500">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1600">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1700">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1800">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="1900">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="2000">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="2100">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="2200">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="2300">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+			<date val="5/13/2026" hour="2400">
+				<eto qc="M"></eto>
+				<precip qc="M"></precip>
+				<solar_radiation qc="M"></solar_radiation>
+				<vapor_pressure qc="M"></vapor_pressure>
+				<air_temp qc="M"></air_temp>
+				<rel_hum qc="M"></rel_hum>
+				<dew_point qc="M"></dew_point>
+				<wind_speed qc="M"></wind_speed>
+				<wind_dir qc="M"></wind_dir>
+				<soil_temp qc="M"></soil_temp>
+			</date>
+		</station>
+	</hourly_data>
+</cimis_data>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                

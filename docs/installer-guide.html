@@ -410,10 +410,10 @@ cd helios_gui</code></pre>
           <div class="step-body">
             <div class="step-title">Set up Python virtual environment &amp; backend</div>
             <div class="step-desc">Only required if the <span class="inline-code">sync-backend</span> script does not create the venv automatically.</div>
-            <pre><code>python3 -m venv backend-api/venv
-source backend-api/venv/bin/activate   # Windows: backend-api\venv\Scripts\activate
+            <pre><code>python3 -m venv helios-desktop-backend/venv
+source helios-desktop-backend/venv/bin/activate   # Windows: helios-desktop-backend\venv\Scripts\activate
 pip install -U pip
-pip install -r backend-api/requirements.txt
+pip install -r helios-desktop-backend/requirements.txt
 pip install pyinstaller
 deactivate</code></pre>
           </div>
@@ -579,10 +579,10 @@ mac:
           <div class="step-num num-win">3</div>
           <div class="step-body">
             <div class="step-title">Activate the Python venv (Windows syntax)</div>
-            <pre><code>python -m venv backend-api\venv
-backend-api\venv\Scripts\activate
+            <pre><code>python -m venv helios-desktop-backend\venv
+helios-desktop-backend\venv\Scripts\activate
 pip install -U pip
-pip install -r backend-api\requirements.txt
+pip install -r helios-desktop-backend\requirements.txt
 pip install pyinstaller
 deactivate</code></pre>
           </div>
@@ -665,10 +665,10 @@ win:
           <div class="step-num num-linux">3</div>
           <div class="step-body">
             <div class="step-title">Set up the Python virtual environment</div>
-            <pre><code>python3 -m venv backend-api/venv
-source backend-api/venv/bin/activate
+            <pre><code>python3 -m venv helios-desktop-backend/venv
+source helios-desktop-backend/venv/bin/activate
 pip install -U pip
-pip install -r backend-api/requirements.txt
+pip install -r helios-desktop-backend/requirements.txt
 pip install pyinstaller
 deactivate</code></pre>
           </div>
@@ -939,7 +939,7 @@ rm -rf ~/.cache/electron-builder</code></pre>
           <div class="step-body">
             <div class="step-title">Reset all build artifacts</div>
             <pre><code>rm -rf dist out
-rm -rf backend-api/build backend-api/dist
+rm -rf helios-desktop-backend/build helios-desktop-backend/dist
 rm -rf linux-installer/payload/Helios
 rm -f  resources/backend/mac/heliosgui_backend
 rm -rf resources/backend/linux/heliosgui_backend</code></pre>

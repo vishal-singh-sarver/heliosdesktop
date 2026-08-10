@@ -22,13 +22,15 @@ interface TabButtonProps {
   icon: string
   active: boolean
   onClick: () => void
+  dataTestId?: string
 }
 
-function TabButton({ label, icon, active, onClick }: TabButtonProps): React.JSX.Element {
+function TabButton({ label, icon, active, onClick, dataTestId }: TabButtonProps): React.JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-testid={dataTestId}
       aria-pressed={active}
       className={`flex items-center gap-2 rounded-t-sm border px-3 py-1.5 text-sm text-neutral-200 ${
         active
@@ -51,25 +53,34 @@ export function CenterWorkspace(): React.JSX.Element {
   const [activeTab, setActiveTab] = React.useState<Tab>('3dWindow')
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-app-border bg-panel/20 p-3">
-      <div className="-mx-3 flex items-center gap-2 border-b border-app-border px-3">
+    <section
+      data-testid="center-workspace"
+      className="flex w-[1200px] flex-1 flex-col overflow-hidden rounded-lg border border-app-border bg-panel/20 p-3"
+    >
+      <div
+        data-testid="center-workspace-tabs"
+        className="-mx-3 flex items-center gap-2 border-b border-app-border px-3"
+      >
         <TabButton
           label="3D Window"
           icon={threeDWindowIcon}
           active={activeTab === '3dWindow'}
           onClick={() => setActiveTab('3dWindow')}
+          dataTestId="tab-3dwindow"
         />
         <TabButton
           label="Weather"
           icon={weatherIcon}
           active={activeTab === 'weather'}
           onClick={() => setActiveTab('weather')}
+          dataTestId="tab-weather"
         />
         <TabButton
           label="Output"
           icon={outputIcon}
           active={activeTab === 'output'}
           onClick={() => setActiveTab('output')}
+          dataTestId="tab-output"
         />
       </div>
 

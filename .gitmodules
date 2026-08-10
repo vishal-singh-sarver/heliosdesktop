@@ -1,8 +1,8 @@
-[submodule "backend-api"]
-	path = backend-api
+[submodule "helios-desktop-backend"]
+	path = helios-desktop-backend
 	# Relative URL: resolves against the superproject's remote, so it follows the
 	# owning account automatically on a fork (no edit needed when cloned from
-	# github.com/<account>/helios_gui -> github.com/<account>/backend-api.git).
+	# github.com/<account>/helios_gui -> github.com/<account>/helios-desktop-backend.git).
 	# For clones whose origin is NOT the fork's GitHub account (e.g. the internal
 	# server), run `npm run setup:submodules` / scripts/setup-submodules.sh.
-	url = ../backend-api.git
+	url = ../helios-desktop-backend.git

@@ -45,9 +45,38 @@ jobs:
           aws-secret-access-key: ${{ secrets.UPDATE_FEED_S3_SECRET_KEY }}
           aws-region: us-east-1
 
-      # Logic resolves hotfix sync for targeted parameters cleanly
+      # Resolve the destination bucket from the `channel` input. This is
+      # `inputs.channel`, NOT `matrix.channel` - this job has no matrix, so the
+      # old `matrix.channel` was always null and the ternary therefore always
+      # picked STABLE. A beta-targeted emergency run would have published to
+      # the STABLE feed while the audit log above recorded "beta".
+      #
+      # The bucket name itself is a secret, so it is selected here at the
+      # expression level via secrets[...]; a shell-built "UPDATE_FEED_BUCKET_X"
+      # string cannot index into secrets.
       - name: Execute Selective Synchronization Hotfix
+        env:
+          TARGET_BUCKET: ${{ inputs.channel == 'beta' && secrets.UPDATE_FEED_BUCKET_BETA || secrets.UPDATE_FEED_BUCKET_STABLE }}
+          TARGET_CHANNEL: ${{ inputs.channel }}
+          TARGET_PLATFORM: ${{ inputs.platform }}
         run: |
-          TARGET_BUCKET="UPDATE_FEED_BUCKET_${{ matrix.channel == 'beta' && 'BETA' || 'STABLE' }}"
-          echo "Syncing specific system assets..."
-          # Customize AWS command targets manually for exact file patch if required
+          set -euo pipefail
+
+          if [ -z "${TARGET_BUCKET}" ]; then
+            echo "ERROR: No bucket secret is set for channel '${TARGET_CHANNEL}'."
+            echo "Expected UPDATE_FEED_BUCKET_BETA or UPDATE_FEED_BUCKET_STABLE."
+            exit 1
+          fi
+
+          echo "Channel:  ${TARGET_CHANNEL}"
+          echo "Platform: ${TARGET_PLATFORM}"
+          echo "Bucket:   (resolved from secret for ${TARGET_CHANNEL})"
+
+          # NOT YET IMPLEMENTED. The sync itself is still to be written - see
+          # the commented aws s3 sync blocks in publish-stable.yml for the shape
+          # it should take. Failing loudly beats the previous behaviour, which
+          # authenticated to AWS, echoed a line, and exited 0 - so an operator
+          # running this in an incident saw a green check and assumed a
+          # republish had happened.
+          echo "ERROR: emergency republish is not implemented yet; nothing was synced."
+          exit 1

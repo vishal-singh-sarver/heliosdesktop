@@ -35,10 +35,14 @@ function HeaderEditor({ col, dataTypes, onPatch, onDelete }: HeaderEditorProps):
   const [nameDraft, setNameDraft] = React.useState(col.name)
   const [nameError, setNameError] = React.useState<string | null>(null)
   // Re-sync when the canonical column name changes (rollback, external update).
-  React.useEffect(() => {
+  // Adjusted during render, not in an effect, so the stale draft never reaches
+  // the DOM — React re-runs this component before committing.
+  const [lastSeenName, setLastSeenName] = React.useState(col.name)
+  if (lastSeenName !== col.name) {
+    setLastSeenName(col.name)
     setNameDraft(col.name)
     setNameError(null)
-  }, [col.name])
+  }
 
   // Client-side error takes precedence over the (now-stale) backend rejection.
   const displayError = nameError ?? backendNameError
