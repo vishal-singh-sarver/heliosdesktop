@@ -32,6 +32,7 @@ import { exceedsMaxDecimals, isPartialNumericInput } from 'utils/decimalValidati
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import type { AnchorRect } from 'utils/useAnchoredPosition'
 import {
   addDraftMaterial,
@@ -352,6 +353,32 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     return undefined
   }
 
+  // …and the NAME to show for one, on exactly the same reasoning. The draft holds
+  // a copy taken when the material was picked (or when the object GET loaded),
+  // and that copy goes stale the moment the material is renamed in the Materials
+  // panel — so the geometry went on showing the old name until the form was
+  // closed and reopened. An assigned material is live-linked to the library, so
+  // the library is the authority for its name just as it already is for its
+  // values above.
+  //
+  // The draft's copy is the fallback for when the library has no answer, which is
+  // NOT the case of a material deleted here — that one never reaches this code,
+  // because the geometry slice purges the row from the draft and every cached
+  // detail the moment REMOVE_MATERIAL lands (see reducer.ts). It covers the two
+  // cases where a row outlives its library entry:
+  //   • the moment before the library list arrives. Only <Materials/> fetches it,
+  //     and though it mounts with the project screen, an object form open across
+  //     that gap would otherwise render every assigned row BLANK for a frame.
+  //   • a row the backend hands us already flagged `stale` (service.ts) — a
+  //     material deleted in another session, which this client never saw removed.
+  // In both, the name the row was assigned under is the only name there is.
+  const libraryNamesById = React.useMemo(
+    () => new Map(libraryMaterials.map((m) => [m.id, m.name])),
+    [libraryMaterials]
+  )
+  const nameFor = (group: DraftMaterialGroup): string =>
+    libraryNamesById.get(group.groupId) ?? group.name
+
   // The form's object was removed from the tree (deleted via the left panel)
   // while this form was open. It no longer exists on the backend, so editing /
   // saving it would 404 — lock the form down to a read-only "deleted" state and
@@ -634,7 +661,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 if (!objectDeleted) setNameEditing(true)
               }}
               onBlur={handleNameBlur}
-              className={`w-full rounded border bg-transparent py-0.5 ${
+              onMouseEnter={showFullTextOnHover}
+              // truncate: an input clips a too-long name mid-letter. The
+              // ellipsis says the name goes on, and the hover shows the rest.
+              className={`w-full truncate rounded border bg-transparent py-0.5 ${
                 nameError && !objectDeleted ? 'pl-1 pr-7' : 'px-1'
               } text-sm font-medium text-neutral-100 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
                 !nameEditing ? 'cursor-default ' : ''
@@ -808,7 +838,9 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                   style={{ outline: 'none' }}
                   className="flex min-w-0 flex-1 items-center gap-[5px] py-2 text-left text-[13px] leading-[15px] text-white"
                 >
-                  <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                  <span className="min-w-0 flex-1 truncate" onMouseEnter={showFullTextOnHover}>
+                    {nameFor(m)}
+                  </span>
                   {(m.stale || m.drift) && (
                     <span
                       aria-hidden="true"
@@ -825,7 +857,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                 </button>
                 <button
                   type="button"
-                  aria-label={`Remove ${m.name}`}
+                  aria-label={`Remove ${nameFor(m)}`}
                   onClick={() => handleDeleteMaterial(m)}
                   style={{ outline: 'none' }}
                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-white/10"
@@ -881,7 +913,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           {({ anchorRect, available }) =>
             detailPopup && (
               <MaterialPropertiesPopup
-                name={detailPopup.material.name}
+                name={nameFor(detailPopup.material)}
                 sections={buildMaterialSections(
                   membersFor(detailPopup.material) ?? [],
                   materialTypes
@@ -959,7 +991,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         onClose={() => setUnassignTarget(null)}
       >
         <h3 className="text-base font-medium text-white">
-          {messages.unassignHeading(unassignTarget?.name ?? '')}
+          {messages.unassignHeading(unassignTarget ? nameFor(unassignTarget) : '')}
         </h3>
         <p className="text-sm text-neutral-400">{messages.unassignBody}</p>
 

@@ -4,6 +4,7 @@ import Dialog from '@renderer/components/Dialog'
 import { selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { HIGHLIGHT_CLASSES, useScrollIntoViewWhen } from 'utils/useTransientHighlight'
 import { deleteMaterialRequested, openSavedMaterialRequested, selectMaterial } from './actions'
 import { MATERIAL_DND_MIME } from './constants'
@@ -181,7 +182,11 @@ export default function MaterialRow({
             }}
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate" onDoubleClick={() => setEditing(true)}>
+          <span
+            className="min-w-0 flex-1 truncate"
+            onDoubleClick={() => setEditing(true)}
+            onMouseEnter={showFullTextOnHover}
+          >
             {material.name}
           </span>
         )}

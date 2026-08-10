@@ -26,6 +26,7 @@ import {
 } from 'containers/ProjectScreen/types'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import CellInput from './CellInput'
 import DateTimeHeader from './DateTimeHeader'
 import HeaderEditor from './HeaderEditor'
@@ -198,7 +199,9 @@ const WeatherRow = React.memo(function WeatherRow({
         return (
           <td key={colId} className={`${widthCls} h-9 ${borderCls}`}>
             {readOnly ? (
-              <span className="block truncate px-3">{display}</span>
+              <span className="block truncate px-3" onMouseEnter={showFullTextOnHover}>
+                {display}
+              </span>
             ) : (
               <CellInput
                 rowId={rowId}
@@ -619,7 +622,9 @@ function WeatherTable(): React.JSX.Element {
                         onPatch={handleDateTimePatch}
                       />
                     ) : (
-                      <span className="block truncate">{col.name}</span>
+                      <span className="block truncate" onMouseEnter={showFullTextOnHover}>
+                        {col.name}
+                      </span>
                     )}
                   </th>
                 )

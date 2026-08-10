@@ -9,6 +9,7 @@ import { selectModelTypes } from 'containers/ProjectScreen/selectors'
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { setModelOn, toggleRender, toggleViewport } from './actions'
 import { isModelOn } from './models'
 import { selectModelIds } from './selectors'
@@ -195,7 +196,9 @@ export function KebabMenu({
                         on ? 'text-neutral-200' : 'bg-neutral-800/70 text-neutral-500'
                       }`}
                     >
-                      <span className="truncate">{model.model}</span>
+                      <span className="truncate" onMouseEnter={showFullTextOnHover}>
+                        {model.model}
+                      </span>
                       <span>{on ? <RenderIcon /> : <RenderOffIcon />}</span>
                     </button>
                   )

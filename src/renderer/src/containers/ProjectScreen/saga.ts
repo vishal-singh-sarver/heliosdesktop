@@ -34,6 +34,8 @@ import {
 } from './service'
 import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
 import { NAVIGATE, navigate, type NavigationAction } from 'store/navigationReducer'
+import { showSnackbar } from 'store/snackbarReducer'
+import toastMessages from 'store/toastMessages'
 import { ApiError } from 'utils/api'
 import { STORAGE_KEYS } from 'utils/storageKeys'
 import type {
@@ -549,7 +551,7 @@ function buildRowsForAdd(
   return out
 }
 
-function* addRowWorker(action: AddRowRequestedAction): Generator {
+export function* addRowWorker(action: AddRowRequestedAction): Generator {
   const { projectId, scenarioId, date, time, columnIds, numberOfRows, deltaHours } = action.payload
   try {
     const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
@@ -563,6 +565,7 @@ function* addRowWorker(action: AddRowRequestedAction): Generator {
           'Invalid start date / time / delta — could not build rows.'
         )
       )
+      yield put(showSnackbar(toastMessages.rowsAddFailed(numberOfRows), 'error'))
       return
     }
     ;(yield call(addRowsRequest, projectId, scenarioId, { rows })) as AddRowsResponse
@@ -577,8 +580,10 @@ function* addRowWorker(action: AddRowRequestedAction): Generator {
       return
     }
     yield put(actions.addRowSucceeded(projectId, scenarioId))
+    yield put(showSnackbar(toastMessages.rowsAdded(numberOfRows), 'success'))
   } catch (err) {
     yield put(actions.addRowFailed(projectId, scenarioId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.rowsAddFailed(numberOfRows), 'error'))
   }
 }
 
@@ -590,7 +595,7 @@ function* addRowWorker(action: AddRowRequestedAction): Generator {
 // row; otherwise we send [] and the server leaves new cells as NaN/null.
 // Rows missing date or time are skipped defensively.
 
-function* addColumnWorker(action: AddColumnRequestedAction): Generator {
+export function* addColumnWorker(action: AddColumnRequestedAction): Generator {
   const { projectId, scenarioId, name, dataTypeId, dataUnitId, defaultValue } = action.payload
   try {
     const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
@@ -615,8 +620,10 @@ function* addColumnWorker(action: AddColumnRequestedAction): Generator {
       defaultValue: defaultValue === '' ? 'NAN' : defaultValue
     })) as AddColumnResponse
     yield put(actions.addColumnSucceeded(projectId, scenarioId, res.column, defaultValue))
+    yield put(showSnackbar(toastMessages.columnAdded(name), 'success'))
   } catch (err) {
     yield put(actions.addColumnFailed(projectId, scenarioId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.columnAddFailed(name), 'error'))
   }
 }
 
@@ -729,7 +736,7 @@ function* updateColumnWorker(action: UpdateColumnRequestedAction): Generator {
 // optimistically on _REQUESTED; this worker confirms with the backend or
 // asks the reducer to restore the caller's snapshot on failure.
 
-function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
+export function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
   const { projectId, scenarioId, colId, snapshot } = action.payload
 
   const headerId = Number(colId)
@@ -743,26 +750,30 @@ function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
   try {
     yield call(deleteHeaderRequest, projectId, scenarioId, headerId)
     yield put(actions.deleteColumnSucceeded(projectId, scenarioId, colId))
+    yield put(showSnackbar(toastMessages.columnDeleted(snapshot.column.name), 'success'))
   } catch (err) {
     yield put(
       actions.deleteColumnFailed(projectId, scenarioId, colId, snapshot, (err as Error).message)
     )
+    yield put(showSnackbar(toastMessages.columnDeleteFailed(snapshot.column.name), 'error'))
   }
 }
 
 // Delete one row by its (date, time) key. The reducer already removed the row
 // optimistically on _REQUESTED; we POST the single key and roll back via the
 // snapshot if the backend rejects.
-function* deleteRowWorker(action: DeleteRowRequestedAction): Generator {
+export function* deleteRowWorker(action: DeleteRowRequestedAction): Generator {
   const { projectId, scenarioId, rowId, date, time, snapshot } = action.payload
 
   try {
     yield call(deleteRowsRequest, projectId, scenarioId, [{ date, time }])
     yield put(actions.deleteRowSucceeded(projectId, scenarioId, rowId))
+    yield put(showSnackbar(toastMessages.rowsDeleted(1), 'success'))
   } catch (err) {
     yield put(
       actions.deleteRowFailed(projectId, scenarioId, rowId, snapshot, (err as Error).message)
     )
+    yield put(showSnackbar(toastMessages.rowsDeleteFailed(1), 'error'))
   }
 }
 

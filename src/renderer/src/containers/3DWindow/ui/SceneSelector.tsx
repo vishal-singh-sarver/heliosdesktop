@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import messages from '../messages'
 import { selectSceneObject } from '../store/actions'
 import { selectSceneObjects, selectSelectedObjectId } from '../store/selectors'
@@ -47,7 +48,9 @@ export function SceneSelector(): React.JSX.Element {
           onClick={() => setOpen((v) => !v)}
           className="flex min-w-[140px] items-center justify-between rounded border border-neutral-600 bg-neutral-800 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-blue-500"
         >
-          <span className="truncate">{currentLabel}</span>
+          <span className="truncate" onMouseEnter={showFullTextOnHover}>
+            {currentLabel}
+          </span>
           <span className="ml-2 shrink-0 text-neutral-400">{open ? '▲' : '▼'}</span>
         </button>
 

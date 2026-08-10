@@ -574,6 +574,95 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
+  // Toggling is not editing: whichever side is superseded keeps everything the
+  // user put into it, and simply stops complaining while it can't be reached.
+  describe('superseded side goes quiet', () => {
+    const rangeMsg = new RegExp(messages.valuesBetween(0, 1))
+
+    const setBand = (container: HTMLElement, prop: string, val: string): void => {
+      fireEvent.change(container.querySelector<HTMLInputElement>(`[id="1-${prop}"]`)!, {
+        target: { value: val }
+      })
+    }
+
+    it('hides a band’s error while spectral supersedes it, and keeps the value', () => {
+      const { container } = render(
+        <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+          <MaterialPropertiesForm />
+        </Provider>
+      )
+      setBand(container, 'reflectivity_PAR', '5') // max is 1
+
+      expect(screen.getAllByLabelText(rangeMsg).length).toBeGreaterThan(0)
+
+      fireEvent.click(screen.getByRole('switch'))
+
+      expect(screen.queryByLabelText(rangeMsg)).toBeNull()
+      // The number is untouched — only the complaint went away.
+      expect(container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')?.value).toBe('5')
+    })
+
+    it('brings the same error back when the toggle returns', () => {
+      const { container } = render(
+        <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+          <MaterialPropertiesForm />
+        </Provider>
+      )
+      setBand(container, 'reflectivity_PAR', '5')
+
+      fireEvent.click(screen.getByRole('switch')) // ON — bands superseded
+      fireEvent.click(screen.getByRole('switch')) // OFF — bands live again
+
+      expect(screen.getAllByLabelText(rangeMsg).length).toBeGreaterThan(0)
+      expect(container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')?.value).toBe('5')
+    })
+
+    it('does not let the hidden error block Save', () => {
+      // The error is off screen in spectral mode, so gating Save on it would stop
+      // the card with nothing on screen explaining why. The band is dropped on
+      // save anyway.
+      const { container } = render(
+        <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+          <MaterialPropertiesForm />
+        </Provider>
+      )
+      setBand(container, 'reflectivity_PAR', '5')
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+      fireEvent.click(screen.getByRole('switch'))
+      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    })
+
+    it('greys the stored spectral file and locks its 🗑 when the toggle is OFF', () => {
+      // The mirror case: manual mode is what Save persists, so the file is the
+      // superseded side and has to look it.
+      const store = liveStoreWith(
+        [
+          card(1, {
+            typeId: 1,
+            values: { use_radiation_bands: 'true', spectral_data: 'uploads/groups/12/leaf.xml' }
+          })
+        ],
+        [radiationType]
+      )
+      render(
+        <Provider store={store}>
+          <MaterialPropertiesForm />
+        </Provider>
+      )
+
+      expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+      const remove = screen.getByLabelText(messages.spectralRemove)
+      expect(remove).toBeDisabled()
+      // Same muted fill the superseded band inputs use.
+      expect(remove.parentElement?.className).toContain('bg-[#424242]')
+
+      // Toggling spectral back ON hands the file back.
+      fireEvent.click(screen.getByRole('switch'))
+      expect(screen.getByLabelText(messages.spectralRemove)).toBeEnabled()
+    })
+  })
+
   it('deletes the spectral file on a toggle-OFF (manual) save', () => {
     // A card saved in spectral mode (savedValues holds the file), now toggled to
     // manual — the draft still carries the path until the post-save reducer clears

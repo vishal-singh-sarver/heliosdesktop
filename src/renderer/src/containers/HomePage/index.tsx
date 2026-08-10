@@ -110,7 +110,7 @@ export function HomePage(): React.JSX.Element {
 
   const handleConfirmDelete = (): void => {
     if (!pendingDelete || pendingDeleteInFlight) return
-    dispatch(deleteProject({ projectId: pendingDelete.id }))
+    dispatch(deleteProject({ projectId: pendingDelete.id, name: pendingDelete.name }))
   }
 
   const handleCancelDelete = (): void => {

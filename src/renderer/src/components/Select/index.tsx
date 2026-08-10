@@ -2,6 +2,7 @@ import checkIcon from '@renderer/assets/CheckIcon.svg'
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import React from 'react'
 import { createPortal } from 'react-dom'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { useAnchoredPosition, type AnchorRect } from 'utils/useAnchoredPosition'
 
 // The app's dropdown, replacing the native <select> everywhere.
@@ -110,6 +111,10 @@ export default function Select({
   const [highlight, setHighlight] = React.useState(0)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const buttonRef = React.useRef<HTMLButtonElement>(null)
+  // Set while a press that must NOT dismiss the list is in flight — see the
+  // outside-press effect.
+  const pressingRef = React.useRef(false)
   // The list lives in a portal (see below), so it is NOT inside rootRef — every
   // "did this happen inside the control?" check has to consult it separately.
   const listElRef = React.useRef<HTMLElement | null>(null)
@@ -160,6 +165,26 @@ export default function Select({
     },
     [floatingRef]
   )
+
+  // Where the portal lands. <body> normally — but a control inside a MODAL
+  // dialog needs the list inside that dialog instead.
+  //
+  // Dialog opens with showModal(), which puts the <dialog> in the browser's TOP
+  // LAYER: a surface painted above the entire normal document. A list portalled
+  // to <body> is in the normal document, so it renders BEHIND the dialog no
+  // matter how high its z-index goes — this is not a z-index race, and raising
+  // it cannot win. Portalling into the dialog puts the list on the same layer,
+  // where it paints above as expected.
+  //
+  // Still `position: fixed`, so it escapes the dialog's own scrolling the same
+  // way it escapes a panel's. Resolved when the list opens (not at mount) —
+  // that's the first moment the control is definitely in the DOM, and it's
+  // cheap: one closest() per open.
+  const [portalHost, setPortalHost] = React.useState<HTMLElement | null>(null)
+  React.useEffect(() => {
+    if (!listOpen) return
+    setPortalHost(rootRef.current?.closest('dialog') ?? document.body)
+  }, [listOpen])
 
   // A list opening near the bottom of a panel has only a sliver of room, so it is
   // capped to that and shows a couple of rows behind its own scrollbar. On the
@@ -251,25 +276,59 @@ export default function Select({
 
   // Close on an outside click and report the blur — the field is only "left"
   // once the list is dismissed, so validation fires when it used to.
+  //
+  // Grabbing a SCROLLBAR is not leaving the field, and it used to read as one via
+  // TWO independent routes:
+  //   • this handler — the press lands on the scrolling element, which is outside
+  //     the control, so the list shut the instant the panel's scrollbar was
+  //     dragged (the one gesture a user makes to bring the rest of the options
+  //     into view);
+  //   • the control's own blur — a scrollbar gutter belongs to no element and
+  //     cannot take focus, so the browser blurs the control with a null
+  //     relatedTarget, and handleBlur closed the list out from under the drag.
+  //     This is why dragging the LIST's own scrollbar failed even though the
+  //     press is plainly inside it: the option rows escape the blur by
+  //     preventing the mousedown default, the container they sit in does not.
+  //
+  // A two-finger trackpad scroll is a wheel event with no press at all, which is
+  // why only dragging was ever broken. `pressingRef` bridges the two routes: it
+  // is raised for any press that keeps the list open, and tells handleBlur to sit
+  // that one out.
   React.useEffect(() => {
     if (!open) return undefined
     const onDown = (e: MouseEvent): void => {
       const target = e.target as Node
-      // The list is portalled to <body>, so a press on an option is NOT inside
-      // rootRef. Without the second check every option click read as an outside
-      // press and closed the list before the click could land on it.
-      if (rootRef.current?.contains(target) || listElRef.current?.contains(target)) return
-      // Grabbing a SCROLLBAR is not leaving the field. The press lands on the
-      // scrolling element, which is outside the control, so without this the list
-      // shut the instant the panel's scrollbar was dragged — the one gesture a
-      // user makes to bring the rest of the options into view.
-      if (isScrollbarPress(e)) return
+      // The list is portalled out of the control (see portalHost), so a press on
+      // an option — or on the list's own scrollbar — is NOT inside rootRef.
+      // Without the second check every option click read as an outside press and
+      // closed the list before the click could land on it.
+      const inside =
+        rootRef.current?.contains(target) === true || listElRef.current?.contains(target) === true
+      if (inside || isScrollbarPress(e)) {
+        pressingRef.current = true
+        return
+      }
       setOpen(false)
       onBlur?.()
     }
+    // The press is over, so stop swallowing blurs. If it was a scrollbar drag the
+    // gutter took focus off the control and never handed it back — the list is
+    // still open, so arrow keys and Escape have to keep working after the drag.
+    const onUp = (): void => {
+      if (!pressingRef.current) return
+      pressingRef.current = false
+      if (rootRef.current?.contains(document.activeElement)) return
+      const control = searchable ? inputRef.current : buttonRef.current
+      control?.focus({ preventScroll: true })
+    }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open, onBlur])
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('mouseup', onUp)
+      pressingRef.current = false
+    }
+  }, [open, onBlur, searchable])
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (disabled) return
@@ -320,6 +379,9 @@ export default function Select({
   // Focus leaving the control closes the list and reports the blur — but moving
   // between the control and its own list must not.
   const handleBlur = (e: React.FocusEvent): void => {
+    // Mid-press on a scrollbar: the control is losing focus to a gutter that
+    // cannot hold it, which is not the user leaving the field. See the effect above.
+    if (pressingRef.current) return
     const next = e.relatedTarget as Node | null
     if (rootRef.current?.contains(next) || listElRef.current?.contains(next)) return
     setOpen(false)
@@ -385,6 +447,7 @@ export default function Select({
         </>
       ) : (
         <button
+          ref={buttonRef}
           type="button"
           id={id}
           name={name}
@@ -402,7 +465,9 @@ export default function Select({
           onBlur={handleBlur}
           className={`${className} flex items-center justify-between gap-2 text-left`}
         >
-          <span className="min-w-0 truncate">{selected?.label ?? placeholder}</span>
+          <span className="min-w-0 truncate" onMouseEnter={showFullTextOnHover}>
+            {selected?.label ?? placeholder}
+          </span>
           <img
             src={chevronDown}
             alt=""
@@ -415,8 +480,8 @@ export default function Select({
 
       {listOpen &&
         createPortal(
-          // Portalled to <body> and positioned against the control, so no
-          // scrolling ancestor can clip it. Pinned to the control's bottom edge —
+          // Portalled OUT of the control (see portalHost) and positioned against
+          // it, so no scrolling ancestor can clip it. Pinned to the control's bottom edge —
           // it never shifts with the selection the way a native popup did.
           //
           // Parked OFF-SCREEN until the first measurement lands (one pre-paint
@@ -476,12 +541,14 @@ export default function Select({
                     )}
                   </span>
                 )}
-                <span className="min-w-0 truncate">{opt.label}</span>
+                <span className="min-w-0 truncate" onMouseEnter={showFullTextOnHover}>
+                  {opt.label}
+                </span>
               </button>
             )
           })}
           </div>,
-          document.body
+          portalHost ?? document.body
         )}
     </div>
   )

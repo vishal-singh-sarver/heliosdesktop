@@ -3,6 +3,7 @@ import fileIcon from '@renderer/assets/file.svg'
 import FormField from '@renderer/components/FormField'
 import React from 'react'
 import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import {
   RADIATION_BANDS,
   radiationBandProperties,
@@ -108,6 +109,7 @@ export function MaterialRadiationEditor({
     const field = fieldByProp.get(property)
     if (!field) return null
     const label = opts?.label ?? field.label
+    const disabled = opts?.disabled === true
     return (
       <FormField
         key={property}
@@ -118,13 +120,22 @@ export function MaterialRadiationEditor({
           placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : label,
           // Per-field validation wins; else the band-sum rule (R+T+E ≤ 1) flags
           // all three of an offending band with the same tooltip.
-          error:
-            fieldError(field) ??
-            (bandSumViolations.has(property) ? messages.bandSumExceedsOne : undefined),
+          //
+          // A SUPERSEDED band shows neither. Its box is disabled, so the error is
+          // a complaint about something the user is not allowed to fix — and the
+          // value is dropped on save anyway (toRadiationProperties), so there is
+          // nothing to fix. The value itself stays put: flip the toggle back and
+          // both the number and its error are exactly as they were. The band-sum
+          // rule already works this way (bandSumViolations is empty in spectral
+          // mode); this is the per-field half of the same rule.
+          error: disabled
+            ? undefined
+            : (fieldError(field) ??
+              (bandSumViolations.has(property) ? messages.bandSumExceedsOne : undefined)),
           // Surface the validation error as an in-cell info-icon tooltip
           // (matches the Geometry right panel); selects keep the inline message.
           errorAsTooltip: true,
-          disabled: opts?.disabled,
+          disabled,
           inputClassName: BAND_INPUT_CLASSES,
           options:
             field.datatype === 'enum' && field.enumValues
@@ -197,7 +208,19 @@ export function MaterialRadiationEditor({
       <div className="flex flex-col gap-1">
         <p className="text-sm text-neutral-300">{messages.spectralDataFile}</p>
         {spectralPath !== '' ? (
-          <div className="flex items-center justify-between rounded border border-app-border bg-[#121212] px-3 py-2">
+          // The mirror image of a superseded band: with the toggle OFF the manual
+          // bands are what Save persists and the file is dropped, so the row that
+          // holds it greys out and its 🗑 locks. Without this the file read as live
+          // and removable while having no effect on anything — the toggle looked
+          // like it only governed the bands, when it governs both sides.
+          //
+          // Same #424242 fill/border the band inputs use when THEY are superseded,
+          // so one disabled treatment means one thing throughout the card.
+          <div
+            className={`flex items-center justify-between rounded border px-3 py-2 ${
+              applySpectral ? 'border-app-border bg-[#121212]' : 'border-[#424242] bg-[#424242]'
+            }`}
+          >
             <span className="flex min-w-0 items-center gap-2">
               <img
                 src={fileIcon}
@@ -208,13 +231,19 @@ export function MaterialRadiationEditor({
                 style={{ filter: 'brightness(0) invert(1)' }}
                 className="h-4 w-4 shrink-0"
               />
-              <span className="truncate text-sm text-neutral-200">{basename(spectralPath)}</span>
+              <span
+                className={`truncate text-sm ${applySpectral ? 'text-neutral-200' : 'text-neutral-300'}`}
+                onMouseEnter={showFullTextOnHover}
+              >
+                {basename(spectralPath)}
+              </span>
             </span>
             <button
               type="button"
               aria-label={messages.spectralRemove}
+              disabled={!applySpectral}
               onClick={onClearSpectral}
-              className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50"
+              className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
             >
               <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
             </button>
@@ -255,7 +284,10 @@ export function MaterialRadiationEditor({
             </button>
           </>
         )}
-        {(fileError || uploadError) && (
+        {/* Hidden while the toggle is OFF, for the same reason a superseded band
+            hides its error: the control it belongs to is inert, so the message
+            reports a problem the user cannot act on. It returns with the toggle. */}
+        {applySpectral && (fileError || uploadError) && (
           <p className="form-error-text" style={{ color: '#D92D20' }}>
             {fileError ?? uploadError}
           </p>

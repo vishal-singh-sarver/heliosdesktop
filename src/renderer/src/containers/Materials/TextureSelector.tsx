@@ -1,5 +1,6 @@
 import uploadIcon from '@renderer/assets/Upload.svg'
 import React from 'react'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 import messages from './messages'
 import { listDefaultTextures, textureServeUrl } from './service'
 import { normalizeImageOrientation, TEXTURE_ACCEPT_ATTR, validateTextureFile } from './validation'
@@ -189,7 +190,10 @@ export function TextureSelector({
                     aria-hidden="true"
                     className="h-20 w-full rounded-sm object-cover"
                   />
-                  <span className="block w-full truncate text-center text-xs text-neutral-300">
+                  <span
+                    className="block w-full truncate text-center text-xs text-neutral-300"
+                    onMouseEnter={showFullTextOnHover}
+                  >
                     {displayName(t.name)}
                   </span>
                 </button>

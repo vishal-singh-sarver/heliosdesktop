@@ -1,6 +1,7 @@
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import type { DataTypeDef, UpdateColumnPatch } from 'containers/ProjectScreen/types'
 import React from 'react'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 
 // The date-time column uses the `date_time` catalog data type implicitly —
 // its `units[]` are format patterns ("MM/DD/YYYY HH:MM") rather than numeric
@@ -71,6 +72,7 @@ function DateTimeHeader({ dataType, currentUnitId, onPatch }: Props): React.JSX.
                   role="option"
                   aria-selected={isSelected}
                   onClick={() => pickUnit(u.id)}
+                  onMouseEnter={showFullTextOnHover}
                   className={`block w-full truncate px-3 py-2 text-left text-sm hover:bg-neutral-800 ${
                     isSelected ? 'bg-neutral-800 text-white' : 'text-neutral-300'
                   }`}
