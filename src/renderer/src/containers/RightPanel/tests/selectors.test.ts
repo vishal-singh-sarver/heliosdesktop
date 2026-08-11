@@ -7,9 +7,14 @@ import makeSelectRightPanel, {
   selectStreamLog
 } from '../selectors'
 import { initialState } from '../reducer'
+import type { RootState } from 'store/reducers'
 
 const withRightPanel = (partial: Partial<typeof initialState>) =>
   ({ rightPanel: { ...initialState, ...partial } }) as any
+
+// The slice really is absent here — that is the case under test — so the cast
+// stands in for a state shape the selector is expected to cope with.
+const withoutSlice = {} as RootState
 
 describe('selectRightPanelDomain', () => {
   it('selects the rightPanel slice', () => {
@@ -17,7 +22,7 @@ describe('selectRightPanelDomain', () => {
   })
 
   it('returns initialState when key is absent', () => {
-    expect(selectRightPanelDomain({})).toEqual(initialState)
+    expect(selectRightPanelDomain(withoutSlice)).toEqual(initialState)
   })
 })
 

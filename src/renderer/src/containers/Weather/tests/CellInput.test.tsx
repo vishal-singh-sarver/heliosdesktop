@@ -45,7 +45,24 @@ const rangedDataTypes = [
     description: '',
     created_at: '',
     updated_at: '',
-    units: [{ id: 10, unit: 'C', alias: '°C', data_type_id: 1, min: 0, max: 100 }]
+    // The conversion fields are what make this a base unit, so nothing is
+    // scaled or offset — the 0–100 range below is read in the unit's own terms,
+    // which is what the range assertions in this file depend on.
+    units: [
+      {
+        id: 10,
+        unit: 'C',
+        alias: '°C',
+        data_type_id: 1,
+        min: 0,
+        max: 100,
+        to_base_factor: 1,
+        to_base_offset: 0,
+        is_base: true,
+        created_at: '',
+        updated_at: ''
+      }
+    ]
   }
 ]
 

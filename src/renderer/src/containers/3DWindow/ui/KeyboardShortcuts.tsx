@@ -255,6 +255,10 @@ export function KeyboardShortcuts(): null {
 
       const newPos = center.clone().add(dir.multiplyScalar(dist))
       controls?.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, true)
+      // The clamps are plain assignments, not optional calls, so they throw if
+      // the controls have not attached yet. Everything above this point is
+      // already a no-op in that state, so there is nothing to finish.
+      if (!controls) return
       controls.minDistance = perspCam.near * 10
       controls.maxDistance = dist * 20
       driveTransition()

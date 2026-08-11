@@ -1,21 +1,5 @@
-import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
+import { call } from 'redux-saga/effects'
 import projectScreenSaga, { clearPersistedIdsOnHome } from '../saga'
-import * as sagaModule from '../saga'
-import {
-  addColumnRequest,
-  addColumnsRequest,
-  addRowsRequest,
-  deleteHeaderRequest,
-  deleteRowsRequest,
-  getProjectRequest,
-  loadDataRequest,
-  loadDataTypesRequest,
-  loadHeadersRequest,
-  patchHeaderRequest,
-  updateColumnRequest,
-  updateCellRequest,
-  updateProjectRequest
-} from 'containers/Weather/service'
 // Unit tests for the ProjectScreen saga: drives the REAL worker generators to
 // completion (via runSaga) and asserts the actions they dispatch and the service
 // calls they make, mocking only the containers/Weather/service boundary. It does
@@ -55,14 +39,6 @@ import {
   UPDATE_COLUMN_REQUESTED,
   UPDATE_PROJECT_REQUESTED
 } from '../constants'
-import {
-  selectActiveWeatherTable,
-  selectAllDataTypes,
-  selectByScenario,
-  selectCheckDataTypeId,
-  selectDataTypesLoadStatus
-} from '../selectors'
-
 import { NAVIGATE } from 'store/navigationReducer'
 
 import type { DataTypeDef, DataUnitDef, ProjectMetadata, WeatherTable } from '../types'
@@ -125,6 +101,8 @@ describe('projectScreenSaga (root watcher)', () => {
     }
     expect(gen.next().done).toBe(true)
     for (const t of expected) expect(seen).toContain(t)
+  })
+})
 
 const kelvin: DataUnitDef = {
   id: 5,
@@ -234,6 +212,10 @@ function buildState(o: StateOverrides = {}): { projectScreen: typeof initialStat
     projectScreen: {
       ...initialState,
       catalog: {
+        // Spread first so the object/material/model-type slices keep their
+        // initial values — this helper only ever overrides dataTypes, and
+        // replacing the whole slice would drop the three the catalog gained.
+        ...initialState.catalog,
         dataTypes: { byId, allIds, loadStatus: o.loadStatus ?? 'loaded', loadError: null }
       },
       activeProjectId: PROJ,
@@ -309,7 +291,11 @@ beforeEach(() => {
 
 describe('worker extraction', () => {
   it('harvests real worker fns keyed by action type (updateColumnWorker matches the export)', () => {
-    expect(Object.keys(W).length).toBe(12)
+    // One entry per takeEvery/takeLatest in the root watcher. Was 12 before M2
+    // added the object/material/model-type loaders and the checkbox worker; the
+    // count is asserted so a watcher silently dropped from the root saga fails
+    // here rather than in whichever feature quietly stops responding.
+    expect(Object.keys(W).length).toBe(16)
     expect(W[UPDATE_COLUMN_REQUESTED]).toBe(updateColumnWorker)
   })
 })
