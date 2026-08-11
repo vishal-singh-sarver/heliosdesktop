@@ -447,23 +447,32 @@ export function spectrumGroup(
   return groups.find((g) => g.selectorProperty === USE_RADIATION_BANDS_PROPERTY)
 }
 
-// True while a spectrum choice is still unmade — the Save gate for spectral mode.
+// True while spectral mode is not yet usable — the Save gate for that mode.
+// Two ways to be incomplete: no file, or a file with a choice still unmade.
 //
-// Not a nicety: a label the engine can't resolve does NOT fail loudly.
-// RadiationModel warns and falls back to a reflectivity of 0, blackening the
-// surface for the entire simulation with nothing pointing back here. An empty
-// picker is the same silent failure, so it is caught before Save rather than in
-// a run.
-//
-// Gated on a file actually being uploaded. With no file there are no labels to
-// choose from, so requiring a choice would disable Save with no action the user
-// could take to satisfy it.
-export function spectrumChoicesIncomplete(
+// Not a nicety: neither failure is loud. RadiationModel warns and falls back to
+// a reflectivity of 0, blackening the surface for the entire simulation with
+// nothing pointing back here — so both are caught before Save rather than in a
+// run.
+export function spectralSetupIncomplete(
   groups: ResolvedParameterGroup[],
   values: Record<string, string>
 ): boolean {
   if (!readApplySpectral(values)) return false
-  if ((values[SPECTRAL_DATA_PROPERTY] ?? '').trim() === '') return false
+
+  // No file is the worse half of this rule, not an exemption from it. Spectral
+  // mode DROPS the per-band values on save (toRadiationProperties), on the
+  // understanding that a file replaces them — so saving with no file ships a
+  // material carrying no reflectivity or transmissivity at all. It also strands
+  // any spectrum names still held from a file that has since been deleted, which
+  // the engine resolves to a reflectivity of 0 and a black surface.
+  //
+  // Safe to block on: the upload needs only the material GROUP, not a saved
+  // member (upload_file_property — "a texture can be uploaded before the member
+  // exists"), so a brand-new card can always satisfy this. It is never a state
+  // the user is stuck in.
+  if ((values[SPECTRAL_DATA_PROPERTY] ?? '').trim() === '') return true
+
   const group = spectrumGroup(groups)
   if (group == null) return false
   return group.fields.some((f) => (values[f.property] ?? '').trim() === '')

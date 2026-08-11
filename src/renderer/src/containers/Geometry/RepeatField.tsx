@@ -1,4 +1,3 @@
-import chevronDownIcon from '@renderer/assets/ChevronDownIcon.svg'
 import FormField from '@renderer/components/FormField'
 import React from 'react'
 import { trimText } from 'utils/trimText'
@@ -100,14 +99,38 @@ function RepeatField({
         // before moving it — two changes for one click.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => onStep(direction)}
-        className="pointer-events-auto flex h-[13px] w-4 items-center justify-center rounded-[2px] text-neutral-400 hover:bg-white/10 disabled:pointer-events-none disabled:opacity-30"
+        // White at rest, matching the solid-white fill the old chevron asset had
+        // — a 1.5px stroke reads lighter than a filled glyph, so inheriting the
+        // previous neutral-400 left the arrows dimmer than they used to be.
+        className="pointer-events-auto flex h-[13px] w-4 items-center justify-center rounded-[2px] text-white hover:bg-white/10 disabled:pointer-events-none disabled:opacity-30"
       >
-        <img
-          src={chevronDownIcon}
-          alt=""
+        {/* Drawn inline rather than from ChevronDownIcon.svg. That asset's glyph
+            is not centred in its own 10×6 box — it sits ~0.3px left and ~0.3px
+            high — so rotating it 180° for the up arrow moved it the same amount
+            the OTHER way on both axes, leaving the pair visibly out of line.
+            6 wide × 3 deep, not the near-flat 8 × 2.5 it started as — a shallow
+            chevron at this size reads as a line rather than an arrow.
+            Symmetric about x=5, and with round caps adding half the stroke width
+            it clears 1.125 on each side and 0.625 top and bottom — symmetric on
+            both axes, so the rotation lands exactly on the mirror image. Keep
+            those two clearances equal if the path or stroke width changes, or
+            the two arrows drift out of line again.
+            currentColor also lets the stroke follow the button's text colour,
+            including the disabled state — the asset was a fixed white fill. */}
+        <svg
+          viewBox="0 0 10 6"
           aria-hidden="true"
           className={`h-[6px] w-[10px]${direction === 1 ? ' rotate-180' : ''}`}
-        />
+        >
+          <path
+            d="M2 1.5 L5 4.5 L8 1.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
     )
   }

@@ -9,7 +9,7 @@ import {
   radiationHeaderFields,
   readApplySpectral,
   resolveParameterGroups,
-  spectrumChoicesIncomplete,
+  spectralSetupIncomplete,
   spectrumGroup,
   toNativeProperties,
   toRadiationProperties,
@@ -349,7 +349,7 @@ describe('Radiation editor helpers', () => {
 // A label the engine can't resolve doesn't error — RadiationModel falls back to a
 // reflectivity of 0 and blackens the surface for the whole run — so an unmade
 // choice is caught here instead.
-describe('spectrumChoicesIncomplete', () => {
+describe('spectralSetupIncomplete', () => {
   const groups = resolveParameterGroups([radiation])
   const spectral = {
     use_radiation_bands: 'false',
@@ -359,23 +359,23 @@ describe('spectrumChoicesIncomplete', () => {
   }
 
   it('passes once both choices are made', () => {
-    expect(spectrumChoicesIncomplete(groups, spectral)).toBe(false)
+    expect(spectralSetupIncomplete(groups, spectral)).toBe(false)
   })
 
   it('blocks while either choice is missing', () => {
-    expect(spectrumChoicesIncomplete(groups, { ...spectral, reflectivity_spectrum: '' })).toBe(true)
-    expect(spectrumChoicesIncomplete(groups, { ...spectral, transmissivity_spectrum: '' })).toBe(
+    expect(spectralSetupIncomplete(groups, { ...spectral, reflectivity_spectrum: '' })).toBe(true)
+    expect(spectralSetupIncomplete(groups, { ...spectral, transmissivity_spectrum: '' })).toBe(
       true
     )
     // Whitespace is not a choice.
-    expect(spectrumChoicesIncomplete(groups, { ...spectral, reflectivity_spectrum: '  ' })).toBe(
+    expect(spectralSetupIncomplete(groups, { ...spectral, reflectivity_spectrum: '  ' })).toBe(
       true
     )
   })
 
   it('does not block in manual mode — the choices are not sent at all there', () => {
     expect(
-      spectrumChoicesIncomplete(groups, {
+      spectralSetupIncomplete(groups, {
         ...spectral,
         use_radiation_bands: 'true',
         reflectivity_spectrum: '',
@@ -384,21 +384,38 @@ describe('spectrumChoicesIncomplete', () => {
     ).toBe(false)
   })
 
-  it('does not block before a file is uploaded', () => {
-    // With no file there are no labels to choose from, so requiring a choice
-    // would disable Save with nothing the user could do to satisfy it.
+  it('blocks spectral mode with NO file — the material would carry no optics', () => {
+    // Spectral mode drops the per-band values on save, on the understanding that
+    // a file replaces them. With no file the material ships with no reflectivity
+    // or transmissivity at all. Safe to block: the upload needs only the material
+    // group, so uploading one is always available as the way out.
     expect(
-      spectrumChoicesIncomplete(groups, {
+      spectralSetupIncomplete(groups, {
         use_radiation_bands: 'false',
         spectral_data: '',
         reflectivity_spectrum: '',
         transmissivity_spectrum: ''
       })
-    ).toBe(false)
+    ).toBe(true)
+  })
+
+  it('blocks names left over from a file that was deleted', () => {
+    // Toggle off, save (which deletes the file), toggle back on: the names are
+    // deliberately kept across the toggle, so they can outlive their file. The
+    // engine resolves a name it cannot find to a reflectivity of 0 — a black
+    // surface, with no error anywhere.
+    expect(
+      spectralSetupIncomplete(groups, {
+        use_radiation_bands: 'false',
+        spectral_data: '',
+        reflectivity_spectrum: 'leaf_r',
+        transmissivity_spectrum: 'leaf_t'
+      })
+    ).toBe(true)
   })
 
   it('does not block a type that has no spectrum group', () => {
-    expect(spectrumChoicesIncomplete(resolveParameterGroups([photosynthesis]), spectral)).toBe(
+    expect(spectralSetupIncomplete(resolveParameterGroups([photosynthesis]), spectral)).toBe(
       false
     )
   })

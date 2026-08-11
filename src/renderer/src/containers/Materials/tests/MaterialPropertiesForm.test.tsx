@@ -25,6 +25,18 @@ import materialsReducer, {
 } from '../reducer'
 import type { MaterialParameterGroup } from '../types'
 
+// What the mocked spectral-labels lookup returns. Hoisted so the vi.mock factory
+// below (which runs before the module body) can close over it, and mutable so a
+// test can stand in an empty or unreadable file. Reset in beforeEach.
+const spectral = vi.hoisted(() => ({
+  labels: ['leaf_reflectivity', 'leaf_transmissivity'] as string[],
+  fail: false
+}))
+beforeEach(() => {
+  spectral.labels = ['leaf_reflectivity', 'leaf_transmissivity']
+  spectral.fail = false
+})
+
 // TextureSelector fetches the default-texture library itself on mount. Stub just
 // that call so the grid has a tile to press; everything else in the service is
 // left alone.
@@ -34,7 +46,12 @@ vi.mock('../service', async (importOriginal) => ({
     { name: 'grass.png', url: '/api/materials/library/textures/serve?path=uploads/grass.png' }
   ],
   // The spectra inside the stored file — what the two spectrum pickers offer.
-  fetchSpectralLabels: async () => ['leaf_reflectivity', 'leaf_transmissivity']
+  // Read through a hoisted box so a test can vary it (an empty file, an
+  // unreadable one) without re-mocking the module.
+  fetchSpectralLabels: async () => {
+    if (spectral.fail) throw new Error('unreadable')
+    return spectral.labels
+  }
 }))
 
 const card = (id: number, over: Partial<MaterialParameterGroup> = {}): MaterialParameterGroup => ({
@@ -586,7 +603,16 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
 
   it('ignores the band-sum rule while spectral mode is ON (bands are superseded)', () => {
     const { container } = render(
-      <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+      <Provider store={liveStoreWith([card(1, {
+          typeId: 1,
+          // A complete spectral setup, so toggling into spectral mode leaves the
+          // band-sum rule as the only thing that could block Save.
+          values: {
+            spectral_data: 'uploads/groups/12/leaf.xml',
+            reflectivity_spectrum: 'leaf_reflectivity',
+            transmissivity_spectrum: 'leaf_transmissivity'
+          }
+        })], [radiationType])}>
         <MaterialPropertiesForm />
       </Provider>
     )
@@ -657,7 +683,16 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
       // the card with nothing on screen explaining why. The band is dropped on
       // save anyway.
       const { container } = render(
-        <Provider store={liveStoreWith([card(1, { typeId: 1 })], [radiationType])}>
+        <Provider store={liveStoreWith([card(1, {
+          typeId: 1,
+          // A complete spectral setup, so toggling into spectral mode leaves the
+          // band-sum rule as the only thing that could block Save.
+          values: {
+            spectral_data: 'uploads/groups/12/leaf.xml',
+            reflectivity_spectrum: 'leaf_reflectivity',
+            transmissivity_spectrum: 'leaf_transmissivity'
+          }
+        })], [radiationType])}>
           <MaterialPropertiesForm />
         </Provider>
       )
@@ -781,7 +816,173 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
-  it('does not show or require the spectrum choices in manual mode', () => {
+  it('stars the spectrum choices even before a file is uploaded', async () => {
+    // The star is a standing property of the field — "this must be filled to use
+    // spectral data" — not a state it enters once Save starts refusing. Showing
+    // it only after the upload announced the requirement at the one moment it was
+    // least useful to learn about.
+    const noFile = card(1, {
+      typeId: 1,
+      saved: true,
+      values: { use_radiation_bands: 'false' }, // spectral mode, nothing uploaded
+      savedValues: { use_radiation_bands: 'true' }
+    })
+    render(
+      <Provider store={liveStoreWith([noFile], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const label = (await screen.findAllByText('Reflectivity Spectrum'))[0]
+    expect(label.closest('label')).toHaveTextContent('Reflectivity Spectrum*')
+  })
+
+  it('keeps the star once a file is uploaded', async () => {
+    render(
+      <Provider store={liveStoreWith([spectralCard()], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    // Here the star is also the only thing on screen explaining a disabled Save.
+    const label = (await screen.findAllByText('Reflectivity Spectrum'))[0]
+    expect(label.closest('label')).toHaveTextContent('Reflectivity Spectrum*')
+  })
+
+  it('reports a file that holds no spectra, beside the file itself', async () => {
+    // Uploaded fine, but there is nothing in it to pick — so the two required
+    // pickers can never be satisfied. Two empty dropdowns alone would just look
+    // like they were still loading.
+    spectral.labels = []
+    render(
+      <Provider store={liveStoreWith([spectralCard()], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    expect(
+      await screen.findByText('No spectra found in this file — upload one that contains them')
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('distinguishes an unreadable file from an empty one', async () => {
+    // "None found" would claim we read the file and it was empty. We didn't.
+    spectral.fail = true
+    render(
+      <Provider store={liveStoreWith([spectralCard()], [radiationType])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    expect(await screen.findByText('Could not read the spectra in this file')).toBeInTheDocument()
+    expect(screen.queryByText(/No spectra found/)).not.toBeInTheDocument()
+  })
+
+  it('keeps a chosen spectrum when the toggle goes off, like the band values do', () => {
+    // Toggling to manual must not wipe the choice. The selector-hygiene effect
+    // blanks inactive groups (right for mutually-exclusive sub-models), but this
+    // toggle is a mode switch whose other side — the bands — survives it, and the
+    // labels come from a file the user would have to re-upload to see again.
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: {
+            use_radiation_bands: 'true', // manual: the spectrum group is inactive
+            spectral_data: 'uploads/groups/12/leaf.xml',
+            reflectivity_spectrum: 'leaf_reflectivity',
+            transmissivity_spectrum: 'leaf_transmissivity'
+          },
+          savedValues: { use_radiation_bands: 'false' }
+        })
+      ],
+      [radiationType]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const values = (
+      store.getState() as unknown as {
+        materials: { editDraft: { groups: { values: Record<string, string> }[] } }
+      }
+    ).materials.editDraft.groups[0].values
+    expect(values.reflectivity_spectrum).toBe('leaf_reflectivity')
+    expect(values.transmissivity_spectrum).toBe('leaf_transmissivity')
+  })
+
+  it('clears the spectrum choices when the file they name is removed', async () => {
+    // The choices are labels INSIDE the file. With the file gone they name
+    // nothing, and a label the engine can't resolve blackens the surface for the
+    // whole run rather than erroring — so they go back to empty.
+    const store = liveStoreWith(
+      [
+        spectralCard({
+          reflectivity_spectrum: 'leaf_reflectivity',
+          transmissivity_spectrum: 'leaf_transmissivity'
+        })
+      ],
+      [radiationType]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    await screen.findAllByText('Reflectivity Spectrum')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove spectral data file' }))
+
+    const values = (
+      store.getState() as unknown as {
+        materials: { editDraft: { groups: { values: Record<string, string> }[] } }
+      }
+    ).materials.editDraft.groups[0].values
+    expect(values.spectral_data).toBe('')
+    expect(values.reflectivity_spectrum).toBe('')
+    expect(values.transmissivity_spectrum).toBe('')
+  })
+
+  it('drops the spectrum choices once their file is gone', () => {
+    // A manual-mode save deletes the spectral file. The names are labels INSIDE
+    // that file, so with it gone they name nothing — and left in place they stay
+    // non-empty, so toggling back and uploading a DIFFERENT file would pass the
+    // Save gate with names that file doesn't contain.
+    const store = liveStoreWith(
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: {
+            use_radiation_bands: 'true', // manual
+            // File already deleted by the save; the names are what's left.
+            reflectivity_spectrum: 'leaf_reflectivity',
+            transmissivity_spectrum: 'leaf_transmissivity'
+          },
+          savedValues: { use_radiation_bands: 'true' }
+        })
+      ],
+      [radiationType]
+    )
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    const values = (
+      store.getState() as unknown as {
+        materials: { editDraft: { groups: { values: Record<string, string> }[] } }
+      }
+    ).materials.editDraft.groups[0].values
+    expect(values.reflectivity_spectrum ?? '').toBe('')
+    expect(values.transmissivity_spectrum ?? '').toBe('')
+  })
+
+  it('shows the spectrum choices in manual mode too, but disabled', () => {
     render(
       <Provider
         store={liveStoreWith(
@@ -800,9 +1001,15 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
       </Provider>
     )
 
-    // The group is gated on the selector, so it isn't rendered at all — and with
-    // nothing to choose, Save is not held back.
-    expect(screen.queryAllByText('Reflectivity Spectrum')).toHaveLength(0)
+    // Still on screen — a control that vanishes reads as a missing feature. It
+    // greys instead, the same as the band inputs do when spectral mode supersedes
+    // THEM, so one disabled treatment means one thing across the card.
+    expect(screen.queryAllByText('Reflectivity Spectrum')).not.toHaveLength(0)
+    expect(document.getElementById('1-reflectivity_spectrum')).toBeDisabled()
+
+    // Nothing to choose in this mode, so Save is not held back — and the values
+    // are not sent either (the catalog's gating drops the inactive group from the
+    // payload), which is the half that still belongs to the backend.
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
