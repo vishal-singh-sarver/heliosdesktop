@@ -14,4 +14,4 @@ Actions=NewWindow
 
 [Desktop Action NewWindow]
 Name=New Window
-Exec=__INSTALL_DIR__/app/helios__NOSANDBOX__
+Exec=__INSTALL_DIR__/app/helios__NOSANDBOX__ --new-window

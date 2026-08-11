@@ -353,9 +353,11 @@ function buildAppMenu(): void {
  * - Windows: taskbar jump list (app.setUserTasks)
  * - Linux: handled via .desktop file Actions (see linux-installer/helios.desktop)
  *
- * On Windows, the jump list item re-launches the Helios executable. The new
- * process hits the single-instance lock, which triggers the 'second-instance'
- * handler in the running instance, which then calls createWindow().
+ * On Windows, the jump list item re-launches the Helios executable with
+ * --new-window. The new process hits the single-instance lock, which triggers
+ * the 'second-instance' handler in the running instance; that flag is what
+ * tells the handler to open a window instead of focusing the existing one.
+ * The Linux .desktop NewWindow action passes the same flag.
  */
 function configurePlatformShortcuts(): void {
   if (process.platform === 'darwin') {
@@ -375,7 +377,7 @@ function configurePlatformShortcuts(): void {
       app.setUserTasks([
         {
           program: process.execPath,
-          arguments: '',
+          arguments: '--new-window',
           iconPath: process.execPath,
           iconIndex: 0,
           title: 'New Window',
@@ -477,9 +479,30 @@ if (!gotSingleInstanceLock) {
 // Only the first (and only) instance reaches this point.
 // When another Helios is launched, Electron fires 'second-instance' here
 // instead of spawning a new OS process.
-app.on('second-instance', () => {
-  writeEarlyLog('second-instance event received — opening a new window')
-  createWindow()
+app.on('second-instance', (_event, argv) => {
+  // Only an explicit "New Window" request opens another window. A plain launch
+  // (clicking the pinned taskbar/dock icon) must focus what's already open —
+  // otherwise every click stacks up one more window.
+  if (argv.some((arg) => arg.includes('--new-window'))) {
+    writeEarlyLog('second-instance: --new-window requested — opening a new window')
+    createWindow()
+    return
+  }
+
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length === 0) {
+    writeEarlyLog('second-instance: no windows open — creating one')
+    createWindow()
+    return
+  }
+
+  // windows[0] may be the splash if the user clicks again mid-startup;
+  // focusing it is the right behavior there too.
+  writeEarlyLog(`second-instance: focusing existing window (windows=${windows.length})`)
+  const win = windows[0]
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 })
 
 // Debug-only: log every activate event so we can see what's triggering reopens
