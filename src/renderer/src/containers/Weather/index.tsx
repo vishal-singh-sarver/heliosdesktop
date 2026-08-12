@@ -61,18 +61,11 @@ export function Weather(): React.JSX.Element {
     truncatedDecimals: boolean
   } | null>(null)
 
-  // Raise the toast during render so it appears in the same commit that the
-  // warning lands; the effect then acknowledges it back to the store. Tracking
-  // the last-seen flag keeps a dismissed toast from being re-raised while the
-  // `consumed` dispatch is still in flight.
-  const [warningRaised, setWarningRaised] = React.useState(false)
-  if (importPrecisionWarningPending && !warningRaised) {
-    setWarningRaised(true)
-   // setImportToastMessage(VALIDATION_MESSAGES.IMPORT_WARNING)
-  } else if (!importPrecisionWarningPending && warningRaised) {
-    setWarningRaised(false)
-  }
-
+  // Acknowledge a precision-normalized import WITHOUT announcing it. The
+  // 7-decimal cap is a standing rule the user cannot change, and StepReview
+  // already states it up front in the wizard, so a toast after the fact would
+  // only repeat what they were told before importing. The flag is still
+  // consumed — left set, it would fire again for whatever reads it next.
   React.useEffect(() => {
     if (!importPrecisionWarningPending) return
     if (activeProjectId && activeScenarioId) {
