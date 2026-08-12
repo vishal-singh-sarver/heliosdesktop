@@ -55,7 +55,13 @@ export function KeyboardShortcuts(): null {
 
   const selectedObjectId = useSelector(selectSelectedObjectId)
   const selectedRef = useRef(selectedObjectId)
-  selectedRef.current = selectedObjectId
+
+  // Mirrored into a ref after commit (not during render) so the long-lived
+  // keydown listener below can read the latest selection without being torn
+  // down and reinstalled on every selection change.
+  useEffect(() => {
+    selectedRef.current = selectedObjectId
+  }, [selectedObjectId])
 
   useEffect(() => {
     if (!controls) return

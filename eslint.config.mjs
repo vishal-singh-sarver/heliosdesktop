@@ -129,6 +129,21 @@ export default [
     settings: { react: { version: 'detect' } }
   },
 
+  // react-three-fiber components
+  //
+  // `react/no-unknown-property` validates JSX attributes against the HTML DOM
+  // attribute list. R3F intrinsics (<mesh>, <directionalLight>, ...) are three.js
+  // scene objects, not DOM elements, so valid props like castShadow / intensity /
+  // geometry are all reported as unknown. The rule has no allowlist that can express
+  // the three.js surface. Type safety is unaffected: R3F augments the JSX namespace,
+  // so tsc still checks every one of these props.
+  //
+  // Placed last so it wins over the recommended preset spread in above.
+  {
+    files: ['src/renderer/src/containers/3DWindow/ui/**/*.tsx'],
+    rules: { 'react/no-unknown-property': 'off' }
+  },
+
   // Ignore generated output
   {
     ignores: ['out/**', 'dist/**', 'node_modules/**', 'coverage/**']

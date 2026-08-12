@@ -5,7 +5,13 @@ import { useSelector } from 'react-redux'
 import * as THREE from 'three'
 import type { PrimitiveInfo } from '../models/types'
 import messages from '../messages'
-import { selectMeshReady, selectSceneLoad, selectSceneObjects } from '../store/selectors'
+import {
+  selectGeometryVersion,
+  selectMeshReady,
+  selectSceneLoad,
+  selectSceneObjects,
+  selectSelectedObjectId
+} from '../store/selectors'
 import { getAllCachedPrimitives } from '../store/sceneCache'
 import type { LightingMode } from './materials'
 import type { LightingSettings } from './SceneLighting'
@@ -13,6 +19,7 @@ import { defaultLightingSettings } from './SceneLighting'
 import LightingSettingsDialog from './LightingSettingsDialog'
 import SceneCanvas from './SceneCanvas'
 import SceneContent from './SceneContent'
+import { gridStamp } from './SceneHelpers'
 import SceneSelector from './SceneSelector'
 
 // ── Inline SVG icons (no external dependency) ────────────────────────────────
@@ -313,22 +320,26 @@ export function Viewport3D(): React.JSX.Element {
   const sceneLoad = useSelector(selectSceneLoad)
   const meshReady = useSelector(selectMeshReady)
   const objects = useSelector(selectSceneObjects)
+  const geometryVersion = useSelector(selectGeometryVersion)
+  const selectedObjectId = useSelector(selectSelectedObjectId)
 
   const [lightingSettings, setLightingSettings] =
     useState<LightingSettings>(defaultLightingSettings)
   const [showLightingDialog, setShowLightingDialog] = useState(false)
   const [showStats, setShowStats] = useState(false)
 
-  // Bumped on reset so the grid recomputes to default params.
-  const [gridResetKey, setGridResetKey] = useState(0)
+  // Stamped on reset so the grid falls back to default params, and stays there
+  // until geometry or selection moves on. Captured here in the click handler
+  // rather than compared during render — see SceneHelpers.gridStamp.
+  const [gridResetAt, setGridResetAt] = useState<string | null>(null)
 
   const actionsRef = useRef<ViewportActions | null>(null)
   const handleZoomIn = useCallback(() => actionsRef.current?.zoomIn(), [])
   const handleZoomOut = useCallback(() => actionsRef.current?.zoomOut(), [])
   const handleResetView = useCallback(() => {
     actionsRef.current?.resetView()
-    setGridResetKey((k) => k + 1)
-  }, [])
+    setGridResetAt(gridStamp(geometryVersion, selectedObjectId))
+  }, [geometryVersion, selectedObjectId])
 
   const isFetching = sceneLoad.loading || sceneLoad.objectLoading || sceneLoad.selectionLoading
   // Only surface the loading overlay when the scene actually has geometry to
@@ -350,7 +361,7 @@ export function Viewport3D(): React.JSX.Element {
   return (
     <div className="relative h-full w-full">
       <SceneCanvas>
-        <SceneContent lightingSettings={lightingSettings} gridResetKey={gridResetKey} />
+        <SceneContent lightingSettings={lightingSettings} gridResetAt={gridResetAt} />
         <ControlsBridge actionsRef={actionsRef} />
       </SceneCanvas>
 

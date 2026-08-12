@@ -5,7 +5,6 @@ import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redu
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import toastMessages from '@renderer/store/toastMessages'
 import * as actions from './actions'
-import messages from './messages'
 import type {
   AssignMaterialRequestedAction,
   CreateObjectRequestedAction,

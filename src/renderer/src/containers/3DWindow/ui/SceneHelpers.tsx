@@ -119,23 +119,36 @@ interface GridParams {
   fadeDistance: number
 }
 
-const DEFAULT_GRID: GridParams = { size: 100, cellSize: 1, sectionSize: 10, fadeDistance: 150 }
+export const DEFAULT_GRID: GridParams = { size: 100, cellSize: 1, sectionSize: 10, fadeDistance: 150 }
+
+/**
+ * Identifies the scene state the grid is derived from. Reset-view stamps this
+ * at click time and the grid shows defaults for as long as the stamp still
+ * matches — i.e. until geometry or selection moves on.
+ *
+ * Selection is part of the stamp, not just geometryVersion: picking "All" in
+ * the dropdown dispatches only meshReady() and does NOT bump geometryVersion
+ * (see store/saga.ts selectSceneObjectWorker), so keying on geometry alone
+ * would strand the grid on defaults after reset -> "All".
+ */
+export function gridStamp(geometryVersion: number, selectedObjectId: number | null): string {
+  return `${geometryVersion}:${selectedObjectId}`
+}
 
 /** Derive grid dimensions from the scene's bounding box so the grid
- *  always matches the model scale.  When gridResetKey changes the grid
- *  falls back to defaults (camera reset to origin). */
-function useAdaptiveGrid(
+ *  always matches the model scale.  While gridResetAt still matches the
+ *  current scene the grid stays at defaults (camera reset to origin). */
+export function useAdaptiveGrid(
   geometryVersion: number,
   selectedObjectId: number | null,
-  gridResetKey: number
+  gridResetAt: string | null
 ): GridParams {
-  const prevResetKey = useRef(gridResetKey)
-
   return useMemo(() => {
-    // After a view-reset, return defaults until the next geometry change
-    // recomputes proper values via a geometryVersion bump.
-    if (gridResetKey !== prevResetKey.current) {
-      prevResetKey.current = gridResetKey
+    // After a view-reset, return defaults until the scene moves on. Comparing
+    // stamps keeps this pure — the previous version latched a ref during
+    // render, so a render React discarded could consume the reset and leave
+    // the grid unchanged. Two values compared on every render cannot be spent.
+    if (gridResetAt !== null && gridResetAt === gridStamp(geometryVersion, selectedObjectId)) {
       return DEFAULT_GRID
     }
 
@@ -180,19 +193,20 @@ function useAdaptiveGrid(
 
     return { size, cellSize, sectionSize, fadeDistance }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- geometryVersion proxies cache changes
-  }, [geometryVersion, selectedObjectId, gridResetKey])
+  }, [geometryVersion, selectedObjectId, gridResetAt])
 }
 
 interface SceneHelpersProps {
   fitVersion: number
   selectedObjectId: number | null
   geometryVersion: number
-  gridResetKey?: number
+  /** Scene stamp captured when reset-view was last pressed; see gridStamp. */
+  gridResetAt?: string | null
 }
 
 /** Ground grid (XY plane, Z-up), orientation gizmo and camera navigation. */
-export function SceneHelpers({ fitVersion, selectedObjectId, geometryVersion, gridResetKey = 0 }: SceneHelpersProps): React.JSX.Element {
-  const grid = useAdaptiveGrid(geometryVersion, selectedObjectId, gridResetKey)
+export function SceneHelpers({ fitVersion, selectedObjectId, geometryVersion, gridResetAt = null }: SceneHelpersProps): React.JSX.Element {
+  const grid = useAdaptiveGrid(geometryVersion, selectedObjectId, gridResetAt)
 
   return (
     <>
