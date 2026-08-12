@@ -218,9 +218,14 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
     expect(labelOf('color_r')).toBe('R')
     expect(labelOf('color_g')).toBe('G')
     expect(labelOf('color_b')).toBe('B')
-    // Opacity already read correctly, so it is left alone — as is every non-colour
-    // property on other material types.
-    expect(labelOf('opacity')).toBe('Opacity')
+    // Opacity carries its unit. The popup renders a bare value, so "100" alone
+    // named no unit — readable as fully opaque or fully transparent depending on
+    // what you assumed. The editable ColorPicker prints a "%" inside the box; with
+    // no box here, it goes in the label.
+    expect(labelOf('opacity')).toBe('Opacity (%)')
+    // Everything the map doesn't name is still left alone, keeping whatever the
+    // catalog gave it (or the humanized property name).
+    expect(labelOf('texture_file')).toBe('Texture File')
   })
 })
 
