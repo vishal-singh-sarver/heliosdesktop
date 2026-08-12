@@ -62,8 +62,8 @@ import {
   humanizeProperty,
   isObjectFormValid,
   resolveObjectFormByType,
-  type ResolvedFormGroup,
-  validateFieldValue
+  validateFieldValue,
+  type ResolvedFormGroup
 } from './propertyBlueprint'
 import reducer from './reducer'
 import RepeatField from './RepeatField'
@@ -254,7 +254,11 @@ export function buildMaterialSections(
             const name = fileDisplayName(path)
             return {
               group: 'visualisation',
-              label: 'Visualisation properties (Texture)',
+              // No heading: the section sits under the "Visualiser" type header and
+              // its two rows name themselves ("Texture Name", "Texture Image"), so a
+              // caption above them only said again what was already on screen. The
+              // empty label is the popup's signal to render the rows bare.
+              label: '',
               singleColumn: true,
               rows: [
                 { property: 'texture_name', label: 'Texture Name', value: path ? name : '—' },

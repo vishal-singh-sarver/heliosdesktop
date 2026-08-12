@@ -112,22 +112,29 @@ export function MaterialVisualisationEditor({
   // slider already sat at 100 while the box read empty, which said the material
   // was fully opaque and unset at the same time.
   //
-  // Seeded EXACTLY ONCE per card, on the first Custom render of a card that isn't
-  // persisted yet — never in response to the field later becoming empty. Two
-  // reasons it cannot watch the value:
-  //   - '' is a legal in-progress keystroke (isPartialNumericInput('') is true),
-  //     so backspacing through "100" reaches '' and a value-watching effect would
-  //     type 100 straight back — making the box impossible to clear.
-  //   - a SAVED card whose stored opacity is empty (e.g. a texture-mode member)
-  //     would be written to just by opening the Custom tab to look at it, marking
-  //     an untouched card as edited.
-  const seeded = React.useRef(false)
+  // Seeded on entering Custom — never in response to the field later becoming
+  // empty. It cannot watch the value: '' is a legal in-progress keystroke
+  // (isPartialNumericInput('') is true), so backspacing through "100" reaches ''
+  // and a value-watching effect would type 100 straight back, making the box
+  // impossible to clear.
+  //
+  // On the card's FIRST render what the backend stored wins, empty included — a
+  // saved card opened just to look at is never written to, so only a brand-new
+  // card gets the default there.
+  //
+  // Switching INTO Custom later is a different matter: the active mode drives the
+  // Save payload, so choosing Custom on a texture member is already the start of
+  // an edit, not a look. Its colour half was nulled by the texture save, and the
+  // seed used to be skipped — leaving the slider at 100 beside an empty box,
+  // saying the material was fully opaque and unset at the same time. Save stays
+  // shut regardless: Custom needs a complete colour, which is still empty here.
+  const mounted = React.useRef(false)
   React.useEffect(() => {
-    if (seeded.current || mode !== 'custom') return
-    seeded.current = true
-    // What the backend stored wins, empty included — only a brand-new card is
-    // given the default.
-    if (!saved && (values[OPACITY] ?? '') === '') commit(OPACITY, String(DEFAULT_OPACITY))
+    const firstRender = !mounted.current
+    mounted.current = true
+    if (mode !== 'custom') return
+    if (firstRender && saved) return
+    if ((values[OPACITY] ?? '') === '') commit(OPACITY, String(DEFAULT_OPACITY))
     // Deliberately not keyed on the opacity value — see above. `commit` closes
     // over the card's handler, which is stable for the life of the card.
     // eslint-disable-next-line react-hooks/exhaustive-deps

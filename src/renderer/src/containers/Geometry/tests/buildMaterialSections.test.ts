@@ -153,7 +153,9 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
     const groups = sections[0].groups
     expect(groups).toHaveLength(1)
     const group = groups[0]
-    expect(group.label).toBe('Visualisation properties (Texture)')
+    // No caption: the two rows below name themselves, so the popup renders them
+    // bare (an empty label is its signal to skip the heading).
+    expect(group.label).toBe('')
     expect(group.singleColumn).toBe(true)
 
     // Name derived from the file path (basename → drop extension → title-case).
@@ -175,7 +177,7 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
       [visualiser]
     )
     const group = sections[0].groups[0]
-    expect(group.label).toBe('Visualisation properties (Texture)')
+    expect(group.label).toBe('')
     expect(group.rows.find((r) => r.property === 'texture_name')?.value).toBe('grass_tile.png')
   })
 
@@ -192,8 +194,10 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
       [visualiser]
     )
     const rows = sections[0].groups.flatMap((g) => g.rows)
-    // Not the texture section, and nothing renders as an image.
-    expect(sections[0].groups.some((g) => g.label === 'Visualisation properties (Texture)')).toBe(false)
+    // Not the texture section, and nothing renders as an image. Keyed on the
+    // group id, not the label — the texture section's label is '' now, which
+    // every ungrouped bucket also carries.
+    expect(sections[0].groups.some((g) => g.group === 'visualisation')).toBe(false)
     expect(rows.every((r) => r.image === undefined)).toBe(true)
     expect(rows.find((r) => r.property === 'color_r')?.value).toBe('128')
   })

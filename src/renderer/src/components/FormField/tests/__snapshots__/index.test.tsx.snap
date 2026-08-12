@@ -30,7 +30,7 @@ exports[`<FormField /> > should match the snapshot 1`] = `
   >
     <input
       aria-invalid="false"
-      class="mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-neutral-500 outline-none px-3"
+      class="mt-1 text-ellipsis h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-neutral-500 outline-none px-3"
       data-testid="input-projectName"
       id="projectName"
       name="projectName"
@@ -73,7 +73,7 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
     <input
       aria-describedby="generated-id"
       aria-invalid="true"
-      class="mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-[#D92D20] outline outline-1 -outline-offset-1 outline-[#D92D20] px-3"
+      class="mt-1 text-ellipsis h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-[#D92D20] outline outline-1 -outline-offset-1 outline-[#D92D20] px-3"
       data-testid="input-projectName"
       id="projectName"
       name="projectName"

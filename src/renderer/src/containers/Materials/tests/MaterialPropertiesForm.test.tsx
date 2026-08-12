@@ -1345,9 +1345,12 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('50')
   })
 
-  // A persisted card is the backend's business — including a stored opacity of
-  // "none". Opening the Custom tab to LOOK at one must not write to it.
-  it('does not seed opacity on a saved card, so viewing Custom does not dirty it', () => {
+  // A texture save nulls the colour half, so a saved texture member holds no
+  // opacity. Switching that card to Custom is the start of an edit (the mode
+  // drives the Save payload), so the box seeds to 100 rather than reading empty
+  // beside a slider sitting at full — but Save stays shut until a colour is
+  // picked, so the switch alone still can't persist anything.
+  it('seeds opacity when a saved texture card is switched to Custom, Save still shut', () => {
     Element.prototype.scrollIntoView = vi.fn()
     const savedTextureCard = card(1, {
       typeId: 7,
@@ -1362,11 +1365,65 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       </Provider>
     )
 
-    // The card opens on the Texture tab; switch to Custom just to look.
+    // The card opens on the Texture tab; switching to Custom fills the box in,
+    // matching the slider that already sits at 100%.
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
-    expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('')
-    // Nothing was written, so the card is still clean and Save stays shut.
+    expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('100')
+    // An opacity is not a colour, so the card is still incomplete: Save stays shut.
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  // The other half of that rule: only SWITCHING to Custom seeds. A saved card
+  // that merely renders is still the backend's business, and collapsing it
+  // remounts the editor — which must not read as entering Custom, or every
+  // reopen of a stored member would write to it.
+  it('does not seed a saved custom card on open, collapse or reopen', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    // Stored in colour mode, but with the opacity the backend holds left empty.
+    const stored = { texture_toggle: 'false', color_r: '10', color_g: '20', color_b: '30' }
+    const savedCustomCard = card(1, { typeId: 7, saved: true, values: stored, savedValues: stored })
+    render(
+      <Provider store={liveStoreWith([savedCustomCard], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Opens on Custom (texture_toggle false) and is left exactly as stored.
+    expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Collapsing unmounts the editor and reopening remounts it — still a render,
+    // not a tab switch, so still nothing written.
+    const toggle = screen.getByRole('button', { name: 'Toggle Material Type.01' })
+    fireEvent.click(toggle)
+    fireEvent.click(toggle)
+    expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  // A stored opacity is never overwritten by the seed — the backend's value wins
+  // on open, and a round trip through the Texture tab leaves it untouched.
+  it('keeps a saved card stored opacity across a Custom → Texture → Custom trip', () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const stored = {
+      texture_toggle: 'false',
+      color_r: '10',
+      color_g: '20',
+      color_b: '30',
+      opacity: '40'
+    }
+    const savedCustomCard = card(1, { typeId: 7, saved: true, values: stored, savedValues: stored })
+    render(
+      <Provider store={liveStoreWith([savedCustomCard], [visualizer])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('40')
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    // Re-entering Custom seeds only an EMPTY box, so 40 survives.
+    expect(screen.getByRole('textbox', { name: 'Opacity' })).toHaveValue('40')
   })
 
   // Reopening a saved texture member must say WHICH texture it holds. The
