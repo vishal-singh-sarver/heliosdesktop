@@ -56,7 +56,21 @@ function Tooltip({
   const middlewares = React.useMemo(
     () => [
       offset(TOOLTIP_OFFSET),
-      flip({ fallbackAxisSideDirection: 'start' }),
+      // `crossAxis: false` — flip judges VERTICAL room only, and leaves sideways
+      // containment to shift() below.
+      //
+      // With it on (floating-ui's default) the two middlewares disagreed, and
+      // flip runs first so it won. A validation icon sits at the right-hand edge
+      // of its input, and a 224px bubble centred on it spills well past the panel
+      // — so flip rejected `top` for that CROSS-axis spill, rejected `bottom` for
+      // the same reason, and fell through to the perpendicular axis: the bubble
+      // appeared beside the icon, lying across the very field it described.
+      // Sideways spill is exactly what shift() is here to absorb, by sliding the
+      // bubble along the top edge.
+      //
+      // fallbackAxisSideDirection stays: a genuine shortage of vertical room is
+      // still a real reason to go sideways.
+      flip({ crossAxis: false, fallbackAxisSideDirection: 'start' }),
       shift(panel ? { boundary: panel, padding: EDGE_PADDING } : { padding: EDGE_PADDING })
     ],
     [panel]

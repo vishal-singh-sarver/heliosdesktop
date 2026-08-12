@@ -43,6 +43,7 @@ import {
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import { trimText } from 'utils/trimText'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
 import type { AnchorRect } from 'utils/useAnchoredPosition'
 import {
@@ -84,6 +85,23 @@ import { validateGroupName } from './validation'
 // geometry per keystroke. The empty set makes validateGroupName's uniqueness
 // branch a no-op, leaving the cheap instant rules: non-empty + ≤20 characters.
 const NO_NAME_CONFLICTS = new Set<string>()
+
+// How much of a field's name its placeholder can show, by how many fields share
+// the row. This form hides its labels (the group heading is the visible one), so
+// the placeholder IS the field's name — it can't simply be dropped when it runs
+// long, the way a form with visible labels could.
+//
+// Unlike the Materials cards, a group here picks its own column count (1, 2 or 3
+// — see propertyBlueprint), so the room per field varies within the same panel
+// and one budget cannot serve all three. Each is set a little under what its
+// column measures, because a character count is not a width: the app's font is
+// proportional, so a label of broad letters runs wider than the average these
+// came from. FormField keeps `text-ellipsis` as a backstop if one is ever too
+// generous.
+const PLACEHOLDER_CHARS_BY_COLUMNS: Record<number, number> = { 1: 38, 2: 18, 3: 10 }
+
+const placeholderCharsFor = (columns: number): number =>
+  PLACEHOLDER_CHARS_BY_COLUMNS[columns] ?? PLACEHOLDER_CHARS_BY_COLUMNS[2]
 
 // The popup's height as a fraction of the 3D window's — "20% less than the window,
 // split top and bottom" (per the Figma), so it reads as a tall centered panel
@@ -1118,7 +1136,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
                     inputProps={{
                       name: field.property,
                       value,
-                      placeholder: field.label,
+                      placeholder: trimText(field.label, placeholderCharsFor(group.columns)),
                       error: error ?? undefined,
                       // Surface validation as an in-cell info-icon tooltip
                       // (Weather's CellInput pattern) instead of a text line.

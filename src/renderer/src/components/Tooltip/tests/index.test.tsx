@@ -14,13 +14,19 @@ vi.mock('react-tooltip', () => ({
 
 // One floating-ui middleware as react-tooltip receives it. The factories expose
 // the options they were built with, which is what we assert on.
-type CapturedMiddleware = { name: string; options?: { boundary?: unknown; padding?: unknown } }
+type CapturedMiddleware = {
+  name: string
+  options?: { boundary?: unknown; padding?: unknown; crossAxis?: unknown }
+}
 
 const middlewares = (): CapturedMiddleware[] =>
   (captured.props?.middlewares ?? []) as CapturedMiddleware[]
 
 const shiftOptions = (): CapturedMiddleware['options'] =>
   middlewares().find((m) => m.name === 'shift')?.options
+
+const flipOptions = (): CapturedMiddleware['options'] =>
+  middlewares().find((m) => m.name === 'flip')?.options
 
 describe('<Tooltip />', () => {
   const defaultProps = {
@@ -84,6 +90,17 @@ describe('<Tooltip />', () => {
       render(<Tooltip {...defaultProps} />)
 
       expect(middlewares().map((m) => m.name)).toEqual(['offset', 'flip', 'shift'])
+    })
+
+    it('leaves sideways containment to shift, so flip cannot knock it off the top', () => {
+      // A validation icon sits at its input's right edge, and a 224px bubble
+      // centred there spills past the panel. With flip checking the cross axis it
+      // read that spill as "top doesn't fit", rejected bottom for the same reason
+      // and fell through to the perpendicular axis — the bubble landed BESIDE the
+      // icon, covering the field it described. Sideways spill is shift's job.
+      render(<Tooltip {...defaultProps} />)
+
+      expect(flipOptions()?.crossAxis).toBe(false)
     })
   })
 })

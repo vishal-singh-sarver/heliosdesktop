@@ -105,12 +105,17 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
   // composed baseClassName below is unchanged, so the <input> branch is identical.
   const controlClassName = `h-9 w-full rounded border border-app-border bg-dark text-sm text-white ${focusBorderClassName} ${outlineClasses}${inputClassName ? ` ${inputClassName}` : ''}`
   // `text-ellipsis` (only the input branch — Select truncates its own span). An
-  // <input> clips overflow hard by default, so a placeholder longer than the box
-  // ends mid-letter: the Materials form uses each field's label as its
-  // placeholder, and "Stomatal Sidedness" in a half-width column read as
-  // "Stomatal Sidednes" with no sign anything was missing. An ellipsis says the
-  // text was cut, which is the same treatment Select already gives a long value.
-  // Nothing is lost either way — the field's own label sits right above it.
+  // <input> clips overflow hard by default, so over-long text ends mid-letter
+  // with nothing to say it was cut; this marks the cut instead, the same
+  // treatment Select already gives a long value.
+  //
+  // It is a BACKSTOP for placeholders, not the fix. Chromium drops it the moment
+  // the field is focused (deliberately — so a long value can be scrolled while
+  // editing), and it has never supported an ellipsis on ::placeholder at all. So
+  // a long placeholder is shortened at the source instead, by the callers that
+  // pass one (see utils/trimText). This still earns its place twice over: it
+  // catches long VALUES, and it catches a placeholder whose caller budgeted a
+  // character or two too generously — a character count is not a width.
   const baseClassName = `mt-1 text-ellipsis ${controlClassName}`
   // When the error icon is shown, reserve right padding so the value doesn't run
   // under it (matches Weather's `pr-8`). Otherwise keep the original padding so

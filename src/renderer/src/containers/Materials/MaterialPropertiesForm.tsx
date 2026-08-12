@@ -22,6 +22,7 @@ import {
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { sameValues } from 'utils/sameValues'
+import { trimText } from 'utils/trimText'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
 import {
   HIGHLIGHT_CLASSES,
@@ -532,6 +533,20 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   )
 }
 
+// How much of a field's name its placeholder can show. The grid below is two
+// columns inside a card inside the 340px panel.
+//
+// 15 is not arithmetic — it is what the browser itself reported. At 16 the two
+// states disagreed: focused read "Stomatal Sidedne…" (our string), unfocused read
+// "Stomatal Sidedn…", because FormField's `text-ellipsis` backstop was still
+// having to trim a character off. That extra pass IS the measurement — the
+// unfocused rendering is the widest text Chromium could fit — so the budget was
+// set to what it showed, and now both states render the same string.
+//
+// A label of broad letters ("W", "M") can still run wider than the one this came
+// from; the backstop stays for that case.
+const PLACEHOLDER_CHARS = 15
+
 // A group's editable fields, laid out two per row (matching the mockup). Shared
 // by the type's top-level fields and each named group so both read identically.
 function MaterialFieldGrid({
@@ -574,7 +589,10 @@ function MaterialFieldGrid({
               value,
               // Enum selects read "Select" when empty (not the field's own name);
               // text/number fields keep the label as their placeholder.
-              placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : field.label,
+              placeholder:
+                field.datatype === 'enum'
+                  ? messages.selectPlaceholder
+                  : trimText(field.label, PLACEHOLDER_CHARS),
               error,
               // Surface the validation error as an in-cell info-icon tooltip
               // (matches the Geometry right panel); selects keep the inline message.

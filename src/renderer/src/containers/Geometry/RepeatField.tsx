@@ -1,6 +1,7 @@
 import chevronDownIcon from '@renderer/assets/ChevronDownIcon.svg'
 import FormField from '@renderer/components/FormField'
 import React from 'react'
+import { trimText } from 'utils/trimText'
 import messages from './messages'
 
 // One Texture Repeat input (R or C): the plain numeric field the form already
@@ -56,6 +57,12 @@ function RepeatField({
   const hasErrorIcon = !!error
   const stepperOffset = hasErrorIcon ? 'right-7' : 'right-1.5'
   const inputPadding = hasErrorIcon ? 'pr-14' : 'pr-7'
+  // The label doubles as this field's placeholder (its own label is sr-only), so
+  // it has to be shortened to what the box can show. Tighter than the plain
+  // fields beside it, because the stepper — and the error icon when there is one
+  // — eat into the same row from the right. The two budgets track the padding
+  // above: whatever the chevrons take, the placeholder cannot use.
+  const placeholderChars = hasErrorIcon ? 11 : 15
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (disabled) return
@@ -119,7 +126,7 @@ function RepeatField({
         inputProps={{
           name: property,
           value,
-          placeholder: label,
+          placeholder: trimText(label, placeholderChars),
           error,
           errorAsTooltip: true,
           disabled,

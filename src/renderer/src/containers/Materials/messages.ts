@@ -118,7 +118,10 @@ const messages = {
   noMaterialTypes: 'No material types available',
   allTypesAdded: 'All material types added',
   // Delete confirmation (matches the Geometry object-form copy).
-  deleteTitle: 'Delete material',
+  // Just "Delete", like Geometry's — the dialog's own heading right below already
+  // names what is going ("Delete "Material.001"?"), so spelling out the kind in
+  // the title bar as well said it twice.
+  deleteTitle: 'Delete',
   deleteHeading: (name: string): string => `Delete "${name}"?`,
   // Word-for-word the Geometry delete body (Geometry/messages.ts deleteBody), so
   // the confirm dialog reads identically whichever thing is being deleted.
