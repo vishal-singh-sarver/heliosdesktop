@@ -17,7 +17,7 @@ import { createObjectRequested, listNodesRequested, setSearchQuery } from './act
 import GeometryTree from './GeometryTree'
 import reducer from './reducer'
 import saga from './saga'
-import { selectNextGroundName, selectSearchQuery } from './selectors'
+import { selectGeometryWriteInFlight, selectNextGroundName, selectSearchQuery } from './selectors'
 
 // Geometry feature section rendered inside the LeftPanel's Geometry accordion.
 // Owns the geometry slice (saved-geometries tree, selection, search, async
@@ -32,6 +32,8 @@ export function Geometry(): React.JSX.Element {
   const scenarioId = useSelector(selectActiveScenarioId)
   const objectTypes = useSelector(selectAllObjectTypes)
   const nextGroundName = useSelector(selectNextGroundName)
+  // A geometry POST/PATCH already running locks +Ground (see the selector).
+  const writeInFlight = useSelector(selectGeometryWriteInFlight)
 
   // Load the saved-geometries tree whenever the active scenario changes. We
   // dispatch and let the saga own the fetch (never call the service from a
@@ -44,9 +46,12 @@ export function Geometry(): React.JSX.Element {
   // the payload from the blueprint defaults — Ground Size 10×10, Resolution 1×1,
   // …). The response opens the Properties form in the right panel for editing.
   // Proposed name continues the Ground.NNN sequence.
+  // Guarded twice on purpose: the button below is disabled while a write is in
+  // flight, and this returns early if one is dispatched anyway (keyboard, a stale
+  // render). The saga's takeLeading is the last line of defence.
   const onAddGround = (): void => {
     const ground = objectTypes.find((o) => o.object === 'Ground')
-    if (!projectId || !scenarioId || !ground) return
+    if (!projectId || !scenarioId || !ground || writeInFlight) return
     dispatch(createObjectRequested(projectId, scenarioId, ground.id, ground.object, nextGroundName))
   }
   // Crop and Import-from-file are separate flows (deferred) — buttons shown,
@@ -79,6 +84,8 @@ export function Geometry(): React.JSX.Element {
           bgColor="#ffffff"
           textColor="#000000"
           iconColor="dark"
+          disabled={writeInFlight}
+          title={writeInFlight ? 'Waiting for the current geometry save to finish' : undefined}
           onClick={onAddGround}
         />
         <ToolbarButton

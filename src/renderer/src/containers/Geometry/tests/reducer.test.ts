@@ -598,6 +598,34 @@ describe('geometryReducer', () => {
       expect(created().byScope[KEY].lastCreatedId).toBe('27')
     })
 
+    // +Ground has to lock while its own POST is in flight, and release on either
+    // outcome — otherwise a failed create would leave the button dead.
+    it('CREATE_OBJECT_REQUESTED marks the create in flight', () => {
+      const r = geometryReducer(initialState, actions.createObjectRequested(P, S, 1, 'Ground', 'G'))
+      expect(r.creating).toBe(true)
+    })
+
+    it('CREATE_OBJECT_SUCCEEDED releases the create mark', () => {
+      const r = geometryReducer(initialState, actions.createObjectRequested(P, S, 1, 'Ground', 'G'))
+      expect(created().creating).toBe(false)
+      expect(
+        geometryReducer(
+          r,
+          actions.createObjectSucceeded(P, S, {
+            node: ground('27', 'Ground.001'),
+            values: {},
+            objectTypeId: 1,
+            objectName: 'Ground'
+          })
+        ).creating
+      ).toBe(false)
+    })
+
+    it('CREATE_OBJECT_FAILED releases the create mark so it can be retried', () => {
+      const r = geometryReducer(initialState, actions.createObjectRequested(P, S, 1, 'Ground', 'G'))
+      expect(geometryReducer(r, actions.createObjectFailed('boom')).creating).toBe(false)
+    })
+
     it('CLEAR_CREATE_HIGHLIGHT forgets the cued row once the cue has run', () => {
       const r = geometryReducer(created(), actions.clearCreateHighlight(P, S))
       expect(r.byScope[KEY].lastCreatedId).toBeNull()

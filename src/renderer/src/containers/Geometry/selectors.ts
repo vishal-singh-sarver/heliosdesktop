@@ -150,6 +150,18 @@ export const selectCreateDraftNonce = createSelector(
   (d) => d.createDraftNonce
 )
 
+// True while a geometry write is in flight — either the +Ground POST itself, or
+// the Properties form's Save PATCH. A high-resolution ground carrying a texture
+// can take a long time to save, and until now +Ground stayed live throughout: the
+// POST that landed mid-save replaced createDraft (see CREATE_OBJECT_SUCCEEDED)
+// and the form the user was still saving vanished under them. The toolbar
+// disables +Ground on this, so the second create can't start until the first
+// request settles.
+export const selectGeometryWriteInFlight = createSelector(
+  selectGeometryDomain,
+  (d) => d.creating || (d.createDraft?.saving ?? false)
+)
+
 // Next auto-generated Ground name, derived live from the current tree: scan
 // every existing geometry (roots + group children) and pick the lowest unused
 // Ground.NNN — gap-filling, so {001, 002, 015} suggests 003, not 016. Computed

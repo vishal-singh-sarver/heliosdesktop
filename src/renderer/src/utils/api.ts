@@ -62,18 +62,17 @@ function parseErrorBody(data: unknown, fallback: string): ParsedError {
 }
 
 // ── Timeouts ─────────────────────────────────────────────────────────────────
-// Without a timeout a hung request never settles: the caller's saga stays pending
-// forever and the UI sits in a permanent loading/saving state with no error and no
-// recovery but an app restart. A default caps ordinary JSON calls; uploads get a
-// longer budget because a multi-MB file legitimately takes longer.
-const DEFAULT_TIMEOUT_MS = 30_000
+// JSON calls have no client-side deadline: some backend work (saving a large
+// geometry, for one) legitimately runs past any fixed budget, and a request cut
+// short there fails a save that would otherwise have succeeded. Uploads keep a
+// finite budget so a stalled multi-MB transfer still releases its "Uploading…"
+// state.
 const UPLOAD_TIMEOUT_MS = 120_000
 
 // ── Axios instance ───────────────────────────────────────────────────────────
 
 const client: AxiosInstance = axios.create({
   baseURL: BASE_URL,
-  timeout: DEFAULT_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
     accept: 'application/json',
