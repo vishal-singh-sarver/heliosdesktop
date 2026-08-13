@@ -83,6 +83,47 @@ describe('3DWindow reducer', () => {
     expect(state.sceneLoad.selectedObjectId).toBe(30)
   })
 
+  // The camera belongs to the user. FitToScene re-frames on every fitVersion
+  // change, so bumping it on these actions yanked the view back to a default
+  // framing whenever a ground was shown, hidden, created, deleted, saved, or
+  // re-materialled — losing whatever zoom and pan had been set up.
+  it('OBJECT_GEOMETRY_CACHED registers the object without re-framing', () => {
+    const state = reducer(undefined, actions.objectGeometryCached(28))
+
+    expect(state.scene.objectIds).toEqual([28])
+    expect(state.scene.geometryVersion).toBe(1) // the mesh still rebuilds
+    expect(state.scene.fitVersion).toBe(0)
+  })
+
+  it('OBJECT_GEOMETRY_REMOVED drops the object without re-framing', () => {
+    let state = reducer(undefined, actions.objectGeometryCached(28))
+    state = reducer(state, actions.objectGeometryRemoved(28))
+
+    expect(state.scene.objectIds).toEqual([])
+    expect(state.scene.geometryVersion).toBe(2)
+    expect(state.scene.fitVersion).toBe(0)
+  })
+
+  it('a hide/show cycle never moves the camera', () => {
+    let state = reducer(undefined, actions.objectGeometryCached(28))
+    state = reducer(state, actions.objectGeometryRemoved(28)) // eye off
+    state = reducer(state, actions.objectGeometryCached(28)) // eye on
+
+    expect(state.scene.objectIds).toEqual([28])
+    expect(state.scene.fitVersion).toBe(0)
+  })
+
+  // The one framing that survives: the scene is fitted once when it finishes
+  // loading (project open / scenario switch).
+  it('LOAD_SCENE_SUCCEEDED is the only action that re-frames', () => {
+    let state = reducer(undefined, actions.objectGeometryCached(28))
+    state = reducer(state, actions.objectGeometryRemoved(28))
+    expect(state.scene.fitVersion).toBe(0)
+
+    state = reducer(state, actions.loadSceneSucceeded())
+    expect(state.scene.fitVersion).toBe(1)
+  })
+
   it('MESH_READY sets meshReady true', () => {
     let state = reducer(undefined, actions.selectSceneObject(42))
     expect(state.sceneLoad.meshReady).toBe(false)

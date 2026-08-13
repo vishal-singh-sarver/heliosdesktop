@@ -26,7 +26,16 @@ export const objectGeometryLoaded = (objectId: number) => ({
   payload: { objectId }
 })
 
-/** Registers cached geometry without auto-selecting the object. */
+/**
+ * Registers cached geometry without auto-selecting the object.
+ *
+ * Deliberately does NOT re-frame the camera. Showing a hidden ground, creating
+ * one, saving an edit and assigning a material all land here, and every one of
+ * them used to yank the view back to a default framing — losing whatever zoom
+ * and pan the user had set up. The camera is the user's to move: only the
+ * initial scene load (LOAD_SCENE_SUCCEEDED), picking an object in the dropdown,
+ * and Reset View frame it now.
+ */
 export const objectGeometryCached = (objectId: number) => ({
   type: OBJECT_GEOMETRY_CACHED,
   payload: { objectId }
@@ -56,6 +65,9 @@ export const selectSceneObject = (objectId: number | null) => ({
 
 // ── Object geometry removed ──────────────────────────────────────────────────
 
+// Leaves the camera alone, exactly like objectGeometryCached — hiding a ground
+// with the eye icon and deleting one both land here, and neither is a reason to
+// throw away the user's view.
 export const objectGeometryRemoved = (objectId: number) => ({
   type: OBJECT_GEOMETRY_REMOVED,
   payload: { objectId }
