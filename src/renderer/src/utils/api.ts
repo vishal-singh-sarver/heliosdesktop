@@ -62,12 +62,13 @@ function parseErrorBody(data: unknown, fallback: string): ParsedError {
 }
 
 // ── Timeouts ─────────────────────────────────────────────────────────────────
-// JSON calls have no client-side deadline: some backend work (saving a large
-// geometry, for one) legitimately runs past any fixed budget, and a request cut
-// short there fails a save that would otherwise have succeeded. Uploads keep a
-// finite budget so a stalled multi-MB transfer still releases its "Uploading…"
-// state.
-const UPLOAD_TIMEOUT_MS = 120_000
+// There are none. Requests wait as long as the backend needs, because the work
+// behind them legitimately can: saving a high-resolution geometry that carries a
+// texture ran past the old 30s cap and failed a save that would have succeeded.
+// The cost is that a request which never comes back never settles either — the
+// caller's saga stays pending and the UI holds its loading state until the app is
+// restarted. That trade is deliberate; don't reinstate a cap without a per-call
+// budget for the slow endpoints.
 
 // ── Axios instance ───────────────────────────────────────────────────────────
 
@@ -80,9 +81,10 @@ const client: AxiosInstance = axios.create({
   }
 })
 
-// A request that exceeded its timeout comes back with no `response` and
-// `code === 'ECONNABORTED'`; surface it as a clear, user-facing message rather
-// than axios's raw "timeout of 30000ms exceeded".
+// A request that never produced a response comes back with no `response` and an
+// abort code. Nothing here times out any more, so this now covers connections the
+// OS or the server dropped — still worth a clear, user-facing message rather than
+// axios's raw wording.
 export function toApiError(err: AxiosError): ApiError {
   if (err.response) {
     const parsed = parseErrorBody(err.response.data, err.response.statusText || err.message)
@@ -116,10 +118,7 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
       method: 'POST',
       url: path,
       data: form,
-      headers: { 'Content-Type': undefined },
-      // A file upload gets a longer budget than a JSON call, but still a finite
-      // one — so a stalled upload fails and releases the "Uploading…" state.
-      timeout: UPLOAD_TIMEOUT_MS
+      headers: { 'Content-Type': undefined }
     })
     return res.data
   } catch (err) {
