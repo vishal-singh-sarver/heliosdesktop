@@ -374,6 +374,10 @@ export async function stubFileCancel(): Promise<void> {
  */
 export async function enterWeather(label = 'wx'): Promise<{ id: string; name: string }> {
   const project = await enterProject(label)
+  // M2 wraps the workspace in tabs and lands on "3D Window"; Weather is mounted
+  // only while its tab is active, so without this the table is not in the DOM at
+  // all and every caller times out on the select-all checkbox below.
+  await ProjectScreen.selectTab('weather')
   await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   await Weather.dateTimeHeaderTrigger.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   return project
@@ -384,6 +388,11 @@ export async function enterWeather(label = 'wx'): Promise<{ id: string; name: st
  * go home, locate its row, double-click, and wait for the ProjectScreen to mount.
  * Consolidates the reopen sequence that was inlined across weather/projectscreen/
  * journey/persist specs.
+ *
+ * Lands on the Weather tab, like enterWeather. The tab state is component-local
+ * (CenterWorkspace's useState), so a reopen resets it to 3D Window and the table
+ * unmounts — every caller here is a persistence check that goes straight on to
+ * assert against the reopened table.
  */
 export async function reopenByName(name: string): Promise<void> {
   await reloadToHome()
@@ -395,6 +404,7 @@ export async function reopenByName(name: string): Promise<void> {
   if (id === null) throw new Error(`Could not resolve row id for ${name}`)
   await HomePage.row(id).doubleClick()
   await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+  await ProjectScreen.selectTab('weather')
 }
 
 /**

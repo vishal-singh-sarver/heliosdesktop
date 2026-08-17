@@ -458,14 +458,15 @@ describe('Weather CRUD — add column data-type/unit wiring', () => {
     await enterWeather('acunit')
     await Weather.openAddColumns()
     // Before any data type is selected the unit select is disabled.
-    await expect(await Weather.acUnit.isEnabled()).toBe(false)
-    // Catalog is dynamic — index 0 is the placeholder, index 1 is the first real type.
-    await Weather.acDataType.selectByIndex(1)
-    await browser.waitUntil(async () => Weather.acUnit.isEnabled(), {
+    await expect(await Weather.acUnitEnabled()).toBe(false)
+    // Catalog is dynamic — index 0 is the placeholder, index 1 is the first real
+    // type. The custom dropdown keeps that indexing: its clear row is index 0.
+    await Weather.pickAcDataTypeIndex(1)
+    await browser.waitUntil(async () => Weather.acUnitEnabled(), {
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'unit select never became enabled after choosing a data type'
     })
-    await expect(await Weather.acUnit.isEnabled()).toBe(true)
+    await expect(await Weather.acUnitEnabled()).toBe(true)
     await Weather.acCancel.click()
     await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
@@ -1768,20 +1769,18 @@ describe('Weather add-column — data-type dropdown options', () => {
   it('exposes a placeholder plus at least one real data type option', async () => {
     await enterWeather('ap21opts')
     await Weather.openAddColumns()
-    const optionEls = await Weather.acDataType.$$('option')
-    const values: string[] = []
-    const texts: string[] = []
-    for (const opt of optionEls) {
-      values.push((await opt.getAttribute('value')) ?? '')
-      texts.push((await opt.getText()).trim())
+    const labels = await Weather.acDataTypeOptions()
+    // Index 0 is the placeholder/clear row; ≥1 real catalog type follows.
+    expect(labels.length).toBeGreaterThan(1)
+    expect(labels[0]).toBe(Weather.SELECT_PLACEHOLDERS.dataType)
+    // Every non-placeholder option carries a non-empty label. The option VALUE is
+    // no longer assertable — components/Select keeps it in React state and renders
+    // only the label — so the label is the whole observable contract here.
+    for (let i = 1; i < labels.length; i++) {
+      expect(labels[i].length).toBeGreaterThan(0)
+      expect(labels[i]).not.toBe(Weather.SELECT_PLACEHOLDERS.dataType)
     }
-    // Index 0 is the placeholder; ≥1 real catalog type follows.
-    expect(values.length).toBeGreaterThan(1)
-    // Every non-placeholder option carries a non-empty value + label.
-    for (let i = 1; i < values.length; i++) {
-      expect(values[i]).not.toBe('')
-      expect(texts[i].length).toBeGreaterThan(0)
-    }
+    await Weather.closeFormSelect('dataTypeId')
     await Weather.acCancel.click()
     await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
@@ -1838,15 +1837,9 @@ describe('Weather add-column — submit with data type + auto-selected unit', ()
     await Weather.openAddColumns()
     // Read the first REAL data-type option (index 0 is the "Select data type"
     // placeholder). This is catalog-agnostic: whatever type the app offers first.
-    const typeOptions = await Weather.acDataType.$$('option')
-    let firstType = ''
-    for (const opt of typeOptions) {
-      const value = (await opt.getAttribute('value')) ?? ''
-      if (value !== '') {
-        firstType = (await opt.getText()).trim()
-        break
-      }
-    }
+    const typeOptions = await Weather.acDataTypeOptions()
+    await Weather.closeFormSelect('dataTypeId')
+    const firstType = typeOptions.slice(1).find((label) => label !== '') ?? ''
     if (firstType === '') {
       await Weather.acCancel.click()
       this.skip() // catalog exposes no selectable data type — nothing to assert.
@@ -1869,11 +1862,12 @@ describe('Weather add-column — submit with data type + auto-selected unit', ()
     // Select ONLY the data type — do NOT touch the unit select, so the base-unit
     // auto-select (handleDataTypeChange) is what carries a unit into submit.
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'autoUnit')
-    await Weather.acDataType.selectByVisibleText(firstType)
-    // The auto-select must land: the unit <select> now has a non-empty value.
-    await browser.waitUntil(async () => (await Weather.acUnit.getValue()) !== '', {
+    await Weather.pickAcDataType(firstType)
+    // The auto-select must land: the unit control now shows a unit, not its
+    // placeholder.
+    await browser.waitUntil(async () => (await Weather.acUnitLabel()) !== '', {
       timeout: TIMEOUTS.MEDIUM,
-      timeoutMsg: 'data-type change did not auto-select a unit (unitId stayed empty)'
+      timeoutMsg: 'data-type change did not auto-select a unit (unit stayed empty)'
     })
     await Weather.acSubmit.click()
     await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
@@ -1971,15 +1965,15 @@ describe('Weather add-column — default value unit-range validation', () => {
 
     // Open the dialog, assign the bounded type + unit, and set an OUT-of-range
     // default. Selecting the type auto-selects a base unit, so we OVERRIDE with
-    // the exact bounded unit label the <select> renders.
+    // the exact bounded unit label the dropdown renders.
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'ranged')
-    await Weather.acDataType.selectByVisibleText(picked.type.data_type)
-    await browser.waitUntil(async () => Weather.acUnit.isEnabled(), {
+    await Weather.pickAcDataType(picked.type.data_type)
+    await browser.waitUntil(async () => Weather.acUnitEnabled(), {
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'unit select never enabled after choosing the bounded data type'
     })
-    await Weather.acUnit.selectByVisibleText(Weather.unitSelectLabel(picked.unit))
+    await Weather.pickAcUnit(Weather.unitSelectLabel(picked.unit))
     await Weather.setReactInput('[data-testid="input-defaultValue"]', String(over))
 
     // (a) OUT-of-range -> the unit range message shows AND submit is gated.

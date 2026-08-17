@@ -13,8 +13,6 @@
  *    rendered for coordinates — assert aria-invalid + outcome, never an error str.
  */
 
-import { selectAll } from '../support/harness'
-
 type El = ReturnType<typeof $>
 type Field = 'latitude' | 'longitude'
 type TabKey = '3dwindow' | 'weather' | 'output'
@@ -47,6 +45,10 @@ class ProjectScreenPage {
   tab(key: TabKey): El {
     return $(`[data-testid="tab-${key}"]`)
   }
+  /** Whether a tab is the active one — TabButton carries the state as aria-pressed. */
+  async tabActive(key: TabKey): Promise<boolean> {
+    return (await this.tab(key).getAttribute('aria-pressed')) === 'true'
+  }
   /** Data-independent sentinel that exists ONLY while the Weather tab is mounted
    *  (the table's select-all checkbox; renders even with zero rows). */
   get weatherSentinel(): El {
@@ -61,12 +63,68 @@ class ProjectScreenPage {
     await this.goHomeButton.click()
   }
 
-  /** Replace a controlled input's value (click -> select-all -> Delete -> type). */
+  /**
+   * Wait until the header inputs have been seeded from the project record.
+   *
+   * ProjectScreen seeds lat/lon in an effect that fires when `activeProject`
+   * lands and calls formik.resetForm (one-shot per project id, guarded by
+   * seededProjectIdRef). Until it fires, both boxes are ''. Typing into that
+   * window is silently clobbered, and — the failure mode this was written for —
+   * a field CLEARED before the seed arrives is re-filled behind us, so the
+   * subsequent addValue appends: "12.34" + "7." = "12.347.", which fails
+   * DECIMAL_RE and surfaces as a baffling aria-invalid assertion rather than a
+   * lost keystroke.
+   *
+   * The window is real but narrow, which is why this reads as flaky. M2 widened
+   * it: ProjectScreen now fires four catalog loads on mount (data / object /
+   * material / model types) alongside the project fetch, so the seed lands later
+   * than it did on develop. Gate on it rather than race it.
+   */
+  async waitForCoordinatesSeeded(): Promise<void> {
+    await browser.waitUntil(
+      async () =>
+        (await this.latInput.getValue()) !== '' && (await this.lonInput.getValue()) !== '',
+      { timeout: 15000, timeoutMsg: 'coordinate fields were never seeded from the project record' }
+    )
+  }
+
+  /**
+   * Replace a controlled (Formik/React) input's value in ONE atomic step.
+   *
+   * The old click -> select-all -> Delete -> addValue sequence is four separate
+   * round-trips against a controlled input, and it appends rather than replaces
+   * if any of them is dropped: "12.34" + "7." = "12.347.", which fails
+   * DECIMAL_RE and reads as a bogus aria-invalid failure. It survived on develop
+   * but goes intermittent under M2's heavier ProjectScreen mount (four extra
+   * catalog fetches), landing on a different coordinate test each run.
+   *
+   * Same technique as Weather.setReactInput, which this suite already relies on
+   * for the equivalent add-column fields: drive the native value setter and
+   * dispatch input+change, so React's onChange — and therefore formik's
+   * validateOnChange — sees exactly one value and there is nothing to race.
+   */
   private async replaceValue(el: El, value: string): Promise<void> {
+    const label = await el.getAttribute('aria-label')
     await el.click()
-    await selectAll()
-    await browser.keys(['Delete'])
-    if (value.length) await el.addValue(value)
+    await browser.execute(
+      (sel: string, val: string) => {
+        const node = document.querySelector(sel) as HTMLInputElement | null
+        if (!node) throw new Error(`replaceValue: no element for ${sel}`)
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )?.set
+        setter?.call(node, val)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        node.dispatchEvent(new Event('change', { bubbles: true }))
+      },
+      `[aria-label="${label}"]`,
+      value
+    )
+    await browser.waitUntil(async () => (await el.getValue()) === value, {
+      timeout: 5000,
+      timeoutMsg: `coordinate field "${label}" did not take the value "${value}"`
+    })
   }
 
   /**
@@ -74,6 +132,7 @@ class ProjectScreenPage {
    * button). Blur by clicking the OTHER coordinate input.
    */
   async setCoordinate(field: Field, value: string): Promise<void> {
+    await this.waitForCoordinatesSeeded()
     const target = this.coordInput(field)
     await this.replaceValue(target, value)
     const sibling = field === 'latitude' ? this.lonInput : this.latInput

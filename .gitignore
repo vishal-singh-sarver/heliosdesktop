@@ -89,3 +89,11 @@ package-lock.json
 linux-installer/payload/Helios/helios
 linux-installer/payload/Helios/resources/app.asar
 .wdio-persist-profile/
+
+# A separate clone of helios/backend-api.git that some checkouts have sitting in
+# the working tree. It is NOT this project's backend — the build uses the
+# helios-desktop-backend submodule (see scripts/sync-backend.js) and nothing
+# references backend-api. Without this rule `git add .` keeps re-staging it as a
+# bare gitlink with no .gitmodules entry, which would commit a pointer to a
+# commit no other clone can resolve.
+backend-api/

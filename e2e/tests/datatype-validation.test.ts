@@ -120,22 +120,30 @@ let currentColId: string | null = null
 
 /**
  * Add a managed column choosing ONLY the data type, so the base (is_base) unit
- * auto-selects. Returns the new column's colId and the auto-selected unitId
- * (read from the dialog's unit <select> before submit).
+ * auto-selects. Returns the new column's colId and the auto-selected unit LABEL
+ * (read from the dialog's unit control before submit).
+ *
+ * Label, not id: M2's dropdown (components/Select) renders the option label and
+ * never puts the underlying value in the DOM, so the unit id the native <select>
+ * used to expose is simply not observable any more. The label is the equivalent
+ * assertion — it still pins down exactly which unit auto-selected.
  */
-async function addTypedColumn(name: string, dataType: string): Promise<{ colId: string; unitId: string }> {
+async function addTypedColumn(
+  name: string,
+  dataType: string
+): Promise<{ colId: string; unitLabel: string }> {
   await Weather.openAddColumns()
   await Weather.setReactInput('[data-testid="input-parameterName"]', name)
-  await Weather.acDataType.selectByVisibleText(dataType)
-  await browser.waitUntil(async () => (await Weather.acUnit.getValue()) !== '', {
+  await Weather.pickAcDataType(dataType)
+  await browser.waitUntil(async () => (await Weather.acUnitLabel()) !== '', {
     timeout: 10000,
     timeoutMsg: `data type "${dataType}" did not auto-select a unit`
   })
-  const unitId = await Weather.acUnit.getValue()
+  const unitLabel = await Weather.acUnitLabel()
   await Weather.acSubmit.click()
   await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: 20000 })
   const colId = await Weather.waitForColumn(name)
-  return { colId, unitId }
+  return { colId, unitLabel }
 }
 
 /**
@@ -314,10 +322,17 @@ describe('Weather data types — per-type range validation sweep', () => {
       if (!SHARED_ROW) this.skip()
 
       // Add the column with ONLY the data type -> the is_base unit auto-selects.
-      const { colId, unitId } = await addTypedColumn(t.col, t.dataType)
+      const { colId, unitLabel } = await addTypedColumn(t.col, t.dataType)
       currentColId = colId
-      // Default-unit check: the dialog auto-selected the catalog is_base unit id.
-      expect(unitId).toBe(String(t.base.unitId))
+      // Default-unit check: the dialog auto-selected the catalog is_base unit.
+      // The control renders "unit" or "unit (alias)", so accept either form.
+      // Thrown rather than expect()'d so the message can name what was actually
+      // selected — expect here takes no custom-message argument.
+      if (unitLabel !== t.base.unit && !unitLabel.startsWith(`${t.base.unit} (`)) {
+        throw new Error(
+          `${t.dataType}: expected the auto-selected unit to be "${t.base.unit}", got "${unitLabel}"`
+        )
+      }
       // ...and the header now shows that base unit's token.
       expect(norm(await Weather.headerPickerLabel(colId))).toBe(t.base.unit)
 
