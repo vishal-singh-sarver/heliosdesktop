@@ -135,6 +135,28 @@ export function gridStamp(geometryVersion: number, selectedObjectId: number | nu
   return `${geometryVersion}:${selectedObjectId}`
 }
 
+/**
+ * True once the scene has moved past the stamp, meaning the reset it recorded
+ * has been used up and the stamp should be dropped.
+ *
+ * A reset is one-shot: it holds the grid at defaults until the next geometry or
+ * selection change, then stops applying — the behaviour of the counter this
+ * replaced. A stamp that is kept forever instead re-fires whenever the scene
+ * returns to the state it was taken in (select B, reset, select A, select B
+ * again), which is not a thing the user asked for. Selection alone is enough to
+ * hit that, since picking an object does not bump geometryVersion.
+ *
+ * Kept out of useAdaptiveGrid so that hook stays pure; the owner of the stamp
+ * calls this while rendering and drops the stamp itself. See Viewport3D.
+ */
+export function isGridResetSpent(
+  gridResetAt: string | null,
+  geometryVersion: number,
+  selectedObjectId: number | null
+): boolean {
+  return gridResetAt !== null && gridResetAt !== gridStamp(geometryVersion, selectedObjectId)
+}
+
 /** Derive grid dimensions from the scene's bounding box so the grid
  *  always matches the model scale.  While gridResetAt still matches the
  *  current scene the grid stays at defaults (camera reset to origin). */

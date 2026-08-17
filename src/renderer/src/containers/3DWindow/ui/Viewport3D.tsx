@@ -19,7 +19,7 @@ import { defaultLightingSettings } from './SceneLighting'
 import LightingSettingsDialog from './LightingSettingsDialog'
 import SceneCanvas from './SceneCanvas'
 import SceneContent from './SceneContent'
-import { gridStamp } from './SceneHelpers'
+import { gridStamp, isGridResetSpent } from './SceneHelpers'
 import SceneSelector from './SceneSelector'
 
 // ── Inline SVG icons (no external dependency) ────────────────────────────────
@@ -332,6 +332,30 @@ export function Viewport3D(): React.JSX.Element {
   // until geometry or selection moves on. Captured here in the click handler
   // rather than compared during render — see SceneHelpers.gridStamp.
   const [gridResetAt, setGridResetAt] = useState<string | null>(null)
+
+  // Drop the stamp once the scene has moved past it, which makes a reset
+  // one-shot: it applies until the next geometry or selection change and is
+  // then spent, matching the counter this replaced.
+  //
+  // Without this the stamp lives forever and the reset re-fires whenever the
+  // scene happens to return to the state it was taken in — select B, reset,
+  // select A, select B again, and the grid drops to defaults a second time
+  // even though reset was pressed once. Selection alone is enough to trigger
+  // that, because picking an object does not bump geometryVersion.
+  //
+  // Clearing here rather than inside useAdaptiveGrid keeps that hook pure —
+  // the reason the stamp exists at all. There is no window where the old value
+  // is wrongly applied: the render that changes the scene already fails the
+  // stamp comparison, so this only tidies up afterwards.
+  //
+  // Adjusted during render, not in an effect: React re-runs this component
+  // before committing, so there is no extra paint, and the condition is false
+  // once the stamp is null so it cannot loop. Same shape as the dialog state
+  // in Weather/WeatherToolbar. An effect here would both paint an extra frame
+  // and trip react-hooks' cascading-render rule.
+  if (isGridResetSpent(gridResetAt, geometryVersion, selectedObjectId)) {
+    setGridResetAt(null)
+  }
 
   const actionsRef = useRef<ViewportActions | null>(null)
   const handleZoomIn = useCallback(() => actionsRef.current?.zoomIn(), [])
