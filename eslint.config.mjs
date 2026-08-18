@@ -28,6 +28,14 @@ export default [
   },
 
   // Main process (Node.js)
+  //
+  // `no-console` is off here, as it is for scripts/ above. The main process has
+  // no devtools console - stdout/stderr IS its logging channel, and in a
+  // packaged app it is usually the only diagnostic available when the backend
+  // child process fails to launch. The statements this rule flagged are all
+  // deliberate operational logging (backend stdout/stderr forwarding, exit
+  // codes, startup failures), not debug leftovers, so enforcing the rule would
+  // mean deleting the output you need when a user reports the app not starting.
   {
     files: ['src/main/**/*.ts'],
     languageOptions: {
@@ -36,7 +44,7 @@ export default [
       globals: { ...globals.node }
     },
     plugins: { '@typescript-eslint': tsPlugin },
-    rules: { ...tsRules, 'no-console': 'warn' }
+    rules: { ...tsRules, 'no-console': 'off' }
   },
 
   // Preload process (Node.js + browser globals)
@@ -119,6 +127,21 @@ export default [
       'no-console': 'warn'
     },
     settings: { react: { version: 'detect' } }
+  },
+
+  // react-three-fiber components
+  //
+  // `react/no-unknown-property` validates JSX attributes against the HTML DOM
+  // attribute list. R3F intrinsics (<mesh>, <directionalLight>, ...) are three.js
+  // scene objects, not DOM elements, so valid props like castShadow / intensity /
+  // geometry are all reported as unknown. The rule has no allowlist that can express
+  // the three.js surface. Type safety is unaffected: R3F augments the JSX namespace,
+  // so tsc still checks every one of these props.
+  //
+  // Placed last so it wins over the recommended preset spread in above.
+  {
+    files: ['src/renderer/src/containers/3DWindow/ui/**/*.tsx'],
+    rules: { 'react/no-unknown-property': 'off' }
   },
 
   // Ignore generated output

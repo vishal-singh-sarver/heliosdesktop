@@ -49,6 +49,7 @@ function DateTimeHeader({ dataType, currentUnitId, onPatch }: Props): React.JSX.
     <div ref={ref} className="relative inline-block">
       <button
         type="button"
+        data-testid="datetime-header-trigger"
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 text-neutral-200 hover:text-white focus:outline-none"
       >

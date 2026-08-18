@@ -45,6 +45,7 @@ function SearchBar({
         <img src={icon} alt="" aria-hidden="true" className={iconClassName} />
       </span>
       <input
+        data-testid="searchbar"
         aria-label={ariaLabel}
         value={value}
         onChange={(event) => onChange(event.target.value)}

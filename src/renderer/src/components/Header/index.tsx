@@ -65,7 +65,7 @@ function Header({ children, onLogoClick, title }: HeaderProps): React.JSX.Elemen
   const showTitleBar = isMac || !isFullScreen
 
   return (
-    <header className="border-b border-app-border">
+    <header data-testid="header" className="border-b border-app-border">
       {showTitleBar && (
       <div
         className={`app-drag relative flex h-[45px] items-center gap-3 border-b border-app-border px-4 ${
@@ -98,12 +98,16 @@ function Header({ children, onLogoClick, title }: HeaderProps): React.JSX.Elemen
               <span
                 className="truncate text-md font-normal leading-[15px] text-[#D3D3D3]"
                 onMouseEnter={showFullTextOnHover}
+                data-testid="project-title"
               >
                 {title}
               </span>
             </div>
             <span aria-hidden="true" className="h-5 w-px bg-[#424242]" />
-            <div className="app-no-drag flex h-[25px] items-center gap-1 rounded-[4px] border border-[#424242] bg-[#FFFFFF] px-2">
+            <div
+              data-testid="scenario-chip"
+              className="app-no-drag flex h-[25px] items-center gap-1 rounded-[4px] border border-[#424242] bg-[#FFFFFF] px-2"
+            >
               <span className="text-xs font-normal leading-none text-black">Scenario 1</span>
               <button
                 type="button"

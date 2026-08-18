@@ -11,11 +11,11 @@
              only on first install.
 
     Phase 2: Compile the native PyHelios C++ library
-             (backend-api/pyhelios/pyhelios_build/build/lib/libhelios.dll).
+             (helios-desktop-backend/pyhelios/pyhelios_build/build/lib/libhelios.dll).
              Skipped if the DLL already exists, unless -Force is passed.
 
     Phase 3: Build the backend PyInstaller bundle
-             (backend-api/dist/heliosgui_backend.exe/).
+             (helios-desktop-backend/dist/heliosgui_backend.exe/).
              Skipped if the bundle already exists, unless -Force is passed.
 
     Phase 4: Copy the bundle into resources/backend/win/. Any existing bundle
@@ -64,8 +64,8 @@ Set-Location $repoRoot
 if (-not (Test-Path (Join-Path $repoRoot 'package.json'))) {
   throw "package.json not found at $repoRoot. Place this script in <repo>/scripts/."
 }
-if (-not (Test-Path (Join-Path $repoRoot 'backend-api'))) {
-  throw "backend-api/ not found at $repoRoot. Did you clone with --recurse-submodules?"
+if (-not (Test-Path (Join-Path $repoRoot 'helios-desktop-backend'))) {
+  throw "helios-desktop-backend/ not found at $repoRoot. Did you clone with --recurse-submodules?"
 }
 
 function Write-Phase([string]$Title) {
@@ -92,7 +92,7 @@ function Test-ToolchainPresent {
 }
 
 # Make submodules are checked out (cheap if already are).
-# .gitmodules uses a relative url (../backend-api.git) so a GitHub clone follows
+# .gitmodules uses a relative url (../helios-desktop-backend.git) so a GitHub clone follows
 # the fork's account automatically; for other origins (e.g. the internal server)
 # resolve the owner and force the GitHub url before updating.
 Write-Phase 'Phase 0: ensure submodules are present'
@@ -107,9 +107,9 @@ if (-not $backendOwner) {
 }
 if (-not $backendOwner) { $backendOwner = 'PlantSimulationLab' }
 
-Write-Host "  backend-api owner: $backendOwner"
-& git submodule sync -- backend-api | Out-Null
-& git config submodule.backend-api.url "git@github.com:$backendOwner/backend-api.git"
+Write-Host "  helios-desktop-backend owner: $backendOwner"
+& git submodule sync -- helios-desktop-backend | Out-Null
+& git config submodule.helios-desktop-backend.url "git@github.com:$backendOwner/helios-desktop-backend.git"
 & git submodule update --init --recursive
 if ($LASTEXITCODE -ne 0) {
   Write-Host "  [!] git submodule update returned $LASTEXITCODE - continuing anyway" -ForegroundColor Yellow
@@ -140,14 +140,14 @@ if ($SkipToolchain) {
 
 # --- Phase 2: libhelios.dll ------------------------------------------------
 Write-Phase 'Phase 2: native PyHelios library (libhelios.dll)'
-$libheliosDll = Join-Path $repoRoot 'backend-api\pyhelios\pyhelios_build\build\lib\libhelios.dll'
+$libheliosDll = Join-Path $repoRoot 'helios-desktop-backend\pyhelios\pyhelios_build\build\lib\libhelios.dll'
 if ((Test-Path $libheliosDll) -and -not $Force) {
   Write-Host "  [skip] $libheliosDll already exists (pass -Force to rebuild)"
 } else {
   if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     throw "python not found on PATH. Install Python 3.10+ and re-run."
   }
-  Push-Location (Join-Path $repoRoot 'backend-api\pyhelios')
+  Push-Location (Join-Path $repoRoot 'helios-desktop-backend\pyhelios')
   try {
     $pyArgs = @('build_scripts\build_helios.py')
     if ($Plugins) { $pyArgs += @('--plugins') + $Plugins }
@@ -164,12 +164,12 @@ if ((Test-Path $libheliosDll) -and -not $Force) {
 
 # --- Phase 3: backend PyInstaller bundle -----------------------------------
 Write-Phase 'Phase 3: backend PyInstaller bundle (heliosgui_backend.exe)'
-$builtBundleDir = Join-Path $repoRoot 'backend-api\dist\heliosgui_backend.exe'
+$builtBundleDir = Join-Path $repoRoot 'helios-desktop-backend\dist\heliosgui_backend.exe'
 $builtExe       = Join-Path $builtBundleDir 'heliosgui_backend.exe'
 if ((Test-Path $builtExe) -and -not $Force) {
   Write-Host "  [skip] $builtExe already exists (pass -Force to rebuild)"
 } else {
-  & (Join-Path $repoRoot 'backend-api\scripts\build_binary.ps1')
+  & (Join-Path $repoRoot 'helios-desktop-backend\scripts\build_binary.ps1')
   if ($LASTEXITCODE -ne 0) { throw "build_binary.ps1 failed (exit $LASTEXITCODE)" }
   if (-not (Test-Path $builtExe)) {
     throw "build_binary.ps1 finished but $builtExe was not produced"

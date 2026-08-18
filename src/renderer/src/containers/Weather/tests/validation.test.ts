@@ -173,6 +173,22 @@ describe('validateCellValue', () => {
     )
   })
 
+  // ── Global ±1e6 bound wins even while a unit is configured ────────────────
+
+  it('flags a value beyond +1e6 with the global message even when a unit is configured', () => {
+    // baseCol has unit 10 (min -50, max 50). The global hard bound is checked
+    // before the unit range, so its message wins over the unit-range message.
+    expect(validateCellValue('2000000', { col: baseCol, dataTypes: makeDataTypes() })).toBe(
+      'Value should be between -1000000 and 1000000.'
+    )
+  })
+
+  it('flags a value below -1e6 with the global message even when a unit is configured', () => {
+    expect(validateCellValue('-2000000', { col: baseCol, dataTypes: makeDataTypes() })).toBe(
+      'Value should be between -1000000 and 1000000.'
+    )
+  })
+
   // ── One-sided ranges ─────────────────────────────────────────────────────
 
   it('uses ≥ format when only min is set', () => {

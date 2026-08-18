@@ -75,6 +75,8 @@ interface SelectProps {
   options: ReadonlyArray<SelectOption>
   placeholder?: string
   disabled?: boolean
+  /** Optional stable hook for e2e tests; renders as data-testid on the <select>. */
+  testId?: string
 }
 
 export function Select({
@@ -82,11 +84,13 @@ export function Select({
   onChange,
   options,
   placeholder = '-- none --',
-  disabled
+  disabled,
+  testId
 }: SelectProps): React.JSX.Element {
   return (
     <div className="relative">
       <select
+        data-testid={testId}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value || null)}
         disabled={disabled}

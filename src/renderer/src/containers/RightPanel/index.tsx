@@ -51,6 +51,7 @@ export function RightPanel(): React.JSX.Element {
 
   return (
     <aside
+      data-testid="right-panel"
       className={`${widthClass} flex shrink-0 flex-col overflow-hidden rounded-lg bg-[#202020] transition-[width] duration-150`}
     >
       <div
@@ -61,7 +62,12 @@ export function RightPanel(): React.JSX.Element {
             Properties
           </span>
         )}
-        <CollapseButton collapsed={collapsed} side="right" onToggle={toggle} />
+        <CollapseButton
+          collapsed={collapsed}
+          side="right"
+          onToggle={toggle}
+          dataTestId="right-panel-collapse-btn"
+        />
       </div>
       {/* The form stays mounted at all times — collapsing only hides it with CSS
           (display:none) instead of unmounting, mirroring the LeftPanel. The

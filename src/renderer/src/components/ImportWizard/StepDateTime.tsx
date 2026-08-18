@@ -32,6 +32,8 @@ interface GroupedChoiceProps {
   disabled?: boolean
   onSelect?: () => void
   children: React.ReactNode
+  /** Stable e2e hook on the radio button. */
+  testId?: string
 }
 
 interface RadioIndicatorProps {
@@ -85,12 +87,14 @@ function GroupedChoice({
   selected,
   disabled = false,
   onSelect,
-  children
+  children,
+  testId
 }: GroupedChoiceProps): React.JSX.Element {
   return (
     <div className="grid grid-cols-[24px_minmax(0,1fr)] gap-4">
       <button
         type="button"
+        data-testid={testId}
         onClick={onSelect}
         disabled={!onSelect}
         className="flex items-start justify-center pt-[10px] disabled:cursor-default"
@@ -145,7 +149,11 @@ function ModeChoice({
   const selected = activeMode === modeKey
 
   return (
-    <GroupedChoice selected={selected} onSelect={() => onSelect(modeKey)}>
+    <GroupedChoice
+      selected={selected}
+      onSelect={() => onSelect(modeKey)}
+      testId={`dt-datemode-${modeKey}`}
+    >
       <div aria-label={label}>{children}</div>
     </GroupedChoice>
   )
@@ -166,6 +174,7 @@ function DateGroupFields({
     <div className="flex flex-col gap-3">
       <FieldRow label="Day" emphasized>
         <Select
+          testId="dt-day"
           value={mapping.day}
           onChange={(v) => onChangeMapping('day', v)}
           options={allOptions}
@@ -174,6 +183,7 @@ function DateGroupFields({
       </FieldRow>
       <FieldRow label="Month">
         <Select
+          testId="dt-month"
           value={mapping.month}
           onChange={(v) => onChangeMapping('month', v)}
           options={allOptions}
@@ -182,6 +192,7 @@ function DateGroupFields({
       </FieldRow>
       <FieldRow label="Year">
         <Select
+          testId="dt-year"
           value={mapping.year}
           onChange={(v) => onChangeMapping('year', v)}
           options={allOptions}
@@ -207,6 +218,7 @@ function JulianFields({
     <div className="flex flex-col gap-3">
       <FieldRow label="Julian Year" emphasized>
         <Select
+          testId="dt-julianYear"
           value={mapping.julianYear}
           onChange={(v) => onChangeMapping('julianYear', v)}
           options={allOptions}
@@ -215,6 +227,7 @@ function JulianFields({
       </FieldRow>
       <FieldRow label="Julian Day">
         <Select
+          testId="dt-julianDay"
           value={mapping.julianDay}
           onChange={(v) => onChangeMapping('julianDay', v)}
           options={allOptions}
@@ -244,6 +257,7 @@ function DateStringFields({
     <FieldRow label="Date String" emphasized>
       <div className="grid grid-cols-2 gap-3">
         <Select
+          testId="dt-date-format"
           value={dateFormat}
           onChange={(v) => {
             if (v) onChangeDateFormat(v as DateFormatKey)
@@ -253,6 +267,7 @@ function DateStringFields({
           disabled={disabled}
         />
         <Select
+          testId="dt-date"
           value={mapping.date}
           onChange={(v) => onChangeMapping('date', v)}
           options={allOptions}
@@ -282,6 +297,7 @@ function DateTimeFields({
     <FieldRow label="Date-Time" emphasized>
       <div className="grid grid-cols-2 gap-3">
         <Select
+          testId="dt-datetime-format"
           value={datetimeFormat}
           onChange={(v) => {
             if (v) onChangeDateTimeFormat(v as DateTimeFormatKey)
@@ -291,6 +307,7 @@ function DateTimeFields({
           disabled={disabled}
         />
         <Select
+          testId="dt-datetime"
           value={mapping.datetime}
           onChange={(v) => onChangeMapping('datetime', v)}
           options={allOptions}
@@ -313,6 +330,7 @@ export default function StepDateTime({
   onChangeDateFormat,
   datetimeFormat,
   onChangeDateTimeFormat,
+  ambiguousDateFormat,
   stats
 }: StepDateTimeProps): React.JSX.Element {
   // Keep all source columns available in every dropdown so the UI can mirror
@@ -378,6 +396,21 @@ export default function StepDateTime({
     <div className="flex max-h-full flex-col gap-5 overflow-y-auto px-6 pb-4 scrollbar-custom">
       <div className="text-sm text-neutral-300">Map each day/time component to a column.</div>
 
+      {ambiguousDateFormat && (
+        <div
+          data-testid="dt-ambiguous-warning"
+          role="status"
+          className="flex items-start gap-2 rounded-[3px] border border-amber-600/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-200"
+        >
+          <AlertTriangleIcon className="mt-[2px] h-4 w-4 shrink-0" />
+          <span>
+            Every date in this file fits <span className="font-medium">{ambiguousDateFormat}</span>,
+            so the day and month cannot be told apart automatically. Confirm the date format below —
+            the preview updates as you change it.
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 pr-1">
         <Section title="Date">
           <div className="flex flex-col gap-4">
@@ -411,7 +444,11 @@ export default function StepDateTime({
               />
             </ModeChoice>
 
-            <GroupedChoice selected={dateMode === 'julian'} onSelect={() => onChangeDateMode('julian')}>
+            <GroupedChoice
+              selected={dateMode === 'julian'}
+              onSelect={() => onChangeDateMode('julian')}
+              testId="dt-datemode-julian"
+            >
               <JulianFields
                 mapping={mapping}
                 onChangeMapping={onChangeMapping}
@@ -439,10 +476,12 @@ export default function StepDateTime({
               selected={timeMode === 'parts' && !timeDisabled}
               disabled={timeDisabled}
               onSelect={timeDisabled ? undefined : () => onChangeTimeMode('parts')}
+              testId="dt-timemode-parts"
             >
               <div className="flex flex-col gap-3">
                 <FieldRow label="Hour" emphasized>
                   <Select
+                    testId="dt-hour"
                     value={mapping.hour}
                     onChange={(v) => onChangeMapping('hour', v)}
                     options={allOptions}
@@ -451,6 +490,7 @@ export default function StepDateTime({
                 </FieldRow>
                 <FieldRow label="Minute">
                   <Select
+                    testId="dt-minute"
                     value={mapping.minute}
                     onChange={(v) => onChangeMapping('minute', v)}
                     options={allOptions}
@@ -464,9 +504,11 @@ export default function StepDateTime({
               selected={timeMode === 'string' && !timeDisabled}
               disabled={timeDisabled}
               onSelect={timeDisabled ? undefined : () => onChangeTimeMode('string')}
+              testId="dt-timemode-string"
             >
               <FieldRow label="Hour:Minute" emphasized>
                 <Select
+                  testId="dt-time-string"
                   value={mapping.time}
                   onChange={(v) => onChangeMapping('time', v)}
                   options={allOptions}
@@ -479,9 +521,11 @@ export default function StepDateTime({
               selected={timeMode === 'compact' && !timeDisabled}
               disabled={timeDisabled}
               onSelect={timeDisabled ? undefined : () => onChangeTimeMode('compact')}
+              testId="dt-timemode-compact"
             >
               <FieldRow label="HourMinute" emphasized>
                 <Select
+                  testId="dt-time-compact"
                   value={mapping.time}
                   onChange={(v) => onChangeMapping('time', v)}
                   options={allOptions}

@@ -64,6 +64,7 @@ export type DateTimeFormatKey =
   | 'YYYY-MM-DDTHH:MM:SSZ'
   | 'YYYY-MM-DDTHH:MM:SS-HH:MM'
   | 'YYYY-MM-DDTHH:MM:SS'
+  | 'YYYY-MM-DDTHH:MM'
   | 'YYYYMMDDHH'
   | 'YYYYMMDDHHMM'
   | 'YYYY-MM-DD HH:MM'
@@ -100,6 +101,8 @@ export const DATETIME_FORMATS: ReadonlyArray<{
   { value: 'YYYY-MM-DDTHH:MM:SSZ', label: 'YYYY-MM-DDTHH:MM:SSZ' },
   { value: 'YYYY-MM-DDTHH:MM:SS-HH:MM', label: 'YYYY-MM-DDTHH:MM:SS-HH:MM' },
   { value: 'YYYY-MM-DDTHH:MM:SS', label: 'YYYY-MM-DDTHH:MM:SS' },
+  // Open-Meteo and several other hourly APIs emit ISO-8601 without seconds.
+  { value: 'YYYY-MM-DDTHH:MM', label: 'YYYY-MM-DDTHH:MM' },
   { value: 'YYYYMMDDHH', label: 'YYYYMMDDHH' },
   { value: 'YYYYMMDDHHMM', label: 'YYYYMMDDHHMM' },
   { value: 'YYYY-MM-DD HH:MM', label: 'YYYY-MM-DD HH:MM' },
@@ -145,6 +148,30 @@ export interface ImportedDataset {
 
 const isCommentLine = (l: string): boolean =>
   l.startsWith('#') || l.startsWith('//') || l.startsWith(';;')
+
+// NASA POWER (and several other agency exports) wrap a free-prose preamble in
+// explicit -END HEADER- style markers. The prose is not tabular, so letting it
+// reach detectDelimiter/detectHeaderLinesToSkip skews both: the sentences make
+// space look like the winning delimiter, and the modal column count is computed
+// against prose rather than data. Returns the number of leading lines to drop,
+// or 0 when no marker is present.
+const END_HEADER_RE = /^\s*-+\s*END[ _]HEADER\s*-+\s*$/i
+
+export function detectEndHeaderOffset(text: string): number {
+  const lines = text.split(/\r?\n/)
+  // Bound the scan so a stray match deep in a large data file can't swallow it.
+  const limit = Math.min(lines.length, 200)
+  for (let i = 0; i < limit; i++) {
+    if (END_HEADER_RE.test(lines[i])) return i + 1
+  }
+  return 0
+}
+
+// The text a detector should look at: everything after an -END HEADER- marker.
+const bodyAfterHeaderBlock = (text: string): string => {
+  const offset = detectEndHeaderOffset(text)
+  return offset === 0 ? text : text.split(/\r?\n/).slice(offset).join('\n')
+}
 
 // RFC 4180-aware single-line splitter: a delimiter inside a double-quoted field
 // is part of the value, not a column boundary. Two consecutive double quotes
@@ -199,7 +226,7 @@ function modeOf(arr: number[]): number {
 // ── Delimiter / header detection ──────────────────────────────────────────────
 
 export function detectDelimiter(text: string): string {
-  const lines = text
+  const lines = bodyAfterHeaderBlock(text)
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
@@ -228,15 +255,54 @@ export function detectDelimiter(text: string): string {
       bestFallback = d
     }
   }
-  return bestConsistent ?? bestFallback
+  if (bestConsistent) return bestConsistent
+
+  // No delimiter splits every line evenly. Before falling back to raw count,
+  // prefer one whose count is at least stable across the DATA rows while the
+  // header disagrees — that is the signature of a value containing the
+  // delimiter (space-delimited "datetime temperature" whose datetime is
+  // "2026-02-03 10:00"). Raw count alone picks space there and silently
+  // consumes the header row as data.
+  const dataConsistent = DELIMITERS.filter(({ value: d }) => {
+    const counts = lines.slice(1).map((l) => splitCsvLine(l, d).length - 1)
+    if (counts.length === 0) return false
+    return Math.min(...counts) > 0 && Math.min(...counts) === Math.max(...counts)
+  })
+  if (dataConsistent.length > 0) {
+    // Among those, the one the header agrees with most closely wins; ties keep
+    // DELIMITERS order (comma first), which is the safer default.
+    const headerCount = (d: string): number => splitCsvLine(lines[0], d).length - 1
+    const best = dataConsistent.reduce((a, b) => {
+      const da = Math.abs(headerCount(a.value) - (splitCsvLine(lines[1], a.value).length - 1))
+      const db = Math.abs(headerCount(b.value) - (splitCsvLine(lines[1], b.value).length - 1))
+      return db < da ? b : a
+    })
+    return best.value
+  }
+  return bestFallback
 }
 
 export function detectHeaderLinesToSkip(text: string, delimiter: string): number {
-  const lines = text
+  // An -END HEADER- preamble is skipped wholesale: the prose above it would
+  // otherwise dominate the modal column count. The returned figure must stay
+  // relative to the same non-empty-line sequence parseDelimited walks, so the
+  // preamble is measured after the identical blank-line filter, not on raw
+  // line numbers.
+  const allNonEmpty = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(0, 15)
+  const rawOffset = detectEndHeaderOffset(text)
+  const preambleLines =
+    rawOffset === 0
+      ? 0
+      : text
+          .split(/\r?\n/)
+          .slice(0, rawOffset)
+          .map((l) => l.trim())
+          .filter(Boolean).length
+
+  const lines = allNonEmpty.slice(preambleLines, preambleLines + 15)
   if (lines.length === 0) return 0
 
   const counts = lines.map((l) => splitCsvLine(l, delimiter).length)
@@ -249,16 +315,31 @@ export function detectHeaderLinesToSkip(text: string, delimiter: string): number
       skip = i + 1
       continue
     }
+    // The first line having FEWER columns than the data, with every data line
+    // agreeing, is the signature of a header whose own value count is short
+    // because a data value contains the delimiter (space-delimited
+    // "datetime temperature" over "2026-02-03 10:00 15.5"). Discarding it would
+    // promote real data to the header row and lose a record; keep it and let
+    // parseDelimited report the mismatch instead.
+    if (i === 0 && counts[0] < modal && counts.slice(1).every((c) => c === modal)) {
+      break
+    }
     if (counts[i] !== modal) {
       skip = i + 1
       continue
     }
     break
   }
-  return skip
+  return preambleLines + skip
 }
 
 // ── Delimited parsing ─────────────────────────────────────────────────────────
+
+// Shape tests for the space-delimited date+time rejoin below. Deliberately
+// loose — real validation is tryParseDate/tryParseTime at mapping time; these
+// only decide whether two adjacent cells were once a single value.
+const LOOSE_DATE_RE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$|^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$|^\d{8}$/
+const LOOSE_TIME_RE = /^\d{1,2}:\d{2}(?::\d{2})?$/
 
 export function parseDelimited(
   text: string,
@@ -272,7 +353,21 @@ export function parseDelimited(
   const headers = splitCsvLine(all[headerLinesToSkip], delimiter).map((s) => s.trim())
   const rows: string[][] = []
   for (let i = headerLinesToSkip + 1; i < all.length; i++) {
-    const cells = splitCsvLine(all[i], delimiter).map((s) => s.trim())
+    let cells = splitCsvLine(all[i], delimiter).map((s) => s.trim())
+    // Space-delimited files can carry an unquoted "YYYY-MM-DD HH:MM" value,
+    // which splits into two cells and pushes every row one column past the
+    // header. When the leading pair is exactly a date followed by a time, and
+    // rejoining them squares the row with the header, treat it as the single
+    // value it is rather than failing the whole file. Any other mismatch still
+    // throws below — this is a targeted repair, not general padding.
+    if (
+      delimiter === ' ' &&
+      cells.length === headers.length + 1 &&
+      LOOSE_DATE_RE.test(cells[0]) &&
+      LOOSE_TIME_RE.test(cells[1])
+    ) {
+      cells = [`${cells[0]} ${cells[1]}`, ...cells.slice(2)]
+    }
     // Strict: column-count mismatch fails the parse rather than silently
     // padding/truncating, because for weather data a missing field is data loss.
     if (cells.length !== headers.length) {
@@ -763,6 +858,22 @@ export function tryParseDateTime(raw: unknown, formatKey: DateTimeFormatKey): Da
     return buildDate(date, time)
   }
 
+  if (formatKey === 'YYYY-MM-DDTHH:MM') {
+    // Anchored, and with no optional seconds group, so this stays distinct from
+    // the YYYY-MM-DDTHH:MM:SS variants above rather than shadowing them.
+    const match = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/)
+    if (!match) return null
+    const date = validateDateParts({
+      Y: parseInt(match[1], 10),
+      M: parseInt(match[2], 10),
+      D: parseInt(match[3], 10)
+    })
+    if (!date) return null
+    const time = tryParseTime(`${match[4]}:${match[5]}`)
+    if (!time) return null
+    return buildDate(date, time)
+  }
+
   if (formatKey === 'YYYYMMDDHH' || formatKey === 'YYYYMMDDHHMM') {
     const compact =
       formatKey === 'YYYYMMDDHH'
@@ -800,6 +911,7 @@ export function tryParseDateTime(raw: unknown, formatKey: DateTimeFormatKey): Da
     'YYYY-MM-DDTHH:MM:SSZ': null,
     'YYYY-MM-DDTHH:MM:SS-HH:MM': null,
     'YYYY-MM-DDTHH:MM:SS': null,
+    'YYYY-MM-DDTHH:MM': null,
     YYYYMMDDHH: null,
     YYYYMMDDHHMM: null,
     'YYYY-MM-DD HH:MM': 'YYYY-MM-DD',
@@ -930,9 +1042,22 @@ export function parseRowDateTimeSelections(
       if (hRaw === undefined || hRaw === '') {
         timeInvalid = true
       } else {
-        const hv = parseInt(hRaw, 10)
-        if (Number.isNaN(hv) || hv < 0 || hv > 23) timeInvalid = true
-        else H = hv
+        // An "Hour" column is not always a bare 0-23 integer: CIMIS writes
+        // "0100" and older Helios exports write "1300", both of which mean
+        // HHMM. A raw parseInt reads those as 100 and 1300 and rejects them as
+        // out-of-range, losing the whole file. tryParseTime already implements
+        // exactly this widening (1-2 digits = hour, 3-4 digits = HHMM), so
+        // defer to it and take the minute it recovers. A separately mapped
+        // Minute column still wins below.
+        const t = tryParseTime(hRaw)
+        if (!t) {
+          timeInvalid = true
+        } else {
+          H = t.H
+          Min = t.M
+          Sec = t.S
+          rollover = t.rollover
+        }
       }
     }
     if (mapping.minute) {

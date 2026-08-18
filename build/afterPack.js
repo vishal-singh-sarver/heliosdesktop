@@ -12,7 +12,6 @@
 
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
 
 async function afterPack(context) {
   // Only run on macOS
@@ -46,16 +45,13 @@ async function afterPack(context) {
       throw new Error(`Backend binary is not executable after chmod`)
     }
 
-    // On macOS, also ensure it's not quarantined (removes com.apple.quarantine xattr)
-    // This is needed for apps distributed outside App Store
-    try {
-      execSync(`xattr -d com.apple.quarantine "${backendBinary}" 2>/dev/null || true`, {
-        stdio: 'ignore'
-      })
-      console.log(`[afterPack] Removed quarantine attribute from backend binary`)
-    } catch {
-      // Ignore errors; xattr removal is best-effort
-    }
+    // NOTE: this hook used to strip com.apple.quarantine from the backend
+    // binary here. That was a workaround for shipping an UNSIGNED sidecar and
+    // is no longer needed: the quarantine flag is applied by the OS when a user
+    // downloads the installer, not on the build machine, so removing it at pack
+    // time never had any effect on the shipped artifact. Now that the binary is
+    // signed with a Developer ID + hardened runtime and the .pkg is notarized,
+    // Gatekeeper clears it on the user's machine properly.
   } catch (error) {
     console.error(`[afterPack] Failed to fix backend binary permissions: ${error.message}`)
     throw error

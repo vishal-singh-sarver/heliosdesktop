@@ -3,6 +3,7 @@
 exports[`<Header /> > should match the snapshot 1`] = `
 <header
   class="border-b border-app-border"
+  data-testid="header"
 >
   <div
     class="app-drag relative flex h-[45px] items-center gap-3 border-b border-app-border px-4 "

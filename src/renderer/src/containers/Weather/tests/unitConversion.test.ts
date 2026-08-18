@@ -123,6 +123,146 @@ describe('unitConversion', () => {
     ).toBe('2')
   })
 
+  // ── Defensive guards in canConvertWeatherUnit / convertWeatherValue ──────────
+
+  it('returns "NAN" for empty, whitespace, and NAN-like strings', () => {
+    const k = unit(1, 'K')
+    const c = unit(2, 'C', '°C', 1, 273.15)
+    const dt = dataType('Temperature', [k, c])
+    expect(convertWeatherValue({ value: '', dataType: dt, fromUnit: k, toUnit: c })).toBe('NAN')
+    expect(convertWeatherValue({ value: '   ', dataType: dt, fromUnit: k, toUnit: c })).toBe('NAN')
+    expect(convertWeatherValue({ value: 'NAN', dataType: dt, fromUnit: k, toUnit: c })).toBe('NAN')
+    expect(convertWeatherValue({ value: 'nan', dataType: dt, fromUnit: k, toUnit: c })).toBe('NAN')
+  })
+
+  it('leaves the value unchanged when converting a unit to itself', () => {
+    // fromUnit.id === toUnit.id short-circuits canConvertWeatherUnit → no conversion.
+    const same = unit(5, 'C', '°C', 1, 273.15)
+    const dt = dataType('Temperature', [same])
+    expect(convertWeatherValue({ value: '25', dataType: dt, fromUnit: same, toUnit: same })).toBe(
+      '25'
+    )
+  })
+
+  it('leaves the value unchanged when a unit belongs to a different data type', () => {
+    const dt = dataType('Temperature', [unit(1, 'K'), unit(2, 'C', '°C', 1, 273.15)])
+    // fromUnit.data_type_id (99) !== dataType.id (1)
+    const foreignFrom = { ...unit(1, 'K'), data_type_id: 99 }
+    expect(
+      convertWeatherValue({
+        value: '300',
+        dataType: dt,
+        fromUnit: foreignFrom,
+        toUnit: unit(2, 'C', '°C', 1, 273.15)
+      })
+    ).toBe('300')
+    // toUnit.data_type_id (99) !== dataType.id (1)
+    const foreignTo = { ...unit(2, 'C', '°C', 1, 273.15), data_type_id: 99 }
+    expect(
+      convertWeatherValue({ value: '300', dataType: dt, fromUnit: unit(1, 'K'), toUnit: foreignTo })
+    ).toBe('300')
+  })
+
+  it('does not convert when a unit has a zero or non-finite base factor/offset', () => {
+    const dt = dataType('Temperature', [unit(1, 'K'), unit(2, 'C', '°C', 1, 273.15)])
+    // to_base_factor === 0 → divide-by-zero guard trips → raw returned unchanged
+    const zeroFrom = { ...unit(1, 'K'), to_base_factor: 0 }
+    expect(
+      convertWeatherValue({ value: '300', dataType: dt, fromUnit: zeroFrom, toUnit: unit(2, 'C') })
+    ).toBe('300')
+    // to_base_factor is non-finite
+    const infFrom = { ...unit(1, 'K'), to_base_factor: Number.POSITIVE_INFINITY }
+    expect(
+      convertWeatherValue({ value: '300', dataType: dt, fromUnit: infFrom, toUnit: unit(2, 'C') })
+    ).toBe('300')
+    // to_base_offset is non-finite
+    const nanOffsetTo = { ...unit(2, 'C'), to_base_offset: Number.NaN }
+    expect(
+      convertWeatherValue({
+        value: '300',
+        dataType: dt,
+        fromUnit: unit(1, 'K'),
+        toUnit: nanOffsetTo
+      })
+    ).toBe('300')
+  })
+
+  it('returns the raw value when a catalog-valid conversion overflows to a non-finite result', () => {
+    // Both units pass canUseCatalogUnit, but value * factor overflows Number range.
+    const from = unit(1, 'big', '', 10)
+    const to = unit(2, 'base', '', 1)
+    const dt = dataType('Air Pressure', [from, to])
+    expect(convertWeatherValue({ value: '1e308', dataType: dt, fromUnit: from, toUnit: to })).toBe(
+      '1e308'
+    )
+  })
+
+  it('buildConvertedColumnValues returns null when conversion is impossible', () => {
+    const emptyTable: WeatherTable = {
+      columns: {},
+      columnOrder: [],
+      rows: {},
+      rowOrder: [],
+      validationErrors: {},
+      columnNameErrors: {},
+      cellSync: {},
+      rowSelection: {}
+    }
+    // Same-unit: canConvertWeatherUnit false → null before any row is touched.
+    const same = unit(7, 'C', '°C', 1, 273.15)
+    expect(
+      buildConvertedColumnValues({
+        table: emptyTable,
+        colId: '15',
+        dataType: dataType('Temperature', [same]),
+        fromUnit: same,
+        toUnit: same
+      })
+    ).toBeNull()
+    // Zero base factor → null as well.
+    const dt = dataType('Temperature', [unit(1, 'K'), unit(2, 'C', '°C', 1, 273.15)])
+    expect(
+      buildConvertedColumnValues({
+        table: emptyTable,
+        colId: '15',
+        dataType: dt,
+        fromUnit: { ...unit(1, 'K'), to_base_factor: 0 },
+        toUnit: unit(2, 'C', '°C', 1, 273.15)
+      })
+    ).toBeNull()
+  })
+
+  it('skips rowOrder entries that are missing from the rows map', () => {
+    const k = unit(1, 'K')
+    const c = unit(2, 'C', '°C', 1, 273.15)
+    const dt = dataType('Temperature', [k, c])
+    const table: WeatherTable = {
+      columns: {
+        date: { id: 'date', name: 'date', dataTypeId: null, unitId: null },
+        time: { id: 'time', name: 'time', dataTypeId: null, unitId: null },
+        '15': { id: '15', name: 'temp', dataTypeId: 1, unitId: 2 }
+      },
+      columnOrder: ['date', 'time', '15'],
+      rows: {
+        row_0: { date: '2026-01-01', time: '10:00:00', '15': '300' }
+      },
+      // row_missing is listed in the order but absent from rows → `if (!row) continue`.
+      rowOrder: ['row_missing', 'row_0'],
+      validationErrors: {},
+      columnNameErrors: {},
+      cellSync: {},
+      rowSelection: {}
+    }
+
+    expect(
+      buildConvertedColumnValues({ table, colId: '15', dataType: dt, fromUnit: k, toUnit: c })
+    ).toEqual({
+      values: [{ date: '2026-01-01', time: '10:00:00', value: '26.85' }],
+      valuesByRowId: { row_0: '26.85' },
+      previousValuesByRowId: { row_0: '300' }
+    })
+  })
+
   it('builds updateCol values and row-local values in one pass', () => {
     const k = unit(1, 'K')
     const c = unit(2, 'C', '°C', 1, 273.15)

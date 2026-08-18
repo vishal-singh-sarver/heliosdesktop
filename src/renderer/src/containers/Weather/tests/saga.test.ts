@@ -399,6 +399,52 @@ describe('clearImportedDataWorker', () => {
       put(showSnackbar(toastMessages.weatherFileDeleted('sample.csv'), 'success'))
     )
   })
+
+  // Regression: clearing empties the scenario, so the refresh takes
+  // loadScenarioWorker's empty-bootstrap branch and never emits
+  // LOAD_SCENARIO_SUCCEEDED — it hands off to the seed worker instead. Racing
+  // only on LOAD_SCENARIO_* blocked forever here, leaving the confirm dialog
+  // open even though the delete had succeeded.
+  it('completes when the refresh reseeds instead of emitting LOAD_SCENARIO_SUCCEEDED', () => {
+    const gen = clearImportedDataWorker(actions.importClearRequested('proj-1', 'sce-1'))
+    gen.next() // select(selectDataset)
+    gen.next({ filename: 'sample.csv' }) // DELETE clear_data
+    gen.next() // put(loadScenarioRequested)
+    gen.next() // race(...)
+    expect(gen.next({ seeded: { payload: { scenarioId: 'sce-1' } } }).value).toEqual(
+      put(actions.importClearSucceeded('proj-1', 'sce-1'))
+    )
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.weatherFileDeleted('sample.csv'), 'success'))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('reports a seed failure as a refresh failure', () => {
+    const gen = clearImportedDataWorker(actions.importClearRequested('proj-1', 'sce-1'))
+    gen.next() // select(selectDataset)
+    gen.next({ filename: 'sample.csv' }) // DELETE clear_data
+    gen.next() // put(loadScenarioRequested)
+    gen.next() // race(...)
+    expect(
+      gen.next({ seedFailed: { payload: { scenarioId: 'sce-1', error: 'boom' } } }).value
+    ).toEqual(put(actions.importClearFailed('Cleared imported data, but failed to refresh data: boom')))
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.weatherFileDeleteFailed('sample.csv'), 'error'))
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('races on the seed terminal actions as well as LOAD_SCENARIO_*', () => {
+    const gen = clearImportedDataWorker(actions.importClearRequested('proj-1', 'sce-1'))
+    gen.next() // select(selectDataset)
+    gen.next({ filename: 'sample.csv' }) // DELETE clear_data
+    gen.next() // put(loadScenarioRequested)
+    const raceEffect = gen.next().value as { payload: Record<string, unknown> }
+    expect(Object.keys(raceEffect.payload).sort()).toEqual(
+      ['failed', 'seedFailed', 'seeded', 'succeeded'].sort()
+    )
+  })
 })
 
 // ── root watcher ──────────────────────────────────────────────────────────────

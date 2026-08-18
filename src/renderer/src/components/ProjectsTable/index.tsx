@@ -136,6 +136,7 @@ function ProjectsTable({
 
       <div
         ref={containerRef}
+        data-testid="projects-table"
         className="scrollbar-custom flex-1 min-h-0 overflow-y-auto rounded border border-app-border bg-app-panel/20"
       >
         {sortedProjects.length === 0 ? (
@@ -160,6 +161,7 @@ function ProjectsTable({
                   >
                     <button
                       type="button"
+                      data-testid={`sort-${key}`}
                       onClick={() => handleSort(key)}
                       className="flex items-center gap-1 hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded"
                     >
@@ -188,6 +190,7 @@ function ProjectsTable({
                 return (
                   <tr
                     key={project.id}
+                    data-testid={`row-${project.id}`}
                     role="button"
                     tabIndex={0}
                     aria-label={`Open project ${project.name}`}
@@ -239,6 +242,7 @@ function ProjectsTable({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid={`rename-${project.id}`}
                             onClick={(event) => {
                               event.stopPropagation()
                               setOpenMenuProjectId(null)
@@ -252,6 +256,7 @@ function ProjectsTable({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid={`delete-${project.id}`}
                             onClick={(event) => {
                               event.stopPropagation()
                               setOpenMenuProjectId(null)

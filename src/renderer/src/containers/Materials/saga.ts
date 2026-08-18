@@ -26,7 +26,6 @@ import {
   SAVE_PARAMETER_GROUP_REQUESTED,
   UPLOAD_TEXTURE_REQUESTED
 } from './constants'
-import messages from './messages'
 import { DEFAULT_RECENT_OPACITY, saveRecentColors } from './recentColors'
 import { selectMaterialDetailsById, selectMaterialsById, selectRecentColors } from './selectors'
 import * as service from './service'

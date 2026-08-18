@@ -28,7 +28,6 @@ import materialsSaga, {
   trackedSave,
   uploadTextureWorker
 } from '../saga'
-import messages from '../messages'
 import toastMessages from '@renderer/store/toastMessages'
 import { selectMaterialDetailsById, selectMaterialsById, selectRecentColors } from '../selectors'
 import { saveRecentColors } from '../recentColors'

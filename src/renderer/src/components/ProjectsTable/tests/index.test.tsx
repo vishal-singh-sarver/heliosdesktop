@@ -170,6 +170,87 @@ describe('<ProjectsTable />', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
+  it('toggles the actions menu closed when its own button is clicked again', () => {
+    render(<ProjectsTable {...defaultProps} />)
+    const btn = screen.getByRole('button', { name: 'Open actions for Alpha Project' })
+    fireEvent.click(btn)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    // Second click on the SAME actions button toggles it closed.
+    fireEvent.click(btn)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('ignores non-Escape key presses while the menu is open', () => {
+    render(<ProjectsTable {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions for Alpha Project' }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'a' })
+    // A different key must leave the menu open (Escape-only close path).
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
+  // ── Outside-click dismissal (document pointerdown listener) ────────────────
+
+  it('closes the menu on a pointerdown outside the table body', () => {
+    render(<ProjectsTable {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions for Alpha Project' }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    // Pointer target outside the menu root (tbody) → menu closes.
+    const outside = document.body
+    fireEvent.pointerDown(outside)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('keeps the menu open on a pointerdown inside the table body', () => {
+    render(<ProjectsTable {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions for Alpha Project' }))
+    const menu = screen.getByRole('menu')
+    expect(menu).toBeInTheDocument()
+
+    // Pointer target inside the menu root → handler returns early, menu stays.
+    fireEvent.pointerDown(menu)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
+  // ── Keyboard row activation (Enter / Space) ───────────────────────────────
+
+  it('opens the project on Enter keydown on a row', () => {
+    const onRowClick = vi.fn()
+    render(<ProjectsTable {...defaultProps} onRowClick={onRowClick} />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Open project Alpha Project' }), {
+      key: 'Enter'
+    })
+    expect(onRowClick).toHaveBeenCalledWith('p-alpha')
+  })
+
+  it('opens the project on Space keydown on a row', () => {
+    const onRowClick = vi.fn()
+    render(<ProjectsTable {...defaultProps} onRowClick={onRowClick} />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Open project Beta Project' }), {
+      key: ' '
+    })
+    expect(onRowClick).toHaveBeenCalledWith('p-beta')
+  })
+
+  it('does not open the project on an unrelated keydown', () => {
+    const onRowClick = vi.fn()
+    render(<ProjectsTable {...defaultProps} onRowClick={onRowClick} />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Open project Alpha Project' }), {
+      key: 'a'
+    })
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  it('does not throw on Enter keydown when no onRowClick prop is provided', () => {
+    render(<ProjectsTable {...defaultProps} />)
+    expect(() =>
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Open project Alpha Project' }), {
+        key: 'Enter'
+      })
+    ).not.toThrow()
+  })
+
   // ── Empty state ──────────────────────────────────────────────────────────
 
   it('renders EmptyState when projects array is empty', () => {
@@ -365,6 +446,41 @@ describe('<ProjectsTable />', () => {
 
     expect(screen.getByText('A')).toBeInTheDocument()
     expect(screen.getByText('B')).toBeInTheDocument()
+  })
+
+  // ── Virtualization (windowed rows + spacer <tr>s) ─────────────────────────
+
+  // jsdom reports clientHeight 0, so the hook keeps a fixed window of
+  // ceil(0/64) + OVERSCAN*2 = 10 rows. With 30 rows and a mid-list scroll,
+  // both the top and bottom spacer rows must render.
+  it('renders top and bottom spacer rows and windows the visible slice when scrolled', () => {
+    // All identical timestamps → stable last_updated-desc sort keeps insertion order.
+    const many: RecentProjectItem[] = Array.from({ length: 30 }, (_, i) => ({
+      id: `p-${i}`,
+      name: `Project ${String(i).padStart(2, '0')}`,
+      last_updated: '2026-03-01T00:00:00Z',
+      size: 1_000_000 * (i + 1)
+    }))
+
+    render(<ProjectsTable {...defaultProps} projects={many} />)
+    const container = screen.getByTestId('projects-table')
+
+    // Scroll down 8 rows (8 × 64px). startIndex = max(0, floor(512/64) - 5) = 3,
+    // endIndex = min(30, 3 + 10) = 13.
+    Object.defineProperty(container, 'scrollTop', { value: 8 * 64, configurable: true })
+    fireEvent.scroll(container)
+
+    const spacers = container.querySelectorAll('tr[aria-hidden="true"]')
+    expect(spacers).toHaveLength(2)
+    // paddingTop = startIndex(3) × 64, paddingBottom = (30 - 13) × 64
+    expect((spacers[0] as HTMLElement).style.height).toBe(`${3 * 64}px`)
+    expect((spacers[1] as HTMLElement).style.height).toBe(`${(30 - 13) * 64}px`)
+
+    // The windowed slice [3, 13) is rendered; rows outside it are not.
+    expect(screen.getByText('Project 03')).toBeInTheDocument()
+    expect(screen.getByText('Project 12')).toBeInTheDocument()
+    expect(screen.queryByText('Project 00')).not.toBeInTheDocument()
+    expect(screen.queryByText('Project 29')).not.toBeInTheDocument()
   })
 
   // ── Snapshots ────────────────────────────────────────────────────────────

@@ -8,7 +8,10 @@ interface MenuBarProps {
 
 function MenuBar({ items, onItemSelect }: MenuBarProps): React.JSX.Element {
   return (
-    <nav className="flex items-center gap-2 text-sm font-medium text-neutral-300">
+    <nav
+      data-testid="menubar"
+      className="flex items-center gap-2 text-sm font-medium text-neutral-300"
+    >
       {Object.keys(items).map((item) => (
         <div key={item} className="group relative">
           <button className="rounded px-2 py-1 group-hover:bg-panel group-hover:text-white">
@@ -21,6 +24,7 @@ function MenuBar({ items, onItemSelect }: MenuBarProps): React.JSX.Element {
               {items[item]?.map((menuItem) => (
                 <button
                   key={menuItem}
+                  data-testid={`menu-${menuItem}`}
                   onClick={() => onItemSelect(menuItem)}
                   className="block w-full px-3 py-1.5 text-left text-sm text-neutral-200 hover:bg-app-border"
                 >

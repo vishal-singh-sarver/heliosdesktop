@@ -15,6 +15,46 @@ import { backendManager } from './backend-manager'
 
 const isDev = !app.isPackaged
 
+/**
+ * True when the app was launched by ChromeDriver for WebdriverIO e2e tests.
+ * ChromeDriver injects its own --user-data-dir (a temp profile) and a remote
+ * debugging flag into the Electron process. Under automation we must NOT
+ * override userData or hold a single-instance lock: overriding userData
+ * redirects Chromium's DevToolsActivePort file away from where ChromeDriver
+ * looks (causing "session not created: DevToolsActivePort file doesn't exist"),
+ * and the lock would make the test instance quit if a dev instance is running.
+ */
+function isUnderTestAutomation(): boolean {
+  return process.argv.some(
+    (arg) =>
+      arg.startsWith('--user-data-dir') ||
+      arg.startsWith('--remote-debugging-port') ||
+      arg.startsWith('--remote-debugging-pipe') ||
+      arg === '--enable-automation'
+  )
+}
+
+/**
+ * True when e2e windows should stay off the screen entirely.
+ *
+ * Electron has no real headless mode — Chromium's `--headless` is silently
+ * ignored by the Electron binary (it still creates a native window), and
+ * offscreen rendering (`webPreferences.offscreen`) forces a frameless window,
+ * which would bypass the titleBarStyle/traffic-light setup this app depends on.
+ * macOS has no Xvfb, so there is nothing to hide the window behind either.
+ *
+ * What DOES work: never calling show(). A never-shown BrowserWindow still runs
+ * the renderer, lays out normally (non-zero getBoundingClientRect), and serves
+ * WebDriver clicks, keys, and screenshots — it just never hits the screen.
+ * Paired with app.dock.hide() this makes an e2e run fully invisible: no window,
+ * no dock icon, no focus stealing.
+ *
+ * Opt out with HELIOS_E2E_HEADED=1 to watch a run while debugging.
+ */
+function isHeadlessTestRun(): boolean {
+  return isUnderTestAutomation() && process.env['HELIOS_E2E_HEADED'] !== '1'
+}
+
 function getPlatformUserDataPath(homeDir: string): string {
   if (process.platform === 'win32') {
     return join(homeDir, 'AppData/Roaming/Helios')
@@ -86,7 +126,27 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
     ...frameOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Under e2e ONLY. isHeadlessTestRun() deliberately never calls show(), so
+      // Chromium treats the window as hidden and - with backgroundThrottling at
+      // its default of true - throttles the renderer's animations and timers and
+      // flips the Page Visibility API to hidden. A test run wants none of that,
+      // so we opt out: general hygiene for a never-shown window under test.
+      //
+      // CORRECTION (2026-08-03, measured on a real Windows box): this flag was
+      // originally added believing it caused
+      //   SEVERE: Timed out receiving message from renderer: 10.000
+      // It does not, and neither do the switches below. That line is emitted by
+      // attachFailureScreenshot (e2e/config/reporting.ts) taking a screenshot of
+      // the hidden window AFTER a test has already failed - see the evidence
+      // block there. The flag is kept because not throttling a test renderer is
+      // right on its own merits, NOT because it fixes that stall; do not cite it
+      // as the fix.
+      //
+      // Left at the default in normal use: a real user's hidden window SHOULD
+      // throttle to save battery. This only opts out when the window is hidden
+      // for the artificial reason that we never show it.
+      ...(isHeadlessTestRun() ? { backgroundThrottling: false } : {})
     }
   })
 
@@ -97,7 +157,10 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   // screen has actually painted.
   mainWindow.webContents.ipc.once('app:ready', () => {
     if (mainWindow.isDestroyed()) return
-    mainWindow.show()
+    // Headless e2e: skip show() so the window never reaches the screen. The
+    // renderer is already mounted and painted at this point, so every WebDriver
+    // interaction still works — see isHeadlessTestRun().
+    if (!isHeadlessTestRun()) mainWindow.show()
     // Short hold covers the macOS show() reveal animation. hide() before
     // destroy() skips the splash's own fade-out, which otherwise reads as a
     // white/flicker frame during the handoff.
@@ -114,6 +177,7 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   // splash forever. The splash stays up — error dialogs in the renderer (if
   // any) will surface.
   const fallbackTimer = setTimeout(() => {
+    if (isHeadlessTestRun()) return
     if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
   }, 10_000)
   mainWindow.once('closed', () => clearTimeout(fallbackTimer))
@@ -159,7 +223,10 @@ function createSplashWindow(): BrowserWindow {
   const splash = new BrowserWindow({
     width: 1000,
     height: 600,
-    show: true,
+    // Headless e2e: the splash is the FIRST window created, so leaving it
+    // visible would flash on screen (and bounce the dock) before the main
+    // window is even built.
+    show: !isHeadlessTestRun(),
     frame: false,
     alwaysOnTop: true,
     resizable: false,
@@ -330,6 +397,13 @@ function configurePlatformShortcuts(): void {
  * platform-specific default folders.
  */
 function setUserDataPath(): void {
+  if (isUnderTestAutomation()) {
+    // Respect the --user-data-dir ChromeDriver injected; overriding it breaks
+    // the WebDriver session (DevToolsActivePort file written to the wrong dir).
+    writeEarlyLog('Test automation detected — skipping userData override')
+    return
+  }
+
   const homeDir = app.getPath('home')
 
   if (process.platform === 'win32') {
@@ -346,12 +420,53 @@ writeEarlyLog('='.repeat(80))
 writeEarlyLog(`App startup initiated [packaged=${app.isPackaged}, platform=${process.platform}]`)
 setUserDataPath()
 
+// Headless e2e: stop Chromium throttling the renderer of a window we never
+// show. MUST be appended before app.whenReady().
+//
+// These switches are process-global (they apply to every renderer, not one
+// window), which is fine here because the whole process is a test run. They are
+// the standard set for CI test runners - karma sets them for the same reason.
+// Guarded by isHeadlessTestRun() so shipped behaviour is untouched: a real
+// user's backgrounded window SHOULD throttle to save battery.
+//
+// CORRECTION (2026-08-03): these were added to chase
+//   SEVERE: Timed out receiving message from renderer: 10.000
+// on the windows runner, reasoning from electron#31016 that
+// backgroundThrottling:false misses HIDDEN windows on Windows. They had no
+// effect, and we now know why: that line never came from throttling at all. It
+// is attachFailureScreenshot (e2e/config/reporting.ts) screenshotting the hidden
+// window after a test has ALREADY failed - proven by an idle-vs-loaded A/B on a
+// real Windows box, where the same failing test produced 0 stall lines idle and
+// the exact 2-line CI signature under CPU contention.
+//
+// The apparent "ubuntu/macOS went to 0 while windows stayed at 2" signal was an
+// artifact of counting: stall lines only ever equalled 2 x failed tests, so a
+// run with no failures logged none regardless of these switches. Kept as test
+// hygiene; they are NOT the fix for that stall.
+if (isHeadlessTestRun()) {
+  app.commandLine.appendSwitch('disable-renderer-backgrounding')
+  app.commandLine.appendSwitch('disable-background-timer-throttling')
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+  writeEarlyLog('Headless e2e: renderer backgrounding/throttling switches applied')
+}
+
+// Headless e2e: drop to the macOS "accessory" activation policy BEFORE the app
+// finishes launching, so no dock icon ever appears (not even a flash) and the
+// test app cannot steal focus from whatever you are doing. Must run at module
+// scope — calling it once a window exists still flashes the icon.
+if (process.platform === 'darwin' && isHeadlessTestRun()) {
+  app.dock?.hide()
+  writeEarlyLog('Headless e2e run — dock icon hidden')
+}
+
 // Acquire single-instance lock AFTER setUserDataPath so the lock file uses
 // the correct userData directory. If another Helios is already running, this
 // process quits immediately — but before it does, Electron notifies the
 // running instance via the 'second-instance' event (which we handle below
 // to open a new window instead of starting a second backend).
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+// Skip the single-instance lock under test automation so the e2e instance is
+// never killed by (or killing) a separately-running dev instance.
+const gotSingleInstanceLock = isUnderTestAutomation() || app.requestSingleInstanceLock()
 
 if (!gotSingleInstanceLock) {
   writeEarlyLog('Another Helios instance is already running — quitting this process')

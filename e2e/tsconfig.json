@@ -6,7 +6,14 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node", "mocha", "@wdio/globals/types"]
+    "types": ["node", "mocha", "@wdio/globals/types", "@wdio/electron-types"]
   },
-  "include": ["tests/**/*.ts"]
+  "include": [
+    "tests/**/*.ts",
+    "pages/**/*.ts",
+    "persist/**/*.ts",
+    "support/**/*.ts",
+    "config/**/*.ts",
+    "constants/**/*.ts"
+  ]
 }

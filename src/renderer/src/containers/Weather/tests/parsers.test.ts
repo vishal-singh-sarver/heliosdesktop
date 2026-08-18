@@ -8,6 +8,7 @@ import {
   parseDelimited,
   parseFile,
   parseRowDateTime,
+  parseRowDateTimeSelections,
   parseXml,
   toCsv,
   tryParseDate,
@@ -56,6 +57,11 @@ describe('detectDelimiter', () => {
     // commas vary in count and must not break the min===max consistency test.
     const text = 'name,stations\n"davis, ca","a,b,c"\n"davis, ca","a,b"'
     expect(detectDelimiter(text)).toBe(',')
+  })
+
+  it('detects a single-space delimiter used consistently', () => {
+    // Space is the last candidate in DELIMITERS; two spaces per row, consistent.
+    expect(detectDelimiter('a b c\n1 2 3\n4 5 6')).toBe(' ')
   })
 })
 
@@ -388,6 +394,14 @@ describe('tryParseDate', () => {
     expect(tryParseDate('57 2026', 'DOY YYYY')).toEqual({ Y: 2026, M: 2, D: 26 })
   })
 
+  it('parses YYYY/MM/DD', () => {
+    expect(tryParseDate('2026/02/26', 'YYYY/MM/DD')).toEqual({ Y: 2026, M: 2, D: 26 })
+  })
+
+  it('rejects a hyphenated string under the compact YYYYMMDD format', () => {
+    expect(tryParseDate('2026-02-26', 'YYYYMMDD')).toBeNull()
+  })
+
   it('rejects 2-digit years (ambiguous)', () => {
     expect(tryParseDate('26/02/26', 'DD/MM/YYYY')).toBeNull()
   })
@@ -478,6 +492,18 @@ describe('tryParseTime', () => {
   it('accepts 23:59 (last valid time)', () => {
     expect(tryParseTime('23:59')).toEqual({ H: 23, M: 59, S: 0, rollover: false })
   })
+
+  it('rejects a 5-digit numeric run (not a recognized compact length)', () => {
+    expect(tryParseTime('12345')).toBeNull()
+  })
+
+  it('rejects seconds > 59 in the colon form', () => {
+    expect(tryParseTime('10:30:99')).toBeNull()
+  })
+
+  it('rejects seconds > 59 in the HHMMSS compact form', () => {
+    expect(tryParseTime('103099')).toBeNull()
+  })
 })
 
 describe('tryParseDateTime', () => {
@@ -518,6 +544,202 @@ describe('tryParseDateTime', () => {
     expect(d).not.toBeNull()
     expect(d?.getDate()).toBe(3)
     expect(d?.getMinutes()).toBe(15)
+  })
+})
+
+// ── tryParseDateTime — remaining format keys & reject branches ─────────────────
+//
+// Each case pins the EXACT instant (ISO string), independently reasoned, so a
+// regression in the format branch is caught rather than just "is not null".
+describe('tryParseDateTime — remaining formats and rejects', () => {
+  it('parses compact YYYYMMDDHHMM to the exact instant', () => {
+    expect(tryParseDateTime('202602031045', 'YYYYMMDDHHMM')?.toISOString()).toBe(
+      '2026-02-03T10:45:00.000Z'
+    )
+  })
+
+  it('parses YYYY-MM-DD HH:MM', () => {
+    expect(tryParseDateTime('2026-02-03 10:15', 'YYYY-MM-DD HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses MM/DD/YYYY HH:MM (month-first, slash)', () => {
+    expect(tryParseDateTime('02/03/2026 10:15', 'MM/DD/YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses DD-MM-YYYY HH:MM (day-first, dash)', () => {
+    expect(tryParseDateTime('03-02-2026 10:15', 'DD-MM-YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses MM-DD-YYYY HH:MM (month-first, dash)', () => {
+    expect(tryParseDateTime('02-03-2026 10:15', 'MM-DD-YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses YYYY DOY HH:MM (day-of-year with time)', () => {
+    // DOY 34 of non-leap 2026 = 3 Feb.
+    expect(tryParseDateTime('2026 034 10:15', 'YYYY DOY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('parses DOY YYYY HH:MM (day-of-year first)', () => {
+    expect(tryParseDateTime('034 2026 10:15', 'DOY YYYY HH:MM')?.toISOString()).toBe(
+      '2026-02-03T10:15:00.000Z'
+    )
+  })
+
+  it('rejects an empty datetime string', () => {
+    expect(tryParseDateTime('', 'YYYY-MM-DDTHH:MM:SSZ')).toBeNull()
+  })
+
+  it('rejects an out-of-range calendar date under YYYY-MM-DDTHH:MM:SSZ', () => {
+    expect(tryParseDateTime('2026-13-03T10:00:00Z', 'YYYY-MM-DDTHH:MM:SSZ')).toBeNull()
+  })
+
+  it('rejects an out-of-range time under YYYY-MM-DDTHH:MM:SSZ', () => {
+    expect(tryParseDateTime('2026-02-03T25:00:00Z', 'YYYY-MM-DDTHH:MM:SSZ')).toBeNull()
+  })
+
+  it('rejects an impossible date under the offset format', () => {
+    expect(tryParseDateTime('2026-02-30T10:00:00Z', 'YYYY-MM-DDTHH:MM:SS-HH:MM')).toBeNull()
+  })
+
+  it('rejects an out-of-range time under the no-timezone format', () => {
+    expect(tryParseDateTime('2026-02-03T24:15:00', 'YYYY-MM-DDTHH:MM:SS')).toBeNull()
+  })
+
+  it('rejects an impossible calendar date under compact YYYYMMDDHH', () => {
+    // 2026-02-31 does not exist.
+    expect(tryParseDateTime('2026023110', 'YYYYMMDDHH')).toBeNull()
+  })
+
+  it('rejects a wrong-length compact YYYYMMDDHHMM', () => {
+    expect(tryParseDateTime('20260203', 'YYYYMMDDHHMM')).toBeNull()
+  })
+
+  it('rejects a value with no space separator in the generic split path', () => {
+    expect(tryParseDateTime('2026-02-03T10:15', 'YYYY-MM-DD HH:MM')).toBeNull()
+  })
+
+  it('rejects a bad date in the generic split path', () => {
+    expect(tryParseDateTime('13/45/2026 10:00', 'MM/DD/YYYY HH:MM')).toBeNull()
+  })
+
+  it('rejects a bad time in the generic split path', () => {
+    expect(tryParseDateTime('02/03/2026 99:99', 'MM/DD/YYYY HH:MM')).toBeNull()
+  })
+})
+
+// ── parseRowDateTimeSelections — julian & compact modes (not reachable via the
+//    3 group presets that parseRowDateTime exposes) ─────────────────────────────
+describe('parseRowDateTimeSelections — julian date mode', () => {
+  const headers = ['Y', 'D']
+  const mapping: DateTimeMapping = { ...INITIAL_MAPPING, julianYear: 'Y', julianDay: 'D' }
+
+  it('builds the exact calendar instant from year + day-of-year', () => {
+    const r = parseRowDateTimeSelections(['2024', '172'], headers, 'julian', 'none', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('ok')
+    // DOY 172 of leap-year 2024 = 20 June.
+    if (r.kind === 'ok') expect(r.date.toISOString()).toBe('2024-06-20T00:00:00.000Z')
+  })
+
+  it('rejects a non-4-digit julian year', () => {
+    const r = parseRowDateTimeSelections(['24', '172'], headers, 'julian', 'none', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('rejects an out-of-range day-of-year', () => {
+    const r = parseRowDateTimeSelections(['2024', '999'], headers, 'julian', 'none', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('rejects a missing (unmapped) julian day column', () => {
+    const r = parseRowDateTimeSelections(
+      ['2024', '172'],
+      headers,
+      'julian',
+      'none',
+      { ...INITIAL_MAPPING, julianYear: 'Y' },
+      'YYYY-MM-DD'
+    )
+    expect(r.kind).toBe('invalid_date')
+  })
+})
+
+describe('parseRowDateTimeSelections — compact time mode', () => {
+  const headers = ['date', 't']
+  const mapping: DateTimeMapping = { ...INITIAL_MAPPING, date: 'date', time: 't' }
+
+  it('parses a compact HHMM time string into the exact instant', () => {
+    const r = parseRowDateTimeSelections(['2026-02-03', '1045'], headers, 'string', 'compact', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('ok')
+    if (r.kind === 'ok') expect(r.date.toISOString()).toBe('2026-02-03T10:45:00.000Z')
+  })
+
+  it('flags an unparseable compact time while keeping the date (defaults to 00:00)', () => {
+    const r = parseRowDateTimeSelections(['2026-02-03', '12345'], headers, 'string', 'compact', mapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_time')
+    if (r.kind === 'invalid_time') expect(r.date.toISOString()).toBe('2026-02-03T00:00:00.000Z')
+  })
+
+  it('flags an out-of-range minute as invalid_time in parts mode', () => {
+    const partsHeaders = ['year', 'month', 'day', 'hour', 'minute']
+    const partsMapping: DateTimeMapping = {
+      ...INITIAL_MAPPING,
+      year: 'year',
+      month: 'month',
+      day: 'day',
+      hour: 'hour',
+      minute: 'minute'
+    }
+    const r = parseRowDateTime(['2026', '2', '26', '10', '99'], partsHeaders, 'group1', partsMapping, 'YYYY-MM-DD')
+    expect(r.kind).toBe('invalid_time')
+  })
+})
+
+describe('parseRowDateTimeSelections — datetime & parts reject branches', () => {
+  it('returns invalid_date when the datetime cell is empty', () => {
+    const r = parseRowDateTimeSelections(
+      ['', '22'],
+      ['datetime', 'temp'],
+      'datetime',
+      'none',
+      { ...INITIAL_MAPPING, datetime: 'datetime' },
+      'YYYY-MM-DD',
+      'YYYY-MM-DDTHH:MM:SSZ'
+    )
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('returns invalid_date when a parts month is non-numeric', () => {
+    const r = parseRowDateTimeSelections(
+      ['2026', 'xx', '26'],
+      ['year', 'month', 'day'],
+      'parts',
+      'none',
+      { ...INITIAL_MAPPING, year: 'year', month: 'month', day: 'day' },
+      'YYYY-MM-DD'
+    )
+    expect(r.kind).toBe('invalid_date')
+  })
+
+  it('returns invalid_date when a parts day is out of range', () => {
+    const r = parseRowDateTimeSelections(
+      ['2026', '2', '99'],
+      ['year', 'month', 'day'],
+      'parts',
+      'none',
+      { ...INITIAL_MAPPING, year: 'year', month: 'month', day: 'day' },
+      'YYYY-MM-DD'
+    )
+    expect(r.kind).toBe('invalid_date')
   })
 })
 
@@ -787,6 +1009,132 @@ describe('toCsv', () => {
   })
 })
 
+// ── Real-world file shapes (Helios core/lib/testdata) ─────────────────────────
+
+describe('-END HEADER- preamble (NASA POWER shape)', () => {
+  const nasa = [
+    '-BEGIN HEADER-',
+    'NASA/POWER Source Native Resolution Hourly Data',
+    'Dates (month/day/year): 01/01/2024 through 01/03/2024 in LST',
+    'Location: Latitude  38.55   Longitude -121.76',
+    '-END HEADER-',
+    'YEAR,MO,DY,HR,T2M',
+    '2024,1,1,0,7.68',
+    '2024,1,1,1,7.7'
+  ].join('\n')
+
+  it('ignores the prose preamble when detecting the delimiter', () => {
+    // The header sentences are space-heavy; without the -END HEADER- cut the
+    // detector picked ' ' and the file failed to parse at all.
+    expect(detectDelimiter(nasa)).toBe(',')
+  })
+
+  it('skips through the end-header marker to the real column row', () => {
+    expect(detectHeaderLinesToSkip(nasa, ',')).toBe(5)
+  })
+
+  it('parses to the real columns and rows', () => {
+    const r = parseFile('nasa.csv', nasa)
+    expect(r.headers).toEqual(['YEAR', 'MO', 'DY', 'HR', 'T2M'])
+    expect(r.rows).toHaveLength(2)
+    expect(r.rows[0]).toEqual(['2024', '1', '1', '0', '7.68'])
+  })
+})
+
+describe('space-delimited file whose value contains the delimiter', () => {
+  const spaced = [
+    'datetime temperature',
+    '2026-02-03 10:00 15.5',
+    '2026-02-03 11:00 16.2',
+    '2026-02-03 12:00 17.8'
+  ].join('\n')
+
+  it('keeps the real header instead of consuming it as data', () => {
+    // The header splits into 2 tokens while data rows split into 3, which used
+    // to look like a junk line to skip — promoting row 1 to the header and
+    // losing a record.
+    expect(detectHeaderLinesToSkip(spaced, ' ')).toBe(0)
+  })
+
+  it('rejoins the date and time into the single value they were', () => {
+    const r = parseFile('spaced.csv', spaced)
+    expect(r.headers).toEqual(['datetime', 'temperature'])
+    expect(r.rows).toHaveLength(3)
+    expect(r.rows[0]).toEqual(['2026-02-03 10:00', '15.5'])
+  })
+
+  it('still throws on a mismatch that is not a date/time pair', () => {
+    const bad = 'a b\n1 2 3\n4 5 6'
+    expect(() => parseFile('bad.csv', bad)).toThrow(/fields, expected/)
+  })
+})
+
+describe('parseRowDateTimeSelections — HHMM values in an Hour column', () => {
+  const headers = ['date', 'hour']
+  const mapping: DateTimeMapping = { ...INITIAL_MAPPING, date: 'date', hour: 'hour' }
+  const run = (hour: string): ReturnType<typeof parseRowDateTimeSelections> =>
+    parseRowDateTimeSelections(
+      ['2023-07-13', hour],
+      headers,
+      'string',
+      'parts',
+      mapping,
+      'YYYY-MM-DD'
+    )
+
+  it('reads a zero-padded CIMIS "0100" as 01:00, not hour 100', () => {
+    const r = run('0100')
+    expect(r.kind).toBe('ok')
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T01:00:00.000Z')
+  })
+
+  it('reads a compact "1300" as 13:00', () => {
+    const r = run('1300')
+    expect(r.kind).toBe('ok')
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T13:00:00.000Z')
+  })
+
+  it('still reads a plain "9" as hour 9', () => {
+    const r = run('9')
+    expect(r.kind).toBe('ok')
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T09:00:00.000Z')
+  })
+
+  it('still rejects a genuinely out-of-range hour', () => {
+    expect(run('99').kind).toBe('invalid_time')
+  })
+
+  it('lets an explicitly mapped Minute column win over the hour-recovered minute', () => {
+    const r = parseRowDateTimeSelections(
+      ['2023-07-13', '0100', '45'],
+      ['date', 'hour', 'minute'],
+      'string',
+      'parts',
+      { ...INITIAL_MAPPING, date: 'date', hour: 'hour', minute: 'minute' },
+      'YYYY-MM-DD'
+    )
+    expect((r as { date: Date }).date.toISOString()).toBe('2023-07-13T01:45:00.000Z')
+  })
+})
+
+describe('tryParseDateTime — seconds-less ISO (Open-Meteo shape)', () => {
+  it('parses YYYY-MM-DDTHH:MM', () => {
+    expect(tryParseDateTime('2024-01-01T08:00', 'YYYY-MM-DDTHH:MM')?.toISOString()).toBe(
+      '2024-01-01T08:00:00.000Z'
+    )
+  })
+
+  it('does not accept a seconds-bearing value under the seconds-less key', () => {
+    expect(tryParseDateTime('2024-01-01T08:00:30', 'YYYY-MM-DDTHH:MM')).toBeNull()
+  })
+
+  it('leaves the seconds-bearing formats matching as before', () => {
+    expect(tryParseDateTime('2024-01-01T08:00:30', 'YYYY-MM-DDTHH:MM:SS')?.toISOString()).toBe(
+      '2024-01-01T08:00:30.000Z'
+    )
+  })
+})
+
 // ── DELIMITERS / DATE_FORMATS sanity ──────────────────────────────────────────
 
 describe('exported constants', () => {
@@ -803,10 +1151,28 @@ describe('exported constants', () => {
     expect(values).toContain('DOY YYYY')
   })
 
-  it('DATETIME_FORMATS includes ISO and compact combined formats', () => {
+  // Asserts the WHOLE list, in order, not a couple of toContain spot-checks.
+  // e2e/tests/uploadwizard.test.ts pins the same sequence against the rendered
+  // dropdown, so adding a format here without updating that fixture fails a
+  // 15-minute e2e run on every OS. Failing here instead costs seconds and names
+  // the mismatch directly - keep the two lists in step.
+  it('DATETIME_FORMATS lists every supported format, in dropdown order', () => {
     const values = DATETIME_FORMATS.map((f) => f.value)
-    expect(values).toContain('YYYY-MM-DDTHH:MM:SSZ')
-    expect(values).toContain('YYYYMMDDHH')
+    expect(values).toEqual([
+      'YYYY-MM-DDTHH:MM:SSZ',
+      'YYYY-MM-DDTHH:MM:SS-HH:MM',
+      'YYYY-MM-DDTHH:MM:SS',
+      'YYYY-MM-DDTHH:MM',
+      'YYYYMMDDHH',
+      'YYYYMMDDHHMM',
+      'YYYY-MM-DD HH:MM',
+      'DD/MM/YYYY HH:MM',
+      'MM/DD/YYYY HH:MM',
+      'DD-MM-YYYY HH:MM',
+      'MM-DD-YYYY HH:MM',
+      'YYYY DOY HH:MM',
+      'DOY YYYY HH:MM'
+    ])
   })
 
   it('INITIAL_MAPPING has every field as null', () => {

@@ -343,7 +343,7 @@ function AddRowsDialog({ isOpen, onClose }: AddRowsDialogProps): React.JSX.Eleme
   }
 
   return (
-    <Dialog isOpen={isOpen} title={messages.addRows.dialogTitle} onClose={handleClose}>
+    <Dialog isOpen={isOpen} data-testid="add-rows-dialog" title={messages.addRows.dialogTitle} onClose={handleClose}>
       <FormField
         labelProps={{ label: 'Number of Rows' }}
         inputProps={{

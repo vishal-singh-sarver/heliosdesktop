@@ -55,6 +55,7 @@ export function LeftPanel(): React.JSX.Element {
 
   return (
     <aside
+      data-testid="left-panel"
       className={`${widthClass} flex shrink-0 flex-col overflow-hidden rounded-lg bg-[#202020] transition-[width] duration-150`}
     >
       <div
@@ -65,7 +66,12 @@ export function LeftPanel(): React.JSX.Element {
             Tools
           </span>
         )}
-        <CollapseButton collapsed={collapsed} side="left" onToggle={toggle} />
+        <CollapseButton
+          collapsed={collapsed}
+          side="left"
+          onToggle={toggle}
+          dataTestId="left-panel-collapse-btn"
+        />
       </div>
       {collapsed && (
         <div className="flex flex-col items-center gap-1 pt-1">

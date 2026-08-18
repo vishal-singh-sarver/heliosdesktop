@@ -61,10 +61,11 @@ export function Weather(): React.JSX.Element {
     truncatedDecimals: boolean
   } | null>(null)
 
-  // A precision-normalized import raises no toast: the 7-decimal cap is the
-  // app's standing rule, enforced on every input path, so announcing it after
-  // each import is noise about a rule the user cannot change. The flag is still
-  // CLEARED here — left set it would fire again on the next thing that reads it.
+  // Acknowledge a precision-normalized import WITHOUT announcing it. The
+  // 7-decimal cap is a standing rule the user cannot change, and StepReview
+  // already states it up front in the wizard, so a toast after the fact would
+  // only repeat what they were told before importing. The flag is still
+  // consumed — left set, it would fire again for whatever reads it next.
   React.useEffect(() => {
     if (!importPrecisionWarningPending) return
     if (activeProjectId && activeScenarioId) {

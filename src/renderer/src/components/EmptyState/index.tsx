@@ -15,6 +15,7 @@ function EmptyState({ icon, onCreateNew }: EmptyStateProps): React.JSX.Element {
       <p className="text-sm text-neutral-400">No Projects Found. Please add a new Project.</p>
 
       <button
+        data-testid="table-create-new"
         onClick={onCreateNew}
         className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
       >

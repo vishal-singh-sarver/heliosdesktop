@@ -215,4 +215,36 @@ describe('<WeatherToolbar />', () => {
     fireEvent.click(screen.getByText('Delete'))
     expect(onClearImportedFile).toHaveBeenCalledTimes(1)
   })
+
+  // Regression: the dialog used to close only when `importedFilename` went
+  // away. With manually-added rows there is no imported file, so that value
+  // was already null and never transitioned — the confirm dialog stayed open
+  // forever even though the clear had succeeded. Closing now keys off the
+  // clearingImport loading→idle transition, which covers both data sources.
+  it('closes the confirm dialog after clearing manually-added rows (no import)', () => {
+    sel.rowOrder = ['r1', 'r2']
+    const { rerender } = render(<WeatherToolbar clearingImport={false} />)
+
+    fireEvent.click(screen.getByLabelText('Delete uploaded weather file'))
+    expect(screen.getByTestId('dialog')).toBeInTheDocument()
+
+    // Clear starts, then finishes — importedFilename stays undefined throughout.
+    rerender(<WeatherToolbar clearingImport={true} />)
+    expect(screen.getByTestId('dialog')).toBeInTheDocument()
+
+    rerender(<WeatherToolbar clearingImport={false} />)
+    expect(screen.queryByTestId('dialog')).not.toBeInTheDocument()
+    sel.rowOrder = []
+  })
+
+  it('still closes the confirm dialog when an imported file is cleared', () => {
+    const { rerender } = render(
+      <WeatherToolbar importedFilename="sample.csv" clearingImport={false} />
+    )
+    fireEvent.click(screen.getByLabelText('Delete uploaded weather file'))
+    expect(screen.getByTestId('dialog')).toBeInTheDocument()
+
+    rerender(<WeatherToolbar importedFilename={undefined} clearingImport={false} />)
+    expect(screen.queryByTestId('dialog')).not.toBeInTheDocument()
+  })
 })

@@ -8,7 +8,9 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_SUCCEEDED,
   LOAD_SCENARIO_SUCCEEDED,
-  LOAD_SCENARIO_FAILED
+  LOAD_SCENARIO_FAILED,
+  SEED_DEFAULT_COLUMNS_SUCCEEDED,
+  SEED_DEFAULT_COLUMNS_FAILED
 } from 'containers/ProjectScreen/constants'
 import {
   selectCheckDataTypeId,
@@ -380,18 +382,36 @@ export function* clearImportedDataWorker(action: actions.ImportClearRequestedAct
     yield call(api.delete, API_ROUTES.weather.clearData(projectId, scenarioId))
     yield put(loadScenarioRequested(projectId, scenarioId))
 
+    // Clearing empties the scenario, so the refresh we just requested hits
+    // loadScenarioWorker's empty-bootstrap branch: it dispatches
+    // SEED_DEFAULT_COLUMNS_REQUESTED and returns WITHOUT emitting
+    // LOAD_SCENARIO_SUCCEEDED. The seed worker then re-enters
+    // LOAD_SCENARIO_REQUESTED, and because that watcher is takeLatest, the
+    // re-entry cancels the load whose terminal action we were waiting for.
+    // Racing only on LOAD_SCENARIO_* therefore blocks forever — the delete had
+    // already succeeded server-side, but IMPORT_CLEAR_SUCCEEDED never fired, so
+    // the confirm dialog stayed open (see e2e Delete Data specs).
+    //
+    // The seed path's own terminal actions are the correct signal: the seed
+    // worker only emits them after its chained load has populated the table,
+    // which is the same guarantee LOAD_SCENARIO_SUCCEEDED gives us here.
     const raceResult = (yield race({
       succeeded: take(matchScenarioAction(LOAD_SCENARIO_SUCCEEDED, scenarioId)),
-      failed: take(matchScenarioAction(LOAD_SCENARIO_FAILED, scenarioId))
+      failed: take(matchScenarioAction(LOAD_SCENARIO_FAILED, scenarioId)),
+      seeded: take(matchScenarioAction(SEED_DEFAULT_COLUMNS_SUCCEEDED, scenarioId)),
+      seedFailed: take(matchScenarioAction(SEED_DEFAULT_COLUMNS_FAILED, scenarioId))
     })) as {
       succeeded?: { payload: { scenarioId: string } }
       failed?: { payload: { scenarioId: string; error: string } }
+      seeded?: { payload: { scenarioId: string } }
+      seedFailed?: { payload: { scenarioId: string; error: string } }
     }
 
-    if (raceResult.failed) {
+    const refreshError = raceResult.failed ?? raceResult.seedFailed
+    if (refreshError) {
       yield put(
         actions.importClearFailed(
-          `Cleared imported data, but failed to refresh data: ${raceResult.failed.payload.error}`
+          `Cleared imported data, but failed to refresh data: ${refreshError.payload.error}`
         )
       )
       yield put(showSnackbar(toastMessages.weatherFileDeleteFailed(filename), 'error'))

@@ -16,13 +16,13 @@ build/CMakeCache.txt
 build/CMakeFiles/
 
 # Backend Python Build Artifacts
-backend-api/venv/
-backend-api/build/
-backend-api/dist/
-backend-api/__pycache__/
-backend-api/**/__pycache__/
-backend-api/*.egg-info/
-backend-api/.eggs/
+helios-desktop-backend/venv/
+helios-desktop-backend/build/
+helios-desktop-backend/dist/
+helios-desktop-backend/__pycache__/
+helios-desktop-backend/**/__pycache__/
+helios-desktop-backend/*.egg-info/
+helios-desktop-backend/.eggs/
 
 # Backend Resource Binaries
 resources/backend/mac/heliosgui_backend
@@ -32,7 +32,7 @@ resources/*
 
 # Application Data
 data/
-backend-api/data/
+helios-desktop-backend/data/
 *.db
 *.sqlite
 *.sqlite3
@@ -82,7 +82,18 @@ coverage/
 junit.xml
 test-results/
 .playwright/
+allure-results/
+allure-report/
 
 package-lock.json
 linux-installer/payload/Helios/helios
 linux-installer/payload/Helios/resources/app.asar
+.wdio-persist-profile/
+
+# A separate clone of helios/backend-api.git that some checkouts have sitting in
+# the working tree. It is NOT this project's backend — the build uses the
+# helios-desktop-backend submodule (see scripts/sync-backend.js) and nothing
+# references backend-api. Without this rule `git add .` keeps re-staging it as a
+# bare gitlink with no .gitmodules entry, which would commit a pointer to a
+# commit no other clone can resolve.
+backend-api/
