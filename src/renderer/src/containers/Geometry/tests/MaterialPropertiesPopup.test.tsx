@@ -85,6 +85,23 @@ describe('<MaterialPropertiesPopup />', () => {
     expect(screen.getByText('Emissivity')).toBeInTheDocument()
   })
 
+  // The same rule the left/right panels draw under "Tools" and "Properties", so a
+  // section name reads as a header over its rows rather than floating above them.
+  it('rules off an open section header, and drops the rule when it collapses', () => {
+    render(
+      <MaterialPropertiesPopup name="Material.001" sections={[radiation]} onClose={() => {}} />
+    )
+    const header = screen.getByRole('button', { name: 'Radiation' })
+
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+    // Collapsed, the card is the header alone: a rule along its bottom would sit a
+    // hair above the card's own border and read as a double line.
+    fireEvent.click(header)
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    fireEvent.click(header)
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+  })
+
   it('omits the heading for the ungrouped "General" bucket', () => {
     const withGeneral: MaterialDetailSection = {
       typeId: 3,
@@ -197,7 +214,7 @@ describe('<MaterialPropertiesPopup />', () => {
       groups: [
         {
           group: 'visualisation',
-          label: 'Visualisation properties (Texture)',
+          label: '',
           singleColumn: true,
           rows: [
             { property: 'texture_name', label: 'Texture Name', value: 'Dirt' },
@@ -213,7 +230,9 @@ describe('<MaterialPropertiesPopup />', () => {
     }
     render(<MaterialPropertiesPopup name="Material.001" sections={[texture]} onClose={() => {}} />)
 
-    expect(screen.getByText('Visualisation properties (Texture)')).toBeInTheDocument()
+    // An empty label prints no caption at all — not an empty <p> holding open the
+    // ~28px the words used to occupy. The rows below name themselves.
+    expect(screen.queryByText('Visualisation properties (Texture)')).not.toBeInTheDocument()
     expect(screen.getByText('Texture Name')).toBeInTheDocument()
     expect(screen.getByText('Dirt')).toBeInTheDocument()
 

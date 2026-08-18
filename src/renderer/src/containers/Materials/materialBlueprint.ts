@@ -68,11 +68,16 @@ export const VISUALISATION_CUSTOM_PROPERTIES = ['color_r', 'color_g', 'color_b',
 // same here. Keyed by property, so a catalog that later ships real labels wins
 // over neither: this map is consulted only where it's explicitly applied.
 //
-// Opacity is deliberately absent — "Opacity" already reads correctly.
+// Opacity carries its UNIT here. It is stored as a 0..100 percent, and the
+// editable ColorPicker says so with a "%" printed inside the box beside the
+// number. The read-only popup has no box to print it in — it renders a bare value
+// — so "100" sat there naming no unit at all, readable as 100% or as fully
+// transparent depending on what you assumed. The unit moves into the label.
 export const VISUALISATION_CHANNEL_LABELS: Record<string, string> = {
   color_r: 'R',
   color_g: 'G',
-  color_b: 'B'
+  color_b: 'B',
+  opacity: 'Opacity (%)'
 }
 
 // The backend's mode discriminator, a boolean inside the member's `properties`:

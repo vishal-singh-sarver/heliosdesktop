@@ -266,7 +266,12 @@ function ColorPicker({
     // and the red ring silently lost. FormField has always split them this way;
     // this is the same recipe, so an errored channel rings red exactly like an
     // errored field in the Geometry panel.
-    return `h-8 w-full rounded border border-app-border bg-[#121212] pl-2 ${paddingRight} text-center text-sm text-white placeholder:text-[#424242] ${
+    // Text starts at the leading edge, like every other input in the app (the
+    // FormField sets no alignment, so they all sit left). Centred is deliberately
+    // NOT used: `text-align` on ::placeholder is ignored in Chromium, so the
+    // placeholder can only follow the input's own alignment — centred letters
+    // would have jumped to a different spot the moment a digit was typed.
+    return `h-8 w-full rounded border border-app-border bg-[#121212] pl-2 ${paddingRight} text-left text-sm text-white placeholder:text-[#424242] ${
       error
         ? 'outline outline-1 -outline-offset-1 outline-[#D92D20] focus:border-[#D92D20]'
         : 'outline-none focus:border-neutral-500'

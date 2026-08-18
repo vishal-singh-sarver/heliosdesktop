@@ -52,10 +52,18 @@ interface MaterialPropertiesPopupProps {
 // the popup from running past the viewport when it's not caller-sized.
 const DESIGN_MAX_HEIGHT = 866
 
-// The "General" (ungrouped) bucket resolveParameterGroups puts catalog properties
-// with no `group` tag under. It has no real heading in the design — its rows show
-// directly under the material type — so we suppress the label for it.
-const isUngrouped = (group: MaterialDetailGroup): boolean => group.group.toLowerCase() === 'general'
+// Whether a group prints a caption above its rows. Two kinds go without one:
+//   - the "General" (ungrouped) bucket resolveParameterGroups puts catalog
+//     properties with no `group` tag under — it has no heading in the design, its
+//     rows show directly under the material type;
+//   - any group handing us an EMPTY label, the caller's way of saying its rows
+//     already name themselves (the visualisation-texture section: "Texture Name"
+//     and "Texture Image" said it, so a caption above them only said it twice).
+// Checked rather than rendering the empty string: the <p> is leading-[20px] inside
+// a gap-2 column, so an empty one leaves ~28px of blank space exactly where the
+// caption was — the words gone but the hole they sat in still there.
+const hasHeading = (group: MaterialDetailGroup): boolean =>
+  group.label !== '' && group.group.toLowerCase() !== 'general'
 
 // The read-only material properties popup, opened by clicking an assigned material
 // under the geometry form's Materials row. Presentational only: it takes its data
@@ -169,13 +177,23 @@ export default function MaterialPropertiesPopup({
                   />
                 </button>
 
+                {/* The rule between a section's name and its properties — the same
+                    full-bleed border-app-border line the left and right panels draw
+                    under "Tools" and "Properties", so a section header reads like a
+                    panel header rather than floating above its rows.
+
+                    Only while OPEN. A collapsed card is the header alone, and a
+                    bottom rule inside it would sit a hair above the card's own
+                    rounded border — reading as an accidental double line. */}
+                {open && <div role="separator" className="border-t border-app-border" />}
+
                 {open && (
-                  <div className="flex flex-col gap-3 px-3 pb-3 pt-1">
+                  <div className="flex flex-col gap-3 px-3 pb-3 pt-3">
                     {/* The type's parameters, grouped by their catalog `group`
                         tag; two columns, label over value, each value read-only. */}
                     {section.groups.map((group) => (
                       <div key={group.group} className="flex flex-col gap-2">
-                        {!isUngrouped(group) && (
+                        {hasHeading(group) && (
                           <p className="text-[13px] font-medium leading-[20px] text-[#D3D3D3]">
                             {group.label}
                           </p>

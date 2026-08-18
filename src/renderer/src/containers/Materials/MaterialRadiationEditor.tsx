@@ -3,6 +3,7 @@ import fileIcon from '@renderer/assets/file.svg'
 import FormField from '@renderer/components/FormField'
 import React from 'react'
 import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
+import { trimText } from 'utils/trimText'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
 import {
   RADIATION_BANDS,
@@ -51,6 +52,11 @@ const BAND_INPUT_CLASSES =
 // "leaf.xml"). Splits on BOTH separators: a Windows backend stores native paths
 // with '\', which have no '/' to split on, so the whole path would be shown.
 const basename = (path: string): string => path.split(/[\\/]/).pop() ?? path
+
+// How much of a field's name its placeholder can show — same two-column grid in
+// the same 340px panel as the plain material fields, so the same budget. See
+// MaterialPropertiesForm's PLACEHOLDER_CHARS for where the number comes from.
+const PLACEHOLDER_CHARS = 15
 
 export function MaterialRadiationEditor({
   idPrefix,
@@ -117,7 +123,10 @@ export function MaterialRadiationEditor({
         inputProps={{
           name: `${idPrefix}-${property}`,
           value: values[property] ?? '',
-          placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : label,
+          placeholder:
+            field.datatype === 'enum'
+              ? messages.selectPlaceholder
+              : trimText(label, PLACEHOLDER_CHARS),
           // Per-field validation wins; else the band-sum rule (R+T+E ≤ 1) flags
           // all three of an offending band with the same tooltip.
           //
