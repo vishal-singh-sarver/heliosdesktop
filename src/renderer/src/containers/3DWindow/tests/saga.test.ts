@@ -1,5 +1,10 @@
 import { LIST_NODES_SUCCEEDED } from 'containers/Geometry/constants'
-import { assignMaterialSucceeded, unassignMaterialSucceeded } from 'containers/Geometry/actions'
+import {
+  assignMaterialSucceeded,
+  toggleViewport,
+  unassignMaterialSucceeded,
+  visibilitySyncFailed
+} from 'containers/Geometry/actions'
 import { deleteParameterGroupSucceeded,
   removeMaterial, saveParameterGroupSucceeded } from 'containers/Materials/actions'
 import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors'
@@ -18,10 +23,12 @@ import threeDWindowSaga, {
   onMaterialSaved,
   onMaterialTypeDeleted,
   onMaterialUnassigned,
-  onNodesListed
+  onNodesListed,
+  onViewportToggled,
+  onVisibilitySyncFailed
 } from '../store/saga'
 import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
-import { clearSceneCache, setObjectPrimitives } from '../store/sceneCache'
+import { clearSceneCache, removeObjectPrimitives, setObjectPrimitives } from '../store/sceneCache'
 import { clearTextureCache } from '../ui/textureCache'
 
 const testObject: SceneObject = { id: 28, name: 'Ground.001', object_type_id: 1 }
@@ -273,6 +280,94 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
     expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+})
+
+// The eye icon must never move the camera. FitToScene re-frames on every
+// fitVersion change, and both halves of a hide/show cycle used to bump it —
+// so one click threw the user's zoom and pan away twice.
+describe('onViewportToggled', () => {
+  const leaf = (id: string, visible: boolean): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: visible,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('hiding removes the object without re-framing the camera', () => {
+    const gen = onViewportToggled(toggleViewport('p', 's', '28'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    const nodes = { '28': leaf('28', false) } // reducer already flipped it off
+    expect(gen.next(nodes).value).toEqual(call(removeObjectPrimitives, 28))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryRemoved(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('un-hiding re-caches the object without re-framing the camera', () => {
+    const gen = onViewportToggled(toggleViewport('p', 's', '28'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    const nodes = { '28': leaf('28', true) } // reducer already flipped it on
+    expect(gen.next(nodes).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+})
+
+// A failed visibility PATCH reverts the flip. Undoing our cache change must not
+// move the camera either — the user never asked for a new view.
+describe('onVisibilitySyncFailed', () => {
+  const leaf = (id: string, visible: boolean): GeoNode => ({
+    id,
+    name: `Ground.${id}`,
+    kind: 'ground',
+    parentId: null,
+    childIds: [],
+    expanded: false,
+    visibleInViewport: visible,
+    renderEnabled: true,
+    modelVisibility: {}
+  })
+
+  it('ignores non-viewport fields', () => {
+    const gen = onVisibilitySyncFailed(visibilitySyncFailed('p', 's', '28', 'render', 'boom'))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('re-fetches without re-framing when a failed hide was reverted', () => {
+    const gen = onVisibilitySyncFailed(visibilitySyncFailed('p', 's', '28', 'viewport', 'boom'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    const nodes = { '28': leaf('28', true) } // reverted back to visible
+    expect(gen.next(nodes).value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+
+    const primitives: PrimitiveInfo[] = []
+    expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('removes without re-framing when a failed un-hide was reverted', () => {
+    const gen = onVisibilitySyncFailed(visibilitySyncFailed('p', 's', '28', 'viewport', 'boom'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+
+    const nodes = { '28': leaf('28', false) } // reverted back to hidden
+    expect(gen.next(nodes).value).toEqual(call(removeObjectPrimitives, 28))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryRemoved(28)))
     expect(gen.next().done).toBe(true)
   })
 })

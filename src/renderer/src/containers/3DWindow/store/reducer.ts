@@ -69,8 +69,13 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
         if (!draft.scene.objectIds.includes(objectId)) {
           draft.scene.objectIds.push(objectId)
         }
+        // geometryVersion only: the mesh rebuilds, the camera stays put.
+        // FitToScene re-frames on every fitVersion change, so bumping it here
+        // meant showing a hidden ground, creating one, saving an edit or
+        // assigning a material each threw away the user's zoom and pan. The
+        // scene is framed once on load (LOAD_SCENE_SUCCEEDED); after that the
+        // camera belongs to the user.
         draft.scene.geometryVersion += 1
-        draft.scene.fitVersion += 1
         break
       }
 
@@ -114,13 +119,16 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
       case OBJECT_GEOMETRY_REMOVED: {
         const removedId = action.payload.objectId
         draft.scene.objectIds = draft.scene.objectIds.filter((id) => id !== removedId)
-        // If the deleted object was selected, fall back to "All".
+        // If the deleted object was selected, fall back to "All". This DOES
+        // re-frame, via FitToScene's selectedObjectId dependency — the view
+        // genuinely changed to a different subject, which is the one case where
+        // moving the camera is right.
         if (draft.sceneLoad.selectedObjectId === removedId) {
           draft.sceneLoad.selectedObjectId = null
         }
+        // No fitVersion bump — hiding and deleting both land here, and neither
+        // should pull the camera away from where the user put it.
         draft.scene.geometryVersion += 1
-        // Reframe camera to remaining geometry after deletion.
-        draft.scene.fitVersion += 1
         break
       }
 
