@@ -80,11 +80,14 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
 /**
  * Fetch binary geometry from a URL path. Uses fetch (not utils/api) because
  * the response is a binary ArrayBuffer, not JSON.
+ *
+ * No abort signal: a high-resolution mesh is legitimately slow to serve, and
+ * cutting it off failed a load that would have completed. Matches utils/api,
+ * which carries no timeout either.
  */
 async function fetchBinaryGeometry(path: string): Promise<PrimitiveInfo[]> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'session-id': getSessionId() },
-    signal: AbortSignal.timeout(120_000)
+    headers: { 'session-id': getSessionId() }
   })
 
   if (!res.ok) {

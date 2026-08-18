@@ -6,10 +6,11 @@ import {
   selectSearchQuery,
   selectLoadStatus,
   selectNodesById,
-  selectVisibleTree
+  selectVisibleTree,
+  selectGeometryWriteInFlight
 } from '../selectors'
 import { emptyScenarioGeometry, initialState, scopeKey } from '../reducer'
-import type { GeoNode, ScenarioGeometry } from '../types'
+import type { CreateDraft, GeoNode, GeometryState, ScenarioGeometry } from '../types'
 
 const ground = (id: string, name: string): GeoNode => ({
   id,
@@ -174,5 +175,47 @@ describe('selectNextGroundName', () => {
       rootOrder: ['a', 'b', 'c']
     }
     expect(selectNextGroundName(makeState(geo))).toBe('Ground.003')
+  })
+})
+
+// The toolbar disables +Ground on this. Both writes count: the create POST, and
+// the Properties-form Save PATCH — a high-res ground with a texture can hold that
+// PATCH open long enough for a second +Ground to land and replace the draft
+// mid-save.
+describe('selectGeometryWriteInFlight', () => {
+  const withGeometry = (geometry: Partial<GeometryState>): never =>
+    ({
+      geometry: { ...initialState, ...geometry },
+      projectScreen: { activeProjectId: 'p1', activeScenarioId: 's1' }
+    }) as never
+
+  const draft = (saving: boolean): CreateDraft => ({
+    objectId: '27',
+    objectTypeId: 1,
+    objectName: 'Ground',
+    name: 'Ground.001',
+    values: {},
+    materials: [],
+    materialBaseline: [],
+    isNew: false,
+    saving,
+    saveError: null,
+    nameError: null
+  })
+
+  it('is false when nothing is in flight', () => {
+    expect(selectGeometryWriteInFlight(withGeometry({}))).toBe(false)
+  })
+
+  it('is true while the +Ground POST is in flight', () => {
+    expect(selectGeometryWriteInFlight(withGeometry({ creating: true }))).toBe(true)
+  })
+
+  it('is true while the Properties form is saving', () => {
+    expect(selectGeometryWriteInFlight(withGeometry({ createDraft: draft(true) }))).toBe(true)
+  })
+
+  it('is false once a settled draft is just sitting open', () => {
+    expect(selectGeometryWriteInFlight(withGeometry({ createDraft: draft(false) }))).toBe(false)
   })
 })

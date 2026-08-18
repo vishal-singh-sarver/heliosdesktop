@@ -62,7 +62,12 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   loadError: null
 })
 
-export const initialState: GeometryState = { byScope: {}, createDraft: null, createDraftNonce: 0 }
+export const initialState: GeometryState = {
+  byScope: {},
+  createDraft: null,
+  createDraftNonce: 0,
+  creating: false
+}
 
 // Lazily create the per-scenario sub-state so reducers can write without a
 // separate "init scope" action.
@@ -657,7 +662,11 @@ const geometryReducer = (
         break
 
       case CREATE_OBJECT_REQUESTED:
-        // +Ground POST is in flight; no draft exists yet, so nothing to mark.
+        // +Ground POST is in flight. No draft exists yet, so the mark lives at
+        // the slice root: the toolbar reads it to disable +Ground until the POST
+        // resolves. The saga's takeLeading already drops a duplicate dispatch;
+        // this is what makes the button SHOW that it's busy.
+        draft.creating = true
         break
 
       case CREATE_OBJECT_SUCCEEDED: {
@@ -666,6 +675,7 @@ const geometryReducer = (
         // values.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const { node, values, objectTypeId, objectName } = action.payload
+        draft.creating = false
         s.nodesById[node.id] = node
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
@@ -724,8 +734,10 @@ const geometryReducer = (
       }
 
       case CREATE_OBJECT_FAILED:
-        // POST failed before the form opened — nothing to roll back. (The error
-        // surfaces via the saga; no draft slot exists to show it yet.)
+        // POST failed before the form opened — nothing to roll back beyond
+        // releasing +Ground so the create can be retried. (The error surfaces via
+        // the saga; no draft slot exists to show it yet.)
+        draft.creating = false
         break
 
       case CLEAR_CREATE_HIGHLIGHT: {

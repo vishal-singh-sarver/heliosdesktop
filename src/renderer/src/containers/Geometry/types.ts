@@ -125,6 +125,10 @@ export interface GeometryState {
   // had collapsed the panel (presence alone wouldn't change, so it wouldn't
   // re-trigger).
   createDraftNonce: number
+  // True from the +Ground POST leaving until it resolves. Slice-level like
+  // createDraft (only one create runs at a time) and read by the toolbar to
+  // disable +Ground while the request is in flight.
+  creating: boolean
 }
 
 // ── Action payload shapes ───────────────────────────────────────────────────
