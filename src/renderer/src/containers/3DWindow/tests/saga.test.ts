@@ -14,7 +14,7 @@ import { call, delay, put, race, select, take, takeLatest, takeLeading } from 'r
 import { fetchObjectGeometryBinary } from '../api/geometry'
 import type { PrimitiveInfo, SceneObject } from '../models/types'
 import * as actions from '../store/actions'
-import { LOAD_OBJECT_GEOMETRY_REQUESTED } from '../store/constants'
+import { LOAD_OBJECT_GEOMETRY_REQUESTED, LOAD_SCENE_REQUESTED } from '../store/constants'
 import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
@@ -23,11 +23,10 @@ import threeDWindowSaga, {
   onMaterialSaved,
   onMaterialTypeDeleted,
   onMaterialUnassigned,
-  onNodesListed,
   onViewportToggled,
   onVisibilitySyncFailed
 } from '../store/saga'
-import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects } from '../store/selectors'
+import { selectSceneObjects } from '../store/selectors'
 import { clearSceneCache, removeObjectPrimitives, setObjectPrimitives } from '../store/sceneCache'
 import { clearTextureCache } from '../ui/textureCache'
 
@@ -97,7 +96,8 @@ describe('loadSceneWorker', () => {
     // Empty scene → check the node-tree load status before deciding to wait.
     expect(gen.next([]).value).toEqual(select(selectLoadStatus))
 
-    // Already 'loaded' → skip the race and succeed immediately (no 30s hang).
+    // Already 'loaded' → skip the race and succeed immediately, so an empty
+    // project does not sit on the 30s timeout.
     expect(gen.next('loaded').value).toEqual(put(actions.loadSceneSucceeded()))
     expect(gen.next().done).toBe(true)
   })
@@ -112,7 +112,8 @@ describe('loadSceneWorker', () => {
     gen.next('scen-1') // select scene objects
     gen.next([]) // select load status
 
-    // 'loading' → race the LIST_NODES_SUCCEEDED against a timeout.
+    // 'loading' → the tree fetch is still running, so race it against a cap.
+    // Nothing else orders these now that each panel loads on its own mount.
     expect(gen.next('loading').value).toEqual(
       race({ nodes: take(LIST_NODES_SUCCEEDED), timeout: delay(30000) })
     )
@@ -122,58 +123,34 @@ describe('loadSceneWorker', () => {
     expect(gen.next([]).value).toEqual(put(actions.loadSceneSucceeded()))
     expect(gen.next().done).toBe(true)
   })
-})
 
-describe('onNodesListed', () => {
-  it('re-triggers loadScene when a prior load bailed (objects exist, cache empty, not loading)', () => {
-    const gen = onNodesListed()
+  it('fetches objects one at a time, reporting each as it lands', () => {
+    const second: SceneObject = { id: 29, name: 'Ground.002', object_type_id: 1 }
+    const gen = loadSceneWorker()
 
-    expect(gen.next().value).toEqual(select(selectActiveProjectId))
-    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(select(selectSceneObjects))
-    // Tree now lists an object…
-    expect(gen.next([testObject]).value).toEqual(select(selectSceneObjectIds))
-    // …but the scene cache is still empty (earlier loadScene bailed)…
-    expect(gen.next([]).value).toEqual(select(selectSceneLoad))
-    // …and no load is in flight → re-run the scene load.
-    expect(gen.next({ loading: false }).value).toEqual(put(actions.loadScene()))
+    gen.next() // clearSceneCache
+    gen.next() // clearTextureCache
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select scene objects
+
+    // Sequential, not all() — the backend serializes these on one lock anyway,
+    // and this is what makes per-object progress and clean cancellation work.
+    expect(gen.next([testObject, second]).value).toEqual(
+      call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28)
+    )
+    const first: PrimitiveInfo[] = []
+    expect(gen.next(first).value).toEqual(call(setObjectPrimitives, 28, first))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
+
+    // Only now does the second object start.
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 29))
+    const rest: PrimitiveInfo[] = []
+    expect(gen.next(rest).value).toEqual(call(setObjectPrimitives, 29, rest))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryCached(29)))
+
+    expect(gen.next().value).toEqual(put(actions.loadSceneSucceeded()))
     expect(gen.next().done).toBe(true)
-  })
-
-  it('does nothing when there is no active project/scenario', () => {
-    const gen = onNodesListed()
-    gen.next() // select project id
-    gen.next(null) // project id was null
-    expect(gen.next(null).done).toBe(true)
-  })
-
-  it('does nothing for an empty scenario (no objects to render)', () => {
-    const gen = onNodesListed()
-    gen.next() // select project id
-    gen.next('proj-1') // select scenario id
-    gen.next('scen-1') // select scene objects
-    expect(gen.next([]).done).toBe(true)
-  })
-
-  it('skips re-loading when the scene cache is already populated', () => {
-    const gen = onNodesListed()
-    gen.next() // select project id
-    gen.next('proj-1') // select scenario id
-    gen.next('scen-1') // select scene objects
-    gen.next([testObject]) // select scene object ids
-    // Cache already holds the object → the scene is loaded; don't refetch.
-    expect(gen.next([28]).done).toBe(true)
-  })
-
-  it('skips re-loading while a scene load is already in flight', () => {
-    const gen = onNodesListed()
-    gen.next() // select project id
-    gen.next('proj-1') // select scenario id
-    gen.next('scen-1') // select scene objects
-    gen.next([testObject]) // select scene object ids
-    gen.next([]) // select scene load
-    // A load is already running → let it finish, don't start another.
-    expect(gen.next({ loading: true }).done).toBe(true)
   })
 })
 
@@ -415,11 +392,12 @@ describe('threeDWindowSaga', () => {
     )
   })
 
-  it('watches LIST_NODES_SUCCEEDED with onNodesListed (boot/refresh race safety net)', () => {
+  it('has exactly one scene-load trigger — the boot saga owns the ordering', () => {
     const gen = threeDWindowSaga()
     gen.next() // takeLeading LOAD_OBJECT_GEOMETRY_REQUESTED
-    gen.next() // takeLatest LOAD_SCENE_REQUESTED
-    gen.next() // takeLatest SET_ACTIVE_SCENARIO
-    expect(gen.next().value).toEqual(takeLatest(LIST_NODES_SUCCEEDED, onNodesListed))
+    // SET_ACTIVE_SCENARIO and the LIST_NODES_SUCCEEDED safety net used to sit
+    // on either side of this and each start a load of their own, which is how
+    // the same objects were fetched twice on a refresh.
+    expect(gen.next().value).toEqual(takeLatest(LOAD_SCENE_REQUESTED, loadSceneWorker))
   })
 })

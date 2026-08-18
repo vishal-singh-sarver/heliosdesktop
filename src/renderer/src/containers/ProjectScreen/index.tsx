@@ -85,6 +85,10 @@ function validateCoordinates(
   return errors
 }
 
+// The boot saga's loader covers only the scenario-context hydration (/init).
+// By the time this mounts the backend is warm, and the screen loads its own
+// data from here — which is why these effects live in the component rather
+// than in the boot.
 export function ProjectScreen(): React.JSX.Element {
   useInjectReducer({ key: 'projectScreen', reducer: reducer as Reducer })
   useInjectSaga({ key: 'projectScreen', saga })
@@ -94,25 +98,22 @@ export function ProjectScreen(): React.JSX.Element {
   const activeProject = useSelector(selectActiveProject)
 
   // Load the full catalog once per mount: data-types-with-units plus the
-  // object / material / model type catalogs, all in parallel. The reducer
-  // dedupes by overwriting, so re-mounting the screen refreshes each slice.
+  // object / material / model type catalogs, all in parallel.
+  //
+  // Guarded by a ref, not by the dependency array. StrictMode deliberately runs
+  // every effect twice in development on the SAME instance, which fired all
+  // four of these twice on every project open. A ref survives that simulated
+  // remount; a real navigation away destroys the component, so returning to the
+  // screen still refreshes each slice as before.
+  const catalogsRequestedRef = React.useRef(false)
   React.useEffect(() => {
+    if (catalogsRequestedRef.current) return
+    catalogsRequestedRef.current = true
     dispatch(loadDataTypesRequested())
     dispatch(loadObjectTypesRequested())
     dispatch(loadMaterialTypesRequested())
     dispatch(loadModelTypesRequested())
   }, [dispatch])
-
-  // Mirrors the appReady signal in HomePage — whichever screen mounts first
-  // dismisses the splash. ipcMain registers `app:ready` as a once-listener so
-  // a second send (e.g. after navigation) is a harmless no-op.
-  React.useEffect(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.api?.appReady?.()
-      })
-    })
-  }, [])
 
   React.useEffect(() => {
     if (activeProjectId == null) {
@@ -124,11 +125,29 @@ export function ProjectScreen(): React.JSX.Element {
   // Fire on every project-id change. Stale Redux scenario state from a prior
   // visit is overwritten by the saga's setActiveScenario when the response
   // resolves — so no `activeScenarioId == null` guard is needed.
+  //
+  // Keyed by project id so a switch still lists the new project's scenarios,
+  // while StrictMode's second run is ignored. Note this call is also what sets
+  // the active scenario, and that is what starts the scene load — so it cannot
+  // simply be skipped when scenarios are already in the store.
+  const scenariosRequestedRef = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (activeProjectId != null) {
-      dispatch(listScenariosRequested(activeProjectId))
-    }
+    if (activeProjectId == null) return
+    if (scenariosRequestedRef.current === activeProjectId) return
+    scenariosRequestedRef.current = activeProjectId
+    dispatch(listScenariosRequested(activeProjectId))
   }, [activeProjectId, dispatch])
+
+  // Mirrors the appReady signal in HomePage — whichever screen mounts first
+  // dismisses the splash. ipcMain registers `app:ready` as a once-listener so
+  // a second send (e.g. after navigation) is a harmless no-op.
+  React.useEffect(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.api?.appReady?.()
+      })
+    })
+  }, [])
 
   const formik = useFormik<CoordinateForm>({
     initialValues: { latitude: '', longitude: '' },

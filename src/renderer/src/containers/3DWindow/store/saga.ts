@@ -30,7 +30,17 @@ import type {
 } from 'containers/Materials/actions'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
-import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import {
+  call,
+  delay,
+  put,
+  race,
+  select,
+  take,
+  takeEvery,
+  takeLatest,
+  takeLeading
+} from 'redux-saga/effects'
 import { ApiError } from 'utils/api'
 import { fetchObjectGeometryBinary } from '../api/geometry'
 import type { ApiErrorPayload, PrimitiveInfo, SceneObject } from '../models/types'
@@ -42,7 +52,12 @@ import {
 } from './constants'
 import { clearTextureCache } from '../ui/textureCache'
 import { clearSceneCache, getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
-import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects, selectSelectedObjectId } from './selectors'
+import {
+  selectSceneLoad,
+  selectSceneObjectIds,
+  selectSceneObjects,
+  selectSelectedObjectId
+} from './selectors'
 
 function toErrorPayload(err: unknown): ApiErrorPayload {
   if (err instanceof ApiError) {
@@ -243,8 +258,6 @@ export function* loadSceneWorker(): Generator {
     // loaded (or idle/errored), the scene is legitimately empty and waiting
     // would block on a LIST_NODES_SUCCEEDED that already fired (up to the 30s
     // timeout, leaving the loader stuck for empty projects).
-    // This replaces the old LIST_NODES_SUCCEEDED → scenarioChangeWorker
-    // watcher that caused duplicate binary API calls.
     if (objects.length === 0) {
       const loadStatus = (yield select(selectLoadStatus)) as LoadStatus
       if (loadStatus === 'loading') {
@@ -261,15 +274,20 @@ export function* loadSceneWorker(): Generator {
       return
     }
 
-    // Fetch all objects in parallel via the single-object binary API.
-    const results = (yield all(
-      objects.map((obj) => call(fetchObjectGeometryBinary, projectId, scenarioId, obj.id))
-    )) as PrimitiveInfo[][]
-
-    // Cache each object's primitives individually (no auto-select).
-    for (let i = 0; i < objects.length; i++) {
-      yield call(setObjectPrimitives, objects[i].id, results[i])
-      yield put(actions.objectGeometryCached(objects[i].id))
+    // Fetched one at a time, on purpose. Every geometry route on the backend
+    // takes the same process-wide lock, so firing all N at once does not make
+    // them run together — they queue at one door and finish in the same total
+    // time. Sequential costs nothing and means one object failing no longer
+    // discards the other eleven the way `all()` did.
+    for (const obj of objects) {
+      const primitives = (yield call(
+        fetchObjectGeometryBinary,
+        projectId,
+        scenarioId,
+        obj.id
+      )) as PrimitiveInfo[]
+      yield call(setObjectPrimitives, obj.id, primitives)
+      yield put(actions.objectGeometryCached(obj.id))
     }
 
     yield put(actions.loadSceneSucceeded())
@@ -289,11 +307,10 @@ export function* scenarioChangeWorker(): Generator {
 // doesn't wait, and returns empty without fetching any binary geometry. When the
 // tree then arrives we re-trigger the load here.
 //
-// Guards keep this from reintroducing the duplicate binary fetches that the old
-// LIST_NODES_SUCCEEDED → scenarioChangeWorker watcher caused: skip when the
-// scenario is empty, when the scene cache is already populated (load already
-// completed), or when a load is currently in flight (let it finish). takeLatest
-// coalesces bursts of LIST_NODES_SUCCEEDED.
+// Guards keep this from causing duplicate binary fetches: skip when the scenario
+// is empty, when the scene cache is already populated (load already completed),
+// or when a load is currently in flight (let it finish). takeLatest coalesces
+// bursts of LIST_NODES_SUCCEEDED.
 export function* onNodesListed(): Generator {
   const projectId = (yield select(selectActiveProjectId)) as string | null
   const scenarioId = (yield select(selectActiveScenarioId)) as string | null
@@ -427,9 +444,11 @@ export default function* threeDWindowSaga(): Generator {
   yield takeLeading(LOAD_OBJECT_GEOMETRY_REQUESTED, loadObjectGeometryWorker)
 
   yield takeLatest(LOAD_SCENE_REQUESTED, loadSceneWorker)
+  // The scene load is driven from here, not from the boot saga: the loader
+  // covers only the scenario-context hydration and everything else starts when
+  // the screen mounts. A new active scenario starts a load; the LIST_NODES
+  // watcher re-triggers it if that first attempt ran before the tree was ready.
   yield takeLatest(SET_ACTIVE_SCENARIO, scenarioChangeWorker)
-  // Safety net for the boot/refresh race: if loadScene ran before the geometry
-  // tree was ready and bailed, re-run it once the tree lists (see onNodesListed).
   yield takeLatest(LIST_NODES_SUCCEEDED, onNodesListed)
 
   yield takeLatest(SELECT_SCENE_OBJECT, selectSceneObjectWorker)

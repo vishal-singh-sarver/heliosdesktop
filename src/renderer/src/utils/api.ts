@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios'
 import { BASE_URL } from './constants'
+import { reportScopeFailure } from './scopeError'
 import { getSessionId } from './session'
 
 // ── Error type ───────────────────────────────────────────────────────────────
@@ -8,7 +9,12 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly fieldErrors: Record<string, string> = {}
+    public readonly fieldErrors: Record<string, string> = {},
+    // The backend's house error shape is `detail: {error, code}`. The code is
+    // what lets callers tell "this project is gone" apart from "this one object
+    // is gone" without matching on English text, which is free to be reworded.
+    // Null when the route sent no code (see utils/scopeError for the fallback).
+    public readonly code: string | null = null
   ) {
     super(message)
     this.name = 'ApiError'
@@ -18,6 +24,7 @@ export class ApiError extends Error {
 interface ParsedError {
   message: string
   fieldErrors: Record<string, string>
+  code?: string | null
 }
 
 function parseErrorBody(data: unknown, fallback: string): ParsedError {
@@ -33,8 +40,13 @@ function parseErrorBody(data: unknown, fallback: string): ParsedError {
   // bare HTTP status text ("Conflict").
   if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
     const errorText = (detail as { error?: unknown }).error
+    const errorCode = (detail as { code?: unknown }).code
     if (typeof errorText === 'string' && errorText.trim()) {
-      return { message: errorText, fieldErrors: {} }
+      return {
+        message: errorText,
+        fieldErrors: {},
+        code: typeof errorCode === 'string' ? errorCode : null
+      }
     }
   }
 
@@ -88,7 +100,12 @@ const client: AxiosInstance = axios.create({
 export function toApiError(err: AxiosError): ApiError {
   if (err.response) {
     const parsed = parseErrorBody(err.response.data, err.response.statusText || err.message)
-    return new ApiError(err.response.status, parsed.message, parsed.fieldErrors)
+    return new ApiError(
+      err.response.status,
+      parsed.message,
+      parsed.fieldErrors,
+      parsed.code ?? null
+    )
   }
   if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
     return new ApiError(0, 'The request timed out. Please try again.')
@@ -103,7 +120,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const res = await client.request<T>({ method, url: path, data: body })
     return res.data
   } catch (err) {
-    throw toApiError(err as AxiosError)
+    const apiError = toApiError(err as AxiosError)
+    // A project deleted in the other window fails every in-flight call at once.
+    // The detector latches on the first and raises one blocking dialog; the
+    // error is still thrown so each caller can unwind its own state.
+    reportScopeFailure({
+      status: apiError.status,
+      code: apiError.code,
+      url: path,
+      message: apiError.message
+    })
+    throw apiError
   }
 }
 
@@ -122,7 +149,14 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
     })
     return res.data
   } catch (err) {
-    throw toApiError(err as AxiosError)
+    const apiError = toApiError(err as AxiosError)
+    reportScopeFailure({
+      status: apiError.status,
+      code: apiError.code,
+      url: path,
+      message: apiError.message
+    })
+    throw apiError
   }
 }
 

@@ -18,7 +18,11 @@ const sel = {
   clearingImport: false,
   importError: null as string | null,
   importPrecisionWarningPending: false,
-  wizardOpen: false
+  wizardOpen: false,
+  // Non-null means the scenario's weather is already in the store, so the
+  // lazy first-view fetch stays quiet and these tests keep asserting only the
+  // dispatches they are about.
+  activeWeatherTable: {} as unknown
 }
 
 vi.mock('react-redux', () => ({
@@ -42,7 +46,8 @@ vi.mock('../selectors', () => ({
   selectClearingImport: () => sel.clearingImport,
   selectImportError: () => sel.importError,
   selectImportPrecisionWarningPending: () => sel.importPrecisionWarningPending,
-  selectWizardOpen: () => sel.wizardOpen
+  selectWizardOpen: () => sel.wizardOpen,
+  selectActiveWeatherTable: () => sel.activeWeatherTable
 }))
 
 vi.mock('../WeatherToolbar', () => ({
