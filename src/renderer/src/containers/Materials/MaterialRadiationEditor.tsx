@@ -48,6 +48,21 @@ import { SPECTRAL_ACCEPT_ATTR, validateSpectralFile } from './validation'
 const BAND_INPUT_CLASSES =
   'bg-[#121212] disabled:bg-[#424242] disabled:border-[#424242] disabled:text-neutral-300 disabled:placeholder-neutral-400 disabled:cursor-not-allowed'
 
+// The spectrum pickers are the one superseded control on this card that renders
+// as a Select rather than an <input>, and FormField's select branch adds its own
+// `disabled:opacity-50` — a fade, where every disabled box here uses the flat
+// #424242 above. Side by side the two read as different states.
+//
+// `disabled:opacity-100!` cancels that fade, leaving the same flat fill. Done
+// here rather than in FormField because the fade is right for its other callers;
+// only this card has a house style for "superseded" to match.
+//
+// Important (trailing `!`, Tailwind v4) rather than a plain utility: both classes
+// set the same property at the same specificity, so which one wins would come
+// down to stylesheet order — a silent, build-dependent coin flip. Same trick, and
+// the same reason, as Weather's CellInput `outline-none!`.
+const SPECTRUM_SELECT_CLASSES = `${BAND_INPUT_CLASSES} disabled:opacity-100!`
+
 // The filename shown for a stored spectral path ("uploads/materials/8/leaf.xml" →
 // "leaf.xml"). Splits on BOTH separators: a Windows backend stores native paths
 // with '\', which have no '/' to split on, so the whole path would be shown.
@@ -70,7 +85,10 @@ export function MaterialRadiationEditor({
   uploading,
   uploadError,
   onPickSpectralFile,
-  onClearSpectral
+  onClearSpectral,
+  spectrumFields,
+  spectrumLabels,
+  spectrumLabelsStatus
 }: {
   // Namespaces the field inputs' ids/names so two cards don't collide.
   idPrefix: number
@@ -88,13 +106,27 @@ export function MaterialRadiationEditor({
   uploadError?: string | null
   onPickSpectralFile: (file: File) => void
   onClearSpectral: () => void
+  // The catalog's gated "Spectrum" group — which curve inside the uploaded file
+  // this material uses. Passed in rather than picked out of `fields` because the
+  // backend decides what belongs to the spectral side; whatever arrives here is
+  // rendered, so a third choice added later needs no change in this file.
+  spectrumFields: ResolvedMaterialField[]
+  // The labels the stored file actually holds — the pickers' options. Empty until
+  // a file is uploaded, or when it can't be read.
+  spectrumLabels: string[]
+  // Why `spectrumLabels` is empty, so the difference can be reported. 'idle' =
+  // no file yet, or the lookup is still in flight; 'loaded' with an empty list =
+  // the file genuinely holds no spectra; 'error' = it could not be read.
+  spectrumLabelsStatus: 'idle' | 'loaded' | 'error'
 }): React.JSX.Element {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const [fileError, setFileError] = React.useState<string | null>(null)
 
+  // Both the top-level fields and the spectrum group's, so renderField can draw
+  // either by property name.
   const fieldByProp = React.useMemo(
-    () => new Map(fields.map((f) => [f.property, f])),
-    [fields]
+    () => new Map([...fields, ...spectrumFields].map((f) => [f.property, f])),
+    [fields, spectrumFields]
   )
 
   // Band fields whose reflectivity + transmissivity + emissivity exceed 1 — every
@@ -110,7 +142,19 @@ export function MaterialRadiationEditor({
   // PAR"); `disabled` greys a band while a spectral file supersedes it.
   const renderField = (
     property: string,
-    opts?: { label?: string; disabled?: boolean }
+    opts?: {
+      label?: string
+      disabled?: boolean
+      options?: { value: string; label: string }[]
+      inputClassName?: string
+      // Overrides the catalog's own flag. Material properties never carry
+      // `required` (it is an object-type field), so a rule this form enforces
+      // itself has no other way to put the asterisk on the label.
+      required?: boolean
+      // Drop the dropdown's clear row. Omitted everywhere else, so every other
+      // field on this card keeps the row it has today.
+      clearable?: boolean
+    }
   ): React.JSX.Element | null => {
     const field = fieldByProp.get(property)
     if (!field) return null
@@ -119,7 +163,11 @@ export function MaterialRadiationEditor({
     return (
       <FormField
         key={property}
-        labelProps={{ label, optional: !field.required, helpText: field.description }}
+        labelProps={{
+          label,
+          optional: !(opts?.required ?? field.required),
+          helpText: field.description
+        }}
         inputProps={{
           name: `${idPrefix}-${property}`,
           value: values[property] ?? '',
@@ -145,11 +193,18 @@ export function MaterialRadiationEditor({
           // (matches the Geometry right panel); selects keep the inline message.
           errorAsTooltip: true,
           disabled,
-          inputClassName: BAND_INPUT_CLASSES,
+          inputClassName: opts?.inputClassName ?? BAND_INPUT_CLASSES,
+          // Undefined for every other field, so FormField's default (on) applies
+          // exactly as before.
+          clearable: opts?.clearable,
+          // An explicit list wins: the spectrum choices are catalog `string`
+          // fields whose options aren't in the catalog at all — they come from
+          // the labels inside the material's own uploaded file.
           options:
-            field.datatype === 'enum' && field.enumValues
+            opts?.options ??
+            (field.datatype === 'enum' && field.enumValues
               ? field.enumValues.map((v) => ({ value: v, label: v }))
-              : undefined,
+              : undefined),
           onChange: (e) => onFieldChange(property, e.target.value, field.datatype),
           onBlur: () => onFieldBlur(property)
         }}
@@ -301,6 +356,52 @@ export function MaterialRadiationEditor({
             {fileError ?? uploadError}
           </p>
         )}
+
+        {/* The file uploaded fine but has nothing to pick from — or could not be
+            read back at all. Said HERE, beside the file, because replacing the
+            file is the fix; two empty dropdowns on their own just look like they
+            are still loading. Only while the toggle is on: off, the file is inert
+            and this is a problem the user has no reason to act on. */}
+        {applySpectral && spectrumLabelsStatus !== 'idle' && spectrumLabels.length === 0 && (
+          <p className="form-error-text" style={{ color: '#D92D20' }}>
+            {spectrumLabelsStatus === 'error'
+              ? messages.spectrumLabelsUnreadable
+              : messages.spectrumNoLabels}
+          </p>
+        )}
+
+        {/* Which spectrum inside the file this material uses. Directly under the
+            file because that is what they index into, and greyed with the toggle
+            like the file row itself — off, they describe a file that isn't in use.
+            Options are the file's own labels, so a value the engine can't resolve
+            can't be chosen: an unresolvable label doesn't error, it falls back to
+            a reflectivity of 0 and blackens the surface for the whole run.
+            A stored choice missing from the current file is added to the list so
+            it stays visible and selected rather than silently blanking. */}
+        {spectrumFields.map((field) => {
+          const current = values[field.property] ?? ''
+          const options = spectrumLabels.map((l) => ({ value: l, label: l }))
+          if (current !== '' && !spectrumLabels.includes(current)) {
+            options.unshift({ value: current, label: messages.spectrumLabelMissing(current) })
+          }
+          return renderField(field.property, {
+            disabled: !applySpectral,
+            options,
+            inputClassName: SPECTRUM_SELECT_CLASSES,
+            // Always starred, not just once a file is uploaded. The star says
+            // "this must be filled to use spectral data" — a standing property of
+            // the field, not a state it enters. Showing it only after the upload
+            // meant the requirement appeared out of nowhere at the moment it
+            // started blocking Save, which is exactly when it is least useful to
+            // learn about.
+            required: true,
+            // No clear row: the list's first entry wore this field's own
+            // placeholder text ("Reflectivity Spectrum"), so it read as a real
+            // spectrum rather than as "none" — and picking it emptied a required
+            // field, putting the card straight into a state Save refuses.
+            clearable: false
+          })
+        })}
       </div>
 
       {/* PAR / NIR / LW per-band optics. Disabled while a spectral file supersedes

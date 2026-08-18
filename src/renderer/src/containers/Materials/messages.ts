@@ -83,6 +83,21 @@ const messages = {
   // Radiation bespoke editor (spectral toggle + per-band optics).
   applySpectralData: 'Apply spectral data',
   spectralDataFile: 'Spectral Data File',
+  // A spectrum choice that the CURRENT file doesn't contain — the file was
+  // swapped after the choice was made. Kept in the list (and selected) rather
+  // than dropped, so the user sees what is stored and that it no longer resolves;
+  // silently blanking it would leave the engine falling back to a reflectivity of
+  // 0 with nothing on screen having said so.
+  spectrumLabelMissing: (label: string) => `${label} — not in this file`,
+  // The upload succeeded but the file carries no spectra to choose from, so the
+  // two required pickers can never be satisfied. Said next to the file, because
+  // the file is the thing to replace — an empty dropdown alone looks like a
+  // loading state.
+  spectrumNoLabels: 'No spectra found in this file — upload one that contains them',
+  // The stored file could not be read back (missing on disk, or not valid
+  // spectral XML). Deliberately NOT the message above: "none found" would claim
+  // the file was read and was empty, which isn't what happened.
+  spectrumLabelsUnreadable: 'Could not read the spectra in this file',
   spectralUploadButton: 'Upload Here',
   spectralUploading: 'Uploading…',
   spectralFileTypeError: 'Only XML files are allowed',

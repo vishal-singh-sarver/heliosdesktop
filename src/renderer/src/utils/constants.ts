@@ -149,6 +149,12 @@ export const API_ROUTES = {
     // create the member, so the card must already be saved.
     groupMaterialSpectral: (groupId: string) =>
       `/api/materials/library/groups/${groupId}/spectral`,
+    // GET — the spectrum labels inside a STORED spectral file (`path` added as a
+    // query param by the caller). One file holds many <globaldata_vec2 label="…">
+    // spectra, and the upload only returns a path, so this is the only way to
+    // offer the two spectrum choices as pickers once a material is reopened.
+    groupSpectralLabels: (groupId: string) =>
+      `/api/materials/library/groups/${groupId}/spectral/labels`,
     // DELETE — remove an uploaded file from the group by its stored `path` (added
     // as a query param by the caller). The backend 409s while any material or
     // frozen geometry snapshot still references it, so callers fire it only after

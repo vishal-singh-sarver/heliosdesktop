@@ -10,6 +10,7 @@ import { createMaterialRequested, loadMaterialDetailRequested } from 'containers
 import {
   isVisualisationFieldSet,
   resolveParameterGroups,
+  spectrumGroup,
   TEXTURE_PROPERTY,
   TEXTURE_TOGGLE_PROPERTY,
   visibleParameterGroups,
@@ -260,8 +261,19 @@ export function buildMaterialSections(
       for (const [property, value] of Object.entries(member.properties)) {
         selectorValues[property] = asDisplay(value)
       }
-      const groups = visibleParameterGroups(resolveParameterGroups([type]), selectorValues).map(
-        (pg) => {
+      // The Radiation spectrum group is the one exception to that filter. Its
+      // values are stored on the material whichever mode is saved, so gating a
+      // READ-ONLY view on use_radiation_bands just hides data the material
+      // actually has. Found by its selector, not by property name, so a third
+      // spectrum property added later comes along with no change here. Every
+      // other conditional group (the stomatal sub-models) stays filtered.
+      const resolved = resolveParameterGroups([type])
+      const active = new Set(visibleParameterGroups(resolved, selectorValues))
+      const spectrum = spectrumGroup(resolved)
+      if (spectrum) active.add(spectrum)
+      const groups = resolved
+        .filter((g) => active.has(g))
+        .map((pg) => {
           // The Visualiser in texture mode gets a dedicated section: the texture's
           // name + the image itself, served from the same /api/textures/serve
           // endpoint the visualiser editor and 3D scene already use. Every other
@@ -311,8 +323,7 @@ export function buildMaterialSections(
               }
             })
           }
-        }
-      )
+        })
       return { typeId: member.materialTypeId, typeName, groups }
     }
     const rows = Object.entries(member.properties).map(([property, value]) => ({

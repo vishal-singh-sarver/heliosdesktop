@@ -47,6 +47,15 @@ export interface FormFieldInputProps {
   // (matching Weather's CellInput) instead of as a text line below the field.
   // Applies to text inputs only; selects keep the inline message.
   errorAsTooltip?: boolean
+  // Whether the dropdown offers a first row that clears the field (the empty
+  // <option> a native select carried). Defaults to TRUE — every existing caller
+  // keeps exactly the behaviour it has today.
+  //
+  // Pass false for a dropdown whose field is REQUIRED: a clear row there hands
+  // the user a one-click way into a state the form then refuses to save, and it
+  // shows up wearing the placeholder's text, so it reads as a real choice rather
+  // than as "none". Select-only; ignored by text inputs.
+  clearable?: boolean
 }
 
 interface FormFieldProps {
@@ -82,6 +91,7 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
     inputRef,
     inputClassName = '',
     errorAsTooltip = false,
+    clearable = true,
     ...restInputProps
   } = inputProps
   const errorId = useId()
@@ -168,8 +178,9 @@ function FormField({ labelProps, inputProps }: FormFieldProps): React.JSX.Elemen
             invalid={!!error}
             describedBy={error ? errorId : undefined}
             // The empty <option> a native select carried, and the tick marking
-            // which row is live.
-            clearable
+            // which row is live. Defaults to on, so callers that don't mention
+            // it are unchanged.
+            clearable={clearable}
             showTick
             className={`${controlClassName} px-3 disabled:cursor-not-allowed disabled:opacity-50`}
             listClassName="bg-[#181a1f]"

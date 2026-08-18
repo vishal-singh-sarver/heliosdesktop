@@ -390,15 +390,23 @@ export const radiationBandProperties = (band: RadiationBand): [string, string, s
 ]
 export const ALL_BAND_PROPERTIES = RADIATION_BANDS.flatMap(radiationBandProperties)
 
-// The Radiation top-level fields NOT shown in the bespoke editor: they are hidden
-// so only the curated set renders. surface_temperature is weather-driven; the
-// broadband trio is replaced by the per-band grid; the toggle + file have their
-// own controls.
+// The Radiation top-level fields the bespoke editor renders as CONTROLS rather
+// than as rows in the field grid: the mode toggle and the file picker each have
+// their own widget below, so listing them here keeps them out of the grid above.
+//
+// This set used to also carry surface_temperature and the broadband trio. Those
+// are gone: the catalog stops sending them (migration 031 tags them 'computed' /
+// 'superseded'), so hiding them here was doing nothing — while quietly breaking
+// two things. The read-only material popup has no copy of this list, so it kept
+// showing what this file hid; and surface_temperature is tagged 'computed'
+// precisely so a future "disable model -> enter input" pass can send it back,
+// which a hardcoded hide would have swallowed.
+//
+// The rule for what a screen shows now lives in ONE place — the catalog — so the
+// editor and the popup cannot disagree about it again. Keep it that way: a
+// property that shouldn't be offered belongs behind a visibility tag or a gated
+// group, not in a list here.
 const RADIATION_HIDDEN_PROPERTIES = new Set([
-  'surface_temperature',
-  'reflectivity',
-  'transmissivity',
-  'emissivity',
   USE_RADIATION_BANDS_PROPERTY,
   SPECTRAL_DATA_PROPERTY
 ])
@@ -424,6 +432,50 @@ export function isRadiationFieldSet(fields: ResolvedMaterialField[]): boolean {
 // is explicitly false. A new/unset card defaults to OFF (manual per-band values).
 export function readApplySpectral(values: Record<string, string>): boolean {
   return values[USE_RADIATION_BANDS_PROPERTY] === 'false'
+}
+
+// The gated group holding the spectrum choices — which curve inside the uploaded
+// file this material uses (migration 031).
+//
+// Found by its SELECTOR, not by the property names inside it. The backend owns
+// what belongs to the spectral side (it gates the group on use_radiation_bands),
+// so a third spectrum property added later lands here with no change to this
+// file — the thing that went wrong with the hand-written hidden list above.
+export function spectrumGroup(
+  groups: ResolvedParameterGroup[]
+): ResolvedParameterGroup | undefined {
+  return groups.find((g) => g.selectorProperty === USE_RADIATION_BANDS_PROPERTY)
+}
+
+// True while spectral mode is not yet usable — the Save gate for that mode.
+// Two ways to be incomplete: no file, or a file with a choice still unmade.
+//
+// Not a nicety: neither failure is loud. RadiationModel warns and falls back to
+// a reflectivity of 0, blackening the surface for the entire simulation with
+// nothing pointing back here — so both are caught before Save rather than in a
+// run.
+export function spectralSetupIncomplete(
+  groups: ResolvedParameterGroup[],
+  values: Record<string, string>
+): boolean {
+  if (!readApplySpectral(values)) return false
+
+  // No file is the worse half of this rule, not an exemption from it. Spectral
+  // mode DROPS the per-band values on save (toRadiationProperties), on the
+  // understanding that a file replaces them — so saving with no file ships a
+  // material carrying no reflectivity or transmissivity at all. It also strands
+  // any spectrum names still held from a file that has since been deleted, which
+  // the engine resolves to a reflectivity of 0 and a black surface.
+  //
+  // Safe to block on: the upload needs only the material GROUP, not a saved
+  // member (upload_file_property — "a texture can be uploaded before the member
+  // exists"), so a brand-new card can always satisfy this. It is never a state
+  // the user is stuck in.
+  if ((values[SPECTRAL_DATA_PROPERTY] ?? '').trim() === '') return true
+
+  const group = spectrumGroup(groups)
+  if (group == null) return false
+  return group.fields.some((f) => (values[f.property] ?? '').trim() === '')
 }
 
 // Build the Radiation member payload for the active mode. Full-replace, so we send
