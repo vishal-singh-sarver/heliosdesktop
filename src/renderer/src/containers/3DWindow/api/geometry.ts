@@ -135,23 +135,57 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
 //
 // Callers share the SAME array. Nothing mutates a parsed result today (it is
 // stored in sceneCache and read for rendering), and nothing should start.
-const inFlight = new Map<string, Promise<PrimitiveInfo[]>>()
+interface InFlightRequest {
+  promise: Promise<PrimitiveInfo[]>
+  // Superseding a request is the only thing that aborts it. See the note on
+  // fetchBinaryGeometry for why nothing else may.
+  controller: AbortController
+}
+
+const inFlight = new Map<string, InFlightRequest>()
+
+// Second index over the same entries, so a caller that only knows which object
+// it is hiding can cancel that object's download without having to look up the
+// project and scenario ids to rebuild the URL.
+const inFlightByObject = new Map<number, string>()
+
+/**
+ * True for the rejection a deliberately cancelled request produces.
+ *
+ * A superseded download is not a failure — the newer request that replaced it
+ * owns the scene now — so callers must tell this apart from a real network error
+ * and stay quiet rather than showing the user an error for work we cancelled
+ * ourselves.
+ */
+export function isGeometryAborted(err: unknown): boolean {
+  return (err as { name?: string } | null)?.name === 'AbortError'
+}
 
 /**
  * Fetch binary geometry from a URL path. Uses fetch (not utils/api) because
  * the response is a binary ArrayBuffer, not JSON.
  *
- * No abort signal: a high-resolution mesh is legitimately slow to serve, and
- * cutting it off failed a load that would have completed. Matches utils/api,
- * which carries no timeout either.
+ * There is no timeout and there must not be one: a high-resolution mesh is
+ * legitimately slow to serve, and cutting it off on a clock failed loads that
+ * would have completed. Matches utils/api, which carries no timeout either.
+ *
+ * The abort signal is for one case only — a newer request for the SAME object
+ * has replaced this one. Those bytes were already going to be thrown away by the
+ * staleness token in store/sceneCache, and a ground at 1000×1000 is 228 MB, so
+ * letting it run to completion cost the network and the backend's per-scenario
+ * lock for a result nobody would read. Cancelling on supersede is free;
+ * cancelling on a clock is the thing that broke.
  */
-async function fetchBinaryGeometry(path: string): Promise<PrimitiveInfo[]> {
+async function fetchBinaryGeometry(path: string, objectId?: number): Promise<PrimitiveInfo[]> {
   const joined = inFlight.get(path)
-  if (joined) return joined
+  if (joined) return joined.promise
 
-  const request = (async (): Promise<PrimitiveInfo[]> => {
+  const controller = new AbortController()
+
+  const promise = (async (): Promise<PrimitiveInfo[]> => {
     const res = await fetch(`${BASE_URL}${path}`, {
-      headers: { 'session-id': getSessionId() }
+      headers: { 'session-id': getSessionId() },
+      signal: controller.signal
     })
 
     if (!res.ok) {
@@ -163,14 +197,52 @@ async function fetchBinaryGeometry(path: string): Promise<PrimitiveInfo[]> {
     return parseBinaryPrimitives(buffer)
   })()
 
-  inFlight.set(path, request)
+  const entry: InFlightRequest = { promise, controller }
+  inFlight.set(path, entry)
+  if (objectId !== undefined) inFlightByObject.set(objectId, path)
+
   try {
-    return await request
+    return await promise
   } finally {
     // Cleared once settled, success or failure, so a retry starts a fresh
     // request rather than replaying a stale rejection.
-    inFlight.delete(path)
+    //
+    // Only if the entry is still OURS. A superseded request may settle after its
+    // replacement started, and deleting unconditionally would drop the entry that
+    // took its place — losing the dedupe for everyone who asked afterwards.
+    if (inFlight.get(path) === entry) {
+      inFlight.delete(path)
+      if (objectId !== undefined && inFlightByObject.get(objectId) === path) {
+        inFlightByObject.delete(objectId)
+      }
+    }
   }
+}
+
+/**
+ * Cancel the download in flight for one object and forget it.
+ *
+ * Two callers need this. An EDIT needs it because the dedupe above would
+ * otherwise hand it the request that started before the edit — that is what made
+ * saving a ground's properties mid-download repaint the viewport with the
+ * pre-save shape and look like the save had done nothing. A HIDE needs it
+ * because the correct result for a hidden object is no geometry at all, so the
+ * remaining bytes are pure waste.
+ *
+ * Safe to call when nothing is running.
+ */
+export function abortObjectGeometry(objectId: number): void {
+  const path = inFlightByObject.get(objectId)
+  if (path === undefined) return
+
+  const entry = inFlight.get(path)
+  inFlightByObject.delete(objectId)
+  if (!entry) return
+
+  // Dropped from the map BEFORE the abort so the rejection it triggers cannot
+  // find the entry and delete a replacement that has since taken this slot.
+  inFlight.delete(path)
+  entry.controller.abort()
 }
 
 /** Fetch and parse one object's geometry. */
@@ -180,5 +252,5 @@ export async function fetchObjectGeometryBinary(
   objectId: number
 ): Promise<PrimitiveInfo[]> {
   const path = GEOMETRY_ROUTES.objectGeometryBinary(projectId, scenarioId, objectId)
-  return fetchBinaryGeometry(path)
+  return fetchBinaryGeometry(path, objectId)
 }

@@ -42,7 +42,11 @@ import {
   takeLeading
 } from 'redux-saga/effects'
 import { ApiError } from 'utils/api'
-import { fetchObjectGeometryBinary } from '../api/geometry'
+import {
+  abortObjectGeometry,
+  fetchObjectGeometryBinary,
+  isGeometryAborted
+} from '../api/geometry'
 import type { ApiErrorPayload, PrimitiveInfo, SceneObject } from '../models/types'
 import * as actions from './actions'
 import {
@@ -51,7 +55,14 @@ import {
   SELECT_SCENE_OBJECT
 } from './constants'
 import { clearTextureCache } from '../ui/textureCache'
-import { clearSceneCache, getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
+import {
+  bumpGeometryGeneration,
+  clearSceneCache,
+  geometryToken,
+  getObjectPrimitives,
+  removeObjectPrimitives,
+  setObjectPrimitives
+} from './sceneCache'
 import {
   selectSceneLoad,
   selectSceneObjectIds,
@@ -73,18 +84,66 @@ function toErrorPayload(err: unknown): ApiErrorPayload {
 // Used both by the explicit loadObjectGeometry action and as a reaction to
 // Geometry container events (create, update).
 
-function* fetchAndCacheObjectGeometry(objectId: number, autoSelect = true): Generator {
+/**
+ * Fetch one object's geometry and put it in the scene.
+ *
+ * `fresh` is for callers who know the bytes just changed — a property save, a
+ * material change, an un-hide of something edited while hidden. It drops the
+ * shared in-flight request so the fetch cannot be served the geometry from
+ * before the edit, which is what made a save during a slow download look like it
+ * had done nothing.
+ *
+ * Either way the result is only written if the object's staleness token is
+ * unchanged when it lands. Nothing cancels a binary fetch, so this is the only
+ * thing standing between a slow download and the scene it is no longer entitled
+ * to write to.
+ */
+function* fetchAndCacheObjectGeometry(
+  objectId: number,
+  autoSelect = true,
+  fresh = false
+): Generator {
   const projectId = (yield select(selectActiveProjectId)) as string | null
   const scenarioId = (yield select(selectActiveScenarioId)) as string | null
 
   if (!projectId || !scenarioId) return
 
-  const primitives = (yield call(
-    fetchObjectGeometryBinary,
-    projectId,
-    scenarioId,
-    objectId
-  )) as PrimitiveInfo[]
+  if (fresh) {
+    bumpGeometryGeneration(objectId)
+    // Cancels the download this one replaces. A ground at 1000×1000 is 228 MB,
+    // and the superseded copy was going to be discarded on arrival anyway.
+    abortObjectGeometry(objectId)
+  }
+
+  // Read AFTER the bump above, so this run owns the token it is about to check.
+  const token = geometryToken(objectId)
+
+  let primitives: PrimitiveInfo[]
+  try {
+    primitives = (yield call(
+      fetchObjectGeometryBinary,
+      projectId,
+      scenarioId,
+      objectId
+    )) as PrimitiveInfo[]
+  } catch (err) {
+    // Cancelled on purpose, because a newer fetch for this object replaced this
+    // one or the user hid it. Not a failure: returning quietly keeps it out of
+    // loadSceneFailed, which would otherwise show the user an error for work the
+    // app cancelled itself.
+    if (isGeometryAborted(err)) return
+    throw err
+  }
+
+  // The world moved while these bytes were on the wire: the object was hidden,
+  // saved, restyled, or the whole scene was cleared. Whoever moved it has
+  // already put the scene in the state it wants, so this result is not just
+  // late — it is wrong. Drop it silently; a caller that still needs geometry has
+  // its own fetch running.
+  //
+  // Still needed alongside the abort above: a request that had already finished
+  // downloading when it was superseded has nothing left to cancel.
+  if (geometryToken(objectId) !== token) return
 
   yield call(setObjectPrimitives, objectId, primitives)
   yield put(
@@ -134,7 +193,9 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
   if (node && !node.visibleInViewport) return
 
   try {
-    yield* fetchAndCacheObjectGeometry(objectId, false)
+    // fresh: the save is exactly what changed the bytes. Joining a download that
+    // started before it would repaint the viewport with the pre-save geometry.
+    yield* fetchAndCacheObjectGeometry(objectId, false, true)
   } catch {
     // Non-fatal.
   }
@@ -150,7 +211,7 @@ export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Gene
     const node = nodesById[rawId]
     if (node && !node.visibleInViewport) continue
     try {
-      yield* fetchAndCacheObjectGeometry(Number(rawId), false)
+      yield* fetchAndCacheObjectGeometry(Number(rawId), false, true)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
@@ -168,7 +229,7 @@ function* refetchObjectsUsingGroup(groupId: string): Generator {
     if (node.kind === 'group' || !node.visibleInViewport) continue
     if (!(node.materialGroupIds ?? []).includes(groupId)) continue
     try {
-      yield* fetchAndCacheObjectGeometry(Number(node.id), false)
+      yield* fetchAndCacheObjectGeometry(Number(node.id), false, true)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
@@ -396,12 +457,21 @@ export function* onViewportToggled(action: ToggleViewportAction): Generator {
 
     if (!leaf.visibleInViewport) {
       // Hidden — remove from cache and scene.
+      //
+      // Closing the eye mid-download used to leave the whole 228 MB arriving for
+      // an object the user had just said they did not want to see. The result
+      // was already discarded on landing; now the transfer stops too.
+      abortObjectGeometry(objectId)
       yield call(removeObjectPrimitives, objectId)
       yield put(actions.objectGeometryRemoved(objectId))
     } else {
       // Unhidden — fetch geometry and add back to cache.
+      //
+      // fresh: onGeometryUpdated deliberately skips hidden objects, so anything
+      // edited while this one was hidden is only picked up here. A shared
+      // download from before those edits would show the stale shape.
       try {
-        yield* fetchAndCacheObjectGeometry(objectId, false)
+        yield* fetchAndCacheObjectGeometry(objectId, false, true)
       } catch {
         // Non-fatal.
       }
@@ -426,12 +496,14 @@ export function* onVisibilitySyncFailed(action: VisibilitySyncFailedAction): Gen
     if (leaf.visibleInViewport) {
       // Was hidden (we removed from cache) → now visible again → re-fetch.
       try {
-        yield* fetchAndCacheObjectGeometry(objectId, false)
+        yield* fetchAndCacheObjectGeometry(objectId, false, true)
       } catch {
         // Non-fatal.
       }
     } else {
-      // Was unhidden (we added to cache) → now hidden again → remove.
+      // Was unhidden (we added to cache) → now hidden again → remove. The
+      // un-hide's fetch may still be running; it is no longer wanted either.
+      abortObjectGeometry(objectId)
       yield call(removeObjectPrimitives, objectId)
       yield put(actions.objectGeometryRemoved(objectId))
     }

@@ -2,6 +2,50 @@ import type { PrimitiveInfo } from '../models/types'
 
 const cache = new Map<number, PrimitiveInfo[]>()
 
+// ── Staleness token ──────────────────────────────────────────────────────────
+//
+// A binary fetch is slow and nothing cancels it, so a result can land long after
+// the thing that asked for it stopped being true. Two ways that corrupted the
+// scene, both reported from the app:
+//
+//   - The user closes an object's eye while its geometry is still downloading.
+//     The fetch lands afterwards, re-adds the object, and the viewport shows
+//     geometry whose toggle reads "hidden" — state the user cannot correct
+//     without toggling twice.
+//   - The user edits and saves the object while its geometry is downloading.
+//     The save's own fetch joined the in-flight request (same URL) and so
+//     returned the geometry from BEFORE the edit — the viewport kept the old
+//     shape and the save looked like it had done nothing.
+//
+// Every object carries a generation, and the whole cache carries an epoch. Any
+// event that makes an in-flight result obsolete bumps one of them. A fetch reads
+// the token before it starts and its result is discarded unless the token still
+// matches when it lands — so a late arrival is dropped instead of overwriting
+// the scene.
+const generation = new Map<number, number>()
+let epoch = 0
+
+/**
+ * The current staleness token for one object.
+ *
+ * Capture before a fetch, compare after: a difference means something happened
+ * meanwhile that the fetched bytes do not reflect.
+ */
+export function geometryToken(objectId: number): string {
+  return `${epoch}:${generation.get(objectId) ?? 0}`
+}
+
+/**
+ * Mark whatever is in flight for this object as obsolete.
+ *
+ * Called on every edit that changes the bytes the backend would return — a
+ * property save, a material change — and on every hide, where the correct result
+ * is no geometry at all.
+ */
+export function bumpGeometryGeneration(objectId: number): void {
+  generation.set(objectId, (generation.get(objectId) ?? 0) + 1)
+}
+
 export function setObjectPrimitives(objectId: number, primitives: PrimitiveInfo[]): void {
   cache.set(objectId, primitives)
 }
@@ -12,6 +56,11 @@ export function getObjectPrimitives(objectId: number): PrimitiveInfo[] | undefin
 
 export function removeObjectPrimitives(objectId: number): void {
   cache.delete(objectId)
+  // Hiding an object is exactly the case where a fetch already running for it
+  // must not be allowed to land. Bumping here covers every caller that hides —
+  // the eye toggle and the visibility-sync revert — rather than asking each to
+  // remember.
+  bumpGeometryGeneration(objectId)
 }
 
 /** Retrieve primitives for all cached objects combined. */
@@ -24,5 +73,10 @@ export function getAllCachedPrimitives(): PrimitiveInfo[] {
 }
 
 export function clearSceneCache(): void {
+  // One epoch bump invalidates every object at once, including objects being
+  // fetched for the very first time that have no generation entry yet. Without
+  // it, a fetch started under the previous project could land in the new one.
+  epoch += 1
+  generation.clear()
   cache.clear()
 }

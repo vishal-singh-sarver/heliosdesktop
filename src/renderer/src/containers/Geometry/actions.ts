@@ -322,7 +322,21 @@ export type UpdateObjectSucceededAction = {
   // the object's binary geometry — a material assignment restyles the object even
   // when no property changed, so BOTH must be tracked (else the new look only
   // shows after a refresh).
-  payload: { objectId: string; propsChanged: boolean; materialsChanged: boolean }
+  // `savedValues` / `savedMaterials` are what the request actually CARRIED,
+  // snapshotted before it went out — not whatever the form holds when the reply
+  // lands. The fields stay editable while a save is in flight, and a big ground
+  // takes tens of seconds, so those two are routinely different. Reading the live
+  // draft here used to fold an edit made DURING the save into the saved baseline:
+  // Save greyed itself out and the toast said "Changes saved" for a value that
+  // was never sent, and the edit only reappeared as lost when the form was
+  // reopened.
+  payload: {
+    objectId: string
+    propsChanged: boolean
+    materialsChanged: boolean
+    savedValues: Record<string, string>
+    savedMaterials: DraftMaterialGroup[]
+  }
 }
 export type UpdateObjectFailedAction = {
   type: typeof UPDATE_OBJECT_FAILED
@@ -733,7 +747,7 @@ export const updateObjectRequested = (
 export const updateObjectSucceeded = (
   projectId: string,
   scenarioId: string,
-  payload: { objectId: string; propsChanged: boolean; materialsChanged: boolean }
+  payload: UpdateObjectSucceededAction['payload']
 ): UpdateObjectSucceededAction => ({ type: UPDATE_OBJECT_SUCCEEDED, projectId, scenarioId, payload })
 
 export const updateObjectFailed = (error: string): UpdateObjectFailedAction => ({

@@ -237,7 +237,13 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
         // A newly-assigned material restyles the object even with props unchanged,
         // so the 3D viewport must re-fetch its binary in that case too. Losing one
         // restyles it just as much, so a replacement counts on both counts.
-        materialsChanged: newMaterials.length > 0 || removedMaterialIds.length > 0
+        materialsChanged: newMaterials.length > 0 || removedMaterialIds.length > 0,
+        // What the request CARRIED — `draft` was read once, before the call, so
+        // these are the values the backend now holds. The reducer must use these
+        // and not the live draft: the form stays editable while the save is in
+        // flight, and anything typed meanwhile has NOT been sent.
+        savedValues: { ...draft.values },
+        savedMaterials: [...draft.materials]
       })
     )
     yield put(showSnackbar(toastMessages.changesSaved, 'success'))

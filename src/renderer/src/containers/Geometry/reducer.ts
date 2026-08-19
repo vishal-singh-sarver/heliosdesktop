@@ -760,25 +760,35 @@ const geometryReducer = (
         // path, so syncing the (possibly rejected) draft name would corrupt the
         // tree row.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        // Everything below records what the backend NOW HOLDS, so all of it reads
+        // from the request's own snapshot rather than the live draft. The form
+        // stays editable while a save is in flight and a large ground takes tens
+        // of seconds, so the two genuinely diverge: taking the live draft marked
+        // an edit typed DURING the save as already saved, which greyed Save out
+        // and dropped the edit silently — the user only found out on reopening.
+        // Compared against the draft, the leftover difference is exactly what is
+        // still unsaved, which is what re-enables Save.
+        const { savedValues, savedMaterials } = action.payload
         if (draft.createDraft) {
           draft.createDraft.saving = false
           draft.createDraft.isNew = false
-          // The just-added materials are now assigned on the backend: fold them
-          // into the baseline so the row is no longer "new" and a re-Save is a
-          // no-op (won't 409). ADD-only, so the displayed set is unchanged.
-          draft.createDraft.materialBaseline = draft.createDraft.materials.map((m) => m.groupId)
+          // The materials the PATCH carried are now assigned on the backend: fold
+          // THOSE into the baseline so the row is no longer "new" and a re-Save is
+          // a no-op (won't 409). A material picked mid-save is not among them and
+          // stays dirty, so Save remains available to send it.
+          draft.createDraft.materialBaseline = savedMaterials.map((m) => m.groupId)
           // Refresh the cache with the just-saved values + materials, so a
           // re-click of this ground still shows the assignments without a GET.
           s.detailsById[action.payload.objectId] = {
-            values: { ...draft.createDraft.values },
+            values: { ...savedValues },
             objectTypeId: draft.createDraft.objectTypeId,
             objectName: draft.createDraft.objectName,
-            materialGroups: [...draft.createDraft.materials]
+            materialGroups: [...savedMaterials]
           }
           // Mirror the assigned groups onto the node so the 3D viewport reloads
           // this object when one of its materials is later edited.
           const node = s.nodesById[action.payload.objectId]
-          if (node) node.materialGroupIds = draft.createDraft.materials.map((m) => m.groupId)
+          if (node) node.materialGroupIds = savedMaterials.map((m) => m.groupId)
         }
         break
       }
