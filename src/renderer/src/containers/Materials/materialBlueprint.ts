@@ -133,11 +133,20 @@ export function isVisualisationComplete(
   })
 }
 
+// Catalog labels the app deliberately OVERRIDES (unlike VISUALISATION_CHANNEL_LABELS
+// above, which only fills in a label the catalog never sent). The Stomatal
+// Conductance sub-model dropdown ships as "Sub Model", which says nothing about
+// which model it selects. Keyed by property, so only the named field is affected —
+// Photosynthesis's own selector (`submodel`) keeps its "Photosynthesis Model".
+const LABEL_OVERRIDES: Record<string, string> = {
+  stomatal_model: 'Stomatal Model'
+}
+
 const toResolvedField = (def: MaterialTypeDef['properties'][number]): ResolvedMaterialField => ({
   property: def.property,
   // Prefer the catalog's explicit label ("V cmax25"); fall back to humanizing the
   // property name so an unlabeled property still reads sensibly.
-  label: def.label ?? humanizeProperty(def.property),
+  label: LABEL_OVERRIDES[def.property] ?? def.label ?? humanizeProperty(def.property),
   datatype: def.datatype,
   description: def.description,
   min: def.min,
