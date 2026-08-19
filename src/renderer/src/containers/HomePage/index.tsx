@@ -10,14 +10,12 @@ import MenuBar from '@renderer/components/MenuBar'
 import ProjectsTable from '@renderer/components/ProjectsTable'
 import SearchBar from '@renderer/components/SearchBar'
 import Sidebar from '@renderer/components/Sidebar'
-import { setActiveProject } from 'containers/ProjectScreen/actions'
+import { openProject } from 'containers/ProjectBoot/actions'
 import { useFormik } from 'formik'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { navigate } from 'store/navigationReducer'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import { STORAGE_KEYS } from 'utils/storageKeys'
 import { FormValues, INITIAL_VALUES, SidebarItem, TOOLBAR_ITEMS } from '../../types/project'
 import {
   createProject,
@@ -313,15 +311,12 @@ export function HomePage(): React.JSX.Element {
             projects={filteredProjects}
             emptyIcon={searchIcon}
             onCreateNew={openNewProjectDialog}
-            onRowClick={(projectId) => {
-              try {
-                localStorage.setItem(STORAGE_KEYS.activeProjectId, projectId)
-              } catch {
-                /* storage disabled — navigation still proceeds */
-              }
-              dispatch(setActiveProject(projectId))
-              dispatch(navigate('project'))
-            }}
+            // One dispatch, and the boot saga owns the rest. The screen no
+            // longer switches on click — it switches when the project is
+            // actually ready, with the loader covering this page until then.
+            // Nothing is written to storage here either: the persisted ids
+            // record what finished, not what was attempted.
+            onRowClick={(projectId) => dispatch(openProject(projectId))}
             onRequestDelete={handleRequestDelete}
             onRequestRename={handleRequestRename}
             deletingIds={deletingIds}

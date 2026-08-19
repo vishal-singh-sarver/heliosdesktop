@@ -7,20 +7,62 @@ import { GEOMETRY_ROUTES } from './endpoints'
 /**
  * Parse the backend's binary geometry wire format into PrimitiveInfo[].
  */
+/**
+ * Raised when the buffer runs out mid-primitive.
+ *
+ * Without this the failure surfaced as a bare RangeError thrown from inside
+ * DataView, naming neither the object nor the byte — nothing to act on. A
+ * truncated response is rare but it is exactly the case where a useful message
+ * saves an afternoon.
+ */
+class GeometryParseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GeometryParseError'
+  }
+}
+
 function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
   const view = new DataView(buffer)
   let offset = 0
 
+  // Every read is preceded by this. The wire format is a walk driven by lengths
+  // read out of the stream itself, so a single bad length would otherwise send
+  // the cursor off the end of the buffer.
+  //
+  // `what` must be a plain string constant, never a template literal. This runs
+  // several times per primitive, and an interpolated argument is built BEFORE
+  // the call — so passing `primitive ${i} header` allocated a fresh string on
+  // every primitive whether or not anything was wrong. On a large ground that
+  // was hundreds of thousands of throwaway strings for a message that never
+  // fires, and it made adding a ground visibly slower. The sentence is now
+  // assembled only when it is about to be thrown.
+  const need = (bytes: number, index: number, what: string): void => {
+    if (offset + bytes > buffer.byteLength) {
+      throw new GeometryParseError(
+        `Geometry data is truncated at primitive ${index} (${what}): needed ${bytes} more ` +
+          `byte(s) at offset ${offset}, buffer is ${buffer.byteLength} byte(s).`
+      )
+    }
+  }
+
+  if (buffer.byteLength < 4) {
+    throw new GeometryParseError(
+      `Geometry data is truncated: ${buffer.byteLength} byte(s), too short to hold a primitive count.`
+    )
+  }
   const count = view.getUint32(offset, true)
   offset += 4
 
   const primitives: PrimitiveInfo[] = new Array(count)
   for (let i = 0; i < count; i++) {
+    need(8, i, 'header')
     const uuid = view.getInt32(offset, true)
     offset += 4
     const vertexCount = view.getUint32(offset, true)
     offset += 4
 
+    need(vertexCount * 12, i, 'vertices')
     const vertices: Vec3[] = new Array(vertexCount)
     for (let v = 0; v < vertexCount; v++) {
       vertices[v] = {
@@ -31,11 +73,13 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
       offset += 12
     }
 
+    need(12, i, 'colour')
     const r = view.getFloat32(offset, true)
     const g = view.getFloat32(offset + 4, true)
     const b = view.getFloat32(offset + 8, true)
     offset += 12
 
+    need(2, i, 'texture path length')
     const texPathLen = view.getUint16(offset, true)
     offset += 2
 
@@ -44,6 +88,7 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
     let uvs: Vec2UV[] | undefined
 
     if (texPathLen > 0) {
+      need(texPathLen, i, 'texture path')
       const pathBytes = new Uint8Array(buffer, offset, texPathLen)
       let rawPath = new TextDecoder().decode(pathBytes)
       offset += texPathLen
@@ -54,6 +99,7 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
       }
       textureFile = rawPath
 
+      need(vertexCount * 8, i, 'texture coordinates')
       uvs = new Array(vertexCount)
       for (let vi = 0; vi < vertexCount; vi++) {
         uvs[vi] = {
@@ -77,26 +123,126 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
   return primitives
 }
 
+// Requests that have STARTED but not yet settled, keyed by path.
+//
+// Two callers asking for the same object at the same moment would otherwise
+// each start their own download. On a 231 MB scene that is the same bytes
+// pulled twice, parsed twice, and queued twice behind the backend's per-
+// scenario lock. The second caller joins the first instead.
+//
+// This mirrors the in-flight guard in ui/textureCache.ts, which exists on the
+// texture path for exactly this reason — the geometry path never got one.
+//
+// Callers share the SAME array. Nothing mutates a parsed result today (it is
+// stored in sceneCache and read for rendering), and nothing should start.
+interface InFlightRequest {
+  promise: Promise<PrimitiveInfo[]>
+  // Superseding a request is the only thing that aborts it. See the note on
+  // fetchBinaryGeometry for why nothing else may.
+  controller: AbortController
+}
+
+const inFlight = new Map<string, InFlightRequest>()
+
+// Second index over the same entries, so a caller that only knows which object
+// it is hiding can cancel that object's download without having to look up the
+// project and scenario ids to rebuild the URL.
+const inFlightByObject = new Map<number, string>()
+
+/**
+ * True for the rejection a deliberately cancelled request produces.
+ *
+ * A superseded download is not a failure — the newer request that replaced it
+ * owns the scene now — so callers must tell this apart from a real network error
+ * and stay quiet rather than showing the user an error for work we cancelled
+ * ourselves.
+ */
+export function isGeometryAborted(err: unknown): boolean {
+  return (err as { name?: string } | null)?.name === 'AbortError'
+}
+
 /**
  * Fetch binary geometry from a URL path. Uses fetch (not utils/api) because
  * the response is a binary ArrayBuffer, not JSON.
  *
- * No abort signal: a high-resolution mesh is legitimately slow to serve, and
- * cutting it off failed a load that would have completed. Matches utils/api,
- * which carries no timeout either.
+ * There is no timeout and there must not be one: a high-resolution mesh is
+ * legitimately slow to serve, and cutting it off on a clock failed loads that
+ * would have completed. Matches utils/api, which carries no timeout either.
+ *
+ * The abort signal is for one case only — a newer request for the SAME object
+ * has replaced this one. Those bytes were already going to be thrown away by the
+ * staleness token in store/sceneCache, and a ground at 1000×1000 is 228 MB, so
+ * letting it run to completion cost the network and the backend's per-scenario
+ * lock for a result nobody would read. Cancelling on supersede is free;
+ * cancelling on a clock is the thing that broke.
  */
-async function fetchBinaryGeometry(path: string): Promise<PrimitiveInfo[]> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'session-id': getSessionId() }
-  })
+async function fetchBinaryGeometry(path: string, objectId?: number): Promise<PrimitiveInfo[]> {
+  const joined = inFlight.get(path)
+  if (joined) return joined.promise
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new ApiError(res.status, body || res.statusText || `Failed to load geometry: ${path}`)
+  const controller = new AbortController()
+
+  const promise = (async (): Promise<PrimitiveInfo[]> => {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { 'session-id': getSessionId() },
+      signal: controller.signal
+    })
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new ApiError(res.status, body || res.statusText || `Failed to load geometry: ${path}`)
+    }
+
+    const buffer = await res.arrayBuffer()
+    return parseBinaryPrimitives(buffer)
+  })()
+
+  const entry: InFlightRequest = { promise, controller }
+  inFlight.set(path, entry)
+  if (objectId !== undefined) inFlightByObject.set(objectId, path)
+
+  try {
+    return await promise
+  } finally {
+    // Cleared once settled, success or failure, so a retry starts a fresh
+    // request rather than replaying a stale rejection.
+    //
+    // Only if the entry is still OURS. A superseded request may settle after its
+    // replacement started, and deleting unconditionally would drop the entry that
+    // took its place — losing the dedupe for everyone who asked afterwards.
+    if (inFlight.get(path) === entry) {
+      inFlight.delete(path)
+      if (objectId !== undefined && inFlightByObject.get(objectId) === path) {
+        inFlightByObject.delete(objectId)
+      }
+    }
   }
+}
 
-  const buffer = await res.arrayBuffer()
-  return parseBinaryPrimitives(buffer)
+/**
+ * Cancel the download in flight for one object and forget it.
+ *
+ * Two callers need this. An EDIT needs it because the dedupe above would
+ * otherwise hand it the request that started before the edit — that is what made
+ * saving a ground's properties mid-download repaint the viewport with the
+ * pre-save shape and look like the save had done nothing. A HIDE needs it
+ * because the correct result for a hidden object is no geometry at all, so the
+ * remaining bytes are pure waste.
+ *
+ * Safe to call when nothing is running.
+ */
+export function abortObjectGeometry(objectId: number): void {
+  const path = inFlightByObject.get(objectId)
+  if (path === undefined) return
+
+  const entry = inFlight.get(path)
+  inFlightByObject.delete(objectId)
+  if (!entry) return
+
+  // Dropped from the map BEFORE the abort so the rejection it triggers cannot
+  // find the entry and delete a replacement that has since taken this slot.
+  inFlight.delete(path)
+  entry.controller.abort()
 }
 
 /** Fetch and parse one object's geometry. */
@@ -106,5 +252,5 @@ export async function fetchObjectGeometryBinary(
   objectId: number
 ): Promise<PrimitiveInfo[]> {
   const path = GEOMETRY_ROUTES.objectGeometryBinary(projectId, scenarioId, objectId)
-  return fetchBinaryGeometry(path)
+  return fetchBinaryGeometry(path, objectId)
 }

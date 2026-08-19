@@ -38,8 +38,17 @@ export function Geometry(): React.JSX.Element {
   // Load the saved-geometries tree whenever the active scenario changes. We
   // dispatch and let the saga own the fetch (never call the service from a
   // component). takeLatest in the saga cancels a stale load on a fast switch.
+  //
+  // Keyed by scenario so a switch still refetches, while StrictMode's second
+  // run of this effect is ignored — it was fetching the tree (and the groups
+  // list with it) twice on every project open.
+  const treeRequestedRef = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (projectId && scenarioId) dispatch(listNodesRequested(projectId, scenarioId))
+    if (!projectId || !scenarioId) return
+    const key = `${projectId}:${scenarioId}`
+    if (treeRequestedRef.current === key) return
+    treeRequestedRef.current = key
+    dispatch(listNodesRequested(projectId, scenarioId))
   }, [projectId, scenarioId, dispatch])
 
   // +Ground POSTs a new object with default values immediately (the saga builds

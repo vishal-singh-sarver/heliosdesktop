@@ -761,12 +761,80 @@ describe('geometryReducer', () => {
     it('UPDATE_OBJECT_SUCCEEDED keeps the form open and clears saving/new, without touching the name', () => {
       let r = created()
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
+      r = geometryReducer(
+        r,
+        actions.updateObjectSucceeded(P, S, {
+          objectId: '27',
+          propsChanged: true,
+          materialsChanged: false,
+          savedValues: { length: '10', breadth: '10' },
+          savedMaterials: []
+        })
+      )
       // Form stays open (panel must not blank) showing the saved values.
       expect(r.createDraft).toMatchObject({ saving: false, isNew: false })
       // The name is owned by the blur/rename path — Save is field-only and leaves
       // the tree row's name untouched (so a rejected rename can't leak into it).
       expect(r.byScope[KEY].nodesById['27'].name).toBe('Ground.001')
+    })
+
+    // The fields stay editable while a save is in flight, and a 1000×1000 ground
+    // takes tens of seconds to PATCH — so typing during a save is ordinary, not a
+    // corner case. What the reply records has to be what the REQUEST carried.
+    it('UPDATE_OBJECT_SUCCEEDED keeps an edit made DURING the save unsaved', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+
+      // Mid-save: the user changes a value. This one was never sent.
+      r = geometryReducer(r, actions.setDraftValue('length', '999'))
+
+      r = geometryReducer(
+        r,
+        actions.updateObjectSucceeded(P, S, {
+          objectId: '27',
+          propsChanged: true,
+          materialsChanged: false,
+          // What the PATCH actually carried — the pre-edit values.
+          savedValues: { length: '10', breadth: '10' },
+          savedMaterials: []
+        })
+      )
+
+      // The draft keeps the user's newer value...
+      expect(r.createDraft?.values.length).toBe('999')
+      // ...and the baseline records only what the backend really holds. The two
+      // differ, which is what makes the form read as dirty and re-enables Save.
+      // Taking the live draft here marked '999' as saved: Save greyed itself out,
+      // the toast said "Changes saved", and the edit was silently dropped.
+      expect(r.byScope[KEY].detailsById['27'].values).toEqual({
+        length: '10',
+        breadth: '10'
+      })
+    })
+
+    it('UPDATE_OBJECT_SUCCEEDED keeps a material picked DURING the save unsaved', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+
+      // Mid-save: the user picks a material. It was not in the PATCH.
+      r = geometryReducer(r, actions.addDraftMaterial('41', 'Grass'))
+
+      r = geometryReducer(
+        r,
+        actions.updateObjectSucceeded(P, S, {
+          objectId: '27',
+          propsChanged: true,
+          materialsChanged: false,
+          savedValues: { length: '10', breadth: '10' },
+          savedMaterials: []
+        })
+      )
+
+      // Still shown as picked, and still OUTSIDE the baseline — so it counts as
+      // dirty and the next Save actually assigns it. Folding it in from the live
+      // draft would have left the ground unstyled on the backend forever.
+      expect(r.createDraft?.materials).toEqual([{ groupId: '41', name: 'Grass' }])
+      expect(r.createDraft?.materialBaseline).toEqual([])
     })
 
     it('UPDATE_OBJECT_SUCCEEDED folds picked materials into the baseline + cache', () => {
@@ -775,7 +843,16 @@ describe('geometryReducer', () => {
       // Before save: picked but not yet in the baseline (Save would PATCH it).
       expect(r.createDraft?.materialBaseline).toEqual([])
       r = geometryReducer(r, actions.updateObjectRequested(P, S))
-      r = geometryReducer(r, actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+      r = geometryReducer(
+        r,
+        actions.updateObjectSucceeded(P, S, {
+          objectId: '27',
+          propsChanged: false,
+          materialsChanged: true,
+          savedValues: { length: '10', breadth: '10' },
+          savedMaterials: [{ groupId: '41', name: 'Grass' }]
+        })
+      )
       // After save: the group is now assigned → baseline covers it (re-Save is a
       // no-op) and the cache carries it so a re-click still shows the assignment.
       expect(r.createDraft?.materialBaseline).toEqual(['41'])

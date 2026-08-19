@@ -30,9 +30,23 @@ import type {
 } from 'containers/Materials/actions'
 import { SET_ACTIVE_SCENARIO } from 'containers/ProjectScreen/constants'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
-import { all, call, delay, put, race, select, take, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
+import {
+  call,
+  delay,
+  put,
+  race,
+  select,
+  take,
+  takeEvery,
+  takeLatest,
+  takeLeading
+} from 'redux-saga/effects'
 import { ApiError } from 'utils/api'
-import { fetchObjectGeometryBinary } from '../api/geometry'
+import {
+  abortObjectGeometry,
+  fetchObjectGeometryBinary,
+  isGeometryAborted
+} from '../api/geometry'
 import type { ApiErrorPayload, PrimitiveInfo, SceneObject } from '../models/types'
 import * as actions from './actions'
 import {
@@ -41,8 +55,20 @@ import {
   SELECT_SCENE_OBJECT
 } from './constants'
 import { clearTextureCache } from '../ui/textureCache'
-import { clearSceneCache, getObjectPrimitives, removeObjectPrimitives, setObjectPrimitives } from './sceneCache'
-import { selectSceneLoad, selectSceneObjectIds, selectSceneObjects, selectSelectedObjectId } from './selectors'
+import {
+  bumpGeometryGeneration,
+  clearSceneCache,
+  geometryToken,
+  getObjectPrimitives,
+  removeObjectPrimitives,
+  setObjectPrimitives
+} from './sceneCache'
+import {
+  selectSceneLoad,
+  selectSceneObjectIds,
+  selectSceneObjects,
+  selectSelectedObjectId
+} from './selectors'
 
 function toErrorPayload(err: unknown): ApiErrorPayload {
   if (err instanceof ApiError) {
@@ -58,18 +84,66 @@ function toErrorPayload(err: unknown): ApiErrorPayload {
 // Used both by the explicit loadObjectGeometry action and as a reaction to
 // Geometry container events (create, update).
 
-function* fetchAndCacheObjectGeometry(objectId: number, autoSelect = true): Generator {
+/**
+ * Fetch one object's geometry and put it in the scene.
+ *
+ * `fresh` is for callers who know the bytes just changed — a property save, a
+ * material change, an un-hide of something edited while hidden. It drops the
+ * shared in-flight request so the fetch cannot be served the geometry from
+ * before the edit, which is what made a save during a slow download look like it
+ * had done nothing.
+ *
+ * Either way the result is only written if the object's staleness token is
+ * unchanged when it lands. Nothing cancels a binary fetch, so this is the only
+ * thing standing between a slow download and the scene it is no longer entitled
+ * to write to.
+ */
+function* fetchAndCacheObjectGeometry(
+  objectId: number,
+  autoSelect = true,
+  fresh = false
+): Generator {
   const projectId = (yield select(selectActiveProjectId)) as string | null
   const scenarioId = (yield select(selectActiveScenarioId)) as string | null
 
   if (!projectId || !scenarioId) return
 
-  const primitives = (yield call(
-    fetchObjectGeometryBinary,
-    projectId,
-    scenarioId,
-    objectId
-  )) as PrimitiveInfo[]
+  if (fresh) {
+    bumpGeometryGeneration(objectId)
+    // Cancels the download this one replaces. A ground at 1000×1000 is 228 MB,
+    // and the superseded copy was going to be discarded on arrival anyway.
+    abortObjectGeometry(objectId)
+  }
+
+  // Read AFTER the bump above, so this run owns the token it is about to check.
+  const token = geometryToken(objectId)
+
+  let primitives: PrimitiveInfo[]
+  try {
+    primitives = (yield call(
+      fetchObjectGeometryBinary,
+      projectId,
+      scenarioId,
+      objectId
+    )) as PrimitiveInfo[]
+  } catch (err) {
+    // Cancelled on purpose, because a newer fetch for this object replaced this
+    // one or the user hid it. Not a failure: returning quietly keeps it out of
+    // loadSceneFailed, which would otherwise show the user an error for work the
+    // app cancelled itself.
+    if (isGeometryAborted(err)) return
+    throw err
+  }
+
+  // The world moved while these bytes were on the wire: the object was hidden,
+  // saved, restyled, or the whole scene was cleared. Whoever moved it has
+  // already put the scene in the state it wants, so this result is not just
+  // late — it is wrong. Drop it silently; a caller that still needs geometry has
+  // its own fetch running.
+  //
+  // Still needed alongside the abort above: a request that had already finished
+  // downloading when it was superseded has nothing left to cancel.
+  if (geometryToken(objectId) !== token) return
 
   yield call(setObjectPrimitives, objectId, primitives)
   yield put(
@@ -119,7 +193,9 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
   if (node && !node.visibleInViewport) return
 
   try {
-    yield* fetchAndCacheObjectGeometry(objectId, false)
+    // fresh: the save is exactly what changed the bytes. Joining a download that
+    // started before it would repaint the viewport with the pre-save geometry.
+    yield* fetchAndCacheObjectGeometry(objectId, false, true)
   } catch {
     // Non-fatal.
   }
@@ -135,7 +211,7 @@ export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Gene
     const node = nodesById[rawId]
     if (node && !node.visibleInViewport) continue
     try {
-      yield* fetchAndCacheObjectGeometry(Number(rawId), false)
+      yield* fetchAndCacheObjectGeometry(Number(rawId), false, true)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
@@ -153,7 +229,7 @@ function* refetchObjectsUsingGroup(groupId: string): Generator {
     if (node.kind === 'group' || !node.visibleInViewport) continue
     if (!(node.materialGroupIds ?? []).includes(groupId)) continue
     try {
-      yield* fetchAndCacheObjectGeometry(Number(node.id), false)
+      yield* fetchAndCacheObjectGeometry(Number(node.id), false, true)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
@@ -243,8 +319,6 @@ export function* loadSceneWorker(): Generator {
     // loaded (or idle/errored), the scene is legitimately empty and waiting
     // would block on a LIST_NODES_SUCCEEDED that already fired (up to the 30s
     // timeout, leaving the loader stuck for empty projects).
-    // This replaces the old LIST_NODES_SUCCEEDED → scenarioChangeWorker
-    // watcher that caused duplicate binary API calls.
     if (objects.length === 0) {
       const loadStatus = (yield select(selectLoadStatus)) as LoadStatus
       if (loadStatus === 'loading') {
@@ -261,15 +335,20 @@ export function* loadSceneWorker(): Generator {
       return
     }
 
-    // Fetch all objects in parallel via the single-object binary API.
-    const results = (yield all(
-      objects.map((obj) => call(fetchObjectGeometryBinary, projectId, scenarioId, obj.id))
-    )) as PrimitiveInfo[][]
-
-    // Cache each object's primitives individually (no auto-select).
-    for (let i = 0; i < objects.length; i++) {
-      yield call(setObjectPrimitives, objects[i].id, results[i])
-      yield put(actions.objectGeometryCached(objects[i].id))
+    // Fetched one at a time, on purpose. Every geometry route on the backend
+    // takes the same process-wide lock, so firing all N at once does not make
+    // them run together — they queue at one door and finish in the same total
+    // time. Sequential costs nothing and means one object failing no longer
+    // discards the other eleven the way `all()` did.
+    for (const obj of objects) {
+      const primitives = (yield call(
+        fetchObjectGeometryBinary,
+        projectId,
+        scenarioId,
+        obj.id
+      )) as PrimitiveInfo[]
+      yield call(setObjectPrimitives, obj.id, primitives)
+      yield put(actions.objectGeometryCached(obj.id))
     }
 
     yield put(actions.loadSceneSucceeded())
@@ -289,11 +368,10 @@ export function* scenarioChangeWorker(): Generator {
 // doesn't wait, and returns empty without fetching any binary geometry. When the
 // tree then arrives we re-trigger the load here.
 //
-// Guards keep this from reintroducing the duplicate binary fetches that the old
-// LIST_NODES_SUCCEEDED → scenarioChangeWorker watcher caused: skip when the
-// scenario is empty, when the scene cache is already populated (load already
-// completed), or when a load is currently in flight (let it finish). takeLatest
-// coalesces bursts of LIST_NODES_SUCCEEDED.
+// Guards keep this from causing duplicate binary fetches: skip when the scenario
+// is empty, when the scene cache is already populated (load already completed),
+// or when a load is currently in flight (let it finish). takeLatest coalesces
+// bursts of LIST_NODES_SUCCEEDED.
 export function* onNodesListed(): Generator {
   const projectId = (yield select(selectActiveProjectId)) as string | null
   const scenarioId = (yield select(selectActiveScenarioId)) as string | null
@@ -379,12 +457,21 @@ export function* onViewportToggled(action: ToggleViewportAction): Generator {
 
     if (!leaf.visibleInViewport) {
       // Hidden — remove from cache and scene.
+      //
+      // Closing the eye mid-download used to leave the whole 228 MB arriving for
+      // an object the user had just said they did not want to see. The result
+      // was already discarded on landing; now the transfer stops too.
+      abortObjectGeometry(objectId)
       yield call(removeObjectPrimitives, objectId)
       yield put(actions.objectGeometryRemoved(objectId))
     } else {
       // Unhidden — fetch geometry and add back to cache.
+      //
+      // fresh: onGeometryUpdated deliberately skips hidden objects, so anything
+      // edited while this one was hidden is only picked up here. A shared
+      // download from before those edits would show the stale shape.
       try {
-        yield* fetchAndCacheObjectGeometry(objectId, false)
+        yield* fetchAndCacheObjectGeometry(objectId, false, true)
       } catch {
         // Non-fatal.
       }
@@ -409,12 +496,14 @@ export function* onVisibilitySyncFailed(action: VisibilitySyncFailedAction): Gen
     if (leaf.visibleInViewport) {
       // Was hidden (we removed from cache) → now visible again → re-fetch.
       try {
-        yield* fetchAndCacheObjectGeometry(objectId, false)
+        yield* fetchAndCacheObjectGeometry(objectId, false, true)
       } catch {
         // Non-fatal.
       }
     } else {
-      // Was unhidden (we added to cache) → now hidden again → remove.
+      // Was unhidden (we added to cache) → now hidden again → remove. The
+      // un-hide's fetch may still be running; it is no longer wanted either.
+      abortObjectGeometry(objectId)
       yield call(removeObjectPrimitives, objectId)
       yield put(actions.objectGeometryRemoved(objectId))
     }
@@ -427,9 +516,11 @@ export default function* threeDWindowSaga(): Generator {
   yield takeLeading(LOAD_OBJECT_GEOMETRY_REQUESTED, loadObjectGeometryWorker)
 
   yield takeLatest(LOAD_SCENE_REQUESTED, loadSceneWorker)
+  // The scene load is driven from here, not from the boot saga: the loader
+  // covers only the scenario-context hydration and everything else starts when
+  // the screen mounts. A new active scenario starts a load; the LIST_NODES
+  // watcher re-triggers it if that first attempt ran before the tree was ready.
   yield takeLatest(SET_ACTIVE_SCENARIO, scenarioChangeWorker)
-  // Safety net for the boot/refresh race: if loadScene ran before the geometry
-  // tree was ready and bailed, re-run it once the tree lists (see onNodesListed).
   yield takeLatest(LIST_NODES_SUCCEEDED, onNodesListed)
 
   yield takeLatest(SELECT_SCENE_OBJECT, selectSceneObjectWorker)

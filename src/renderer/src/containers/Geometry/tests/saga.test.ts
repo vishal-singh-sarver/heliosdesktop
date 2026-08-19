@@ -267,7 +267,7 @@ describe('updateObjectWorker', () => {
     )
     // Save is properties-only → straight to success, no rename call.
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false, savedValues: draft.values, savedMaterials: [] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -290,7 +290,7 @@ describe('updateObjectWorker', () => {
       })
     )
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: true, materialsChanged: false, savedValues: draft.values, savedMaterials: [] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -306,7 +306,7 @@ describe('updateObjectWorker', () => {
     gen.next({ '27': groundNode('27') }) // select detailsById
     // Props unchanged + Save ignores the name → no API calls, straight to success.
     expect(gen.next({ '27': original }).value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false, savedValues: draft.values, savedMaterials: [] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -320,7 +320,7 @@ describe('updateObjectWorker', () => {
     gen.next({ '27': groundNode('27') }) // select detailsById
     // Props match cache → straight to success, no API calls.
     expect(gen.next({ '27': original }).value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false, savedValues: draft.values, savedMaterials: [] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -353,7 +353,7 @@ describe('updateObjectWorker', () => {
       })
     )
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true, savedValues: draft.values, savedMaterials: [{ groupId: '41', name: 'Grass' }] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -377,7 +377,7 @@ describe('updateObjectWorker', () => {
     gen.next({ '27': groundNode('27') }) // select detailsById
     // Props unchanged + the material is already in the baseline → no API call.
     expect(gen.next({ '27': original }).value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: false, savedValues: draft.values, savedMaterials: [{ groupId: '41', name: 'Grass' }] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -414,7 +414,7 @@ describe('updateObjectWorker', () => {
       })
     )
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true, savedValues: draft.values, savedMaterials: [{ groupId: '42', name: 'Cotton' }] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
@@ -438,7 +438,7 @@ describe('updateObjectWorker', () => {
       all([call(service.unassignMaterial, P, S, '27', '41')])
     )
     expect(gen.next().value).toEqual(
-      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true }))
+      put(actions.updateObjectSucceeded(P, S, { objectId: '27', propsChanged: false, materialsChanged: true, savedValues: draft.values, savedMaterials: [] }))
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)

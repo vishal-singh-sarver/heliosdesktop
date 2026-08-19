@@ -114,32 +114,34 @@ describe('<ProjectScreen />', () => {
 
   // ── Mount lifecycle ─────────────────────────────────────────────────────
 
-  it('dispatches loadDataTypesRequested on mount', () => {
+  // The loader covers only the scenario-context hydration (/init). By the time
+  // this mounts the backend is warm, and the screen loads its own data from
+  // here — so these dispatches are the contract, not an accident of ordering.
+  it('loads the whole type catalog on mount', () => {
     render(<ProjectScreen />)
+
     expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadObjectTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadMaterialTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadModelTypesRequested())
   })
 
-  it('hydrates active project from localStorage when no id is in state', () => {
+  it('hydrates the active project from localStorage when no id is in state', () => {
     localStorage.setItem(STORAGE_KEYS.activeProjectId, 'p-stored')
     render(<ProjectScreen />)
     expect(mockDispatch).toHaveBeenCalledWith(projectActions.setActiveProject('p-stored'))
   })
 
-  it('does not hydrate from localStorage when an active project id is already present', () => {
+  it('does not hydrate when an active project id is already present', () => {
     sel.activeProjectId = 'p-existing'
-    sel.activeProject = {
-      id: 'p-existing',
-      name: 'X',
-      latitude: 0,
-      longitude: 0,
-      utc_offset: '+00:00'
-    }
     localStorage.setItem(STORAGE_KEYS.activeProjectId, 'p-stored')
     render(<ProjectScreen />)
     expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.setActiveProject('p-stored'))
   })
 
   it('lists scenarios when activeProjectId is set', () => {
+    // listScenarios is also what sets the active scenario, which is what
+    // starts the scene load — so skipping it would leave the 3D view empty.
     sel.activeProjectId = 'p-1'
     render(<ProjectScreen />)
     expect(mockDispatch).toHaveBeenCalledWith(projectActions.listScenariosRequested('p-1'))

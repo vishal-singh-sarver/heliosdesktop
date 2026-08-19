@@ -68,7 +68,13 @@ export function Materials(): React.JSX.Element {
   // it loads once when the section mounts rather than per active project. We
   // dispatch and let the saga own the fetch (never call the service from a
   // component).
+  // Ref-guarded so StrictMode's deliberate second run of this effect does not
+  // fetch the material library twice on every project open. A real navigation
+  // destroys the component, so returning to the screen still refreshes it.
+  const materialsRequestedRef = React.useRef(false)
   React.useEffect(() => {
+    if (materialsRequestedRef.current) return
+    materialsRequestedRef.current = true
     dispatch(listMaterialsRequested())
   }, [dispatch])
 

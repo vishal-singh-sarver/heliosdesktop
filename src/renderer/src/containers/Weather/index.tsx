@@ -3,6 +3,7 @@ import { PrimaryBtn } from '@renderer/components/ImportWizard/primitives'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
+import { loadScenarioRequested } from 'containers/ProjectScreen/actions'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import loadable from 'utils/loadable'
@@ -20,6 +21,7 @@ import saga from './saga'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
+  selectActiveWeatherTable,
   selectClearingImport,
   selectDataset,
   selectFileError,
@@ -60,6 +62,28 @@ export function Weather(): React.JSX.Element {
     dataset: ImportedDataset
     truncatedDecimals: boolean
   } | null>(null)
+
+  // Weather loads on first view, not on project open. It is one tab of three
+  // and most sessions never open it, while a year of hourly readings is
+  // thousands of rows — paying for that on every project open, before the user
+  // has asked for it, is time nobody gets back. Nothing in the 3D view or the
+  // geometry tree reads this data, so deferring it costs those nothing.
+  //
+  // Ref-keyed like the other mount fetches. The `weatherTable` check alone is
+  // not enough: StrictMode remounts before the first dispatch has resolved, so
+  // the table is still null and it fires twice. It only stays at one request
+  // today because takeLatest cancels the first worker before it reaches the
+  // network — luck, not design.
+  const weatherTable = useSelector(selectActiveWeatherTable)
+  const weatherRequestedRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (weatherTable) return
+    if (!activeProjectId || !activeScenarioId) return
+    const key = `${activeProjectId}:${activeScenarioId}`
+    if (weatherRequestedRef.current === key) return
+    weatherRequestedRef.current = key
+    dispatch(loadScenarioRequested(activeProjectId, activeScenarioId))
+  }, [weatherTable, activeProjectId, activeScenarioId, dispatch])
 
   // Acknowledge a precision-normalized import WITHOUT announcing it. The
   // 7-decimal cap is a standing rule the user cannot change, and StepReview

@@ -14,6 +14,20 @@ export const BASE_URL =
 // builder functions so callers can't forget either.
 
 export const API_ROUTES = {
+  // Scenario context lifecycle. `init` creates and hydrates the scenario's
+  // context — rebuilding the saved scene into memory — and streams its progress
+  // as SSE. Every other scenario-scoped call is fast once it has finished, which
+  // is why the boot saga runs it first and alone. `discard` autosaves and
+  // releases that context when the user leaves.
+  //
+  // Note the plural `scenarios` segment here: the weather routes above use the
+  // singular `scenario`, and the two are not interchangeable.
+  scenario: {
+    init: (projectId: string, scenarioId: string) =>
+      `/api/project/${projectId}/scenarios/${scenarioId}/init`,
+    discard: (projectId: string, scenarioId: string) =>
+      `/api/project/${projectId}/scenarios/${scenarioId}/discard`
+  },
   project: {
     create: '/api/project/create',
     recent: '/api/project/recent',
