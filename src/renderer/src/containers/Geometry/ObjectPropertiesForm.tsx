@@ -309,13 +309,15 @@ export function buildMaterialSections(
             label: pg.name ?? 'General',
             rows: pg.fields.map((f) => {
               const stored = asDisplay(member.properties[f.property])
-              // A SELECTOR enum stores a code ('farquhar_model', 'BWB'); the
-              // blueprint carries the friendly name each code stands for in
-              // `enumLabels`, which is what the editable form's dropdown shows.
-              // Read it the same way here — a read-only view printing the raw
-              // code named a thing the user never typed and can't look up.
-              // Ordinary enums have no enumLabels, so their value passes through.
-              const value = f.enumLabels?.[stored] ?? stored
+              // A SELECTOR enum stores a code — 'BMF', 'farquhar_model'. Show the
+              // STORED code, not the sub-model's full name: the popup reports what
+              // the material actually holds, and 'BMF' is how the backend names it.
+              // Humanized only, so an underscored code doesn't leak as-is
+              // ('farquhar_model' → "Farquhar Model"); an acronym has no
+              // underscores and only its first letter is touched, so 'BMF' stays
+              // 'BMF'. `enumLabels` marks the selector enums — ordinary ones (e.g.
+              // the Heat Transfer Flag's 'Two Sided') pass through untouched.
+              const value = f.enumLabels && stored !== '' ? humanizeProperty(stored) : stored
               return {
                 property: f.property,
                 // The Visualiser's colour channels read "R"/"G"/"B" here, matching

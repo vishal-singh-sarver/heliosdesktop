@@ -159,33 +159,33 @@ describe('buildMaterialSections — conditional groups', () => {
     ])
   })
 
-  // The selector row itself. Its stored value is a CODE ('BWB', 'farquhar_model')
-  // — the same code the editable form hides behind the sub-model's friendly name
-  // (resolveParameterGroups hands the field `enumLabels` for exactly this). The
-  // popup mirrors that form, so it must read the same: showing "farquhar_model"
-  // in a read-only view names a thing the user never typed and cannot look up.
-  it('shows the selector’s friendly sub-model name, not its stored code', () => {
+  // The selector row itself. The popup reports what the material actually HOLDS,
+  // so it shows the stored code — 'BMF' is the backend's name for that sub-model,
+  // and the section heading beside it already spells out "Buckley-mott-farquhar".
+  // An acronym has no underscores, so humanizing touches only its first letter
+  // and it survives verbatim.
+  it('shows the selector’s stored code, not the sub-model’s full name', () => {
     const [section] = buildMaterialSections(
-      [{ materialTypeId: 6, properties: { stomatal_model: 'BWB', bwb_gs0: 0.2, bwb_a1: 45 } }],
+      [{ materialTypeId: 6, properties: { stomatal_model: 'BMF', bmf_em: 10, bmf_i0: 10 } }],
       [stomatal, photosynthesis]
     )
     const general = section.groups.find((g) => g.label === 'General')
-    expect(general?.rows.find((r) => r.property === 'stomatal_model')?.value).toBe(
-      'Ball-woodrow-berry'
-    )
+    expect(general?.rows.find((r) => r.property === 'stomatal_model')?.value).toBe('BMF')
   })
 
-  it('does the same for the Photosynthesis selector (farquhar_model → Farquhar model)', () => {
+  // …but an UNDERSCORED code is not something to print raw, so it is humanized
+  // the same way an unlabeled property name is.
+  it('humanizes an underscored code (farquhar_model → Farquhar Model)', () => {
     const [section] = buildMaterialSections(
       [{ materialTypeId: 4, properties: { submodel: 'farquhar_model', vcmax25: 500 } }],
       [photosynthesisWithSelector]
     )
     const general = section.groups.find((g) => g.label === 'General')
-    expect(general?.rows.find((r) => r.property === 'submodel')?.value).toBe('Farquhar model')
+    expect(general?.rows.find((r) => r.property === 'submodel')?.value).toBe('Farquhar Model')
   })
 
-  // A plain enum — one with no group hanging off it — has no friendly names to
-  // map through, so its stored value is what there is to show.
+  // A plain enum — one with no group hanging off it — is not a selector, so its
+  // stored value is shown exactly as the backend sent it.
   it('leaves a non-selector enum’s value alone', () => {
     const [section] = buildMaterialSections(
       [{ materialTypeId: 9, properties: { two_sided_heat_transfer: 'two_sided' } }],
