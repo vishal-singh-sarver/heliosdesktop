@@ -308,7 +308,14 @@ export function buildMaterialSections(
             group: pg.name ?? 'general',
             label: pg.name ?? 'General',
             rows: pg.fields.map((f) => {
-              const value = asDisplay(member.properties[f.property])
+              const stored = asDisplay(member.properties[f.property])
+              // A SELECTOR enum stores a code ('farquhar_model', 'BWB'); the
+              // blueprint carries the friendly name each code stands for in
+              // `enumLabels`, which is what the editable form's dropdown shows.
+              // Read it the same way here — a read-only view printing the raw
+              // code named a thing the user never typed and can't look up.
+              // Ordinary enums have no enumLabels, so their value passes through.
+              const value = f.enumLabels?.[stored] ?? stored
               return {
                 property: f.property,
                 // The Visualiser's colour channels read "R"/"G"/"B" here, matching

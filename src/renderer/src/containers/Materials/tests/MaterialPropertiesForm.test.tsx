@@ -431,8 +431,10 @@ describe('<MaterialPropertiesForm /> conditional parameter groups', () => {
       </Provider>
     )
     // The enum field is our own dropdown now, so its list only exists once
-    // opened — and the raw code never surfaces as a label.
-    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Conductance/ }))
+    // opened — and the raw code never surfaces as a label. Named "Stomatal
+    // Model", not the catalog's own label for the property: the blueprint
+    // overrides that one (see LABEL_OVERRIDES).
+    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Model/ }))
 
     expect(screen.getByRole('option', { name: 'Ball-woodrow-berry' })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'BWB' })).not.toBeInTheDocument()

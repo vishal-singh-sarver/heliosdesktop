@@ -74,6 +74,58 @@ const photosynthesis: MaterialTypeDef = {
   ]
 }
 
+// The LIVE Photosynthesis shape: the Farquhar group hangs off a `submodel`
+// selector, so the stored value is the code 'farquhar_model' and the group's name
+// is the friendly text the popup has to show for it.
+const photosynthesisWithSelector: MaterialTypeDef = {
+  id: 4,
+  materialtype: 'Photosynthesis',
+  description: '',
+  properties: [
+    {
+      property_type_id: 90,
+      property: 'submodel',
+      label: 'Photosynthesis Model',
+      description: '',
+      datatype: 'enum',
+      min: null,
+      max: null,
+      enum_values: ['farquhar_model'],
+      display_order: 5
+    }
+  ],
+  groups: [
+    {
+      name: 'Farquhar model',
+      selector_property: 'submodel',
+      selector_value: 'farquhar_model',
+      display_order: 7,
+      properties: [float('vcmax25', 7, 'Vcmax_25')]
+    }
+  ]
+}
+
+// An enum that drives NO group — nothing to map its value through.
+const plainEnumType: MaterialTypeDef = {
+  id: 9,
+  materialtype: 'Energy Balance',
+  description: '',
+  properties: [
+    {
+      property_type_id: 91,
+      property: 'two_sided_heat_transfer',
+      label: 'Heat Transfer Flag',
+      description: '',
+      datatype: 'enum',
+      min: null,
+      max: null,
+      enum_values: ['one_sided', 'two_sided'],
+      display_order: 1
+    }
+  ],
+  groups: []
+}
+
 const groupNames = (member: Parameters<typeof buildMaterialSections>[0][number]): unknown[] =>
   buildMaterialSections([member], [stomatal, photosynthesis])[0].groups.map((g) => g.label)
 
@@ -105,6 +157,41 @@ describe('buildMaterialSections — conditional groups', () => {
       'General',
       'Farquhar model'
     ])
+  })
+
+  // The selector row itself. Its stored value is a CODE ('BWB', 'farquhar_model')
+  // — the same code the editable form hides behind the sub-model's friendly name
+  // (resolveParameterGroups hands the field `enumLabels` for exactly this). The
+  // popup mirrors that form, so it must read the same: showing "farquhar_model"
+  // in a read-only view names a thing the user never typed and cannot look up.
+  it('shows the selector’s friendly sub-model name, not its stored code', () => {
+    const [section] = buildMaterialSections(
+      [{ materialTypeId: 6, properties: { stomatal_model: 'BWB', bwb_gs0: 0.2, bwb_a1: 45 } }],
+      [stomatal, photosynthesis]
+    )
+    const general = section.groups.find((g) => g.label === 'General')
+    expect(general?.rows.find((r) => r.property === 'stomatal_model')?.value).toBe(
+      'Ball-woodrow-berry'
+    )
+  })
+
+  it('does the same for the Photosynthesis selector (farquhar_model → Farquhar model)', () => {
+    const [section] = buildMaterialSections(
+      [{ materialTypeId: 4, properties: { submodel: 'farquhar_model', vcmax25: 500 } }],
+      [photosynthesisWithSelector]
+    )
+    const general = section.groups.find((g) => g.label === 'General')
+    expect(general?.rows.find((r) => r.property === 'submodel')?.value).toBe('Farquhar model')
+  })
+
+  // A plain enum — one with no group hanging off it — has no friendly names to
+  // map through, so its stored value is what there is to show.
+  it('leaves a non-selector enum’s value alone', () => {
+    const [section] = buildMaterialSections(
+      [{ materialTypeId: 9, properties: { two_sided_heat_transfer: 'two_sided' } }],
+      [plainEnumType]
+    )
+    expect(section.groups[0].rows[0].value).toBe('two_sided')
   })
 
   it('renders the selected sub-model’s values', () => {

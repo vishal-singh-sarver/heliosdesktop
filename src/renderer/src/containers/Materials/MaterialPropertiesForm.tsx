@@ -316,7 +316,12 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     const nextSpectral = applySpectral ? (card.values[SPECTRAL_DATA_PROPERTY] ?? '') : ''
     const obsoleteFilePath =
       savedSpectral && savedSpectral !== nextSpectral ? savedSpectral : undefined
-    dispatchSave(card, type.id, toRadiationProperties(type, card.values, applySpectral), obsoleteFilePath)
+    dispatchSave(
+      card,
+      type.id,
+      toRadiationProperties(type, card.values, applySpectral),
+      obsoleteFilePath
+    )
   }
 
   // The Radiation spectral-data upload — reuses the shared file-upload path, keyed
@@ -396,93 +401,93 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
           to rename) and a trash (delete the whole material). The name and its
           error stack, so the error pushes nothing sideways. */}
       <div className="flex shrink-0 flex-col">
-      <div className="flex items-center gap-1">
-        <div className="relative min-w-0 flex-1">
-          <input
-            ref={nameInputRef}
-            aria-label="Material name"
-            aria-invalid={nameError != null}
-            value={draft.name}
-            readOnly={!nameEditing}
-            onChange={(e) => handleNameChange(e.target.value)}
-            onDoubleClick={startNameEdit}
-            onBlur={handleNameBlur}
-            onMouseEnter={showFullTextOnHover}
-            // truncate: an input clips a too-long name mid-letter, right up
-            // against the + button beside it. The ellipsis says the name goes
-            // on, and the hover shows the rest of it. (Only the ellipsis half of
-            // `truncate` does anything here — an input never wraps or overflows
-            // visibly — and the browser drops it again while the field is
-            // focused, so a name being edited still scrolls under the caret.)
-            //
-            // The right padding grows to clear the error icon, so a long name is
-            // cut off before it reaches it rather than running underneath.
-            className={`w-full truncate rounded border bg-transparent py-0.5 ${
-              nameError ? 'pl-1 pr-7' : 'px-1'
-            } text-sm font-medium text-neutral-100 outline-none ${
-              !nameEditing ? 'cursor-default ' : ''
-            }${
-              nameError
-                ? 'border-red-500'
-                : nameEditing
-                  ? 'border-neutral-500'
-                  : 'border-transparent hover:border-app-border'
-            }`}
-          />
-          {/* The same in-field error icon the Geometry panel's name carries, so
+        <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <input
+              ref={nameInputRef}
+              aria-label="Material name"
+              aria-invalid={nameError != null}
+              value={draft.name}
+              readOnly={!nameEditing}
+              onChange={(e) => handleNameChange(e.target.value)}
+              onDoubleClick={startNameEdit}
+              onBlur={handleNameBlur}
+              onMouseEnter={showFullTextOnHover}
+              // truncate: an input clips a too-long name mid-letter, right up
+              // against the + button beside it. The ellipsis says the name goes
+              // on, and the hover shows the rest of it. (Only the ellipsis half of
+              // `truncate` does anything here — an input never wraps or overflows
+              // visibly — and the browser drops it again while the field is
+              // focused, so a name being edited still scrolls under the caret.)
+              //
+              // The right padding grows to clear the error icon, so a long name is
+              // cut off before it reaches it rather than running underneath.
+              className={`w-full truncate rounded border bg-transparent py-0.5 ${
+                nameError ? 'pl-1 pr-7' : 'px-1'
+              } text-sm font-medium text-neutral-100 outline-none ${
+                !nameEditing ? 'cursor-default ' : ''
+              }${
+                nameError
+                  ? 'border-red-500'
+                  : nameEditing
+                    ? 'border-neutral-500'
+                    : 'border-transparent hover:border-app-border'
+              }`}
+            />
+            {/* The same in-field error icon the Geometry panel's name carries, so
               the reason a name is rejected is readable without hunting for the
               line under the row — which the panel's own scrolling can put out of
               sight. The message stays below as well; this is a second way to
               reach it, not a move. */}
-          {nameError && (
-            <Tooltip
-              text={nameError}
-              ariaLabel={`Validation error: ${nameError}`}
-              place="top"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2"
-            >
-              <img src={infoIcon} alt="" className="h-4 w-4" />
-            </Tooltip>
-          )}
-        </div>
-        {/* "+ Material Type" adds another Parameter Group card — the same action
+            {nameError && (
+              <Tooltip
+                text={nameError}
+                ariaLabel={`Validation error: ${nameError}`}
+                place="top"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2"
+              >
+                <img src={infoIcon} alt="" className="h-4 w-4" />
+              </Tooltip>
+            )}
+          </div>
+          {/* "+ Material Type" adds another Parameter Group card — the same action
             the footer button used to carry, now sitting with the material's other
             row actions. It stops once there is a card per catalog material type.
             Same labelled pill as the Geometry / Materials create actions, so the
             two panels' add-buttons read alike; the accessible name spells out the
             full action the shorter visible label stands for. */}
-        <ToolbarButton
-          label={messages.materialType}
-          ariaLabel={messages.addMaterialType}
-          title={atTypeLimit ? messages.allTypesAdded : messages.addMaterialType}
-          icon={addIcon}
-          // Pinned to the same 24px as the pencil and trash it sits beside.
-          size="xs"
-          bgColor="#ffffff"
-          textColor="#000000"
-          iconColor="dark"
-          disabled={atTypeLimit}
-          className="shrink-0"
-          onClick={onAddGroup}
-        />
-        <button
-          type="button"
-          aria-label="Edit name"
-          onClick={startNameEdit}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50"
-        >
-          <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Delete material"
-          disabled={materialDeleting}
-          onClick={() => setConfirmDeleteOpen(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
-        </button>
-      </div>
+          <ToolbarButton
+            label={messages.materialType}
+            ariaLabel={messages.addMaterialType}
+            title={atTypeLimit ? messages.allTypesAdded : messages.addMaterialType}
+            icon={addIcon}
+            // Pinned to the same 24px as the pencil and trash it sits beside.
+            size="xs"
+            bgColor="#ffffff"
+            textColor="#000000"
+            iconColor="dark"
+            disabled={atTypeLimit}
+            className="shrink-0"
+            onClick={onAddGroup}
+          />
+          <button
+            type="button"
+            aria-label="Edit name"
+            onClick={startNameEdit}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50"
+          >
+            <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Delete material"
+            disabled={materialDeleting}
+            onClick={() => setConfirmDeleteOpen(true)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
         {/* Below the row, like the left panel's — so the icons don't shift. */}
         {nameError && <p className="form-error-text mt-1">{nameError}</p>}
       </div>
@@ -560,6 +565,8 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
 // A label of broad letters ("W", "M") can still run wider than the one this came
 // from; the backstop stays for that case.
 const PLACEHOLDER_CHARS = 15
+// Fields that take the whole row instead of one of the grid's two columns.
+const FULL_WIDTH_PROPERTIES = new Set(['submodel', 'stomatal_model', 'gamma_co2'])
 
 // A group's editable fields, laid out two per row (matching the mockup). Shared
 // by the type's top-level fields and each named group so both read identically.
@@ -588,38 +595,42 @@ function MaterialFieldGrid({
         const value = values[field.property] ?? ''
         const error = fieldError(field)
         return (
-          <FormField
+          // These take the whole row — their labels and option text don't fit one
+          // of the two columns: the sub-model selectors ("Photosynthesis Model",
+          // "Stomatal Model") and Gamma_CO2, which sits beside the stomatal one.
+          <div
             key={field.property}
-            labelProps={{
-              label: field.label,
-              // The label is visible here, so FormField's own red star is the
-              // marker — no need to fold one into the placeholder as the
-              // Geometry form does with its sr-only labels.
-              optional: !field.required,
-              helpText: field.description
-            }}
-            inputProps={{
-              name: `${groupId}-${field.property}`,
-              value,
-              // Enum selects read "Select" when empty (not the field's own name);
-              // text/number fields keep the label as their placeholder.
-              placeholder:
-                field.datatype === 'enum'
-                  ? messages.selectPlaceholder
-                  : trimText(field.label, PLACEHOLDER_CHARS),
-              error,
-              // Surface the validation error as an in-cell info-icon tooltip
-              // (matches the Geometry right panel); selects keep the inline message.
-              errorAsTooltip: true,
-              inputClassName: 'bg-[#121212]',
-              options:
-                field.datatype === 'enum' && field.enumValues
-                  ? field.enumValues.map((v) => ({ value: v, label: field.enumLabels?.[v] ?? v }))
-                  : undefined,
-              onChange: (e) => onFieldChange(field.property, e.target.value, field.datatype),
-              onBlur: () => onFieldBlur(field.property)
-            }}
-          />
+            className={FULL_WIDTH_PROPERTIES.has(field.property) ? 'col-span-2' : undefined}
+          >
+            <FormField
+              labelProps={{
+                label: field.label,
+                // The label is visible here, so FormField's own red star is the
+                // marker — no need to fold one into the placeholder as the
+                // Geometry form does with its sr-only labels.
+                optional: !field.required,
+                helpText: field.description
+              }}
+              inputProps={{
+                name: `${groupId}-${field.property}`,
+                value,
+                // Enum selects read "Select" when empty (not the field's own name);
+                // text/number fields keep the label as their placeholder.
+                placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : trimText(field.label, PLACEHOLDER_CHARS),
+                error,
+                // Surface the validation error as an in-cell info-icon tooltip
+                // (matches the Geometry right panel); selects keep the inline message.
+                errorAsTooltip: true,
+                inputClassName: 'bg-[#121212]',
+                options:
+                  field.datatype === 'enum' && field.enumValues
+                    ? field.enumValues.map((v) => ({ value: v, label: field.enumLabels?.[v] ?? v }))
+                    : undefined,
+                onChange: (e) => onFieldChange(field.property, e.target.value, field.datatype),
+                onBlur: () => onFieldBlur(field.property)
+              }}
+            />
+          </div>
         )
       })}
     </div>
@@ -676,10 +687,7 @@ function ParameterGroupCard({
   const type = materialTypes.find((t) => t.id === group.typeId) ?? null
   // Stable across renders so the selector-hygiene effect below (which depends on
   // it) only re-runs when the chosen type actually changes.
-  const parameterGroups = React.useMemo(
-    () => (type ? resolveParameterGroups([type]) : []),
-    [type]
-  )
+  const parameterGroups = React.useMemo(() => (type ? resolveParameterGroups([type]) : []), [type])
   const title = messages.parameterGroupTitle(group.number)
 
   // The Visualiser splits into two mutually-exclusive appearance modes; a
