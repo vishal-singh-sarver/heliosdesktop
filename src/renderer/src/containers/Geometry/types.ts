@@ -27,7 +27,7 @@ export interface GeoNode {
   expanded: boolean // groups only (ignored for leaves)
   visibleInViewport: boolean // 👁 eye toggle → visibility.viewport
   renderEnabled: boolean // render icon (row) → visibility.render
-  modelVisibility: ModelVisibility // per-model kebab toggles → visibility.models
+  modelVisibility: ModelVisibility // per-model menu toggles → visibility.models
   // Material-GROUP ids assigned to this leaf (from the objects-list
   // `material_groups`), kept in sync on assign/unassign/save. Lets the 3D viewport
   // re-fetch ONLY the objects that use a saved/deleted material instead of all
@@ -136,6 +136,11 @@ export interface GeometryState {
   // createDraft (only one create runs at a time) and read by the toolbar to
   // disable +Ground while the request is in flight.
   creating: boolean
+  // The object whose Properties-form save is in flight, so its tree row can show
+  // it is busy. Slice-level for the same reason as createDraft, and because
+  // UPDATE_OBJECT_FAILED carries only an error message — there is no scope on it
+  // to file this under. takeLeading on the save means there is only ever one.
+  savingObjectId: string | null
 }
 
 // ── Action payload shapes ───────────────────────────────────────────────────

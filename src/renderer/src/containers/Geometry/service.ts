@@ -311,7 +311,7 @@ export function deleteGroup(
 
 // Persist an object visibility toggle (§5.4). Partial PATCH: only the keys
 // present in `visibility` change. The eye sends { viewport }, the render icon
-// sends { render }, a kebab per-model toggle sends { models: { "<id>": bool } }.
+// sends { render }, a per-model toggle sends { models: { "<id>": bool } }.
 // Called per object/leaf id — group viewport/render go through
 // updateGroupVisibility instead.
 export function updateVisibility(

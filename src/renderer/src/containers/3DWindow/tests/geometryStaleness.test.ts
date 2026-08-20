@@ -39,7 +39,9 @@ function startFetch(): Generator {
   const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
   expect(gen.next().value).toEqual(select(selectActiveProjectId))
   expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-  expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', OBJ))
+  // The tree row starts spinning before the request goes out.
+  expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(OBJ)))
+  expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', OBJ))
   return gen
 }
 

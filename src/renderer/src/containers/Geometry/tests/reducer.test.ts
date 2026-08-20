@@ -758,6 +758,47 @@ describe('geometryReducer', () => {
       expect(r.createDraft).toMatchObject({ saving: false, saveError: 'nope' })
     })
 
+    // The Properties form is in the right panel; savingObjectId is how the LEFT
+    // tree knows to show that row as busy while the PATCH is out.
+    it('names the object being saved, and stops naming it once the save settles', () => {
+      let r = created()
+      const objectId = r.createDraft?.objectId
+
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      expect(r.savingObjectId).toBe(objectId)
+
+      r = geometryReducer(
+        r,
+        actions.updateObjectSucceeded(P, S, {
+          objectId: objectId as string,
+          propsChanged: true,
+          materialsChanged: false,
+          savedValues: {},
+          savedMaterials: []
+        })
+      )
+      expect(r.savingObjectId).toBeNull()
+    })
+
+    it('stops naming it when the save fails', () => {
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      r = geometryReducer(r, actions.updateObjectFailed('nope'))
+
+      expect(r.savingObjectId).toBeNull()
+    })
+
+    it('stops naming it even if the form was closed first', () => {
+      // The guard for the draft used to come first, so a failure arriving after
+      // the form closed left the row busy for the rest of the session.
+      let r = created()
+      r = geometryReducer(r, actions.updateObjectRequested(P, S))
+      r = geometryReducer(r, actions.closeCreateForm())
+      r = geometryReducer(r, actions.updateObjectFailed('nope'))
+
+      expect(r.savingObjectId).toBeNull()
+    })
+
     it('UPDATE_OBJECT_SUCCEEDED keeps the form open and clears saving/new, without touching the name', () => {
       let r = created()
       r = geometryReducer(r, actions.updateObjectRequested(P, S))

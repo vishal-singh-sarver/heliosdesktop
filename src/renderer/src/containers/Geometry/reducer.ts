@@ -66,7 +66,8 @@ export const initialState: GeometryState = {
   byScope: {},
   createDraft: null,
   createDraftNonce: 0,
-  creating: false
+  creating: false,
+  savingObjectId: null
 }
 
 // Lazily create the per-scenario sub-state so reducers can write without a
@@ -750,6 +751,10 @@ const geometryReducer = (
         if (!draft.createDraft) break
         draft.createDraft.saving = true
         draft.createDraft.saveError = null
+        // The tree row for this object shows it is busy for as long as the save
+        // is in flight — the form is in the right panel, and without this the
+        // left tree gives no sign that anything is happening to that geometry.
+        draft.savingObjectId = draft.createDraft.objectId
         break
       }
 
@@ -759,6 +764,7 @@ const geometryReducer = (
         // delete). The name is NOT synced here — it commits on its own blur/rename
         // path, so syncing the (possibly rejected) draft name would corrupt the
         // tree row.
+        draft.savingObjectId = null
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         // Everything below records what the backend NOW HOLDS, so all of it reads
         // from the request's own snapshot rather than the live draft. The form
@@ -794,6 +800,10 @@ const geometryReducer = (
       }
 
       case UPDATE_OBJECT_FAILED: {
+        // Cleared before the draft guard: the row must stop showing busy even if
+        // the form has since been closed, or it would sit there for the rest of
+        // the session with no save behind it.
+        draft.savingObjectId = null
         if (!draft.createDraft) break
         draft.createDraft.saving = false
         draft.createDraft.saveError = action.payload
