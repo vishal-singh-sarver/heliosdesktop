@@ -3,7 +3,14 @@
 // Maps, or class instances) so it is safe to hold in Redux.
 
 // Leaf kinds vs. a group container. Groups hold leaves only (single-level).
-export type GeoNodeKind = 'ground' | 'imported' | 'group'
+//
+// The leaf kinds mirror how the geometry entered the scenario — +Ground, +Crop
+// or Import from File — which is what picks the row's icon in the tree.
+// `ground` and `crop` are the catalog's two object types (migration 017);
+// `imported` is anything that arrived as a file. Only +Ground creates today, so
+// `crop` is a kind nothing produces yet — it exists so the mapping is complete
+// rather than silently falling through to the file icon later.
+export type GeoNodeKind = 'ground' | 'crop' | 'imported' | 'group'
 
 // Per-model visibility, keyed by the catalog model id (GET /api/catalog/
 // model-types, §4.4). Mirrors the API's `visibility.models` map. A model id

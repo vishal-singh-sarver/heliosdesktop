@@ -1,4 +1,7 @@
 import chevronIcon from '@renderer/assets/chevron.svg'
+import cropIcon from '@renderer/assets/cropicon.svg'
+import fileIcon from '@renderer/assets/fileicon.svg'
+import groundIcon from '@renderer/assets/groundicon.svg'
 import Dialog from '@renderer/components/Dialog'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
@@ -21,10 +24,34 @@ import messages from './messages'
 import NameEditor from './NameEditor'
 import RowActions, { KebabMenu } from './RowActions'
 import { selectDeletingIds } from './selectors'
-import type { GeoNode } from './types'
+import type { GeoNode, GeoNodeKind } from './types'
 
 // Custom DnD mime so we only react to our own row drags, not arbitrary drops.
 const DND_MIME = 'application/x-geo'
+
+// The row's leading icon, by how the geometry was created — so a ground, a crop
+// and an imported file are told apart at a glance rather than by reading names
+// that a rename can make say anything. A group has no icon of its own: its
+// leading slot is the expand chevron, and its members carry their own.
+//
+// Exhaustive by type, deliberately — a new GeoNodeKind fails to compile here
+// until it declares an icon, rather than quietly rendering a blank slot.
+const KIND_ICON: Record<GeoNodeKind, string | null> = {
+  ground: groundIcon,
+  crop: cropIcon,
+  imported: fileIcon,
+  group: null
+}
+
+// Row indent: where a root row starts, plus one step per level of nesting.
+//
+// Groups hold leaves only (single-level), so depth never exceeds 1 — the step
+// can be generous without a deep tree running out of the panel's width, and it
+// needs to be. A group's chevron already occupies 20px at the head of its own
+// row, so a step narrower than that reads as members sitting almost level with
+// the group rather than inside it.
+const ROW_PADDING_LEFT = 10
+const INDENT_PER_DEPTH = 24
 
 // How long a material must hover a COLLAPSED group before it springs open. Long
 // enough that merely dragging ACROSS a group on the way somewhere else doesn't
@@ -356,6 +383,9 @@ function TreeRow({
 
   const nameError = nameErrors[node.id]
 
+  // null for a group (the chevron occupies that slot instead).
+  const kindIcon = KIND_ICON[node.kind]
+
   // Any error on the row (live rename validation while editing, or a backend
   // rename failure) turns the box border red — the same #D92D20 the right-panel
   // form uses for invalid fields.
@@ -390,7 +420,7 @@ function TreeRow({
                     ? 'border-app-border bg-[#2a2a2a]'
                     : 'border-transparent hover:bg-neutral-700/40'
           } ${dropZone === 'into' ? 'ring-1 ring-inset ring-blue-500' : ''}`}
-          style={{ paddingLeft: 10 + depth * 16 }}
+          style={{ paddingLeft: ROW_PADDING_LEFT + depth * INDENT_PER_DEPTH }}
         >
           {/* Reorder insertion lines (absolutely positioned so they never shift
               layout — that lets the center "drop to group" still work). */}
@@ -424,6 +454,19 @@ function TreeRow({
                 style={{ transform: node.expanded ? 'none' : 'rotate(-90deg)' }}
               />
             </button>
+          )}
+
+          {/* Outside the editing branch below so renaming doesn't drop the icon
+              and shuffle the row's contents sideways mid-edit. */}
+          {kindIcon && (
+            <img
+              src={kindIcon}
+              alt=""
+              aria-hidden="true"
+              width="14"
+              height="14"
+              className="shrink-0"
+            />
           )}
 
           {editing ? (

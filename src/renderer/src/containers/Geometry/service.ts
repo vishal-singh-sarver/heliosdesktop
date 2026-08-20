@@ -1,7 +1,7 @@
 import { api } from 'utils/api'
 import { API_ROUTES } from 'utils/constants'
 import { unionVisibility, type VisibilityLike } from './models'
-import type { DraftMaterialGroup, GeoNode, ModelVisibility } from './types'
+import type { DraftMaterialGroup, GeoNode, GeoNodeKind, ModelVisibility } from './types'
 
 // ── Create-object payload + wire shapes ──────────────────────────────────────
 //
@@ -60,6 +60,18 @@ interface CreateObjectResponse {
   object: WireObject
 }
 
+// The backend's catalog `object_type` → the tree's node kind, which is what
+// picks the row's icon. 'Ground' and 'Crop' are the catalog's two types
+// (migration 017); anything else reached the scenario as an imported file, so it
+// reads as one. A single door for both mapping sites below — the list merge and
+// the single-object create/get — so a row cannot show one icon on create and a
+// different one after a refresh.
+export function kindFromObjectType(objectType: string | undefined): GeoNodeKind {
+  if (objectType === 'Ground') return 'ground'
+  if (objectType === 'Crop') return 'crop'
+  return 'imported'
+}
+
 // Map the backend object → the tree's GeoNode. The backend models visibility as
 // { viewport, render, models:{<modelId>:bool} }; our GeoNode uses a viewport
 // flag + a coarse all/none model visibility, so we collapse `render` into that
@@ -69,7 +81,7 @@ export function wireObjectToNode(obj: WireObject): GeoNode {
   return {
     id: String(obj.id),
     name: obj.name,
-    kind: 'ground',
+    kind: kindFromObjectType(obj.object_type),
     parentId: obj.group_id == null ? null : String(obj.group_id),
     childIds: [],
     expanded: false,
@@ -224,7 +236,7 @@ export function mergeTree(objects: ApiObject[], groups: ApiGroup[]): GeoNode[] {
       node: {
         id,
         name: o.name,
-        kind: o.object_type === 'Ground' ? 'ground' : 'imported',
+        kind: kindFromObjectType(o.object_type),
         parentId,
         childIds: [],
         expanded: false,
