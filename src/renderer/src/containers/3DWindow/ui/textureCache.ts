@@ -14,7 +14,14 @@ export const globalTextureCache = new Map<string, THREE.Texture>()
 // and N THREE.Texture objects for one image — and since only the last to finish
 // takes the cache slot, the rest become unreachable and clearTextureCache() can
 // never dispose them. Recording the in-flight load lets later callers queue on it.
-const inFlightLoads = new Map<string, Array<(tex: THREE.Texture) => void>>()
+interface InFlightLoad {
+  // Identity of the request that currently OWNS this entry. Handlers close over
+  // the token they were started with and check it before touching anything, so a
+  // superseded request cannot act on a later one's state — see loadSceneTexture.
+  token: object
+  waiters: Array<(tex: THREE.Texture) => void>
+}
+const inFlightLoads = new Map<string, InFlightLoad>()
 
 export function getSceneTextureUrl(textureFile: string): string {
   return `${BASE_URL}${GEOMETRY_ROUTES.texture(textureFile)}`
@@ -37,26 +44,59 @@ export function loadSceneTexture(
   // than starting a second request for the same image.
   const waiting = inFlightLoads.get(textureFile)
   if (waiting) {
-    waiting.push(onLoad)
+    waiting.waiters.push(onLoad)
     return null
   }
-  inFlightLoads.set(textureFile, [onLoad])
+  const entry: InFlightLoad = { token: {}, waiters: [onLoad] }
+  inFlightLoads.set(textureFile, entry)
+
+  // Both handlers below start by checking the entry is STILL this request's, and
+  // that check is the whole point of the token.
+  //
+  // The map is keyed by filename alone, which says nothing about WHICH request is
+  // waiting on it. clearTextureCache() empties the map while the requests it
+  // started are still in flight — loadSceneWorker clears at the top of every
+  // scene load, and it is takeLatest, so a reload cancels the saga but not the
+  // images already on the wire. The next scene's meshes then miss the cache and
+  // start a SECOND request for the same file, and the abandoned one landed on the
+  // new one's entry:
+  //
+  //   • on failure it deleted that entry — so when the new request succeeded it
+  //     read its waiters back as an empty list, notified nobody, and left every
+  //     material for that file on a null map. A white surface, permanently, with
+  //     a perfectly healthy 200 in the network tab.
+  //   • on success it consumed those waiters and handed them the OLD texture,
+  //     then deleted the entry; the new request's own texture took the cache slot
+  //     with nothing pointing at it, so clearTextureCache later disposed the copy
+  //     nobody was rendering and leaked the one everybody was.
+  //
+  // Comparing tokens makes a superseded request inert: it neither caches nor
+  // notifies nor deletes, and disposes whatever it managed to fetch.
+  const isCurrent = (): boolean => inFlightLoads.get(textureFile)?.token === entry.token
 
   new THREE.TextureLoader().load(
     getSceneTextureUrl(textureFile),
     (tex) => {
+      if (!isCurrent()) {
+        // Superseded: the scene that asked for this is gone, or a newer request
+        // owns the file now. Dispose rather than cache — the current request is
+        // the only one entitled to the cache slot, and keeping these bytes only
+        // to be overwritten is the leak described above.
+        tex.dispose()
+        return
+      }
       // Backend UVs are already V-flipped for Three.js; don't flip again.
       tex.flipY = false
       globalTextureCache.set(textureFile, tex)
-      // Take the waiters BEFORE notifying: a callback can synchronously trigger
+      // Drop the entry BEFORE notifying: a callback can synchronously trigger
       // another loadSceneTexture for this file, which must see a settled cache
       // and no stale in-flight entry.
-      const waiters = inFlightLoads.get(textureFile) ?? []
       inFlightLoads.delete(textureFile)
-      for (const notify of waiters) notify(tex)
+      for (const notify of entry.waiters) notify(tex)
     },
     undefined,
     (err) => {
+      if (!isCurrent()) return
       // Without this the failure was completely silent: onLoad never fired, the
       // material kept a null map, and the surface rendered plain white with
       // nothing in the console — the symptom that hid a mangled texture path for
@@ -75,7 +115,8 @@ export function clearTextureCache(): void {
   for (const tex of globalTextureCache.values()) tex.dispose()
   globalTextureCache.clear()
   // Drop the waiters too, so a load still in flight when the scene is torn down
-  // doesn't call back into materials that no longer exist. The request itself
-  // still completes and caches its texture, so a later clear disposes it.
+  // doesn't call back into materials that no longer exist. Emptying the map is
+  // also what makes those requests read as superseded when they land, so nothing
+  // they fetch reaches the next scene's cache.
   inFlightLoads.clear()
 }

@@ -25,7 +25,12 @@ import {
 } from './actions'
 import reducer from './reducer'
 import saga from './saga'
-import { selectActiveProject, selectActiveProjectId } from './selectors'
+import {
+  selectActiveProject,
+  selectActiveProjectId,
+  selectUpdateProjectError,
+  selectUpdateProjectLoading
+} from './selectors'
 
 // Help text — mirrors the strings used in HomePage's New Project dialog so
 // the user sees the same guidance whether they're creating a project or
@@ -190,16 +195,53 @@ export function ProjectScreen(): React.JSX.Element {
   const latitudeInvalid = formik.values.latitude !== '' && Boolean(errors.latitude)
   const longitudeInvalid = formik.values.longitude !== '' && Boolean(errors.longitude)
 
+  // Put the box back to the coordinate the project actually holds.
+  const revertCoordinate = (field: 'latitude' | 'longitude'): void => {
+    if (!activeProject) return
+    formik.setFieldValue(field, String(activeProject[field]))
+  }
+
+  // The coordinate save this header started, and the exact text it sent. Read
+  // when the PATCH settles — see the effect below.
+  const pendingSaveRef = React.useRef<{
+    field: 'latitude' | 'longitude'
+    value: string
+  } | null>(null)
+
+  // The current render's values and revert, for that effect. It has to act on the
+  // form as it stands WHEN THE SAVE LANDS, not as it stood when the save started
+  // — the user has had the whole round trip to keep typing.
+  const latestRef = React.useRef({ values: formik.values, revert: revertCoordinate })
+  React.useEffect(() => {
+    latestRef.current = { values: formik.values, revert: revertCoordinate }
+  })
+
   const commitCoordinate = (field: 'latitude' | 'longitude'): void => {
     if (!activeProjectId || !activeProject) return
 
     const value = formik.values[field]
-    if (errors[field] || value === '') return
+    // Nothing committable — malformed, out of range, too many decimals, or
+    // cleared. Leaving that text on screen was the problem: the header is the
+    // only place the project's coordinates are shown, so a rejected edit sat
+    // there reading like the project's location while the project still held the
+    // old one, and the red border said "invalid" without saying what IS stored.
+    // Blur restores the saved value, so what the header shows is always what
+    // would be used.
+    //
+    // Trimmed, so a field left holding only spaces counts as cleared. It used to
+    // pass both guards — validate() trims before deciding, so no error — and
+    // reach Number.parseFloat('  '), sending latitude: NaN (JSON: null) to the
+    // PATCH.
+    if (errors[field] || value.trim() === '') {
+      revertCoordinate(field)
+      return
+    }
 
     const next = Number.parseFloat(value)
     const current = activeProject[field]
     if (Object.is(next, current)) return
 
+    pendingSaveRef.current = { field, value }
     dispatch(
       updateProjectRequested(activeProjectId, {
         name: activeProject.name,
@@ -208,6 +250,36 @@ export function ProjectScreen(): React.JSX.Element {
       })
     )
   }
+
+  // "The header shows what is stored" has to hold for a save that FAILS too, not
+  // only for input that never left the box.
+  //
+  // A valid edit is dispatched on blur and deliberately left on screen while the
+  // PATCH travels. If that PATCH fails the project keeps its old coordinate and
+  // the header is left showing a number the backend never accepted — with no red
+  // border, because the value is perfectly valid, and no message. Reopening the
+  // project would quietly show the old coordinate back again.
+  //
+  // Scoped two ways, so it can only ever undo the save's own leftovers:
+  //   • ONLY the field that was being saved. This is the trap here — resetForm()
+  //     rewrites both boxes, so a longitude being typed while a latitude save
+  //     failed would be wiped mid-keystroke.
+  //   • ONLY while that field still holds the exact text that was sent. If the
+  //     user went back in and typed something else, that is newer than the save
+  //     and stands; the next blur will deal with it.
+  const updateLoading = useSelector(selectUpdateProjectLoading)
+  const updateError = useSelector(selectUpdateProjectError)
+  React.useEffect(() => {
+    if (updateLoading) return
+    const pending = pendingSaveRef.current
+    if (!pending) return
+    pendingSaveRef.current = null
+    // Settled cleanly — activeProject now carries the new coordinate, which is
+    // what the box is already showing.
+    if (updateError == null) return
+    if (latestRef.current.values[pending.field] !== pending.value) return
+    latestRef.current.revert(pending.field)
+  }, [updateLoading, updateError])
 
   return (
     <div className="flex flex-col h-full">
