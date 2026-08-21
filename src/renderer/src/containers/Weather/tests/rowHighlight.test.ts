@@ -13,6 +13,8 @@ import {
   type RowId
 } from 'containers/ProjectScreen/types'
 import {
+  buildExitOffsets,
+  exitScrollAdjustment,
   isHighlightExemptTarget,
   reconcileHighlight,
   toDeleteKeys,
@@ -179,5 +181,57 @@ describe('reconcileHighlight', () => {
     const highlighted = new Set<RowId>()
 
     expect(reconcileHighlight(['row_0'], ['row_1', 'row_2'], highlighted)).toBe(highlighted)
+  })
+})
+
+describe('buildExitOffsets', () => {
+  const ORDER: RowId[] = ['row_0', 'row_1', 'row_2', 'row_3', 'row_4']
+
+  it('leaves every row where it is when nothing is leaving', () => {
+    const offsets = buildExitOffsets(ORDER, new Set<RowId>(), 36)
+    expect(Object.values(offsets).every((v) => v === 0)).toBe(true)
+  })
+
+  it('lifts a survivor by one row height per leaving row above it', () => {
+    const offsets = buildExitOffsets(ORDER, new Set<RowId>(['row_0', 'row_2']), 36)
+    expect(offsets.row_1).toBe(-36)
+    expect(offsets.row_3).toBe(-72)
+    expect(offsets.row_4).toBe(-72)
+  })
+
+  it('does not move a survivor that only has leaving rows below it', () => {
+    const offsets = buildExitOffsets(ORDER, new Set<RowId>(['row_3', 'row_4']), 36)
+    expect(offsets.row_0).toBe(0)
+    expect(offsets.row_1).toBe(0)
+    expect(offsets.row_2).toBe(0)
+  })
+
+  it('gives leaving rows no vertical travel — they leave on X', () => {
+    const offsets = buildExitOffsets(ORDER, new Set<RowId>(['row_1', 'row_2']), 36)
+    expect(offsets.row_1).toBe(0)
+    expect(offsets.row_2).toBe(0)
+  })
+})
+
+describe('exitScrollAdjustment', () => {
+  const ORDER: RowId[] = Array.from({ length: 20 }, (_, i) => `row_${i}`)
+
+  it('is zero when nothing above the viewport was deleted', () => {
+    // scrollTop 360 => row_10 is the first visible row; both leavers are below.
+    expect(exitScrollAdjustment(ORDER, new Set<RowId>(['row_12', 'row_15']), 360, 36)).toBe(0)
+  })
+
+  it('pays back one row height per row deleted above the viewport', () => {
+    expect(exitScrollAdjustment(ORDER, new Set<RowId>(['row_2', 'row_5']), 360, 36)).toBe(72)
+  })
+
+  it('is zero at the top of the table, where nothing can be above', () => {
+    expect(exitScrollAdjustment(ORDER, new Set<RowId>(['row_0', 'row_1']), 0, 36)).toBe(0)
+  })
+
+  it('counts only the rows above the fold when the selection straddles it', () => {
+    expect(
+      exitScrollAdjustment(ORDER, new Set<RowId>(['row_3', 'row_11', 'row_18']), 360, 36)
+    ).toBe(36)
   })
 })

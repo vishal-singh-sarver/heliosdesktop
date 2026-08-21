@@ -97,3 +97,63 @@ export function reconcileHighlight(
   const kept = [...highlighted].filter((rowId) => surviving.has(rowId))
   return kept.length === highlighted.size ? highlighted : new Set(kept)
 }
+
+/**
+ * Per-row vertical offset for the delete exit animation.
+ *
+ * A surviving row's final resting place is exactly `rowHeight` px higher for
+ * every leaving row above it — no measurement needed, because the weather
+ * table's rows are a fixed `ROW_HEIGHT_PX` tall. Sliding each survivor there
+ * BEFORE the store drops the leaving rows means the commit is a no-op visually:
+ * the row is already where the new `rowOrder` puts it.
+ *
+ * Leaving rows get 0. They travel on X (see `.weather-row-leaving` in
+ * index.css) and would otherwise be fighting over the same `transform`.
+ *
+ * Walks the whole snapshot rather than just the visible band so the caller can
+ * compute this once per delete instead of once per scroll.
+ */
+export function buildExitOffsets(
+  order: readonly RowId[],
+  leaving: ReadonlySet<RowId>,
+  rowHeight: number
+): Record<RowId, number> {
+  const offsets: Record<RowId, number> = {}
+  let leavingAbove = 0
+  for (const rowId of order) {
+    if (leaving.has(rowId)) {
+      offsets[rowId] = 0
+      leavingAbove++
+      continue
+    }
+    offsets[rowId] = leavingAbove === 0 ? 0 : -rowHeight * leavingAbove
+  }
+  return offsets
+}
+
+/**
+ * How far the scroll container must be pulled up when the leaving rows are
+ * finally dropped.
+ *
+ * Rows removed ABOVE the viewport shrink the content above it, so the same
+ * `scrollTop` ends up addressing different data — the view jumps to rows the
+ * user was not looking at. `scrollTop / rowHeight` is the index of the first
+ * row at the top edge; every leaving row before it has to be paid back.
+ *
+ * Needed on every delete above the viewport, not just when the user scrolls
+ * during the animation.
+ */
+export function exitScrollAdjustment(
+  order: readonly RowId[],
+  leaving: ReadonlySet<RowId>,
+  scrollTop: number,
+  rowHeight: number
+): number {
+  const firstVisibleIndex = Math.floor(scrollTop / rowHeight)
+  const limit = Math.min(firstVisibleIndex, order.length)
+  let removedAbove = 0
+  for (let i = 0; i < limit; i++) {
+    if (leaving.has(order[i])) removedAbove++
+  }
+  return removedAbove * rowHeight
+}

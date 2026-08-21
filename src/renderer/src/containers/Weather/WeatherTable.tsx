@@ -35,6 +35,8 @@ import DateTimeHeader from './DateTimeHeader'
 import HeaderEditor from './HeaderEditor'
 import messages from './messages'
 import {
+  buildExitOffsets,
+  exitScrollAdjustment,
   isHighlightExemptTarget,
   reconcileHighlight,
   toDeleteKeys,
@@ -62,6 +64,13 @@ import { validateCellValue } from './validation'
 
 const ROW_HEIGHT_PX = 36
 const ROW_OVERSCAN = 12
+
+// How long the bulk-delete exit runs before the leaving rows are dropped and
+// the store becomes the render source again. Must match whichever of
+// `.weather-row-leaving` / `.weather-row-shift` in index.css finishes LAST —
+// currently the shift, at 220ms delay + 260ms. Removing the rows any earlier
+// cuts the animation off; any later just holds a frozen frame on screen.
+const WEATHER_ROW_EXIT_MS = 480
 
 // Shared empty-row sentinel so missing rows don't break React.memo equality
 // on `row` — `{}` literals would be a fresh reference each render and force
@@ -147,6 +156,11 @@ interface WeatherRowProps {
   // Shift-click highlight. Distinct from `rowSelected`, which is the check
   // column's persisted 0/1 flag surfaced through the leftmost checkbox.
   highlighted: boolean
+  // Delete exit animation. `leaving` rows slide out on X; every other row
+  // slides up on Y by `offsetY` to close the gap they leave behind. Both are
+  // primitives, so React.memo still skips every row the delete doesn't touch.
+  leaving: boolean
+  offsetY: number
   visibleColumnOrder: ColId[]
   columns: Record<ColId, ColumnDef>
   dataTypes: DataTypeDef[]
@@ -169,6 +183,8 @@ const WeatherRow = React.memo(function WeatherRow({
   rowValidationErrors,
   rowSelected,
   highlighted,
+  leaving,
+  offsetY,
   visibleColumnOrder,
   columns,
   dataTypes,
@@ -192,7 +208,11 @@ const WeatherRow = React.memo(function WeatherRow({
       onClick={(event) => onRowClick(event, rowId)}
       className={`h-9 border-b border-app-border ${
         highlighted ? 'bg-app-row-selected text-white' : ''
-      }`}
+      } ${leaving ? 'weather-row-leaving' : offsetY !== 0 ? 'weather-row-shift' : ''}`}
+      // Only the shift needs an inline transform; `.weather-row-leaving` carries
+      // its own translateX. Undefined rather than `{}` so React.memo'd rows that
+      // aren't moving don't get a fresh style object every render.
+      style={!leaving && offsetY !== 0 ? { transform: `translateY(${offsetY}px)` } : undefined}
     >
       {/* No vertical padding, here or on the action cell below. A table cell
           centres its content with vertical-align: middle for free, but padding
@@ -299,6 +319,32 @@ function WeatherTable(): React.JSX.Element {
   const [highlightedRowIds, setHighlightedRowIds] = React.useState<ReadonlySet<RowId>>(
     () => new Set<RowId>()
   )
+  // Rows on their way out, held here for exactly as long as the exit animation
+  // needs them. The bulk delete is not optimistic — the store drops the rows the
+  // moment the backend answers, and React unmounts a <tr> on the same tick,
+  // which cuts a CSS exit off before its first frame. So we keep our own
+  // snapshot of the order AND the cell data (the store's copy is gone by then)
+  // and render from it until the animation has played out.
+  //
+  // Local, not Redux, for the same reason the highlight above is: the store
+  // stays truthful the instant the server answers, so nothing outside this
+  // component can read — or edit — a row that no longer exists.
+  const [exitingRows, setExitingRows] = React.useState<{
+    order: RowId[]
+    ids: ReadonlySet<RowId>
+    rows: Record<RowId, Record<ColId, CellValue>>
+  } | null>(null)
+  // Captured when the delete is CONFIRMED, not when it lands: reconcileHighlight
+  // prunes `highlightedRowIds` the moment rowOrder changes, so by the time the
+  // request resolves there is nothing left to read off it.
+  const pendingExitRef = React.useRef<{
+    order: RowId[]
+    ids: ReadonlySet<RowId>
+    rows: Record<RowId, Record<ColId, CellValue>>
+  } | null>(null)
+  // Scroll correction owed at commit, computed at the last moment (the user may
+  // have scrolled during the animation) and applied in a layout effect below.
+  const exitScrollFixRef = React.useRef(0)
   // Visible row band is the only scroll-derived state that drives JSX. Storing
   // it as { startIndex, endIndex } (instead of raw scrollTop) lets the scroll
   // handler bail out when the band hasn't actually changed — i.e. most scroll
@@ -486,14 +532,10 @@ function WeatherTable(): React.JSX.Element {
     setPendingDeleteRow(null)
   }
 
-  // One handler for every way out of the bulk-delete dialog — Cancel, ×, Escape
-  // and Confirm all just close it, because the delete itself isn't built yet
-  // (the request, the all-or-nothing 404 handling and the exit animation are
-  // the next increment; `highlightedRowIds` already holds the set it needs).
-  // Confirm gets its own handler when it actually does something different.
-  // Ignored while the request is in flight so the x, Escape and Cancel cannot
-  // abandon a delete the backend is already running. The dialog closes itself
-  // on the loading -> idle edge below.
+  // Cancel, ×, and Escape all just close the bulk-delete dialog; Confirm has
+  // its own handler below. Ignored while the request is in flight so none of
+  // the three can abandon a delete the backend is already running. The dialog
+  // closes itself on the loading -> idle edge below.
   const closeSelectionDeleteDialog = (): void => {
     if (deleteRowsLoading) return
     setPendingDeleteSelection(false)
@@ -507,6 +549,15 @@ function WeatherTable(): React.JSX.Element {
       setPendingDeleteSelection(false)
       return
     }
+    // Snapshot everything the exit animation will need while the rows are still
+    // in the store. Row objects come straight off immer-frozen state, so holding
+    // them by reference is safe — nothing can mutate them out from under us.
+    const rows: Record<RowId, Record<ColId, CellValue>> = {}
+    for (const rowId of rowIds) {
+      const row = table.rows[rowId]
+      if (row) rows[rowId] = row
+    }
+    pendingExitRef.current = { order: [...table.rowOrder], ids: new Set(rowIds), rows }
     // Deliberately does NOT close here. The dialog holds until the backend
     // answers, then closes on success or stays open showing the error.
     dispatch(deleteRowsRequested(projectId, scenarioId, rowIds, keys))
@@ -521,9 +572,27 @@ function WeatherTable(): React.JSX.Element {
   //
   // Same loading -> idle mechanism WeatherToolbar uses for Add Column / Add
   // Rows / Clear Data, minus their error guard — those keep an inline banner.
-  if (useTransitionToFalse(deleteRowsLoading) && pendingDeleteSelection) {
+  const deleteRowsSettled = useTransitionToFalse(deleteRowsLoading)
+  if (deleteRowsSettled && pendingDeleteSelection) {
     setPendingDeleteSelection(false)
   }
+
+  // The same loading -> idle edge starts the exit animation, but detected in an
+  // effect rather than during render like the dialog close above: this branch
+  // has to CONSUME `pendingExitRef`, and a render that React discards would
+  // clear the snapshot without ever showing the animation.
+  //
+  // Only runs when the rows actually left. A failed delete leaves rowOrder
+  // untouched, so the rows stay put and the toast explains why.
+  const deleteRowsLoadingRef = React.useRef(deleteRowsLoading)
+  React.useEffect(() => {
+    const wasLoading = deleteRowsLoadingRef.current
+    deleteRowsLoadingRef.current = deleteRowsLoading
+    if (!wasLoading || deleteRowsLoading) return
+    const pending = pendingExitRef.current
+    pendingExitRef.current = null
+    if (pending && rowOrder.length < pending.order.length) setExitingRows(pending)
+  }, [deleteRowsLoading, rowOrder])
 
   // Drop a previous failure's banner so it cannot reappear on the next open.
   // In an effect rather than during render because it dispatches — the same
@@ -664,7 +733,11 @@ function WeatherTable(): React.JSX.Element {
   const headerTableRef = React.useRef<HTMLTableElement>(null)
   const bodyRef = React.useRef<HTMLDivElement>(null)
 
-  const totalRows = rowOrder.length
+  // Everything virtualisation-related runs off the snapshot while an exit is
+  // playing, so the scroll range stays exactly as tall as it was — the content
+  // must not shrink under the user's finger halfway through the animation.
+  const renderOrder = exitingRows ? exitingRows.order : rowOrder
+  const totalRows = renderOrder.length
   React.useEffect(() => {
     totalRowsRef.current = totalRows
   }, [totalRows])
@@ -725,9 +798,53 @@ function WeatherTable(): React.JSX.Element {
   }, [])
 
   const visibleRowIds = React.useMemo(
-    () => rowOrder.slice(visibleWindow.startIndex, visibleWindow.endIndex),
-    [rowOrder, visibleWindow]
+    () => renderOrder.slice(visibleWindow.startIndex, visibleWindow.endIndex),
+    [renderOrder, visibleWindow]
   )
+
+  // Computed once per delete, not once per scroll — it walks the whole snapshot
+  // so a row scrolled into view mid-flight can look up its offset without a
+  // recount.
+  const exitOffsets = React.useMemo(
+    () =>
+      exitingRows ? buildExitOffsets(exitingRows.order, exitingRows.ids, ROW_HEIGHT_PX) : null,
+    [exitingRows]
+  )
+
+  // Hold the snapshot for the length of the animation, then hand rendering back
+  // to the store. WEATHER_ROW_EXIT_MS mirrors the CSS — same manual coupling,
+  // and same reason, as SnackbarHost's EXIT_MS.
+  //
+  // The scroll correction is measured HERE rather than when the animation
+  // started, because the user may have scrolled in the meantime.
+  React.useEffect(() => {
+    if (!exitingRows) return undefined
+    const timer = window.setTimeout(() => {
+      exitScrollFixRef.current = exitScrollAdjustment(
+        exitingRows.order,
+        exitingRows.ids,
+        bodyRef.current?.scrollTop ?? 0,
+        ROW_HEIGHT_PX
+      )
+      setExitingRows(null)
+    }, WEATHER_ROW_EXIT_MS)
+    return () => window.clearTimeout(timer)
+  }, [exitingRows])
+
+  // Pay the correction back in the same frame the snapshot is dropped, before
+  // the browser paints — otherwise the rows that were on screen visibly jump.
+  // scrollTopRef/recomputeWindow are updated by hand because a programmatic
+  // scrollTop write fires its `scroll` event asynchronously, a frame too late.
+  React.useLayoutEffect(() => {
+    const fix = exitScrollFixRef.current
+    if (fix === 0) return
+    exitScrollFixRef.current = 0
+    const el = bodyRef.current
+    if (!el) return
+    el.scrollTop = Math.max(0, el.scrollTop - fix)
+    scrollTopRef.current = el.scrollTop
+    recomputeWindow()
+  }, [exitingRows, recomputeWindow])
 
   const topSpacerHeight = visibleWindow.startIndex * ROW_HEIGHT_PX
   const bottomSpacerHeight = Math.max(0, (totalRows - visibleWindow.endIndex) * ROW_HEIGHT_PX)
@@ -819,10 +936,17 @@ function WeatherTable(): React.JSX.Element {
               <WeatherRow
                 key={rowId}
                 rowId={rowId}
-                row={table?.rows[rowId] ?? EMPTY_ROW}
+                // Leaving rows are already out of the store, so their cells come
+                // from the snapshot — without it they would slide out blank.
+                row={table?.rows[rowId] ?? exitingRows?.rows[rowId] ?? EMPTY_ROW}
                 rowValidationErrors={table?.validationErrors?.[rowId]}
                 rowSelected={rowSelection[rowId] === true}
-                highlighted={highlightedRowIds.has(rowId)}
+                // reconcileHighlight has already pruned the highlight by now, so
+                // keep leaving rows blue for the trip out rather than letting
+                // them flash back to the default background first.
+                highlighted={highlightedRowIds.has(rowId) || exitingRows?.ids.has(rowId) === true}
+                leaving={exitingRows?.ids.has(rowId) === true}
+                offsetY={exitOffsets?.[rowId] ?? 0}
                 visibleColumnOrder={visibleColumnOrder}
                 columns={columns}
                 dataTypes={dataTypes}
