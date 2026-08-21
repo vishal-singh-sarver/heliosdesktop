@@ -31,6 +31,7 @@ import CellInput from './CellInput'
 import DateTimeHeader from './DateTimeHeader'
 import HeaderEditor from './HeaderEditor'
 import messages from './messages'
+import { isHighlightExemptTarget, toggleHighlight } from './rowHighlight'
 import {
   selectActiveDateTimeFormat,
   selectActiveProject,
@@ -133,6 +134,9 @@ interface WeatherRowProps {
   row: Record<ColId, CellValue>
   rowValidationErrors: Record<ColId, string | null> | undefined
   rowSelected: boolean
+  // Shift-click highlight. Distinct from `rowSelected`, which is the check
+  // column's persisted 0/1 flag surfaced through the leftmost checkbox.
+  highlighted: boolean
   visibleColumnOrder: ColId[]
   columns: Record<ColId, ColumnDef>
   dataTypes: DataTypeDef[]
@@ -145,6 +149,8 @@ interface WeatherRowProps {
   onToggleCheck: (rowId: string, currentValue: CellValue) => void
   onCellBlur: (rowId: string, colId: string, newValue: string, originalValue: string) => void
   onRequestDelete: (rowId: string) => void
+  onRowMouseDown: (event: React.MouseEvent) => void
+  onRowClick: (event: React.MouseEvent, rowId: RowId) => void
 }
 
 const WeatherRow = React.memo(function WeatherRow({
@@ -152,6 +158,7 @@ const WeatherRow = React.memo(function WeatherRow({
   row,
   rowValidationErrors,
   rowSelected,
+  highlighted,
   visibleColumnOrder,
   columns,
   dataTypes,
@@ -163,12 +170,29 @@ const WeatherRow = React.memo(function WeatherRow({
   onToggleRow,
   onToggleCheck,
   onCellBlur,
-  onRequestDelete
+  onRequestDelete,
+  onRowMouseDown,
+  onRowClick
 }: WeatherRowProps): React.JSX.Element {
   const checkValue: CellValue = checkColId != null ? (row[checkColId] ?? null) : null
   return (
-    <tr data-testid={`weather-row-${rowId}`} className="h-9 border-b border-app-border">
-      <td className="w-12 border-r border-app-border px-3 py-2">
+    <tr
+      data-testid={`weather-row-${rowId}`}
+      data-highlighted={highlighted ? 'true' : undefined}
+      onMouseDown={onRowMouseDown}
+      onClick={(event) => onRowClick(event, rowId)}
+      className={`h-9 border-b border-app-border ${
+        highlighted ? 'bg-app-row-selected text-white' : ''
+      }`}
+    >
+      {/* No vertical padding, here or on the action cell below. A table cell
+          centres its content with vertical-align: middle for free, but padding
+          is ADDED to the content's line box — with py-2 the checkbox cell came
+          to 38.5px and the action cell to 42.5px, dragging the whole row past
+          the 36px ROW_HEIGHT_PX the virtualisation positions rows with. The
+          mismatch made the table jump ~6.5px every time the visible band
+          advanced. Keep py-* off unless ROW_HEIGHT_PX moves with it. */}
+      <td className="w-12 border-r border-app-border bg-app-bg px-3">
         <input
           type="checkbox"
           aria-label={`Select ${rowId}`}
@@ -220,7 +244,8 @@ const WeatherRow = React.memo(function WeatherRow({
           </td>
         )
       })}
-      <td className="w-20 min-w-20 max-w-20 border-r border-app-border px-3 py-2">
+      {/* py-* deliberately absent — see the checkbox cell above. */}
+      <td className="w-20 min-w-20 max-w-20 border-r border-app-border px-3">
         <button
           type="button"
           aria-label={`Delete row ${rowId}`}
@@ -253,6 +278,15 @@ function WeatherTable(): React.JSX.Element {
   const [pendingDeleteColumn, setPendingDeleteColumn] = React.useState<ColumnDef | null>(null)
   const [pendingDeleteRow, setPendingDeleteRow] = React.useState<RowId | null>(null)
   const [bodyViewportHeight, setBodyViewportHeight] = React.useState(0)
+  // Shift-click highlight. Deliberately NOT the `rowSelection` slice: that map
+  // is wired to the leftmost checkbox (see the checkColId fallback below) and
+  // is pre-filled with every row on scenario load, so driving the highlight
+  // from it would both change checkbox behaviour and open every table fully
+  // highlighted. Local state keeps this increment's blast radius at zero; lift
+  // it into the slice when something outside the table needs to read it.
+  const [highlightedRowIds, setHighlightedRowIds] = React.useState<ReadonlySet<RowId>>(
+    () => new Set<RowId>()
+  )
   // Visible row band is the only scroll-derived state that drives JSX. Storing
   // it as { startIndex, endIndex } (instead of raw scrollTop) lets the scroll
   // handler bail out when the band hasn't actually changed — i.e. most scroll
@@ -364,6 +398,53 @@ function WeatherTable(): React.JSX.Element {
     }
     dispatch(deleteColumnRequested(projectId, scenarioId, col.id, snapshot))
     setPendingDeleteColumn(null)
+  }
+
+  // ── Shift-click highlight ──────────────────────────────────────────────
+  //
+  // Both handlers are stable (`[]` deps, functional setState) because
+  // WeatherRow is React.memo'd — rebuilding them each render would defeat the
+  // memo for every visible row, which is the dominant cost during scroll.
+
+  // A shift-click is a highlight gesture, not an editing one, so swallow the
+  // browser's default: without this it extends a text selection across rows,
+  // and the cell input under the pointer takes focus. A plain click is left
+  // completely alone, so editing behaves exactly as before.
+  const handleRowMouseDown = React.useCallback((event: React.MouseEvent): void => {
+    if (!event.shiftKey) return
+    if (isHighlightExemptTarget(event.target as HTMLElement)) return
+    event.preventDefault()
+  }, [])
+
+  const handleRowClick = React.useCallback((event: React.MouseEvent, rowId: RowId): void => {
+    if (!event.shiftKey) return
+    if (isHighlightExemptTarget(event.target as HTMLElement)) return
+    setHighlightedRowIds((current) => toggleHighlight(current, rowId))
+  }, [])
+
+  const hasHighlight = highlightedRowIds.size > 0
+
+  React.useEffect(() => {
+    if (!hasHighlight) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setHighlightedRowIds(new Set<RowId>())
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [hasHighlight])
+
+  // RowIds are positional (`row_${index}`), so a reload or a row add/delete
+  // renumbers them and a held highlight would point at different rows. Drop it
+  // whenever the row set changes.
+  //
+  // Adjusting state during render rather than in an effect is React's
+  // documented reset pattern (the same one CellInput uses for `lastSeenValue`):
+  // it re-renders immediately instead of painting a frame with a stale
+  // highlight, and avoids the cascading render an effect would cause.
+  const [lastSeenRowOrder, setLastSeenRowOrder] = React.useState(rowOrder)
+  if (lastSeenRowOrder !== rowOrder) {
+    setLastSeenRowOrder(rowOrder)
+    if (hasHighlight) setHighlightedRowIds(new Set<RowId>())
   }
 
   // Row delete is requested from the per-row trash icon. Stable so React.memo
@@ -662,6 +743,7 @@ function WeatherTable(): React.JSX.Element {
                 row={table?.rows[rowId] ?? EMPTY_ROW}
                 rowValidationErrors={table?.validationErrors?.[rowId]}
                 rowSelected={rowSelection[rowId] === true}
+                highlighted={highlightedRowIds.has(rowId)}
                 visibleColumnOrder={visibleColumnOrder}
                 columns={columns}
                 dataTypes={dataTypes}
@@ -674,6 +756,8 @@ function WeatherTable(): React.JSX.Element {
                 onToggleCheck={toggleCheck}
                 onCellBlur={handleCellBlur}
                 onRequestDelete={handleRequestRowDelete}
+                onRowMouseDown={handleRowMouseDown}
+                onRowClick={handleRowClick}
               />
             ))}
             {bottomSpacerHeight > 0 && (
