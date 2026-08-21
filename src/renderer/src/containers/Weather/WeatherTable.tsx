@@ -32,6 +32,7 @@ import DateTimeHeader from './DateTimeHeader'
 import HeaderEditor from './HeaderEditor'
 import messages from './messages'
 import { isHighlightExemptTarget, toggleHighlight } from './rowHighlight'
+import SelectionActionBar from './SelectionActionBar'
 import {
   selectActiveDateTimeFormat,
   selectActiveProject,
@@ -178,7 +179,6 @@ const WeatherRow = React.memo(function WeatherRow({
   return (
     <tr
       data-testid={`weather-row-${rowId}`}
-      data-highlighted={highlighted ? 'true' : undefined}
       onMouseDown={onRowMouseDown}
       onClick={(event) => onRowClick(event, rowId)}
       className={`h-9 border-b border-app-border ${
@@ -277,6 +277,8 @@ function WeatherTable(): React.JSX.Element {
   const activeProject = useSelector(selectActiveProject)
   const [pendingDeleteColumn, setPendingDeleteColumn] = React.useState<ColumnDef | null>(null)
   const [pendingDeleteRow, setPendingDeleteRow] = React.useState<RowId | null>(null)
+  // Confirm step for the selection action bar's bulk delete.
+  const [pendingDeleteSelection, setPendingDeleteSelection] = React.useState(false)
   const [bodyViewportHeight, setBodyViewportHeight] = React.useState(0)
   // Shift-click highlight. Deliberately NOT the `rowSelection` slice: that map
   // is wired to the leftmost checkbox (see the checkColId fallback below) and
@@ -424,10 +426,25 @@ function WeatherTable(): React.JSX.Element {
 
   const hasHighlight = highlightedRowIds.size > 0
 
+  // Escape peels ONE layer at a time: an open modal takes the first press, the
+  // highlight the next. Without this, a single press did both at once — the
+  // modal closed AND the same keydown bubbled to window and wiped the
+  // selection, so the dialog and the pill vanished together.
+  //
+  // Asked at keydown time rather than from state, because the modals that can
+  // be on screen are not all ours: the Delete Data and Import confirmations
+  // live in containers/Weather/index.tsx and the wizard is a sibling of this
+  // component, so no piece of local state can see them. Two selectors cover
+  // every modal in the app — components/Dialog is the only thing that renders
+  // a <dialog> and it always opens with showModal(), and the import wizard,
+  // which is a <div> overlay instead, marks its panel role="dialog" and is
+  // unmounted when closed.
   React.useEffect(() => {
     if (!hasHighlight) return
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setHighlightedRowIds(new Set<RowId>())
+      if (event.key !== 'Escape') return
+      if (document.querySelector('dialog[open], [role="dialog"]')) return
+      setHighlightedRowIds(new Set<RowId>())
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -455,6 +472,15 @@ function WeatherTable(): React.JSX.Element {
 
   const handleCancelRowDelete = (): void => {
     setPendingDeleteRow(null)
+  }
+
+  // One handler for every way out of the bulk-delete dialog — Cancel, ×, Escape
+  // and Confirm all just close it, because the delete itself isn't built yet
+  // (the request, the all-or-nothing 404 handling and the exit animation are
+  // the next increment; `highlightedRowIds` already holds the set it needs).
+  // Confirm gets its own handler when it actually does something different.
+  const closeSelectionDeleteDialog = (): void => {
+    setPendingDeleteSelection(false)
   }
 
   const handleConfirmRowDelete = (): void => {
@@ -659,7 +685,11 @@ function WeatherTable(): React.JSX.Element {
   const spacerColSpan = visibleColumnOrder.length + 3
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-dark">
+    // `relative` is the positioning context for the selection action bar at the
+    // bottom — anchoring it here rather than to the window centres it on the
+    // TABLE (ignoring the left/right panels) and keeps it still while rows
+    // scroll under it.
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-dark">
       {/* Header strip — overflow-x: clip so its own scrollbar never shows
           AND so dropdowns inside the header (Data Type / Date-Time) can
           extend vertically below the strip without being clipped. The
@@ -824,6 +854,46 @@ function WeatherTable(): React.JSX.Element {
           </button>
         </div>
       </Dialog>
+
+      {/* Same shared Dialog as the single-row and column confirmations above —
+          only the copy differs. */}
+      <Dialog
+        isOpen={pendingDeleteSelection}
+        data-testid="delete-selected-rows-dialog"
+        title={messages.deleteSelectedRows.dialogTitle}
+        onClose={closeSelectionDeleteDialog}
+      >
+        <h3 className="text-base font-medium text-white">
+          {messages.deleteSelectedRows.heading}
+        </h3>
+        <p className="text-sm text-neutral-400">{messages.deleteSelectedRows.body}</p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={closeSelectionDeleteDialog}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+          >
+            {messages.deleteSelectedRows.cancelButton}
+          </button>
+          <button
+            type="button"
+            onClick={closeSelectionDeleteDialog}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+          >
+            {messages.deleteSelectedRows.confirmButton}
+          </button>
+        </div>
+      </Dialog>
+
+      {/* Above the header strip (z-10), below the toast stack (z-[100]) — so a
+          toast raised while rows are highlighted still lands on top. */}
+      <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2">
+        <SelectionActionBar
+          count={highlightedRowIds.size}
+          onDelete={() => setPendingDeleteSelection(true)}
+        />
+      </div>
     </div>
   )
 }

@@ -64,6 +64,21 @@ const messages = {
     body: 'Are you sure you want to delete this? This action cannot be undone.',
     confirmButton: 'Delete',
     cancelButton: 'Cancel'
+  },
+
+  deleteSelectedRows: {
+    dialogTitle: 'Delete',
+    heading: 'Delete Selected Rows',
+    body: 'Are you sure you want to delete these rows? This action cannot be undone.',
+    confirmButton: 'Delete',
+    cancelButton: 'Cancel'
+  },
+
+  selection: {
+    // The count is rendered separately so it can be emphasised, so this is only
+    // the trailing clause. Reads naturally at 1 rather than saying "1 rows".
+    summary: (count: number): string => (count === 1 ? 'row is selected' : 'rows are selected'),
+    deleteButton: 'Delete'
   }
 } as const
 
