@@ -3,6 +3,8 @@ import Dialog from '@renderer/components/Dialog'
 import {
   deleteColumnRequested,
   deleteRowRequested,
+  deleteRowsRequested,
+  deleteRowsReset,
   setAllRowsSelection,
   setRowSelection,
   updateAllCheckboxesRequested,
@@ -27,11 +29,17 @@ import {
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
+import { useTransitionToFalse } from 'utils/useTransitionToFalse'
 import CellInput from './CellInput'
 import DateTimeHeader from './DateTimeHeader'
 import HeaderEditor from './HeaderEditor'
 import messages from './messages'
-import { isHighlightExemptTarget, toggleHighlight } from './rowHighlight'
+import {
+  isHighlightExemptTarget,
+  reconcileHighlight,
+  toDeleteKeys,
+  toggleHighlight
+} from './rowHighlight'
 import SelectionActionBar from './SelectionActionBar'
 import {
   selectActiveDateTimeFormat,
@@ -45,6 +53,7 @@ import {
   selectColumnOrder,
   selectColumns,
   selectDateTimeDataType,
+  selectDeleteRowsLoading,
   selectRowOrder,
   selectRowSelection,
   selectSelectableDataTypes
@@ -273,6 +282,7 @@ function WeatherTable(): React.JSX.Element {
   const checkColId = useSelector(selectCheckColId)
   const table = useSelector(selectActiveWeatherTable)
   const dataTypes = useSelector(selectSelectableDataTypes)
+  const deleteRowsLoading = useSelector(selectDeleteRowsLoading)
   const dateTimeDataType = useSelector(selectDateTimeDataType)
   const activeProject = useSelector(selectActiveProject)
   const [pendingDeleteColumn, setPendingDeleteColumn] = React.useState<ColumnDef | null>(null)
@@ -450,9 +460,10 @@ function WeatherTable(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [hasHighlight])
 
-  // RowIds are positional (`row_${index}`), so a reload or a row add/delete
-  // renumbers them and a held highlight would point at different rows. Drop it
-  // whenever the row set changes.
+  // Keep the highlight in step with the rows. Deleting one row out of the
+  // middle of a selection must leave the rest selected, so this prunes rather
+  // than wipes — see reconcileHighlight for how a delete is told apart from a
+  // reload (which renumbers the positional rowIds and so has to clear).
   //
   // Adjusting state during render rather than in an effect is React's
   // documented reset pattern (the same one CellInput uses for `lastSeenValue`):
@@ -460,8 +471,9 @@ function WeatherTable(): React.JSX.Element {
   // highlight, and avoids the cascading render an effect would cause.
   const [lastSeenRowOrder, setLastSeenRowOrder] = React.useState(rowOrder)
   if (lastSeenRowOrder !== rowOrder) {
+    const reconciled = reconcileHighlight(lastSeenRowOrder, rowOrder, highlightedRowIds)
     setLastSeenRowOrder(rowOrder)
-    if (hasHighlight) setHighlightedRowIds(new Set<RowId>())
+    if (reconciled !== highlightedRowIds) setHighlightedRowIds(reconciled)
   }
 
   // Row delete is requested from the per-row trash icon. Stable so React.memo
@@ -479,9 +491,46 @@ function WeatherTable(): React.JSX.Element {
   // (the request, the all-or-nothing 404 handling and the exit animation are
   // the next increment; `highlightedRowIds` already holds the set it needs).
   // Confirm gets its own handler when it actually does something different.
+  // Ignored while the request is in flight so the x, Escape and Cancel cannot
+  // abandon a delete the backend is already running. The dialog closes itself
+  // on the loading -> idle edge below.
   const closeSelectionDeleteDialog = (): void => {
+    if (deleteRowsLoading) return
     setPendingDeleteSelection(false)
   }
+
+  const handleConfirmSelectionDelete = (): void => {
+    if (deleteRowsLoading || !projectId || !scenarioId || !table) return
+    const rowIds = table.rowOrder.filter((rowId) => highlightedRowIds.has(rowId))
+    const keys = toDeleteKeys(table.rowOrder, table.rows, highlightedRowIds)
+    if (keys.length === 0) {
+      setPendingDeleteSelection(false)
+      return
+    }
+    // Deliberately does NOT close here. The dialog holds until the backend
+    // answers, then closes on success or stays open showing the error.
+    dispatch(deleteRowsRequested(projectId, scenarioId, rowIds, keys))
+  }
+
+  // Close on the loading -> idle edge, success or failure alike. The failure is
+  // reported by the toast, and a toast CANNOT be seen while this is open:
+  // showModal() puts the dialog in the browser's top layer, above the entire
+  // normal document, so SnackbarHost renders behind it however high its
+  // z-index goes (see the portalHost note in components/Select). Holding the
+  // dialog open on failure would therefore show an error nobody can read.
+  //
+  // Same loading -> idle mechanism WeatherToolbar uses for Add Column / Add
+  // Rows / Clear Data, minus their error guard — those keep an inline banner.
+  if (useTransitionToFalse(deleteRowsLoading) && pendingDeleteSelection) {
+    setPendingDeleteSelection(false)
+  }
+
+  // Drop a previous failure's banner so it cannot reappear on the next open.
+  // In an effect rather than during render because it dispatches — the same
+  // shape AddColumnDialog uses to clear its own request status on close.
+  React.useEffect(() => {
+    if (!pendingDeleteSelection) dispatch(deleteRowsReset())
+  }, [pendingDeleteSelection, dispatch])
 
   const handleConfirmRowDelete = (): void => {
     if (pendingDeleteRow == null) return
@@ -862,6 +911,10 @@ function WeatherTable(): React.JSX.Element {
         data-testid="delete-selected-rows-dialog"
         title={messages.deleteSelectedRows.dialogTitle}
         onClose={closeSelectionDeleteDialog}
+        // Explicit, because Dialog's default Enter behaviour clicks the last
+        // ENABLED button in the body — so once Delete is disabled mid-request,
+        // Enter would fire Cancel instead.
+        onConfirm={handleConfirmSelectionDelete}
       >
         <h3 className="text-base font-medium text-white">
           {messages.deleteSelectedRows.heading}
@@ -872,16 +925,20 @@ function WeatherTable(): React.JSX.Element {
           <button
             type="button"
             onClick={closeSelectionDeleteDialog}
-            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+            disabled={deleteRowsLoading}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {messages.deleteSelectedRows.cancelButton}
           </button>
           <button
             type="button"
-            onClick={closeSelectionDeleteDialog}
-            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+            onClick={handleConfirmSelectionDelete}
+            disabled={deleteRowsLoading}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {messages.deleteSelectedRows.confirmButton}
+            {deleteRowsLoading
+              ? messages.deleteSelectedRows.confirmButtonBusy
+              : messages.deleteSelectedRows.confirmButton}
           </button>
         </div>
       </Dialog>

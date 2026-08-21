@@ -5,8 +5,19 @@
 // WeatherTable.test.tsx — scroll/virtualization/refs don't work there). Keeping
 // the decisions pure means they can be tested properly, with the component left
 // holding only the wiring.
-import type { RowId } from 'containers/ProjectScreen/types'
-import { isHighlightExemptTarget, toggleHighlight } from '../rowHighlight'
+import {
+  DATE_COL_ID,
+  TIME_COL_ID,
+  type CellValue,
+  type ColId,
+  type RowId
+} from 'containers/ProjectScreen/types'
+import {
+  isHighlightExemptTarget,
+  reconcileHighlight,
+  toDeleteKeys,
+  toggleHighlight
+} from '../rowHighlight'
 
 describe('toggleHighlight', () => {
   it('adds a row that is not highlighted', () => {
@@ -73,5 +84,100 @@ describe('isHighlightExemptTarget', () => {
   it('does not exempt the row itself', () => {
     expect(isHighlightExemptTarget(document.createElement('tr'))).toBe(false)
     expect(isHighlightExemptTarget(document.createElement('td'))).toBe(false)
+  })
+})
+
+describe('toDeleteKeys', () => {
+  const row = (date: CellValue, time: CellValue): Record<ColId, CellValue> => ({
+    [DATE_COL_ID]: date,
+    [TIME_COL_ID]: time
+  })
+
+  const rows: Record<RowId, Record<ColId, CellValue>> = {
+    row_0: row('2026-02-24', '10:00:00'),
+    row_1: row('2026-02-25', '10:00:00'),
+    row_2: row('2026-02-26', '10:00:00')
+  }
+  const rowOrder: RowId[] = ['row_0', 'row_1', 'row_2']
+
+  it('returns no keys when nothing is highlighted', () => {
+    expect(toDeleteKeys(rowOrder, rows, new Set<RowId>())).toEqual([])
+  })
+
+  // The highlight is a Set, so its iteration order is whatever order the user
+  // happened to shift-click in. The request should follow the table instead.
+  it('emits keys in rowOrder order, not the order the rows were highlighted', () => {
+    const highlighted = new Set<RowId>(['row_2', 'row_0'])
+
+    expect(toDeleteKeys(rowOrder, rows, highlighted)).toEqual([
+      { date: '2026-02-24', time: '10:00:00' },
+      { date: '2026-02-26', time: '10:00:00' }
+    ])
+  })
+
+  // (date, time) is the ONLY way the backend identifies a row, so a row missing
+  // either can't be addressed — sending it would fail the whole all-or-nothing
+  // batch, taking the valid rows down with it.
+  it('skips highlighted rows that are missing a date or a time', () => {
+    const patchy: Record<RowId, Record<ColId, CellValue>> = {
+      ...rows,
+      row_1: row(null, '10:00:00'),
+      row_2: row('2026-02-26', null)
+    }
+    const highlighted = new Set<RowId>(['row_0', 'row_1', 'row_2'])
+
+    expect(toDeleteKeys(rowOrder, patchy, highlighted)).toEqual([
+      { date: '2026-02-24', time: '10:00:00' }
+    ])
+  })
+
+  it('skips highlighted ids that are no longer in the table', () => {
+    const highlighted = new Set<RowId>(['row_0', 'row_99'])
+
+    expect(toDeleteKeys(rowOrder, rows, highlighted)).toEqual([
+      { date: '2026-02-24', time: '10:00:00' }
+    ])
+  })
+})
+
+describe('reconcileHighlight', () => {
+  it('keeps the rest of the selection when one row is deleted', () => {
+    const before: RowId[] = ['row_0', 'row_1', 'row_2']
+    const after: RowId[] = ['row_0', 'row_2']
+    const highlighted = new Set<RowId>(['row_0', 'row_1', 'row_2'])
+
+    expect([...reconcileHighlight(before, after, highlighted)]).toEqual(['row_0', 'row_2'])
+  })
+
+  it('drops only the ids that are gone', () => {
+    const before: RowId[] = ['row_0', 'row_1']
+    const after: RowId[] = ['row_1']
+
+    expect([...reconcileHighlight(before, after, new Set<RowId>(['row_0']))]).toEqual([])
+  })
+
+  // RowIds are positional (`row_${index}`), so a reload renumbers them and a
+  // held highlight would silently point at different rows. A rebuild always
+  // brings in at least one id the previous order didn't have.
+  it('clears everything when a new row id appears', () => {
+    const before: RowId[] = ['row_0', 'row_1']
+    const after: RowId[] = ['row_0', 'row_1', 'row_2']
+
+    expect([...reconcileHighlight(before, after, new Set<RowId>(['row_0']))]).toEqual([])
+  })
+
+  // Identity matters: this runs during render, so returning a fresh Set when
+  // nothing changed would setState on every pass and loop.
+  it('returns the same Set when nothing relevant changed', () => {
+    const order: RowId[] = ['row_0', 'row_1']
+    const highlighted = new Set<RowId>(['row_0'])
+
+    expect(reconcileHighlight(order, order, highlighted)).toBe(highlighted)
+  })
+
+  it('leaves an empty highlight alone', () => {
+    const highlighted = new Set<RowId>()
+
+    expect(reconcileHighlight(['row_0'], ['row_1', 'row_2'], highlighted)).toBe(highlighted)
   })
 })

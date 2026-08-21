@@ -115,7 +115,28 @@ export function toApiError(err: AxiosError): ApiError {
 
 // ── Core request ─────────────────────────────────────────────────────────────
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export interface RequestOptions {
+  // Skip scope-loss detection for this call.
+  //
+  // The detector reads a 404 that carries no machine `code` as "the project or
+  // scenario is gone" — it can only match the ids in the URL — and raises a
+  // blocking "Go to Home" dialog. That is right for the routes it was written
+  // for, but wrong for any endpoint that 404s about something INSIDE a healthy
+  // scenario. POST /deleteRow is one: it is all-or-nothing, so a single already
+  // -deleted row 404s the whole batch, and the user would be thrown out of a
+  // perfectly good project instead of being told which rows were missing.
+  //
+  // Callers that pass this MUST handle the error themselves — nothing else will
+  // surface it.
+  skipScopeCheck?: boolean
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts?: RequestOptions
+): Promise<T> {
   try {
     const res = await client.request<T>({ method, url: path, data: body })
     return res.data
@@ -124,12 +145,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // A project deleted in the other window fails every in-flight call at once.
     // The detector latches on the first and raises one blocking dialog; the
     // error is still thrown so each caller can unwind its own state.
-    reportScopeFailure({
-      status: apiError.status,
-      code: apiError.code,
-      url: path,
-      message: apiError.message
-    })
+    if (!opts?.skipScopeCheck) {
+      reportScopeFailure({
+        status: apiError.status,
+        code: apiError.code,
+        url: path,
+        message: apiError.message
+      })
+    }
     throw apiError
   }
 }
@@ -162,7 +185,8 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  post: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    request<T>('POST', path, body, opts),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),

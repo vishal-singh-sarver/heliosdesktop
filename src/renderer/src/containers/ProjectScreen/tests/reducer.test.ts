@@ -310,6 +310,82 @@ describe('projectScreenReducer', () => {
     })
   })
 
+  describe('bulk row delete', () => {
+    // The whole point of this flow: the confirm dialog stays open until the
+    // backend answers, so nothing may leave state on _REQUESTED.
+    it('DELETE_ROWS_REQUESTED marks loading and leaves the rows alone', () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.deleteRowsRequested(PROJ, SCN, ['row_0'], [{ date: '2026-04-27', time: '10:00:00' }])
+      )
+
+      expect(result.deleteRows).toEqual({ loading: true, error: null })
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_0', 'row_1'])
+      expect(result.byScenario[SCN].rows.row_0).toBeDefined()
+    })
+
+    it('DELETE_ROWS_SUCCEEDED removes every id from rows, order, validation, selection and sync', () => {
+      let seed = projectScreenReducer(
+        loaded(),
+        actions.setColumnValidationErrors(SCN, '7', { row_0: 'too high' })
+      )
+      seed = projectScreenReducer(seed, actions.setRowSelection(SCN, 'row_0', true))
+      seed = projectScreenReducer(
+        seed,
+        actions.updateCellLocal({
+          projectId: PROJ,
+          scenarioId: SCN,
+          rowId: 'row_0',
+          colId: '7',
+          value: '300',
+          validationError: null
+        })
+      )
+
+      const result = projectScreenReducer(
+        seed,
+        actions.deleteRowsSucceeded(PROJ, SCN, ['row_0', 'row_1'])
+      )
+      const table = result.byScenario[SCN]
+
+      expect(result.deleteRows).toEqual({ loading: false, error: null })
+      expect(table.rowOrder).toEqual([])
+      expect(table.rows.row_0).toBeUndefined()
+      expect(table.rows.row_1).toBeUndefined()
+      expect(table.validationErrors.row_0).toBeUndefined()
+      expect(table.rowSelection.row_0).toBeUndefined()
+      expect(table.cellSync[cellKey('row_0', '7')]).toBeUndefined()
+    })
+
+    it('DELETE_ROWS_SUCCEEDED leaves rows that were not in the batch', () => {
+      const result = projectScreenReducer(loaded(), actions.deleteRowsSucceeded(PROJ, SCN, ['row_0']))
+
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_1'])
+      expect(result.byScenario[SCN].rows.row_1).toBeDefined()
+    })
+
+    it('DELETE_ROWS_FAILED records the error and keeps every row', () => {
+      const seed = projectScreenReducer(
+        loaded(),
+        actions.deleteRowsRequested(PROJ, SCN, ['row_0'], [{ date: '2026-04-27', time: '10:00:00' }])
+      )
+
+      const result = projectScreenReducer(seed, actions.deleteRowsFailed(PROJ, SCN, 'row(s) not found'))
+
+      expect(result.deleteRows).toEqual({ loading: false, error: 'row(s) not found' })
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_0', 'row_1'])
+    })
+
+    it('DELETE_ROWS_RESET clears a previous failure', () => {
+      const seed = projectScreenReducer(loaded(), actions.deleteRowsFailed(PROJ, SCN, 'boom'))
+
+      expect(projectScreenReducer(seed, actions.deleteRowsReset()).deleteRows).toEqual({
+        loading: false,
+        error: null
+      })
+    })
+  })
+
   describe('upload', () => {
     it('UPLOAD_FILE_REQUESTED ensures a table for the scenario', () => {
       const file = new File(['x'], 'x.csv')

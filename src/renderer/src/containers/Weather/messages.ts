@@ -71,6 +71,7 @@ const messages = {
     heading: 'Delete Selected Rows',
     body: 'Are you sure you want to delete these rows? This action cannot be undone.',
     confirmButton: 'Delete',
+    confirmButtonBusy: 'Deleting…',
     cancelButton: 'Cancel'
   },
 

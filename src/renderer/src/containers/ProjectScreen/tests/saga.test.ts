@@ -24,6 +24,7 @@ import {
   ADD_ROW_REQUESTED,
   DELETE_COLUMN_REQUESTED,
   DELETE_ROW_REQUESTED,
+  DELETE_ROWS_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_MATERIAL_TYPES_REQUESTED,
@@ -89,6 +90,7 @@ describe('projectScreenSaga (root watcher)', () => {
       UPDATE_COLUMN_REQUESTED,
       DELETE_COLUMN_REQUESTED,
       DELETE_ROW_REQUESTED,
+      DELETE_ROWS_REQUESTED,
       UPDATE_ALL_CHECKBOXES_REQUESTED,
       UPDATE_CELL_LOCAL,
       NAVIGATE
@@ -295,7 +297,7 @@ describe('worker extraction', () => {
     // added the object/material/model-type loaders and the checkbox worker; the
     // count is asserted so a watcher silently dropped from the root saga fails
     // here rather than in whichever feature quietly stops responding.
-    expect(Object.keys(W).length).toBe(16)
+    expect(Object.keys(W).length).toBe(17)
     expect(W[UPDATE_COLUMN_REQUESTED]).toBe(updateColumnWorker)
   })
 })
@@ -1256,5 +1258,41 @@ describe('updateAllCheckboxesWorker (real)', () => {
       name: 'check',
       values: []
     })
+  })
+})
+
+// ── deleteRowsWorker ─────────────────────────────────────────────────────────
+
+describe('deleteRowsWorker (real)', () => {
+  const KEYS = [
+    { date: '2026-04-27', time: '10:00:00' },
+    { date: '2026-04-27', time: '11:00:00' }
+  ]
+
+  it('sends every key in ONE request and dispatches succeeded with the row ids', async () => {
+    vi.mocked(service.deleteRowsRequest).mockResolvedValue('ok')
+    const { task, dispatched } = drive(
+      W[DELETE_ROWS_REQUESTED],
+      actions.deleteRowsRequested(PROJ, SCN, ['row_0', 'row_1'], KEYS)
+    )
+    await task.toPromise()
+
+    expect(vi.mocked(service.deleteRowsRequest)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(service.deleteRowsRequest)).toHaveBeenCalledWith(PROJ, SCN, KEYS)
+    expect(dispatched).toContainEqual(actions.deleteRowsSucceeded(PROJ, SCN, ['row_0', 'row_1']))
+  })
+
+  it('dispatches failed with the message and never a succeeded on rejection', async () => {
+    vi.mocked(service.deleteRowsRequest).mockRejectedValue(new ApiError(404, 'row(s) not found'))
+    const { task, dispatched } = drive(
+      W[DELETE_ROWS_REQUESTED],
+      actions.deleteRowsRequested(PROJ, SCN, ['row_0'], KEYS)
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.deleteRowsFailed(PROJ, SCN, 'row(s) not found'))
+    expect(dispatched.some((a) => a.type === actions.deleteRowsSucceeded(PROJ, SCN, []).type)).toBe(
+      false
+    )
   })
 })
