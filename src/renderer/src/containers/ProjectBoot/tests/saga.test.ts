@@ -1,7 +1,7 @@
 import { TASK } from '@redux-saga/symbols'
-import { call, fork, join, put, race, select, take } from 'redux-saga/effects'
+import { call, cancel, fork, join, put, race, select, take } from 'redux-saga/effects'
 import * as actions from '../actions'
-import { CANCEL_BOOT } from '../constants'
+import { CANCEL_BOOT, OPEN_PROJECT } from '../constants'
 import { atPercent } from '../progress'
 import { openInitChannel } from '../service'
 import { navigate } from 'store/navigationReducer'
@@ -10,7 +10,8 @@ import {
   openProjectWorker,
   releaseLiveScenario,
   runInit,
-  streamInit
+  streamInit,
+  watchOpenProject
 } from '../saga'
 import {
   selectBootActive,
@@ -127,6 +128,56 @@ describe('openProjectWorker', () => {
   })
 })
 
+
+describe('watchOpenProject', () => {
+  // Minimal stand-ins for a Task — `cancel` rejects anything without the marker.
+  const running = { [TASK]: true, isRunning: () => true } as never
+  const finished = { [TASK]: true, isRunning: () => false } as never
+
+  it('drops a second open for the project already booting', () => {
+    // The regression this pins: on a restart with both ids persisted, App's
+    // restore effect opens the project on its own. Opening the SAME project
+    // again while that run is in flight used to cancel it and start another —
+    // and since cancelling here does not stop the /init already running on the
+    // backend, two hydrations raced over one scenario context.
+    const first = actions.openProject('p-1')
+    const gen = watchOpenProject() as Generator
+
+    expect(gen.next().value).toEqual(take(OPEN_PROJECT))
+    expect(gen.next(first).value).toEqual(fork(openProjectWorker, first))
+
+    // Same project, run still going: back to waiting, no second boot.
+    expect(gen.next(running).value).toEqual(take(OPEN_PROJECT))
+    expect(gen.next(actions.openProject('p-1')).value).toEqual(take(OPEN_PROJECT))
+  })
+
+  it('still cancels and replaces the run when a different project is opened', () => {
+    const first = actions.openProject('p-1')
+    const second = actions.openProject('p-2')
+    const gen = watchOpenProject() as Generator
+
+    gen.next() // take
+    gen.next(first) // fork
+    gen.next(running) // take
+
+    expect(gen.next(second).value).toEqual(cancel(running))
+    expect(gen.next().value).toEqual(fork(openProjectWorker, second))
+  })
+
+  it('reopens the same project once its run has finished', () => {
+    // Retry after a failure goes through this path: RETRY_BOOT redispatches
+    // openProject for the same id, and by then the run it is retrying is over.
+    const first = actions.openProject('p-1')
+    const retry = actions.openProject('p-1')
+    const gen = watchOpenProject() as Generator
+
+    gen.next() // take
+    gen.next(first) // fork
+    gen.next(finished) // take
+
+    expect(gen.next(retry).value).toEqual(fork(openProjectWorker, retry))
+  })
+})
 
 describe('releaseLiveScenario', () => {
   const live = { projectId: 'p-1', scenarioId: 's-1' }
