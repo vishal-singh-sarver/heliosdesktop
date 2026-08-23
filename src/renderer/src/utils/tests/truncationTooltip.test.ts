@@ -143,3 +143,69 @@ describe('showFullTextOnHover', () => {
     expect(listener).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('showFullTextOnHover — labels that overflow by less than a pixel', () => {
+  // jsdom has no canvas and no layout, so both halves of the sub-pixel pass are
+  // supplied here: a 2D context that measures text at a fixed width per
+  // character, and a border box for the label to be measured against.
+  let charWidth = 10
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      font: '',
+      measureText: (text: string) => ({ width: text.length * charWidth })
+    } as unknown as CanvasRenderingContext2D)
+  })
+
+  afterEach(() => {
+    hideFullText()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  // A label whose ROUNDED widths say "fits" — the blind spot that kept the
+  // geometry tree silent. Names there are capped at 20 characters, so they
+  // overflow their column by a pixel or two and never by more.
+  function narrowlyClipped(text: string, boxWidth: number): HTMLElement {
+    const el = label({ scrollWidth: 173, clientWidth: 172 })
+    el.textContent = text
+    el.getBoundingClientRect = () => ({ width: boxWidth }) as DOMRect
+    return el
+  }
+
+  it('shows the tooltip for a name overflowing by a single pixel', () => {
+    // 17 characters at 10px = 170.4 of text in a 169.4 box: one pixel over, and
+    // enough for the browser to drop two letters for the ellipsis.
+    charWidth = 10.02
+    enter(narrowlyClipped('GGJSHDJXJCKKVKDCK', 169.4))
+
+    vi.advanceTimersByTime(100)
+    expect(getTruncatedHover()?.text).toBe('GGJSHDJXJCKKVKDCK')
+  })
+
+  it('stays silent when the text fits the box to the fraction', () => {
+    // The case CLIP_TOLERANCE was added for: rounding alone reports 173 against
+    // 172 while nothing is actually cut off.
+    charWidth = 10
+    enter(narrowlyClipped('GGJSHDJXJCKKVKDCK', 170))
+
+    vi.advanceTimersByTime(100)
+    expect(getTruncatedHover()).toBeNull()
+  })
+
+  it('subtracts padding and borders before comparing', () => {
+    // The box is measured border-to-border, so a padded label has less room for
+    // its text than its rect suggests.
+    charWidth = 10
+    const el = narrowlyClipped('ABCDEFGHIJKLMNOPQ', 180)
+    el.style.paddingLeft = '8px'
+    el.style.paddingRight = '8px'
+
+    enter(el)
+    vi.advanceTimersByTime(100)
+    // 170 of text against 180 - 16 = 164 of room.
+    expect(getTruncatedHover()?.text).toBe('ABCDEFGHIJKLMNOPQ')
+  })
+})

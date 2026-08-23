@@ -118,6 +118,10 @@ function* fetchAndCacheObjectGeometry(
   // Read AFTER the bump above, so this run owns the token it is about to check.
   const token = geometryToken(objectId)
 
+  // The row in the Geometry tree spins from here until the bytes land or the
+  // fetch ends some other way. Every exit below settles it.
+  yield put(actions.objectGeometryPending(objectId))
+
   let primitives: PrimitiveInfo[]
   try {
     primitives = (yield call(
@@ -127,6 +131,7 @@ function* fetchAndCacheObjectGeometry(
       objectId
     )) as PrimitiveInfo[]
   } catch (err) {
+    yield put(actions.objectGeometryPending(objectId, false))
     // Cancelled on purpose, because a newer fetch for this object replaced this
     // one or the user hid it. Not a failure: returning quietly keeps it out of
     // loadSceneFailed, which would otherwise show the user an error for work the
@@ -143,6 +148,12 @@ function* fetchAndCacheObjectGeometry(
   //
   // Still needed alongside the abort above: a request that had already finished
   // downloading when it was superseded has nothing left to cancel.
+  // Deliberately does NOT settle the spinner. Pending is a set of ids, not a
+  // count, so clearing here would clear the mark belonging to the fetch that
+  // superseded this one — stopping the row spinning while its replacement is
+  // still downloading. Whatever moved the token owns the row now: a re-fetch
+  // marks it pending again on its way in, and a hide or delete clears it
+  // through OBJECT_GEOMETRY_REMOVED.
   if (geometryToken(objectId) !== token) return
 
   yield call(setObjectPrimitives, objectId, primitives)
@@ -340,6 +351,14 @@ export function* loadSceneWorker(): Generator {
     // them run together — they queue at one door and finish in the same total
     // time. Sequential costs nothing and means one object failing no longer
     // discards the other eleven the way `all()` did.
+    // Marked pending up front rather than one at a time: they are all waiting on
+    // this load, and a queue where only the object at the door looks busy tells
+    // the user nothing about the eleven behind it. objectGeometryCached clears
+    // each as it arrives, so the tree empties top to bottom as the load runs.
+    for (const obj of objects) {
+      yield put(actions.objectGeometryPending(obj.id))
+    }
+
     for (const obj of objects) {
       const primitives = (yield call(
         fetchObjectGeometryBinary,

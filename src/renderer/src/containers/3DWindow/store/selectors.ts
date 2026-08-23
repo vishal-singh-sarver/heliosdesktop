@@ -11,6 +11,14 @@ export const selectScene = createSelector(selectDomain, (s) => s.scene)
 
 export const selectSceneObjectIds = createSelector(selectScene, (s) => s.objectIds)
 
+// The objects whose binary is on the wire, as a Set: every row of the Geometry
+// tree asks about itself on every render, and a linear scan per row per render
+// is what this avoids.
+export const selectPendingObjectIds = createSelector(
+  selectScene,
+  (s) => new Set(s.pendingObjectIds)
+)
+
 export const selectGeometryVersion = createSelector(selectScene, (s) => s.geometryVersion)
 
 export const selectSceneLoad = createSelector(selectDomain, (s) => s.sceneLoad)

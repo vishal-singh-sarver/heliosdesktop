@@ -124,6 +124,77 @@ describe('3DWindow reducer', () => {
     expect(state.scene.fitVersion).toBe(1)
   })
 
+  // The Geometry tree spins a row's icon while its binary downloads, so every
+  // way a fetch can end has to take the row out of that set — a spinner with no
+  // download behind it never stops.
+  describe('pendingObjectIds', () => {
+    it('marks an object pending and clears it when the bytes land', () => {
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      expect(state.scene.pendingObjectIds).toEqual([28])
+
+      state = reducer(state, actions.objectGeometryCached(28))
+      expect(state.scene.pendingObjectIds).toEqual([])
+    })
+
+    it('clears it on the auto-selecting arrival too', () => {
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      state = reducer(state, actions.objectGeometryLoaded(28))
+
+      expect(state.scene.pendingObjectIds).toEqual([])
+    })
+
+    it('clears it for a fetch that ended without arriving', () => {
+      // Cancelled, or failed — the saga settles the row explicitly.
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      state = reducer(state, actions.objectGeometryPending(28, false))
+
+      expect(state.scene.pendingObjectIds).toEqual([])
+      expect(state.scene.objectIds).toEqual([])
+    })
+
+    it('does not list the same object twice', () => {
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      state = reducer(state, actions.objectGeometryPending(28))
+
+      expect(state.scene.pendingObjectIds).toEqual([28])
+    })
+
+    it('drops a deleted or hidden object', () => {
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      state = reducer(state, actions.objectGeometryRemoved(28))
+
+      expect(state.scene.pendingObjectIds).toEqual([])
+    })
+
+    it('empties on a failed scene load, so no row is left spinning', () => {
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      state = reducer(state, actions.objectGeometryPending(30))
+      state = reducer(
+        state,
+        actions.loadSceneFailed({ status: 500, message: 'boom' } as never)
+      )
+
+      expect(state.scene.pendingObjectIds).toEqual([])
+    })
+
+    it('starts a new scene load with nothing pending', () => {
+      let state = reducer(undefined, actions.objectGeometryPending(28))
+      state = reducer(state, actions.loadScene())
+
+      expect(state.scene.pendingObjectIds).toEqual([])
+    })
+
+    it('keeps a re-fetch pending even though the object is still cached', () => {
+      // A saved edit or a material change re-downloads an object that is
+      // already in the scene — the row has to spin for that too.
+      let state = reducer(undefined, actions.objectGeometryCached(28))
+      state = reducer(state, actions.objectGeometryPending(28))
+
+      expect(state.scene.objectIds).toEqual([28])
+      expect(state.scene.pendingObjectIds).toEqual([28])
+    })
+  })
+
   it('MESH_READY sets meshReady true', () => {
     let state = reducer(undefined, actions.selectSceneObject(42))
     expect(state.sceneLoad.meshReady).toBe(false)

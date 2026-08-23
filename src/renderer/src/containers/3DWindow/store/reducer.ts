@@ -9,6 +9,7 @@ import {
   MESH_READY,
   OBJECT_GEOMETRY_CACHED,
   OBJECT_GEOMETRY_LOADED,
+  OBJECT_GEOMETRY_PENDING,
   OBJECT_GEOMETRY_REMOVED,
   RESET_SCENE,
   SELECT_SCENE_OBJECT
@@ -17,6 +18,7 @@ import type { SceneLoadState, SceneState, ThreeDWindowState } from './types'
 
 export const initialSceneState: SceneState = {
   objectIds: [],
+  pendingObjectIds: [],
   geometryVersion: 0,
   fitVersion: 0
 }
@@ -49,11 +51,29 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
         draft.sceneLoad.error = null
         break
 
+      // One object's binary started, or stopped, being on the wire. The two
+      // arrivals below clear it themselves; this is dispatched with
+      // `pending: false` only for the endings that are not an arrival — a fetch
+      // the app cancelled, or one that failed — so a row can never be left
+      // spinning for a download that is no longer happening.
+      case OBJECT_GEOMETRY_PENDING: {
+        const { objectId, pending } = action.payload
+        draft.scene.pendingObjectIds = pending
+          ? draft.scene.pendingObjectIds.includes(objectId)
+            ? draft.scene.pendingObjectIds
+            : [...draft.scene.pendingObjectIds, objectId]
+          : draft.scene.pendingObjectIds.filter((id) => id !== objectId)
+        break
+      }
+
       case OBJECT_GEOMETRY_LOADED: {
         const { objectId } = action.payload
         draft.sceneLoad.objectLoading = false
         draft.sceneLoad.selectionLoading = false
         draft.sceneLoad.meshReady = false
+        draft.scene.pendingObjectIds = draft.scene.pendingObjectIds.filter(
+          (id) => id !== objectId
+        )
         if (!draft.scene.objectIds.includes(objectId)) {
           draft.scene.objectIds.push(objectId)
         }
@@ -66,6 +86,9 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
       // Silent cache — registers geometry without changing the dropdown selection.
       case OBJECT_GEOMETRY_CACHED: {
         const { objectId } = action.payload
+        draft.scene.pendingObjectIds = draft.scene.pendingObjectIds.filter(
+          (id) => id !== objectId
+        )
         if (!draft.scene.objectIds.includes(objectId)) {
           draft.scene.objectIds.push(objectId)
         }
@@ -106,6 +129,10 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
         draft.sceneLoad.loading = false
         draft.sceneLoad.meshReady = true
         draft.sceneLoad.error = action.payload
+        // The load is over however it ended, so nothing is still on the wire.
+        // Without this the row that was downloading when it failed would spin
+        // for the rest of the session.
+        draft.scene.pendingObjectIds = []
         break
 
       case SELECT_SCENE_OBJECT:
@@ -119,6 +146,11 @@ const threeDWindowReducer: Reducer<ThreeDWindowState> = (
       case OBJECT_GEOMETRY_REMOVED: {
         const removedId = action.payload.objectId
         draft.scene.objectIds = draft.scene.objectIds.filter((id) => id !== removedId)
+        // A download for something that has been deleted or hidden has nothing
+        // left to arrive into.
+        draft.scene.pendingObjectIds = draft.scene.pendingObjectIds.filter(
+          (id) => id !== removedId
+        )
         // If the deleted object was selected, fall back to "All". This DOES
         // re-frame, via FitToScene's selectedObjectId dependency — the view
         // genuinely changed to a different subject, which is the one case where
