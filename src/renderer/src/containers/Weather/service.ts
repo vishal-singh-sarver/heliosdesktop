@@ -344,12 +344,19 @@ export type DeleteRowsRequestBody = Array<{ date: string; time: string }>
 
 export type DeleteRowsResponse = string
 
+// `skipScopeCheck` because this route is all-or-nothing: one already-deleted
+// key 404s the entire batch. That 404 carries no machine code, so the scope
+// detector would read it as "this scenario no longer exists" and throw the user
+// out to Home — out of a project that is perfectly healthy, with nothing
+// deleted. Callers surface the failure themselves.
 export function deleteRowsRequest(
   projectId: string,
   scenarioId: string,
   body: DeleteRowsRequestBody
 ): Promise<DeleteRowsResponse> {
-  return api.post<DeleteRowsResponse>(API_ROUTES.weather.deleteRow(projectId, scenarioId), body)
+  return api.post<DeleteRowsResponse>(API_ROUTES.weather.deleteRow(projectId, scenarioId), body, {
+    skipScopeCheck: true
+  })
 }
 
 // ── Update cell ──────────────────────────────────────────────────────────────

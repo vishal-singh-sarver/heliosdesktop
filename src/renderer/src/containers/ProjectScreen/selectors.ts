@@ -424,6 +424,10 @@ export const selectAddRowLoading = createSelector(
   (s) => s.addRow.loading
 )
 export const selectAddRowError = createSelector(selectProjectScreenDomain, (s) => s.addRow.error)
+export const selectDeleteRowsLoading = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.deleteRows.loading
+)
 
 // ── Domain export (for tests / advanced consumers) ───────────────────────────
 

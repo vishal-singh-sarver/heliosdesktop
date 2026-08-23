@@ -6,6 +6,7 @@ import Dialog from '@renderer/components/Dialog'
 import ToolbarButton from '@renderer/components/ToolbarButton'
 import React from 'react'
 import { useSelector } from 'react-redux'
+import { useTransitionToFalse } from 'utils/useTransitionToFalse'
 import AddColumnDialog from './AddColumnDialog'
 import AddRowsDialog from './AddRowsDialog'
 import messages from './messages'
@@ -23,18 +24,6 @@ interface WeatherToolbarProps {
   importedFilename?: string | null
   onClearImportedFile?: () => void
   clearingImport?: boolean
-}
-
-// `useTransitionToFalse(value)` returns true on the render where `value`
-// flipped from true → false. Lets the toolbar auto-close a dialog on a
-// successful loading→idle transition without needing useEffect.
-function useTransitionToFalse(value: boolean): boolean {
-  const [prev, setPrev] = React.useState(value)
-  if (prev !== value) {
-    setPrev(value)
-    return prev && !value
-  }
-  return false
 }
 
 function WeatherToolbar({
