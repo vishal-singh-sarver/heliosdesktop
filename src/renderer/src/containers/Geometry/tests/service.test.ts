@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mergeTree, wireObjectToMaterialGroups, wireObjectToNode } from '../service'
+import {
+  kindFromObjectType,
+  mergeTree,
+  wireObjectToMaterialGroups,
+  wireObjectToNode
+} from '../service'
 
 // A backend object mirroring POST/GET /objects (the shape verified on Swagger).
 const wire = (id: number, name: string, overrides: Record<string, unknown> = {}) => ({
@@ -57,6 +62,22 @@ describe('wireObjectToNode', () => {
     expect(wireObjectToNode(wire(1, 'Ground.004', { visibility: undefined })).visibleInViewport).toBe(
       true
     )
+  })
+
+  // The kind is what picks the row's icon, so a create must land on the same one
+  // the list merge would give the row after a refresh.
+  it('reads the kind from object_type rather than assuming Ground', () => {
+    expect(wireObjectToNode(wire(2, 'Crop.001', { object_type: 'Crop' })).kind).toBe('crop')
+    expect(wireObjectToNode(wire(3, 'barn.obj', { object_type: 'Mesh' })).kind).toBe('imported')
+  })
+})
+
+describe('kindFromObjectType', () => {
+  it('maps the catalog types to their own kinds and everything else to imported', () => {
+    expect(kindFromObjectType('Ground')).toBe('ground')
+    expect(kindFromObjectType('Crop')).toBe('crop')
+    expect(kindFromObjectType('Mesh')).toBe('imported')
+    expect(kindFromObjectType(undefined)).toBe('imported')
   })
 })
 

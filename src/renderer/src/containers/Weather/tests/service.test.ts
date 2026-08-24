@@ -228,7 +228,19 @@ describe('deleteRowsRequest', () => {
     mockedApi.post.mockResolvedValueOnce('ok')
     const body = [{ date: '2026-01-01', time: '00:00:00' }]
     await deleteRowsRequest('p1', 's1', body)
-    expect(mockedApi.post).toHaveBeenCalledWith(API_ROUTES.weather.deleteRow('p1', 's1'), body)
+    expect(mockedApi.post).toHaveBeenCalledWith(API_ROUTES.weather.deleteRow('p1', 's1'), body, {
+      skipScopeCheck: true
+    })
+  })
+
+  // The route is all-or-nothing, so one already-deleted key 404s the whole
+  // batch. That 404 carries no machine code, so the scope detector would read
+  // it as "this scenario is gone" and throw the user out to Home — out of a
+  // healthy project, with nothing deleted. Callers surface it themselves.
+  it('opts out of scope-loss detection', async () => {
+    mockedApi.post.mockResolvedValueOnce('ok')
+    await deleteRowsRequest('p1', 's1', [{ date: '2026-01-01', time: '00:00:00' }])
+    expect(mockedApi.post.mock.calls[0][2]).toEqual({ skipScopeCheck: true })
   })
 })
 

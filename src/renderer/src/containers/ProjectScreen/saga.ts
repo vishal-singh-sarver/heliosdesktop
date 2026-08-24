@@ -43,6 +43,7 @@ import type {
   AddRowRequestedAction,
   DeleteColumnRequestedAction,
   DeleteRowRequestedAction,
+  DeleteRowsRequestedAction,
   ListScenariosRequestedAction,
   LoadScenarioRequestedAction,
   SeedDefaultColumnsRequestedAction,
@@ -56,6 +57,7 @@ import {
   ADD_ROW_REQUESTED,
   DELETE_COLUMN_REQUESTED,
   DELETE_ROW_REQUESTED,
+  DELETE_ROWS_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
@@ -781,6 +783,27 @@ export function* deleteRowWorker(action: DeleteRowRequestedAction): Generator {
   }
 }
 
+// Bulk delete from the selection action bar. One request carrying every
+// (date, time) key — the backend removes each from every column, all or
+// nothing.
+//
+// Deliberately NOT optimistic, unlike deleteRowWorker above: the rows come out
+// of state only once the server has confirmed, which is what lets the confirm
+// dialog stay open until there is a real answer. Nothing to roll back, so
+// there is no snapshot.
+export function* deleteRowsWorker(action: DeleteRowsRequestedAction): Generator {
+  const { projectId, scenarioId, rowIds, keys } = action.payload
+
+  try {
+    yield call(deleteRowsRequest, projectId, scenarioId, keys)
+    yield put(actions.deleteRowsSucceeded(projectId, scenarioId, rowIds))
+    yield put(showSnackbar(toastMessages.rowsDeleted(keys.length), 'success'))
+  } catch (err) {
+    yield put(actions.deleteRowsFailed(projectId, scenarioId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.rowsDeleteFailed(keys.length), 'error'))
+  }
+}
+
 // Walk every row of one column, validating against the catalog's per-unit
 // range. Bails when the catalog hasn't loaded or the column has been
 // removed. Same shape used by loadScenarioWorker (via revalidateScenarioColumns)
@@ -890,6 +913,7 @@ export default function* projectScreenSaga(): Generator {
   yield takeEvery(UPDATE_COLUMN_REQUESTED, updateColumnWorker)
   yield takeEvery(DELETE_COLUMN_REQUESTED, deleteColumnWorker)
   yield takeEvery(DELETE_ROW_REQUESTED, deleteRowWorker)
+  yield takeLatest(DELETE_ROWS_REQUESTED, deleteRowsWorker)
   yield takeEvery(UPDATE_CELL_LOCAL, updateCellWorker)
   yield takeLatest(UPDATE_ALL_CHECKBOXES_REQUESTED, updateAllCheckboxesWorker)
   yield takeEvery(NAVIGATE, clearPersistedIdsOnHome)

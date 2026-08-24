@@ -1,8 +1,12 @@
 import chevronIcon from '@renderer/assets/chevron.svg'
+import cropIcon from '@renderer/assets/cropicon.svg'
+import fileIcon from '@renderer/assets/fileicon.svg'
+import groundIcon from '@renderer/assets/groundicon.svg'
 import Dialog from '@renderer/components/Dialog'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import { MATERIAL_DND_MIME } from 'containers/Materials/constants'
 import { selectMaterialsById } from 'containers/Materials/selectors'
+import { selectPendingObjectIds } from 'containers/3DWindow/store/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
@@ -19,12 +23,72 @@ import {
 } from './actions'
 import messages from './messages'
 import NameEditor from './NameEditor'
-import RowActions, { KebabMenu } from './RowActions'
-import { selectDeletingIds } from './selectors'
-import type { GeoNode } from './types'
+import RowActions from './RowActions'
+import { selectDeletingIds, selectSavingObjectId } from './selectors'
+import type { GeoNode, GeoNodeKind } from './types'
 
 // Custom DnD mime so we only react to our own row drags, not arbitrary drops.
 const DND_MIME = 'application/x-geo'
+
+// The row's leading icon, by how the geometry was created — so a ground, a crop
+// and an imported file are told apart at a glance rather than by reading names
+// that a rename can make say anything. A group has no icon of its own: its
+// leading slot is the expand chevron, and its members carry their own.
+//
+// Exhaustive by type, deliberately — a new GeoNodeKind fails to compile here
+// until it declares an icon, rather than quietly rendering a blank slot.
+const KIND_ICON: Record<GeoNodeKind, string | null> = {
+  ground: groundIcon,
+  crop: cropIcon,
+  imported: fileIcon,
+  group: null
+}
+
+// The busy indicator that stands in for a row's kind icon.
+//
+// Not components/LoadingScreen's Spinner: that one dims its track to 25% and its
+// arc to 75% of the current colour, which is right over a full-panel overlay and
+// wrong at 14px in a row — at this size the fading read as a disabled control
+// rather than as work in progress. Here both strokes are fully opaque, the arc
+// is a bright blue against a track dark enough to sit quietly on the panel, and
+// the stroke is thicker so the ring survives being this small.
+//
+// Same role and label as Spinner, so anything looking for the busy state finds
+// it the same way.
+const BUSY_TRACK = '#2F3646'
+const BUSY_ARC = '#4D8DFF'
+
+function BusyIcon(): React.JSX.Element {
+  return (
+    <svg
+      className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin"
+      viewBox="0 0 24 24"
+      fill="none"
+      role="img"
+      aria-label="Loading"
+    >
+      <circle cx="12" cy="12" r="9" stroke={BUSY_TRACK} strokeWidth="4" />
+      {/* A quarter turn of the ring, rounded so the leading edge reads as
+          movement rather than as a chipped circle. */}
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke={BUSY_ARC}
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+// Row indent: where a root row starts, plus one step per level of nesting.
+//
+// Groups hold leaves only (single-level), so depth never exceeds 1 — the step
+// can be generous without a deep tree running out of the panel's width, and it
+// needs to be. A group's chevron already occupies 20px at the head of its own
+// row, so a step narrower than that reads as members sitting almost level with
+// the group rather than inside it.
+const ROW_PADDING_LEFT = 10
+const INDENT_PER_DEPTH = 24
 
 // How long a material must hover a COLLAPSED group before it springs open. Long
 // enough that merely dragging ACROSS a group on the way somewhere else doesn't
@@ -138,8 +202,8 @@ function TreeRow({
   React.useEffect(() => cancelSpringOpen, [])
 
   // How deep the drag currently is inside this row. dragenter/dragleave bubble,
-  // so crossing onto one of the row's OWN children (the name, the chevron, the
-  // kebab) fires a leave that does NOT mean the pointer left the row. The usual
+  // so crossing onto one of the row's OWN children (the name, the chevron, an
+  // action icon) fires a leave that does NOT mean the pointer left the row. The usual
   // `relatedTarget` check can't tell them apart — browsers leave it null on drag
   // events — so count enters against leaves instead: back to zero = really gone.
   const dragDepth = React.useRef(0)
@@ -151,6 +215,11 @@ function TreeRow({
   // group id of a DELETED material (the viewport's refetch gate needs it), and the
   // drop handler must not read that ghost as "this ground already has a material".
   const materialsById = useSelector(selectMaterialsById)
+  // Objects whose binary geometry is downloading right now — the row shows a
+  // spinner in place of its kind icon while its own is among them.
+  const pendingBinaryIds = useSelector(selectPendingObjectIds)
+  // The object whose Properties-form save is in flight, if any.
+  const savingObjectId = useSelector(selectSavingObjectId)
 
   const childCount = isGroup ? node.childIds.length : 0
   const confirmMessage = isGroup
@@ -356,6 +425,18 @@ function TreeRow({
 
   const nameError = nameErrors[node.id]
 
+  // null for a group (the chevron occupies that slot instead).
+  const kindIcon = KIND_ICON[node.kind]
+
+  // The row is busy when something is actually in flight against this geometry:
+  // its binary is downloading, its Properties-form save is out, or its DELETE
+  // is. Deliberately NOT the eye, render or per-model toggles — those apply
+  // optimistically, so the row already shows the new state and a spinner would
+  // flash over an answer the user has been given. Groups have no binary of their
+  // own; their members each report for themselves.
+  const busy = (!isGroup && pendingBinaryIds.has(Number(node.id))) || savingObjectId === node.id
+  const showBusy = busy || deleting
+
   // Any error on the row (live rename validation while editing, or a backend
   // rename failure) turns the box border red — the same #D92D20 the right-panel
   // form uses for invalid fields.
@@ -390,7 +471,7 @@ function TreeRow({
                     ? 'border-app-border bg-[#2a2a2a]'
                     : 'border-transparent hover:bg-neutral-700/40'
           } ${dropZone === 'into' ? 'ring-1 ring-inset ring-blue-500' : ''}`}
-          style={{ paddingLeft: 10 + depth * 16 }}
+          style={{ paddingLeft: ROW_PADDING_LEFT + depth * INDENT_PER_DEPTH }}
         >
           {/* Reorder insertion lines (absolutely positioned so they never shift
               layout — that lets the center "drop to group" still work). */}
@@ -426,6 +507,32 @@ function TreeRow({
             </button>
           )}
 
+          {/* Outside the editing branch below so renaming doesn't drop the icon
+              and shuffle the row's contents sideways mid-edit. */}
+          {/* `mr-1` on top of the row's own gap: the kind icon sits tight
+              against the name at 4px alone, and only this pair needs the extra
+              room — widening the row's gap would push the action cluster out
+              too.
+
+              The spinner stands in the SAME slot at the same size while this
+              geometry's binary is downloading, so the row doesn't reflow when it
+              lands. A ground at 1000×1000 is 228 MB — long enough that a row
+              with nothing to say about itself reads as finished. */}
+          {showBusy ? (
+            <BusyIcon />
+          ) : (
+            kindIcon && (
+              <img
+                src={kindIcon}
+                alt=""
+                aria-hidden="true"
+                width="14"
+                height="14"
+                className="mr-1 shrink-0"
+              />
+            )
+          )}
+
           {editing ? (
             <NameEditor
               id={node.id}
@@ -449,7 +556,6 @@ function TreeRow({
               >
                 {node.name}
               </span>
-              <KebabMenu node={node} projectId={projectId} scenarioId={scenarioId} />
               <RowActions
                 node={node}
                 projectId={projectId}

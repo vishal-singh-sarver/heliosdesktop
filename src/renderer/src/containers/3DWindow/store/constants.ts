@@ -9,6 +9,12 @@ export const OBJECT_GEOMETRY_LOADED = 'app/3DWindow/OBJECT_GEOMETRY_LOADED' as c
 // silently in the background (create/update events).
 export const OBJECT_GEOMETRY_CACHED = 'app/3DWindow/OBJECT_GEOMETRY_CACHED' as const
 
+// One object's binary is on the wire, or has stopped being on the wire without
+// arriving. The Geometry tree shows a spinner in that row's icon slot while it
+// is in flight — a ground at 1000×1000 is 228 MB, long enough that a row with
+// nothing to say about it reads as broken.
+export const OBJECT_GEOMETRY_PENDING = 'app/3DWindow/OBJECT_GEOMETRY_PENDING' as const
+
 // ── Load entire scene (all objects) ─────────────────────────────────────────
 export const LOAD_SCENE_REQUESTED = 'app/3DWindow/LOAD_SCENE_REQUESTED' as const
 export const LOAD_SCENE_SUCCEEDED = 'app/3DWindow/LOAD_SCENE_SUCCEEDED' as const

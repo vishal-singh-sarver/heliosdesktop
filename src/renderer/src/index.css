@@ -9,6 +9,8 @@
   --color-text-primary: #ffffff;
   --color-text-secondary: #a1a1aa;
   --color-text-error-primary: #D92D20;
+  /* Shift-click row highlight in the weather table. */
+  --color-row-selected: #5888E5;
 
   /* TYPOGRAPHY */
   --font-main: Geist, sans-serif;
@@ -29,6 +31,7 @@
   --color-app-border: var(--color-border);
   --color-text-primary: var(--color-text-primary);
   --color-text-secondary: var(--color-text-secondary);
+  --color-app-row-selected: var(--color-row-selected);
   --font-main: var(--font-main);
 
   /* Toasts slide in from the right edge they're anchored to, and leave the same
@@ -83,6 +86,52 @@
     to {
       opacity: 0;
     }
+  }
+}
+
+/* Weather table row exit (bulk delete).
+   Two phases on two DIFFERENT elements, so they can overlap without fighting
+   over the same `transform`: the leaving row travels on X, the survivors below
+   it travel on Y.
+
+   These are `transition`s and NOT keyframe animations, unlike the toasts above.
+   The table is virtualised, so a row scrolled into view mid-flight MOUNTS
+   mid-flight — and a fresh mount restarts a keyframe animation from frame 0,
+   leaving it still sliding after the store has dropped it. A transition has no
+   "from" state on a fresh mount, so such a row simply renders in its end state,
+   which is the correct thing to show. Toasts never remount mid-flight; rows do.
+
+   WEATHER_ROW_EXIT_MS in WeatherTable.tsx must match whichever of these
+   finishes LAST — currently the shift, at 220ms delay + 260ms = 480ms. */
+.weather-row-leaving {
+  transform: translateX(110%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 280ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 280ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Carries only the timing — the translateY itself is an inline style, since it
+   differs per row. Adding the transition and the transform in the same commit
+   still animates: a transition is started from the after-change style. Removing
+   both in the same commit does NOT animate, for the same reason, which is what
+   lets the row snap into its real position when the snapshot is dropped. */
+.weather-row-shift {
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 220ms;
+}
+
+/* Same bargain the toasts strike: the rows still leave, they just don't travel
+   to do it. Durations are untouched, so WEATHER_ROW_EXIT_MS stays correct and
+   no JS branch is needed. `!important` because the shift's transform is an
+   inline style, which nothing else can outrank. */
+@media (prefers-reduced-motion: reduce) {
+  .weather-row-leaving {
+    transform: none;
+  }
+
+  .weather-row-shift {
+    transform: none !important;
   }
 }
 

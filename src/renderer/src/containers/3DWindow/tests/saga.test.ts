@@ -39,9 +39,10 @@ describe('loadObjectGeometryWorker', () => {
     expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
 
-    expect(gen.next('scen-1').value).toEqual(
-      call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28)
-    )
+    // The row in the Geometry tree starts spinning before the bytes are asked
+    // for, and stops when they land.
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
 
     const primitives: PrimitiveInfo[] = [
       {
@@ -134,11 +135,16 @@ describe('loadSceneWorker', () => {
     gen.next('proj-1') // select scenario id
     gen.next('scen-1') // select scene objects
 
+    // Every object is marked pending up front, so the whole queue shows as
+    // waiting rather than only the one at the door.
+    expect(gen.next([testObject, second]).value).toEqual(
+      put(actions.objectGeometryPending(28))
+    )
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(29)))
+
     // Sequential, not all() — the backend serializes these on one lock anyway,
     // and this is what makes per-object progress and clean cancellation work.
-    expect(gen.next([testObject, second]).value).toEqual(
-      call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28)
-    )
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
     const first: PrimitiveInfo[] = []
     expect(gen.next(first).value).toEqual(call(setObjectPrimitives, 28, first))
     expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
@@ -174,7 +180,8 @@ describe('onMaterialAssigned', () => {
     // Enter the loop with a visible node → fetch + cache its geometry.
     expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
 
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
@@ -218,7 +225,8 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
     expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
@@ -240,7 +248,8 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
     expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
@@ -253,7 +262,8 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
     expect(gen.next().value).toEqual(put(actions.objectGeometryCached(28)))
@@ -294,7 +304,8 @@ describe('onViewportToggled', () => {
     const nodes = { '28': leaf('28', true) } // reducer already flipped it on
     expect(gen.next(nodes).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
 
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
@@ -330,7 +341,8 @@ describe('onVisibilitySyncFailed', () => {
     const nodes = { '28': leaf('28', true) } // reverted back to visible
     expect(gen.next(nodes).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
 
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))
@@ -368,7 +380,8 @@ describe('onMaterialUnassigned', () => {
 
     expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
-    expect(gen.next('scen-1').value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
 
     const primitives: PrimitiveInfo[] = []
     expect(gen.next(primitives).value).toEqual(call(setObjectPrimitives, 28, primitives))

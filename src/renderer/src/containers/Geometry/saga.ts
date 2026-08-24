@@ -375,7 +375,7 @@ export function* toggleRenderWorker(action: ToggleRenderAction): Generator {
   }
 }
 
-// Persist a per-model kebab toggle. Sends the one model AND the render flag,
+// Persist a per-model toggle from the render icon's menu. Sends the one model AND the render flag,
 // which the reducer kept in sync (render is on iff any model is on) — so the
 // backend's visibility.render never drifts from the per-model state. A group
 // uses the group endpoint (cascades to members); a leaf PATCHes its own object.

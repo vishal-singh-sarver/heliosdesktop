@@ -97,6 +97,14 @@ export const DELETE_ROW_REQUESTED = 'app/ProjectScreen/DELETE_ROW_REQUESTED' as 
 export const DELETE_ROW_SUCCEEDED = 'app/ProjectScreen/DELETE_ROW_SUCCEEDED' as const
 export const DELETE_ROW_FAILED = 'app/ProjectScreen/DELETE_ROW_FAILED' as const
 
+// Bulk delete driven by the shift-click highlight. Unlike DELETE_ROW_* above
+// this is NOT optimistic: the rows come out of state only on _SUCCEEDED, so the
+// confirm dialog can stay open until the backend has actually answered.
+export const DELETE_ROWS_REQUESTED = 'app/ProjectScreen/DELETE_ROWS_REQUESTED' as const
+export const DELETE_ROWS_SUCCEEDED = 'app/ProjectScreen/DELETE_ROWS_SUCCEEDED' as const
+export const DELETE_ROWS_FAILED = 'app/ProjectScreen/DELETE_ROWS_FAILED' as const
+export const DELETE_ROWS_RESET = 'app/ProjectScreen/DELETE_ROWS_RESET' as const
+
 // Cell edit. UPDATE_CELL_LOCAL is the synchronous optimistic write fired
 // from the cell on blur. The saga then dispatches UPDATE_CELL_REQUESTED only
 // when local validation passed (validationError === null).

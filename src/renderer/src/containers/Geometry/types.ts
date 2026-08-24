@@ -3,7 +3,14 @@
 // Maps, or class instances) so it is safe to hold in Redux.
 
 // Leaf kinds vs. a group container. Groups hold leaves only (single-level).
-export type GeoNodeKind = 'ground' | 'imported' | 'group'
+//
+// The leaf kinds mirror how the geometry entered the scenario — +Ground, +Crop
+// or Import from File — which is what picks the row's icon in the tree.
+// `ground` and `crop` are the catalog's two object types (migration 017);
+// `imported` is anything that arrived as a file. Only +Ground creates today, so
+// `crop` is a kind nothing produces yet — it exists so the mapping is complete
+// rather than silently falling through to the file icon later.
+export type GeoNodeKind = 'ground' | 'crop' | 'imported' | 'group'
 
 // Per-model visibility, keyed by the catalog model id (GET /api/catalog/
 // model-types, §4.4). Mirrors the API's `visibility.models` map. A model id
@@ -20,7 +27,7 @@ export interface GeoNode {
   expanded: boolean // groups only (ignored for leaves)
   visibleInViewport: boolean // 👁 eye toggle → visibility.viewport
   renderEnabled: boolean // render icon (row) → visibility.render
-  modelVisibility: ModelVisibility // per-model kebab toggles → visibility.models
+  modelVisibility: ModelVisibility // per-model menu toggles → visibility.models
   // Material-GROUP ids assigned to this leaf (from the objects-list
   // `material_groups`), kept in sync on assign/unassign/save. Lets the 3D viewport
   // re-fetch ONLY the objects that use a saved/deleted material instead of all
@@ -129,6 +136,11 @@ export interface GeometryState {
   // createDraft (only one create runs at a time) and read by the toolbar to
   // disable +Ground while the request is in flight.
   creating: boolean
+  // The object whose Properties-form save is in flight, so its tree row can show
+  // it is busy. Slice-level for the same reason as createDraft, and because
+  // UPDATE_OBJECT_FAILED carries only an error message — there is no scope on it
+  // to file this under. takeLeading on the save means there is only ever one.
+  savingObjectId: string | null
 }
 
 // ── Action payload shapes ───────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { clearSceneCache } from 'containers/3DWindow/store/sceneCache'
 import { clearTextureCache } from 'containers/3DWindow/ui/textureCache'
 import {
   call,
+  cancel,
   cancelled,
   fork,
   join,
@@ -420,11 +421,50 @@ export function* scopeLostDismissedWorker(): Generator {
   yield put(navigate('home'))
 }
 
+// ── Watching OPEN_PROJECT ────────────────────────────────────────────────────
+//
+// takeLatest, minus the one case where "latest" is the wrong answer.
+//
+// A restart with both ids persisted opens the project on its own — App's
+// restore effect dispatches OPEN_PROJECT before the user has touched anything.
+// If that same project is then opened again while the restore is still running,
+// plain takeLatest would cancel the run in flight and start a second one for
+// the same scenario. On this side that looks clean; on the backend it is not.
+// The first /init is already in progress there, and cancelling the saga only
+// closes our end of the stream — so the second /init arrives alongside a
+// hydration that is still running, and two of them race over one context.
+//
+// So a request for the project ALREADY booting is dropped, and only a different
+// project cancels and replaces the run. Its late results still cannot land: the
+// run id on every action is what keeps a cancelled run out of the new project's
+// state.
+//
+// This cannot see every duplicate — a run abandoned earlier (cancelled from the
+// loader, then reopened from Home) leaves an init finishing on the backend that
+// no frontend state remembers. That one is the backend cancel path's to close;
+// this keeps the frontend from manufacturing the collision in the first place.
+export function* watchOpenProject(): Generator {
+  let task: Task | null = null
+  let bootingProjectId: string | null = null
+
+  while (true) {
+    const action = (yield take(OPEN_PROJECT)) as ReturnType<typeof actions.openProject>
+    const { projectId } = action.payload
+
+    // Already loading this exact project — the run in flight is the one the
+    // caller wants. Retry after a failure still gets through: that run has
+    // finished by the time RETRY_BOOT redispatches.
+    if (task?.isRunning() && bootingProjectId === projectId) continue
+
+    if (task?.isRunning()) yield cancel(task)
+
+    bootingProjectId = projectId
+    task = (yield fork(openProjectWorker, action)) as Task
+  }
+}
+
 export default function* projectBootSaga(): Generator {
-  // takeLatest cancels a run in flight when a second project is opened. The
-  // cancelled run stops issuing calls, and the run id on every action keeps its
-  // late results from landing in the new project's state.
-  yield takeLatest(OPEN_PROJECT, openProjectWorker)
+  yield fork(watchOpenProject)
   yield takeLatest(RETRY_BOOT, retryBootWorker)
   yield takeLatest(DISMISS_BOOT_ERROR, dismissBootErrorWorker)
   yield takeLatest(SCOPE_LOST, scopeLostWorker)

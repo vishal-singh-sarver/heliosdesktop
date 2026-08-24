@@ -3,6 +3,10 @@ import type { ApiErrorPayload } from '../models/types'
 export interface SceneState {
   // Objects whose parsed primitives are available in sceneCache.
   objectIds: number[]
+  // Objects whose binary is on the wire right now. Separate from objectIds
+  // rather than derived from it: a re-fetch (a saved edit, a material change)
+  // is pending while its object is still cached from the previous download.
+  pendingObjectIds: number[]
   // Incremented whenever sceneCache contents change; the viewport keys
   // geometry rebuilds off this counter (primitives themselves stay out of
   // Redux — they are large and not serialization-friendly).

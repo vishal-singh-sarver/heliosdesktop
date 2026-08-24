@@ -7,6 +7,7 @@ import {
   MESH_READY,
   OBJECT_GEOMETRY_CACHED,
   OBJECT_GEOMETRY_LOADED,
+  OBJECT_GEOMETRY_PENDING,
   OBJECT_GEOMETRY_REMOVED,
   RESET_SCENE,
   SELECT_SCENE_OBJECT
@@ -39,6 +40,18 @@ export const objectGeometryLoaded = (objectId: number) => ({
 export const objectGeometryCached = (objectId: number) => ({
   type: OBJECT_GEOMETRY_CACHED,
   payload: { objectId }
+})
+
+/**
+ * Mark one object's binary as in flight, or no longer in flight.
+ *
+ * `pending: false` is for the endings that are not an arrival — a fetch the app
+ * cancelled itself, or one that failed. The two arrivals clear it on their own,
+ * so a caller that succeeds never has to say so twice.
+ */
+export const objectGeometryPending = (objectId: number, pending = true) => ({
+  type: OBJECT_GEOMETRY_PENDING,
+  payload: { objectId, pending }
 })
 
 // ── Load scene ───────────────────────────────────────────────────────────────
@@ -92,6 +105,7 @@ export type ThreeDWindowAction =
   | ReturnType<typeof loadObjectGeometry>
   | ReturnType<typeof objectGeometryLoaded>
   | ReturnType<typeof objectGeometryCached>
+  | ReturnType<typeof objectGeometryPending>
   | ReturnType<typeof loadScene>
   | ReturnType<typeof loadSceneSucceeded>
   | ReturnType<typeof loadSceneFailed>

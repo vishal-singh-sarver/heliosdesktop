@@ -36,8 +36,8 @@ export const selectActiveGeometry = createSelector(
 
 // ── Catalog (model ids) ──────────────────────────────────────────────────────
 
-// The catalog model ids, memoized so the render-icon master switch and the kebab
-// menu share one stable array instead of each re-deriving modelTypes.map(m => m.id)
+// The catalog model ids, memoized so the render icon's master switch and its
+// per-model menu share one stable array instead of each re-deriving modelTypes.map(m => m.id)
 // on every render.
 export const selectModelIds = createSelector(selectModelTypes, (modelTypes) =>
   modelTypes.map((m) => m.id)
@@ -56,6 +56,10 @@ export const selectNameErrors = createSelector(selectActiveGeometry, (g) => g.na
 // Nodes whose DELETE is in flight — the row and the right-panel form disable their
 // trash while an id is here, so a pessimistic delete can't be fired twice.
 export const selectDeletingIds = createSelector(selectActiveGeometry, (g) => g.deletingIds)
+// The object whose Properties-form save is in flight — its tree row shows busy
+// while the PATCH is out, so the left panel reflects work started in the right.
+export const selectSavingObjectId = (state: RootState): string | null =>
+  selectGeometryDomain(state).savingObjectId
 // The row +Ground just created — drives its transient "just appeared" cue.
 export const selectLastCreatedId = createSelector(selectActiveGeometry, (g) => g.lastCreatedId)
 

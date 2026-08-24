@@ -11,6 +11,10 @@ import {
   DELETE_ROW_FAILED,
   DELETE_ROW_REQUESTED,
   DELETE_ROW_SUCCEEDED,
+  DELETE_ROWS_REQUESTED,
+  DELETE_ROWS_SUCCEEDED,
+  DELETE_ROWS_FAILED,
+  DELETE_ROWS_RESET,
   ADD_ROW_FAILED,
   ADD_ROW_REQUESTED,
   ADD_ROW_RESET,
@@ -168,6 +172,7 @@ export interface ProjectScreenState {
   byScenario: Record<string, WeatherTable>
   addColumn: RequestStatus
   addRow: RequestStatus
+  deleteRows: RequestStatus
   updateProject: RequestStatus
 }
 
@@ -217,6 +222,7 @@ export const initialState: ProjectScreenState = {
   byScenario: {},
   addColumn: idleStatus(),
   addRow: idleStatus(),
+  deleteRows: idleStatus(),
   updateProject: idleStatus()
 }
 
@@ -707,6 +713,47 @@ const projectScreenReducer = (
         Object.assign(table.cellSync, snapshot.cellSync)
         break
       }
+
+      // ── Bulk row delete (selection action bar) ────────────────────────────
+      //
+      // NOT optimistic, unlike DELETE_ROW_* above. The rows stay put until the
+      // backend confirms, which is what lets the confirm dialog hold itself
+      // open until there is a real answer — and means there is no snapshot to
+      // capture and no rollback branch.
+
+      case DELETE_ROWS_REQUESTED:
+        draft.deleteRows.loading = true
+        draft.deleteRows.error = null
+        break
+
+      case DELETE_ROWS_SUCCEEDED: {
+        const { scenarioId, rowIds } = action.payload
+        draft.deleteRows.loading = false
+        draft.deleteRows.error = null
+        const table = draft.byScenario[scenarioId]
+        if (!table) break
+
+        const removed = new Set(rowIds)
+        table.rowOrder = table.rowOrder.filter((id) => !removed.has(id))
+        for (const rowId of rowIds) {
+          delete table.rows[rowId]
+          delete table.validationErrors[rowId]
+          delete table.rowSelection[rowId]
+        }
+        for (const key of Object.keys(table.cellSync)) {
+          if (removed.has(key.slice(0, key.lastIndexOf(':')))) delete table.cellSync[key]
+        }
+        break
+      }
+
+      case DELETE_ROWS_FAILED:
+        draft.deleteRows.loading = false
+        draft.deleteRows.error = action.payload.error
+        break
+
+      case DELETE_ROWS_RESET:
+        draft.deleteRows = idleStatus()
+        break
 
       // ── Cell edit ──────────────────────────────────────────────────────────
 

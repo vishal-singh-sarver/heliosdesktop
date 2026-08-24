@@ -61,8 +61,8 @@ const dispatch = vi.fn()
 
 // Minimal mock store: getState returns the shape the geometry + ProjectScreen
 // selectors read; dispatch is a spy so we can assert toggleExpand fires.
-// The kebab reads the model catalog via selectModelTypes; seed the six top-level
-// models so the per-model rows render (Radiation = id 1).
+// The render icon's per-model menu reads the model catalog via selectModelTypes;
+// seed the six top-level models so the per-model rows render (Radiation = id 1).
 const MODEL_TYPES = [
   { id: 1, model: 'Radiation', description: '' },
   { id: 2, model: 'Energy Balance', description: '' },
@@ -80,11 +80,24 @@ const LIBRARY = { '7': { id: '7', name: 'Grass' }, '9': { id: '9', name: 'Soil' 
 
 const makeStore = (
   scenario: ScenarioGeometry,
-  materialsById: Record<string, unknown> = LIBRARY
+  materialsById: Record<string, unknown> = LIBRARY,
+  pendingObjectIds: number[] = [],
+  savingObjectId: string | null = null
 ): never => {
   const state = {
-    geometry: { byScope: { [scopeKey('p1', 's1')]: scenario } },
+    geometry: { byScope: { [scopeKey('p1', 's1')]: scenario }, savingObjectId },
     materials: { byId: materialsById, order: Object.keys(materialsById) },
+    threeDWindow: {
+      scene: { objectIds: [], pendingObjectIds, geometryVersion: 0, fitVersion: 0 },
+      sceneLoad: {
+        loading: false,
+        objectLoading: false,
+        selectionLoading: false,
+        meshReady: true,
+        error: null,
+        selectedObjectId: null
+      }
+    },
     projectScreen: {
       activeProjectId: 'p1',
       activeScenarioId: 's1',
@@ -105,14 +118,78 @@ const makeStore = (
   } as never
 }
 
-const renderTree = (scenario: ScenarioGeometry, materialsById?: Record<string, unknown>) =>
+const renderTree = (
+  scenario: ScenarioGeometry,
+  materialsById?: Record<string, unknown>,
+  pendingObjectIds?: number[],
+  savingObjectId?: string | null
+) =>
   render(
-    <Provider store={makeStore(scenario, materialsById)}>
+    <Provider store={makeStore(scenario, materialsById, pendingObjectIds, savingObjectId)}>
       <GeometryTree />
     </Provider>
   )
 
 beforeEach(() => dispatch.mockClear())
+
+describe('the downloading indicator', () => {
+  // A ground at 1000×1000 is 228 MB. Until it lands the row has nothing to say
+  // about itself, which reads as finished — so the kind icon gives up its slot
+  // to a spinner while the binary is on the wire.
+  const geometries = {
+    ...emptyScenarioGeometry(),
+    loadStatus: 'loaded' as const,
+    nodesById: { '28': ground('28', 'Ground.001'), '30': ground('30', 'Ground.002') },
+    rootOrder: ['28', '30']
+  }
+
+  const rowOf = (name: string): HTMLElement =>
+    screen.getByText(name).closest('[role="button"]') as HTMLElement
+
+  it('spins only the row whose binary is downloading', () => {
+    renderTree(geometries, undefined, [28])
+
+    expect(within(rowOf('Ground.001')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
+    expect(within(rowOf('Ground.002')).queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('shows the kind icon again once nothing is pending', () => {
+    renderTree(geometries, undefined, [])
+
+    expect(screen.queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('spins the row whose Properties-form save is in flight', () => {
+    // The form is in the RIGHT panel. Without this the left tree gives no sign
+    // that anything is happening to the geometry being saved.
+    renderTree(geometries, undefined, [], '28')
+
+    expect(within(rowOf('Ground.001')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
+    expect(within(rowOf('Ground.002')).queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('spins the row whose delete is in flight', () => {
+    renderTree({ ...geometries, deletingIds: ['30'] })
+
+    expect(within(rowOf('Ground.002')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
+    expect(within(rowOf('Ground.001')).queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('never spins a group — its members each report their own', () => {
+    renderTree(
+      {
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: { '9': group('9', 'Group.001', []) },
+        rootOrder: ['9']
+      },
+      undefined,
+      [9]
+    )
+
+    expect(screen.queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+})
 
 describe('<GeometryTree />', () => {
   it('shows a spinner while loading', () => {
@@ -176,14 +253,15 @@ describe('<GeometryTree />', () => {
     expect(screen.getByText('Ground.002')).toBeInTheDocument()
   })
 
-  it('always shows the kebab; keeps the cluster present but hidden until hover/selected', () => {
+  it('keeps the cluster present but hidden until hover/selected, with no separate menu trigger', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
       nodesById: { a: ground('a', 'Ground.001') },
       rootOrder: ['a']
     })
-    expect(screen.getByLabelText('More options')).toBeInTheDocument()
+    // The always-visible kebab is gone: its menu now hangs off the render icon.
+    expect(screen.queryByLabelText('More options')).toBeNull()
     // Not selected → the cluster is in the DOM but hidden, revealed on row hover.
     const cluster = screen.getByLabelText('Hide from viewport').closest('div')
     expect(cluster?.className).toContain('opacity-0')
@@ -228,14 +306,14 @@ describe('<GeometryTree />', () => {
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
   })
 
-  it('the kebab menu toggles a single model', () => {
+  it('right-clicking the render icon opens the per-model menu and toggles a single model', () => {
     renderTree({
       ...emptyScenarioGeometry(),
       loadStatus: 'loaded',
       nodesById: { a: ground('a', 'Ground.001') },
       rootOrder: ['a']
     })
-    fireEvent.click(screen.getByLabelText('More options'))
+    fireEvent.contextMenu(screen.getByLabelText('Hide from render'))
     fireEvent.click(screen.getByText('Radiation'))
     // Radiation is model id 1; it was default-on, so the click turns it off.
     expect(dispatch).toHaveBeenCalledWith(
@@ -259,7 +337,8 @@ describe('<GeometryTree />', () => {
       nodesById: { a: customHidden },
       rootOrder: ['a']
     })
-    fireEvent.click(screen.getByLabelText('More options'))
+    // Only Radiation is off, so the master switch still reads "Hide from render".
+    fireEvent.contextMenu(screen.getByLabelText('Hide from render'))
     const radiation = screen.getByRole('menuitemcheckbox', { name: /Radiation/ })
     expect(radiation).toHaveAttribute('aria-checked', 'false')
     expect(radiation.className).toContain('bg-neutral-800/70')
@@ -343,6 +422,39 @@ describe('<GeometryTree />', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'app/Geometry/TOGGLE_RENDER', id: 'a' })
     )
+    // Left click is the master switch only — the menu is the right-click gesture.
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('right-clicking the render icon opens the menu without toggling render', () => {
+    // The two gestures share one icon, so the one that opens the menu must not
+    // also flip every model on the way.
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    fireEvent.contextMenu(screen.getByLabelText('Hide from render'))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/TOGGLE_RENDER' })
+    )
+  })
+
+  it('closes the per-model menu on Escape', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    fireEvent.contextMenu(screen.getByLabelText('Hide from render'))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('double-clicking a group name opens an inline editor and commits a valid rename', () => {

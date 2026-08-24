@@ -12,7 +12,7 @@ export const SELECT = 'app/Geometry/SELECT' as const
 export const SET_SEARCH_QUERY = 'app/Geometry/SET_SEARCH_QUERY' as const
 export const TOGGLE_EXPAND = 'app/Geometry/TOGGLE_EXPAND' as const
 
-// ── Visibility: eye = viewport, render icon = render, kebab = per-model ──────
+// ── Visibility: eye = viewport, render icon = render (right click: per-model) ─
 // All three apply optimistically in the reducer, then a saga persists each via
 // PATCH /objects/{id} { visibility } (§5.4): TOGGLE_VIEWPORT → { viewport },
 // TOGGLE_RENDER → { render }, SET_MODEL_ON → { models: { "<id>": bool } }. On a
