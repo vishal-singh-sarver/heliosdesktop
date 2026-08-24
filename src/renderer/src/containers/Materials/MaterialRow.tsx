@@ -1,5 +1,4 @@
 import deleteIcon from '@renderer/assets/delete.svg'
-import dragHandleIcon from '@renderer/assets/DragHandleIco.svg'
 import Dialog from '@renderer/components/Dialog'
 import { selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import React from 'react'
@@ -59,7 +58,7 @@ interface MaterialRowProps {
 }
 
 // One row of the Saved Materials list: the material label on the left, and the
-// eye / delete / drag cluster pinned to the right (revealed on hover/selection).
+// delete button pinned to the right (revealed on hover/selection).
 // Double-clicking the name opens an inline rename editor.
 export default function MaterialRow({
   material,
@@ -117,6 +116,11 @@ export default function MaterialRow({
   // group id + name (for the outcome toast); the Geometry tree reads this mime
   // and ignores everything else. Disabled while renaming so a drag can't start
   // from the inline editor.
+  //
+  // The WHOLE row is the drag source — there is no handle icon to grab. The row
+  // is what carries `draggable`, so the handle was only ever decoration, and a
+  // grab-cursor affordance on one 14px square understated what was actually
+  // draggable.
   const onDragStart = (e: React.DragEvent<HTMLDivElement>): void => {
     e.dataTransfer.setData(
       MATERIAL_DND_MIME,
@@ -202,12 +206,6 @@ export default function MaterialRow({
             >
               <img src={deleteIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
             </IconButton>
-            <span
-              className="flex h-5 w-5 cursor-grab items-center justify-center text-neutral-500"
-              aria-hidden="true"
-            >
-              <img src={dragHandleIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
-            </span>
           </div>
         )}
       </div>
