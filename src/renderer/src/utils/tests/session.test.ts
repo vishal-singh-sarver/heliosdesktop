@@ -35,6 +35,10 @@ Object.defineProperty(globalThis, 'crypto', {
 
 describe('getSessionId', () => {
   beforeEach(() => {
+    // Also drops the module's in-memory copy — the id is deliberately cached
+    // for the life of the run, so clearing storage alone would leak the
+    // previous test's id into this one.
+    clearSessionId()
     localStorageMock.clear()
     vi.clearAllMocks()
   })
@@ -62,10 +66,67 @@ describe('getSessionId', () => {
     expect(id).toBe('existing-id-123')
     expect(crypto.randomUUID).not.toHaveBeenCalled()
   })
+
+  // The bug this guards: the id is read once at module load for the axios
+  // header, but PER CALL for the init SSE url and the binary geometry fetch.
+  // With storage dead every one of those calls minted a fresh uuid, so the
+  // axios calls all agreed while the init stream asked under a session that
+  // owned nothing — a bare 404 the app reports as "this project was deleted".
+  describe('when localStorage is unavailable', () => {
+    // A profile whose storage cannot be read or written at all: getItem keeps
+    // returning null however many times setItem is called.
+    const deadStorage = {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+      clear: () => {}
+    }
+    const restore = (): void => {
+      Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock })
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(globalThis, 'localStorage', { value: deadStorage })
+    })
+
+    it('still returns one stable id for the whole run', () => {
+      const first = getSessionId()
+      const second = getSessionId()
+      const third = getSessionId()
+      expect(second).toBe(first)
+      expect(third).toBe(first)
+      expect(crypto.randomUUID).toHaveBeenCalledTimes(1)
+      restore()
+    })
+
+    it('survives storage that THROWS rather than no-ops', () => {
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: {
+          getItem: () => {
+            throw new Error('storage disabled')
+          },
+          setItem: () => {
+            throw new Error('storage disabled')
+          },
+          removeItem: () => {
+            throw new Error('storage disabled')
+          }
+        }
+      })
+
+      const first = getSessionId()
+      expect(first).toBe(MOCK_UUID)
+      expect(getSessionId()).toBe(first)
+      // And clearing must not blow up either.
+      expect(() => clearSessionId()).not.toThrow()
+      restore()
+    })
+  })
 })
 
 describe('clearSessionId', () => {
   beforeEach(() => {
+    clearSessionId()
     localStorageMock.clear()
     vi.clearAllMocks()
   })
