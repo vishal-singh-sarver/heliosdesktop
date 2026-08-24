@@ -585,7 +585,13 @@ function WeatherTable(): React.JSX.Element {
     return true
   }
 
+  // The busy check lives HERE, not on the `startRowsDelete` result: a false
+  // return also means "nothing addressable to delete", which SHOULD close the
+  // dialog, whereas a request already in flight must leave it open. Enter can
+  // reach this while loading — Dialog routes it to onConfirm rather than to the
+  // (disabled) Delete button — so the two cases have to stay distinguishable.
   const handleConfirmSelectionDelete = (): void => {
+    if (deleteRowsLoading) return
     const rowIds = table?.rowOrder.filter((rowId) => highlightedRowIds.has(rowId)) ?? []
     if (!startRowsDelete(rowIds)) setPendingDeleteSelection(false)
   }
@@ -637,7 +643,7 @@ function WeatherTable(): React.JSX.Element {
   // unaddressable row closes the dialog instead of firing a doomed request,
   // which is what the old bespoke guard here did by hand.
   const handleConfirmRowDelete = (): void => {
-    if (pendingDeleteRow == null) return
+    if (deleteRowsLoading || pendingDeleteRow == null) return
     if (!startRowsDelete([pendingDeleteRow])) setPendingDeleteRow(null)
   }
 
