@@ -63,6 +63,7 @@ const messages = {
     heading: 'Delete Row',
     body: 'Are you sure you want to delete this? This action cannot be undone.',
     confirmButton: 'Delete',
+    confirmButtonBusy: 'Deleting…',
     cancelButton: 'Cancel'
   },
 
