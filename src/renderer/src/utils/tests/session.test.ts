@@ -67,6 +67,28 @@ describe('getSessionId', () => {
     expect(crypto.randomUUID).not.toHaveBeenCalled()
   })
 
+  // Regression: a stored id with a trailing newline. Header values get their
+  // trailing whitespace stripped by the browser, so axios kept matching, but
+  // the init SSE url passes the id as a query parameter where "\n" survives as
+  // %0A — a different session to the backend, answered with an in-band 404 the
+  // app reports as "this project was deleted".
+  it('trims whitespace around a stored id', () => {
+    localStorage.setItem('helios_session_id', '  existing-id-123\n')
+    expect(getSessionId()).toBe('existing-id-123')
+    expect(crypto.randomUUID).not.toHaveBeenCalled()
+  })
+
+  it('writes the trimmed id back so the next launch starts clean', () => {
+    localStorage.setItem('helios_session_id', 'existing-id-123\n')
+    getSessionId()
+    expect(localStorage.getItem('helios_session_id')).toBe('existing-id-123')
+  })
+
+  it('mints a fresh id when the stored value is only whitespace', () => {
+    localStorage.setItem('helios_session_id', '   \n')
+    expect(getSessionId()).toBe(MOCK_UUID)
+  })
+
   // The bug this guards: the id is read once at module load for the axios
   // header, but PER CALL for the init SSE url and the binary geometry fetch.
   // With storage dead every one of those calls minted a fresh uuid, so the

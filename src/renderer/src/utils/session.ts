@@ -30,9 +30,30 @@ export function getSessionId(): string {
   if (cachedId) return cachedId
 
   try {
-    const stored = localStorage.getItem(SESSION_KEY)
+    // Trim before use. Whitespace is never part of an id, but once written it
+    // survives in localStorage forever — and it fails ASYMMETRICALLY, which is
+    // what makes it so hard to see. Browsers strip trailing whitespace from
+    // request HEADER values, so every axios call still matched its session and
+    // returned 200. The init SSE url carries the id as a QUERY PARAMETER
+    // instead (EventSource cannot set headers), where a stray "\n" is
+    // faithfully encoded as %0A and reaches the backend as a DIFFERENT session.
+    // That stream then answers HTTP 200 with an in-band
+    // {"error": "... not found", "status": 404} body — so devtools shows four
+    // green requests while the user gets "this project no longer exists".
+    const raw = localStorage.getItem(SESSION_KEY)
+    const stored = raw?.trim()
     if (stored) {
       cachedId = stored
+      // Persist the repair so the next launch starts clean. Best-effort and
+      // separately guarded: a failed write must not fall through to minting a
+      // new id, which would orphan every project owned by the stored one.
+      if (stored !== raw) {
+        try {
+          localStorage.setItem(SESSION_KEY, stored)
+        } catch {
+          /* not persistable — the trim still holds for this run */
+        }
+      }
       return cachedId
     }
   } catch {
