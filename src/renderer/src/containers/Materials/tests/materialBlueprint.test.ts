@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import {
+  defaultSelectorValues,
+  isFixedSelector,
   isMaterialFormValid,
   isRadiationFieldSet,
   isVisualisationComplete,
@@ -552,6 +554,142 @@ describe('resolveParameterGroups', () => {
       BWB: 'Ball-woodrow-berry',
       BBL: 'Ball-berry-leuning'
     })
+  })
+})
+
+describe('defaultSelectorValues', () => {
+  // The live Photosynthesis shape: one gated group, so its selector offers a
+  // single option and there is nothing for the user to decide.
+  const photosynthesis: MaterialTypeDef = {
+    id: 4,
+    materialtype: 'Photosynthesis',
+    description: '',
+    properties: [
+      {
+        property_type_id: 90,
+        property: 'submodel',
+        label: 'Photosynthesis Model',
+        description: '',
+        datatype: 'enum',
+        min: null,
+        max: null,
+        enum_values: ['farquhar_model'],
+        display_order: 7
+      }
+    ],
+    groups: [
+      {
+        name: 'Farquhar model',
+        selector_property: 'submodel',
+        selector_value: 'farquhar_model',
+        display_order: 8,
+        properties: [
+          {
+            property_type_id: 7,
+            property: 'vcmax25',
+            label: 'V cmax25',
+            description: '',
+            datatype: 'float',
+            min: 0,
+            max: null,
+            display_order: 8
+          }
+        ]
+      }
+    ]
+  }
+
+  it('answers a single-option selector', () => {
+    expect(defaultSelectorValues(photosynthesis)).toEqual({ submodel: 'farquhar_model' })
+  })
+
+  it('seeds a value that actually opens the gated group', () => {
+    const groups = resolveParameterGroups([photosynthesis])
+    // The point of seeding: the Farquhar fields are on screen with no interaction.
+    const visible = visibleParameterGroups(groups, defaultSelectorValues(photosynthesis))
+    expect(visible.map((g) => g.name)).toEqual([null, 'Farquhar model'])
+    // ...and without it they are not.
+    expect(visibleParameterGroups(groups, {}).map((g) => g.name)).toEqual([null])
+  })
+
+  it('leaves a multi-option selector alone — that is a real choice', () => {
+    expect(defaultSelectorValues(stomatal)).toEqual({})
+  })
+
+  it('ignores an enum that drives no group', () => {
+    const plain: MaterialTypeDef = {
+      id: 9,
+      materialtype: 'Plain',
+      description: '',
+      properties: [
+        {
+          property_type_id: 40,
+          property: 'two_sided_heat_transfer',
+          label: 'Heat Transfer Flag',
+          description: '',
+          datatype: 'enum',
+          min: null,
+          max: null,
+          enum_values: ['Two Sided'],
+          display_order: 1
+        }
+      ],
+      groups: []
+    }
+    expect(defaultSelectorValues(plain)).toEqual({})
+  })
+})
+
+describe('isFixedSelector', () => {
+  const selectorOf = (type: MaterialTypeDef, property: string): ResolvedMaterialField => {
+    const [top] = resolveParameterGroups([type])
+    return top.fields.find((f) => f.property === property) as ResolvedMaterialField
+  }
+
+  it('marks the one-option selector, so its dropdown drops the clear row', () => {
+    const photosynthesis: MaterialTypeDef = {
+      id: 4,
+      materialtype: 'Photosynthesis',
+      description: '',
+      properties: [
+        {
+          property_type_id: 90,
+          property: 'submodel',
+          label: 'Photosynthesis Model',
+          description: '',
+          datatype: 'enum',
+          min: null,
+          max: null,
+          enum_values: ['farquhar_model'],
+          display_order: 7
+        }
+      ],
+      groups: [
+        {
+          name: 'Farquhar model',
+          selector_property: 'submodel',
+          selector_value: 'farquhar_model',
+          display_order: 8,
+          properties: [
+            {
+              property_type_id: 7,
+              property: 'vcmax25',
+              label: 'V cmax25',
+              description: '',
+              datatype: 'float',
+              min: 0,
+              max: null,
+              display_order: 8
+            }
+          ]
+        }
+      ]
+    }
+    expect(isFixedSelector(selectorOf(photosynthesis, 'submodel'))).toBe(true)
+  })
+
+  it('leaves the stomatal selector clearable', () => {
+    expect(isFixedSelector(selectorOf(stomatal, 'stomatal_model'))).toBe(false)
   })
 })
 

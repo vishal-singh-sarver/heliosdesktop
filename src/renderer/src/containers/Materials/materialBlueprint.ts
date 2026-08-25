@@ -212,6 +212,41 @@ export function resolveParameterGroups(types: MaterialTypeDef[]): ResolvedParame
   return result.concat(groups)
 }
 
+// A selector enum offering exactly ONE option — Photosynthesis's `submodel`,
+// whose only value is 'farquhar_model'. There is nothing to choose between, so
+// the form treats it as settled rather than as a question: the card seeds it on
+// type-pick (defaultSelectorValues below) and its dropdown drops the "Select"
+// clear row. Until this existed, all 14 Farquhar coefficients sat hidden behind a
+// dropdown with a single entry that had to be picked to reveal them.
+//
+// Read off the CATALOG, not a property name. Stomatal Conductance's four
+// sub-models are a real choice and are untouched; a selector that later grows a
+// second option goes back to asking for one, since there would then be no reason
+// to prefer either sub-model.
+//
+// `enumLabels` is the marker for "this enum drives conditional groups" —
+// resolveParameterGroups sets it only on a selector — so an ordinary enum that
+// happens to carry one value is left alone.
+export function isFixedSelector(field: ResolvedMaterialField): boolean {
+  return field.enumLabels != null && field.enumValues?.length === 1
+}
+
+// The values a card starts with once its material type is picked: every fixed
+// selector, already answered. Seeded as a real stored value rather than as a
+// rendered default because the gate reads the value bag — visibleParameterGroups
+// keys the group off it, and toNativeProperties only sends an active group's
+// fields, so a merely-displayed default would leave the group hidden and the
+// property absent from the payload.
+export function defaultSelectorValues(type: MaterialTypeDef): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const group of resolveParameterGroups([type])) {
+    for (const field of group.fields) {
+      if (isFixedSelector(field)) out[field.property] = (field.enumValues as string[])[0]
+    }
+  }
+  return out
+}
+
 // A conditional group is shown only while its selector property currently holds
 // its selector value; a group with no selector is always shown. Shared by the
 // form (what to render), the Save gate + validation (which fields count) and the

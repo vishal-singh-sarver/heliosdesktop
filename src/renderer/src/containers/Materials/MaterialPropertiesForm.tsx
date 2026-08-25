@@ -42,6 +42,8 @@ import {
 } from './actions'
 import {
   ALL_BAND_PROPERTIES,
+  defaultSelectorValues,
+  isFixedSelector,
   isMaterialFormValid,
   isRadiationFieldSet,
   isVisualisationComplete,
@@ -165,7 +167,20 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   // card on select, otherwise the fields the user just unlocked stay out of sight.
   const onSelectType = (id: number, typeId: number | null): void => {
     dispatch(setParameterGroupType(id, typeId))
-    if (typeId != null) openGroup(id)
+    if (typeId == null) return
+    openGroup(id)
+    // Answer the type's fixed selectors straight away, so Photosynthesis opens on
+    // its Farquhar fields instead of on a one-option dropdown still reading
+    // "Select". Seeded HERE — on an explicit pick, which only ever happens on an
+    // unsaved card — rather than in an effect: a card opened from the backend
+    // measures dirty against `savedValues`, so writing into a loaded one would
+    // arm Save for a card nobody touched. Loaded cards don't need it anyway;
+    // migration 031 backfilled the members that predate the selector.
+    const picked = materialTypes.find((t) => t.id === typeId)
+    if (!picked) return
+    for (const [property, value] of Object.entries(defaultSelectorValues(picked))) {
+      dispatch(setParameterGroupValue(id, property, value))
+    }
   }
 
   // Each card holds one material type, and a type can appear at most once in the
@@ -626,6 +641,12 @@ function MaterialFieldGrid({
                   field.datatype === 'enum' && field.enumValues
                     ? field.enumValues.map((v) => ({ value: v, label: field.enumLabels?.[v] ?? v }))
                     : undefined,
+                // A fixed selector (one option, already seeded) offers no way back
+                // to "Select": the clear row would be a one-click route to a card
+                // showing an empty dropdown with its whole parameter group gone —
+                // and the hygiene effect below blanks that group's values on the
+                // way out. Every other dropdown keeps its clear row.
+                clearable: !isFixedSelector(field),
                 onChange: (e) => onFieldChange(field.property, e.target.value, field.datatype),
                 onBlur: () => onFieldBlur(field.property)
               }}
