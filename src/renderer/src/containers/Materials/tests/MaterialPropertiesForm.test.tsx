@@ -520,6 +520,45 @@ describe('<MaterialPropertiesForm /> conditional parameter groups', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('offers "Select" on an unsaved stomatal card', () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [card(1, { typeId: 6, values: { stomatal_model: 'BWB' } })],
+          [stomatal]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Model/ }))
+
+    // Nothing is committed yet, so backing out to "Select" is still legitimate.
+    expect(screen.getByRole('option', { name: messages.selectPlaceholder })).toBeInTheDocument()
+  })
+
+  it('drops "Select" once the stomatal card is saved', () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [card(1, { typeId: 6, saved: true, values: { stomatal_model: 'BWB' } })],
+          [stomatal]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Model/ }))
+
+    // The member exists now: sub-models can be switched, never un-chosen — the
+    // clear row would blank the group's coefficients and the next (full-replace)
+    // save would drop them.
+    expect(screen.getByRole('option', { name: 'Ball-woodrow-berry' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: messages.selectPlaceholder })
+    ).not.toBeInTheDocument()
+  })
+
   it('still asks for a stomatal sub-model — four options is a real choice', () => {
     render(
       <Provider store={liveStoreWith([card(1)], [stomatal])}>

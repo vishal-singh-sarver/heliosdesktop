@@ -43,7 +43,7 @@ import {
 import {
   ALL_BAND_PROPERTIES,
   defaultSelectorValues,
-  isFixedSelector,
+  fieldIsClearable,
   isMaterialFormValid,
   isRadiationFieldSet,
   isVisualisationComplete,
@@ -589,6 +589,7 @@ function MaterialFieldGrid({
   groupId,
   fields,
   values,
+  saved,
   fieldError,
   onFieldChange,
   onFieldBlur
@@ -596,6 +597,9 @@ function MaterialFieldGrid({
   groupId: number
   fields: ResolvedMaterialField[]
   values: Record<string, string>
+  // Whether this card's member exists on the backend — a saved selector can no
+  // longer be cleared back to "Select" (see fieldIsClearable).
+  saved: boolean
   fieldError: (field: ResolvedMaterialField) => string | undefined
   onFieldChange: (
     property: string,
@@ -641,12 +645,12 @@ function MaterialFieldGrid({
                   field.datatype === 'enum' && field.enumValues
                     ? field.enumValues.map((v) => ({ value: v, label: field.enumLabels?.[v] ?? v }))
                     : undefined,
-                // A fixed selector (one option, already seeded) offers no way back
-                // to "Select": the clear row would be a one-click route to a card
-                // showing an empty dropdown with its whole parameter group gone —
-                // and the hygiene effect below blanks that group's values on the
-                // way out. Every other dropdown keeps its clear row.
-                clearable: !isFixedSelector(field),
+                // A selector offers no way back to "Select" once it is settled —
+                // seeded (Photosynthesis) or saved (a stomatal sub-model). The
+                // clear row would be a one-click route to a card whose whole
+                // parameter group has vanished and whose values the next save
+                // then drops. Everything else keeps it.
+                clearable: fieldIsClearable(field, saved),
                 onChange: (e) => onFieldChange(field.property, e.target.value, field.datatype),
                 onBlur: () => onFieldBlur(field.property)
               }}
@@ -1262,6 +1266,7 @@ function ParameterGroupCard({
                   groupId={group.id}
                   fields={pg.fields}
                   values={group.values}
+                  saved={group.saved}
                   fieldError={fieldError}
                   onFieldChange={handleFieldChange}
                   onFieldBlur={handleFieldBlur}
@@ -1275,6 +1280,7 @@ function ParameterGroupCard({
                   groupId={group.id}
                   fields={pg.fields}
                   values={group.values}
+                  saved={group.saved}
                   fieldError={fieldError}
                   onFieldChange={handleFieldChange}
                   onFieldBlur={handleFieldBlur}
@@ -1308,6 +1314,7 @@ function ParameterGroupCard({
                       groupId={group.id}
                       fields={pg.fields}
                       values={group.values}
+                      saved={group.saved}
                       fieldError={fieldError}
                       onFieldChange={handleFieldChange}
                       onFieldBlur={handleFieldBlur}

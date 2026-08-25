@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
 import {
   defaultSelectorValues,
+  fieldIsClearable,
   isFixedSelector,
   isMaterialFormValid,
   isRadiationFieldSet,
@@ -690,6 +691,54 @@ describe('isFixedSelector', () => {
 
   it('leaves the stomatal selector clearable', () => {
     expect(isFixedSelector(selectorOf(stomatal, 'stomatal_model'))).toBe(false)
+  })
+})
+
+describe('fieldIsClearable', () => {
+  const stomatalSelector = (): ResolvedMaterialField => {
+    const [top] = resolveParameterGroups([stomatal])
+    return top.fields.find((f) => f.property === 'stomatal_model') as ResolvedMaterialField
+  }
+
+  // An ordinary enum gates nothing, so clearing it costs only its own value.
+  const heatTransferFlag: ResolvedMaterialField = {
+    property: 'two_sided_heat_transfer',
+    label: 'Heat Transfer Flag',
+    datatype: 'enum',
+    description: '',
+    min: null,
+    max: null,
+    required: false,
+    enumValues: ['One Sided', 'Two Sided']
+  }
+
+  it('keeps the clear row on an ordinary field, saved or not', () => {
+    expect(fieldIsClearable(heatTransferFlag, false)).toBe(true)
+    expect(fieldIsClearable(heatTransferFlag, true)).toBe(true)
+  })
+
+  it('offers "Select" on an unsaved selector — nothing is committed yet', () => {
+    expect(fieldIsClearable(stomatalSelector(), false)).toBe(true)
+  })
+
+  it('drops "Select" once the card is saved, so a sub-model cannot be un-chosen', () => {
+    expect(fieldIsClearable(stomatalSelector(), true)).toBe(false)
+  })
+
+  it('never offers it on a fixed selector, saved or not', () => {
+    const fixed: ResolvedMaterialField = {
+      property: 'submodel',
+      label: 'Photosynthesis Model',
+      datatype: 'enum',
+      description: '',
+      min: null,
+      max: null,
+      required: false,
+      enumValues: ['farquhar_model'],
+      enumLabels: { farquhar_model: 'Farquhar model' }
+    }
+    expect(fieldIsClearable(fixed, false)).toBe(false)
+    expect(fieldIsClearable(fixed, true)).toBe(false)
   })
 })
 
