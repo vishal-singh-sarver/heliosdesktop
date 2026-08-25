@@ -2,7 +2,6 @@ import deleteIcon from '@renderer/assets/delete.svg'
 import Dialog from '@renderer/components/Dialog'
 import {
   deleteColumnRequested,
-  deleteRowRequested,
   deleteRowsRequested,
   deleteRowsReset,
   setAllRowsSelection,
@@ -22,7 +21,6 @@ import {
   type ColumnDef,
   type DataTypeDef,
   type DeleteColumnSnapshot,
-  type DeleteRowSnapshot,
   type RowId,
   type UpdateColumnPatch
 } from 'containers/ProjectScreen/types'
@@ -71,6 +69,19 @@ const ROW_OVERSCAN = 12
 // currently the shift, at 220ms delay + 260ms. Removing the rows any earlier
 // cuts the animation off; any later just holds a frozen frame on screen.
 const WEATHER_ROW_EXIT_MS = 480
+
+// What the table renders from while a delete exit is playing, for both the
+// bulk delete and the per-row trash icon. `highlighted` records whether the
+// leaving rows should KEEP the selection blue on the way out: true for the
+// bulk delete, whose rows were selected by definition, false for the trash
+// icon, which deletes a row the user never selected and which would otherwise
+// flash blue as it left.
+interface ExitSnapshot {
+  order: RowId[]
+  ids: ReadonlySet<RowId>
+  rows: Record<RowId, Record<ColId, CellValue>>
+  highlighted: boolean
+}
 
 // Shared empty-row sentinel so missing rows don't break React.memo equality
 // on `row` — `{}` literals would be a fresh reference each render and force
@@ -329,19 +340,11 @@ function WeatherTable(): React.JSX.Element {
   // Local, not Redux, for the same reason the highlight above is: the store
   // stays truthful the instant the server answers, so nothing outside this
   // component can read — or edit — a row that no longer exists.
-  const [exitingRows, setExitingRows] = React.useState<{
-    order: RowId[]
-    ids: ReadonlySet<RowId>
-    rows: Record<RowId, Record<ColId, CellValue>>
-  } | null>(null)
+  const [exitingRows, setExitingRows] = React.useState<ExitSnapshot | null>(null)
   // Captured when the delete is CONFIRMED, not when it lands: reconcileHighlight
   // prunes `highlightedRowIds` the moment rowOrder changes, so by the time the
   // request resolves there is nothing left to read off it.
-  const pendingExitRef = React.useRef<{
-    order: RowId[]
-    ids: ReadonlySet<RowId>
-    rows: Record<RowId, Record<ColId, CellValue>>
-  } | null>(null)
+  const pendingExitRef = React.useRef<ExitSnapshot | null>(null)
   // Scroll correction owed at commit, computed at the last moment (the user may
   // have scrolled during the animation) and applied in a layout effect below.
   const exitScrollFixRef = React.useRef(0)
@@ -528,7 +531,10 @@ function WeatherTable(): React.JSX.Element {
     setPendingDeleteRow(rowId)
   }, [])
 
+  // Ignored mid-request for the same reason as the selection dialog below: the
+  // backend is already running the delete and there is nothing to abandon.
   const handleCancelRowDelete = (): void => {
+    if (deleteRowsLoading) return
     setPendingDeleteRow(null)
   }
 
@@ -541,14 +547,20 @@ function WeatherTable(): React.JSX.Element {
     setPendingDeleteSelection(false)
   }
 
-  const handleConfirmSelectionDelete = (): void => {
-    if (deleteRowsLoading || !projectId || !scenarioId || !table) return
-    const rowIds = table.rowOrder.filter((rowId) => highlightedRowIds.has(rowId))
-    const keys = toDeleteKeys(table.rowOrder, table.rows, highlightedRowIds)
-    if (keys.length === 0) {
-      setPendingDeleteSelection(false)
-      return
-    }
+  // The one delete both entry points run: the selection action bar and the
+  // per-row trash icon. The trash icon is a selection of one, so routing it
+  // through DELETE_ROWS_* rather than the optimistic DELETE_ROW_* gives it the
+  // same non-optimistic commit, the same dialog hold and the same exit
+  // animation for free — a parallel implementation only drifts, which is
+  // exactly how the two came to animate differently.
+  //
+  // Returns false when nothing was dispatched, which is the caller's cue to
+  // close its own dialog: there is no request coming that could close it.
+  const startRowsDelete = (rowIds: readonly RowId[]): boolean => {
+    if (deleteRowsLoading || !projectId || !scenarioId || !table) return false
+    const leaving = new Set(rowIds)
+    const keys = toDeleteKeys(table.rowOrder, table.rows, leaving)
+    if (keys.length === 0) return false
     // Snapshot everything the exit animation will need while the rows are still
     // in the store. Row objects come straight off immer-frozen state, so holding
     // them by reference is safe — nothing can mutate them out from under us.
@@ -557,10 +569,31 @@ function WeatherTable(): React.JSX.Element {
       const row = table.rows[rowId]
       if (row) rows[rowId] = row
     }
-    pendingExitRef.current = { order: [...table.rowOrder], ids: new Set(rowIds), rows }
-    // Deliberately does NOT close here. The dialog holds until the backend
-    // answers, then closes on success or stays open showing the error.
-    dispatch(deleteRowsRequested(projectId, scenarioId, rowIds, keys))
+    pendingExitRef.current = {
+      order: [...table.rowOrder],
+      ids: leaving,
+      rows,
+      // True by construction from the action bar, whose rows ARE the highlight;
+      // false for a trash-icon row nobody selected, which must not turn blue on
+      // its way out. Read here because the render this dispatch triggers prunes
+      // the highlight — see reconcileHighlight above.
+      highlighted: rowIds.every((rowId) => highlightedRowIds.has(rowId))
+    }
+    // Deliberately does NOT close the dialog. It holds until the backend
+    // answers, then closes on the loading -> idle edge below.
+    dispatch(deleteRowsRequested(projectId, scenarioId, [...rowIds], keys))
+    return true
+  }
+
+  // The busy check lives HERE, not on the `startRowsDelete` result: a false
+  // return also means "nothing addressable to delete", which SHOULD close the
+  // dialog, whereas a request already in flight must leave it open. Enter can
+  // reach this while loading — Dialog routes it to onConfirm rather than to the
+  // (disabled) Delete button — so the two cases have to stay distinguishable.
+  const handleConfirmSelectionDelete = (): void => {
+    if (deleteRowsLoading) return
+    const rowIds = table?.rowOrder.filter((rowId) => highlightedRowIds.has(rowId)) ?? []
+    if (!startRowsDelete(rowIds)) setPendingDeleteSelection(false)
   }
 
   // Close on the loading -> idle edge, success or failure alike. The failure is
@@ -573,8 +606,9 @@ function WeatherTable(): React.JSX.Element {
   // Same loading -> idle mechanism WeatherToolbar uses for Add Column / Add
   // Rows / Clear Data, minus their error guard — those keep an inline banner.
   const deleteRowsSettled = useTransitionToFalse(deleteRowsLoading)
-  if (deleteRowsSettled && pendingDeleteSelection) {
-    setPendingDeleteSelection(false)
+  if (deleteRowsSettled) {
+    if (pendingDeleteSelection) setPendingDeleteSelection(false)
+    if (pendingDeleteRow !== null) setPendingDeleteRow(null)
   }
 
   // The same loading -> idle edge starts the exit animation, but detected in an
@@ -597,42 +631,20 @@ function WeatherTable(): React.JSX.Element {
   // Drop a previous failure's banner so it cannot reappear on the next open.
   // In an effect rather than during render because it dispatches — the same
   // shape AddColumnDialog uses to clear its own request status on close.
+  // Both dialogs share the DELETE_ROWS_* status now, so the reset waits for
+  // both to be shut — resetting on one would clear the other's in-flight state.
+  const anyDeleteRowsDialogOpen = pendingDeleteSelection || pendingDeleteRow !== null
   React.useEffect(() => {
-    if (!pendingDeleteSelection) dispatch(deleteRowsReset())
-  }, [pendingDeleteSelection, dispatch])
+    if (!anyDeleteRowsDialogOpen) dispatch(deleteRowsReset())
+  }, [anyDeleteRowsDialogOpen, dispatch])
 
+  // A selection delete of exactly one row. `startRowsDelete` already skips a
+  // row with no (date, time) — the backend's only handle on it — so an
+  // unaddressable row closes the dialog instead of firing a doomed request,
+  // which is what the old bespoke guard here did by hand.
   const handleConfirmRowDelete = (): void => {
-    if (pendingDeleteRow == null) return
-    if (!projectId || !scenarioId || !table) {
-      setPendingDeleteRow(null)
-      return
-    }
-    const rowId = pendingDeleteRow
-    const row = table.rows[rowId]
-    const date = row?.[DATE_COL_ID]
-    const time = row?.[TIME_COL_ID]
-    // Without a (date, time) key the backend can't identify the row, so bail
-    // rather than fire a request that can only fail.
-    if (!row || date == null || time == null) {
-      setPendingDeleteRow(null)
-      return
-    }
-
-    const snapshot: DeleteRowSnapshot = {
-      cells: { ...row },
-      index: table.rowOrder.indexOf(rowId),
-      validationErrors: table.validationErrors[rowId]
-        ? { ...table.validationErrors[rowId] }
-        : undefined,
-      cellSync: {},
-      selected: table.rowSelection[rowId] === true
-    }
-    for (const [key, status] of Object.entries(table.cellSync)) {
-      if (key.startsWith(`${rowId}:`)) snapshot.cellSync[key] = status
-    }
-
-    dispatch(deleteRowRequested(projectId, scenarioId, rowId, date, time, snapshot))
-    setPendingDeleteRow(null)
+    if (deleteRowsLoading || pendingDeleteRow == null) return
+    if (!startRowsDelete([pendingDeleteRow])) setPendingDeleteRow(null)
   }
 
   const dateTimeColId = React.useMemo(() => {
@@ -944,7 +956,10 @@ function WeatherTable(): React.JSX.Element {
                 // reconcileHighlight has already pruned the highlight by now, so
                 // keep leaving rows blue for the trip out rather than letting
                 // them flash back to the default background first.
-                highlighted={highlightedRowIds.has(rowId) || exitingRows?.ids.has(rowId) === true}
+                highlighted={
+                  highlightedRowIds.has(rowId) ||
+                  (exitingRows?.highlighted === true && exitingRows.ids.has(rowId))
+                }
                 leaving={exitingRows?.ids.has(rowId) === true}
                 offsetY={exitOffsets?.[rowId] ?? 0}
                 visibleColumnOrder={visibleColumnOrder}
@@ -1006,6 +1021,10 @@ function WeatherTable(): React.JSX.Element {
         data-testid="delete-row-dialog"
         title={messages.deleteRow.dialogTitle}
         onClose={handleCancelRowDelete}
+        // Explicit for the same reason as the selection dialog: Dialog's default
+        // Enter behaviour clicks the last ENABLED button, so once Delete is
+        // disabled mid-request Enter would fire Cancel instead.
+        onConfirm={handleConfirmRowDelete}
       >
         <h3 className="text-base font-medium text-white">{messages.deleteRow.heading}</h3>
         <p className="text-sm text-neutral-400">{messages.deleteRow.body}</p>
@@ -1014,16 +1033,20 @@ function WeatherTable(): React.JSX.Element {
           <button
             type="button"
             onClick={handleCancelRowDelete}
-            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100"
+            disabled={deleteRowsLoading}
+            className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {messages.deleteRow.cancelButton}
           </button>
           <button
             type="button"
             onClick={handleConfirmRowDelete}
-            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500"
+            disabled={deleteRowsLoading}
+            className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {messages.deleteRow.confirmButton}
+            {deleteRowsLoading
+              ? messages.deleteRow.confirmButtonBusy
+              : messages.deleteRow.confirmButton}
           </button>
         </div>
       </Dialog>
