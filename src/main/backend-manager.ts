@@ -302,7 +302,34 @@ export class BackendManager {
 
       this.process = spawn(backendPath, [`--port=${this.port}`], {
         cwd: app.getPath('home'), // Use home directory instead of data directory
-        stdio: ['ignore', 'pipe', 'pipe'],
+        // stdin is a PIPE and nothing is ever written to it. It is not a channel,
+        // it is a LIVENESS SIGNAL: this process holds the write end open for as
+        // long as it lives, and the OS closes it the moment this process dies —
+        // for ANY reason, including an abort that runs no cleanup at all. The
+        // backend blocks on a read at the other end, the read returns empty, and
+        // it exits on its own.
+        //
+        // That is the whole orphan fix, and it has to be the OS enforcing it.
+        // killSync() (on 'will-quit' / 'exit') covers a normal quit and nothing
+        // else; a crash reaches neither handler. That is how a backend was left
+        // holding 1.26 GB, port 8008 and the SQLite file until the next reboot —
+        // and every crash left another one, so the next crash came sooner.
+        //
+        // Chosen over the alternatives because it is ONE mechanism for all three
+        // platforms and needs no native code:
+        //   - getppid() is POSIX-only, and breaks under PyInstaller --onefile
+        //     where the bootloader sits between us and never matches our pid.
+        //   - Polling a recorded pid races pid reuse.
+        //   - A Windows Job Object works, but needs an FFI native module: this
+        //     app ships no runtime native code today and npmRebuild is off.
+        // A pipe has none of those problems — nothing polled, no pid stored, and
+        // process topology is irrelevant.
+        //
+        // NOTE the difference from 'ignore': that gave the backend /dev/null,
+        // where a read returns EOF immediately. A read on this BLOCKS. Safe only
+        // because nothing in app/ or backend_wrapper.py reads stdin — anything
+        // that did would now hang at startup and trip the 30s readiness timeout.
+        stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
         shell: false,
         env
