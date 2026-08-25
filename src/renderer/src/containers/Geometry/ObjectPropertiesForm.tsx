@@ -68,6 +68,7 @@ import {
   type ResolvedFormGroup
 } from './propertyBlueprint'
 import reducer from './reducer'
+import { groundCost, groundCostWarning } from './sceneCost'
 import RepeatField from './RepeatField'
 import saga from './saga'
 import SelectMaterialsPopup from './SelectMaterialsPopup'
@@ -999,6 +1000,41 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     )
   }
 
+  // The cost line under the Resolution row. Full width below the 2-column grid,
+  // like the repeat notes above and for the same reason — the sentence does not
+  // fit half a panel column.
+  //
+  // A NOTICE, not an error: Save stays enabled and nothing is blocked. The
+  // engine accepts these values and someone may genuinely want them; what was
+  // missing is any signal at all that 1000 in this box is a hundred times 100 in
+  // it. Placed on the group rather than either field because the cost is the
+  // product of both, so neither axis owns it.
+  const renderResolutionFooter = (group: ResolvedFormGroup): React.JSX.Element | null => {
+    const hasResolution = group.fields.some(
+      (f) => f.property === 'resolution_x' || f.property === 'resolution_y'
+    )
+    if (!hasResolution) return null
+
+    const cost = groundCost(draft.values.resolution_x, draft.values.resolution_y)
+    const warning = groundCostWarning(cost)
+    if (!warning) return null
+
+    return (
+      // role="status" (polite), matching the repeat notes: this appears in
+      // response to typing and must not interrupt it. Amber at caution, red at
+      // the level that stopped a real project from reopening.
+      <p
+        role="status"
+        data-testid="resolution-cost-warning"
+        className={`mt-1 text-[12px] leading-[16px] ${
+          cost?.level === 'warning' ? 'text-[#D92D20]' : 'text-[#B54708]'
+        }`}
+      >
+        {warning}
+      </p>
+    )
+  }
+
   return (
     // Hug content with a 10px vertical rhythm (Figma: Height Hug, Gap 10px) so
     // the form never needs an inner scrollbar — even with every field showing an
@@ -1177,6 +1213,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               })}
             </div>
             {renderRepeatFooter(group)}
+            {renderResolutionFooter(group)}
           </div>
         ))}
 

@@ -737,3 +737,56 @@ process.on('exit', () => {
   if (SKIP_BACKEND) return
   backendManager.killSync()
 })
+
+// ── Crash reporting ──────────────────────────────────────────────────────────
+//
+// None of this existed, and its absence cost an afternoon. A user reported the
+// app "closing unexpectedly" on Ubuntu; the app's own logs had nothing at all —
+// not which process died, not why, not even that anything had. The cause had to
+// be reconstructed by hand from apport dumps and `ps` output.
+//
+// `reason` is the whole point of logging these. Electron reports 'oom' for the
+// failure this app is actually prone to: a scenario context is roughly 1.4 GB
+// and, on a machine already low on memory, whichever process allocates next is
+// the one refused. That is a one-word answer to a question that otherwise needs
+// a core dump.
+//
+// These only observe. A renderer crash is survivable and Electron keeps the app
+// alive, so nothing here quits or restarts anything.
+app.on('render-process-gone', (_event, contents, details) => {
+  // getURL() is read defensively because the WebContents is often ALREADY
+  // destroyed by the time this fires — its renderer is, after all, what just
+  // died — and every accessor on a destroyed WebContents throws "Object has
+  // been destroyed". An uncaught throw in here would be caught by the
+  // uncaughtException handler below and exit the app, turning a renderer crash
+  // Electron would otherwise have survived into a full shutdown. A diagnostic
+  // must never be able to escalate the fault it is reporting.
+  let url = 'unavailable'
+  try {
+    if (!contents.isDestroyed()) url = contents.getURL() || 'none'
+  } catch {
+    /* destroyed between the check and the read — the reason below is the useful part */
+  }
+
+  writeEarlyLog(
+    `RENDERER GONE: reason=${details.reason} exitCode=${details.exitCode} url=${url}`
+  )
+})
+
+app.on('child-process-gone', (_event, details) => {
+  writeEarlyLog(
+    `CHILD PROCESS GONE: type=${details.type} reason=${details.reason} ` +
+      `exitCode=${details.exitCode} name=${details.name ?? 'n/a'}`
+  )
+})
+
+// An uncaught throw in the main process takes the app with it, and takes the
+// 'will-quit' reaper with it too — so the backend survives with its whole
+// context resident and holds the port and the SQLite file for the next launch.
+// Reaping it here is the only chance left to prevent that. Still exits: this
+// handler exists to log and clean up, not to keep a broken main process running.
+process.on('uncaughtException', (err) => {
+  writeEarlyLog(`UNCAUGHT EXCEPTION in main: ${err?.stack || err}`)
+  if (!SKIP_BACKEND) backendManager.killSync()
+  process.exit(1)
+})

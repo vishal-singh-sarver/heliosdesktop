@@ -5,6 +5,9 @@ import { CANCEL_BOOT, OPEN_PROJECT } from '../constants'
 import { atPercent } from '../progress'
 import { openInitChannel } from '../service'
 import { navigate } from 'store/navigationReducer'
+import { resetScene } from 'containers/3DWindow/store/actions'
+import { clearSceneCache } from 'containers/3DWindow/store/sceneCache'
+import { clearTextureCache } from 'containers/3DWindow/ui/textureCache'
 import {
   onNavigateHome,
   openProjectWorker,
@@ -227,8 +230,20 @@ describe('releaseLiveScenario', () => {
 })
 
 describe('onNavigateHome', () => {
-  it('releases the scenario when the user goes back to the project list', () => {
+  it('drops the scene caches BEFORE releasing the scenario', () => {
+    // The ordering is the point, and it is what this fixes. Both caches are
+    // module-scoped, so leaving the project screen dropped nothing: the parsed
+    // geometry stayed resident for as long as the user sat on the project list.
+    // runBoot cleared it too, but microseconds before the NEXT project's
+    // geometry started arriving — so both scenes were in memory at once, which
+    // on a large ground is what ran the machine out of memory. Releasing here
+    // gives the collector the whole time the user spends choosing.
     const gen = onNavigateHome(navigate('home')) as Generator
+
+    expect(gen.next().value).toEqual(put(resetScene()))
+    expect(gen.next().value).toEqual(call(clearSceneCache))
+    expect(gen.next().value).toEqual(call(clearTextureCache))
+    // Only then the backend release, which is what this used to do alone.
     expect(gen.next().value).toEqual(select(selectLiveScenario))
   })
 

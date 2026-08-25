@@ -252,22 +252,52 @@ export class BackendManager {
       const desiredPort = this.port
       this.port = await findFreePort(this.port)
       if (this.port !== desiredPort) {
+        // Almost always an ORPHAN, not a genuine port clash: a backend from a
+        // previous run that outlived a crash and is still holding the port, the
+        // SQLite file and its whole scenario context. Moving to the next port
+        // starts a second backend that then contends with it for the database,
+        // which is what makes the project list come back empty after a crash.
+        //
+        // Routing around it silently is why this went unnoticed — say so loudly
+        // instead. Reaping it belongs with the backend's parent watchdog (see
+        // HELIOS_PARENT_PID below); this at least leaves a trail in the log.
         this.recordMessage(
           'manager',
-          `Port ${desiredPort} busy — using ${this.port} instead`
+          `WARNING: port ${desiredPort} busy — using ${this.port} instead. ` +
+            `A backend from a previous run is probably still alive; ` +
+            `check with: pgrep -af heliosgui_backend`
         )
       }
 
       const env = {
         ...process.env,
         HELIOS_DATA_DIR: runtimePaths.dataDir,
-        HELIOS_LOG_DIR: runtimePaths.logDir
+        HELIOS_LOG_DIR: runtimePaths.logDir,
+        // The backend's only defence against being orphaned.
+        //
+        // killSync() below covers a normal quit, but it runs from 'will-quit' /
+        // 'exit' and a CRASH reaches neither — the process is simply gone. The
+        // backend was then left running with its whole scenario context resident
+        // (measured: 1.26 GB still held long after the app was killed), holding
+        // the port and the SQLite file until the machine was rebooted. Every
+        // crash left another one behind, so the next crash arrived sooner.
+        //
+        // A dead process cannot clean up after itself, so the backend has to
+        // notice instead: it watches this pid and exits on its own once it goes.
+        //
+        // Deliberately an ENV VAR and not a CLI flag. backend_wrapper.py parses
+        // argv with argparse, which EXITS on an argument it does not recognise —
+        // so shipping `--parent-pid` before the backend understands it would
+        // stop the app from starting at all. An unread env var is ignored, so
+        // this side can land first and is a no-op until the watchdog exists.
+        HELIOS_PARENT_PID: String(process.pid)
       }
 
       this.recordMessage('manager', `Spawning: ${backendPath}`)
       this.recordMessage('manager', `Args: --port=${this.port}`)
       this.recordMessage('manager', `Cwd: ${app.getPath('home')}`)
       this.recordMessage('manager', `Env: HELIOS_DATA_DIR=${runtimePaths.dataDir}`)
+      this.recordMessage('manager', `Env: HELIOS_PARENT_PID=${process.pid}`)
       this.recordMessage('manager', `Platform: ${process.platform}, Packaged: ${app.isPackaged}`)
 
       this.process = spawn(backendPath, [`--port=${this.port}`], {
