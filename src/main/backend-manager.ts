@@ -329,6 +329,15 @@ export class BackendManager {
         // where a read returns EOF immediately. A read on this BLOCKS. Safe only
         // because nothing in app/ or backend_wrapper.py reads stdin — anything
         // that did would now hang at startup and trip the 30s readiness timeout.
+        //
+        // AND: on POSIX this is a unix domain SOCKET, not a FIFO — libuv builds
+        // stdio pipes with socketpair(). Measured, not assumed: a python child
+        // spawned this way reports S_ISSOCK true and S_ISFIFO FALSE. It matters
+        // because the backend gates its reader on the kind of handle it gets (so
+        // that branches still spawning with 'ignore' — /dev/null, a character
+        // device — never arm it and exit instantly on the immediate EOF). That
+        // gate must accept a socket as well as a FIFO, or it silently never arms
+        // on macOS and Linux and the orphan fix quietly does nothing.
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
         shell: false,
