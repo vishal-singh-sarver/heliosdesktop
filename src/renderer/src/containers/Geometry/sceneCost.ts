@@ -14,11 +14,23 @@ import { formatBytes } from 'utils/format'
 // million. Typing one more zero is a 100x jump, which is exactly the kind of
 // thing a person cannot be expected to feel.
 //
-// Measured rather than modelled: one 1000x1000 ground held ~1.4 GB resident in
-// heliosgui_backend (macOS, `ps -o rss`). Extrapolating linearly from a single
-// point is crude and this is deliberately only ever shown as "roughly" — it is
-// meant to convey the ORDER of the number, not predict it.
-const BYTES_PER_CELL = 1.4e9 / 1e6
+// Measured rather than modelled. This started at 1.4 KB, extrapolated from ONE
+// macOS reading (a 1000x1000 ground at ~1.4 GB resident). The backend team then
+// measured properly on Linux across 90k / 250k / 490k / 1M cells and got a
+// consistent ~1.7 KB — so the single-point estimate was ~20% low. Their number
+// wins: four points beat one, and erring high on a warning is the safe direction.
+//
+// Still only ever rendered as "roughly". It conveys the ORDER of the number, not
+// a prediction, and the true figure moves with platform and allocator.
+//
+// It is also, today, an UNDER-estimate of what switching projects costs. Freeing
+// a context returns nothing to the OS — glibc holds the arena, so opening A then
+// B costs A+B rather than max(A,B) (measured: 1742 MB built, 1804 MB after the
+// context was dropped and gc ran, 66 MB after malloc_trim). The backend is
+// landing a malloc_trim on discard, which is why that is not baked in here: this
+// constant describes ONE ground, and the transient double-hold is a bug being
+// fixed rather than a property to teach the user.
+const BYTES_PER_CELL = 1700
 
 /** 500x500. Slow to save and reopen, but it does complete. */
 export const CAUTION_CELLS = 250_000

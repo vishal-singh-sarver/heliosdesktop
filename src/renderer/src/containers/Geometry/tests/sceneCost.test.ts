@@ -44,6 +44,18 @@ describe('groundCost', () => {
     expect(groundCost('2000', '500')?.level).toBe('warning')
     expect(groundCost('25000', '1')?.level).toBe('ok')
   })
+
+  it('is anchored to the measured per-cell cost', () => {
+    // Pins the constant to the backend team's Linux measurements (~1.7 KB/cell,
+    // consistent across 90k/250k/490k/1M). The first version of this file used
+    // 1.4 KB extrapolated from a single macOS reading and was ~20% low.
+    //
+    // Here so the number cannot drift back to a guess unnoticed: if someone
+    // changes it, they have to change this line and say why.
+    const oneMillion = groundCost('1000', '1000')
+    expect(oneMillion!.bytes / oneMillion!.cells).toBe(1700)
+    expect(oneMillion!.bytes).toBeCloseTo(1.7e9, -7)
+  })
 })
 
 describe('groundCostWarning', () => {
