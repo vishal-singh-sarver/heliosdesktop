@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import * as net from 'net'
 import * as path from 'path'
 import { setTimeout as delay } from 'timers/promises'
+import { backendIdentity, type BackendPidRecord } from './backend-identity'
 
 /**
  * True when ChromeDriver launched this app for e2e (it injects a temp
@@ -52,60 +53,7 @@ export interface BackendStatus {
   logFile?: string
 }
 
-// ── Reaping a previous backend ───────────────────────────────────────────────
-//
-// The backend records itself in <dataDir>/backend.pid on boot:
-//
-//   {"pid": 7539, "cmdline": "heliosgui_backend<NUL>--port=8008", "platform": "win32"}
-//
-// It reaps from there itself, but only AFTER it has started — by which time this
-// process has already chosen a port. So a leftover backend holding 8008 pushes us
-// to 8009, and the drift is permanent: the reap frees 8008 a second later and we
-// are already committed. Doing it HERE, before the port is picked, is the only
-// way the common case stays on the canonical port.
-//
-// It also covers Windows, where the backend's own reap does not run (it shells to
-// `ps`). This process has taskkill via forceKillTree, so it can do what the
-// backend cannot — and Windows is the one platform where the liveness pipe is
-// otherwise the only protection.
-//
-// Idempotent with the backend's own reap: whichever runs first wins and the other
-// finds nothing.
-interface BackendPidRecord {
-  pid: number
-  cmdline: string
-  platform: string
-}
-
 const PID_FILE = 'backend.pid'
-
-/**
- * What identifies a backend, reduced to the two things every platform can agree
- * on: which executable, and which port.
- *
- * Derived by pattern rather than by splitting on the platform's separator,
- * because the three sources do not produce comparable strings. Linux reads
- * /proc/<pid>/cmdline (NUL-separated, argv[0] as exec received it), macOS reads
- * `ps -o command=` (space-separated), and Windows can only offer the RAW
- * CreateProcess command line via WMI — which is not argv at all: it keeps the
- * original quoting, and the packaged path sits under a directory with a space in
- * it. Comparing a recorded sys.argv against that can never match.
- *
- * Which is precisely the bug the backend team hit going the other way — they
- * recorded sys.argv and compared it against /proc, the match never succeeded, and
- * the reap silently never fired. Their unit test passed because it compared the
- * function against itself. Extracting an identity both sides can compute the same
- * way is what stops that repeating here.
- *
- * Returns null when the string carries neither marker, which is how a recycled
- * pid belonging to something else entirely reads.
- */
-function backendIdentity(cmdline: string): { exe: string; port: string } | null {
-  const exe = /heliosgui_backend(\.exe)?/i.exec(cmdline)
-  const port = /--port[= ](\d+)/.exec(cmdline)
-  if (!exe || !port) return null
-  return { exe: exe[0].toLowerCase(), port: port[1] }
-}
 
 export class BackendManager {
   private process: ChildProcess | null = null
@@ -299,16 +247,31 @@ export class BackendManager {
     const recorded = backendIdentity(record.cmdline)
     const running = backendIdentity(live)
 
-    if (!recorded || !running || recorded.exe !== running.exe || recorded.port !== running.port) {
+    // Two different outcomes, deliberately logged apart. "No identity" means the
+    // string carried no heliosgui_backend or no --port at all — a dev backend run
+    // by hand as `python backend_wrapper.py`, or a pid recycled onto something
+    // unrelated. "Differs" means both parsed and disagreed. The first is expected
+    // and fine; the second means the record and the live process have stopped
+    // being comparable, which is the thing that would quietly disable all of this.
+    if (!recorded || !running) {
+      this.recordMessage(
+        'manager',
+        `[reap] pid ${record.pid} carries no backend identity — leaving it alone. ` +
+          `recorded=${JSON.stringify(record.cmdline.slice(0, 120))} ` +
+          `live=${JSON.stringify(live.slice(0, 120))}`
+      )
+      return
+    }
+
+    if (recorded.exe !== running.exe || recorded.port !== running.port) {
       // Logged with BOTH strings on purpose. If the two sides ever stop being
       // comparable — a packaging change that alters argv[0], a new argument — this
       // is the only thing that will say so. Truncated because a Windows command
       // line carries the full install path.
       this.recordMessage(
         'manager',
-        `[reap] pid ${record.pid} did not match the record — leaving it alone. ` +
-          `recorded=${JSON.stringify(record.cmdline.slice(0, 120))} ` +
-          `live=${JSON.stringify(live.slice(0, 120))}`
+        `[reap] pid ${record.pid} is not the recorded backend — leaving it alone. ` +
+          `recorded=${recorded.exe}:${recorded.port} live=${running.exe}:${running.port}`
       )
       return
     }
