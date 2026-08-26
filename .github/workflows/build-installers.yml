@@ -3,7 +3,7 @@ name: Build Installers
 on:
   push:
     branches:
-      # - develop   # disabled: builds restricted to release/main/M2 (no develop builds)
+      - develop
       - M2
   workflow_dispatch:
 
@@ -73,18 +73,17 @@ jobs:
         include:
           - label: 'intel'
             runner: 'macos-15-intel'
-          - label: 'apple-silicon'
-            runner: 'macos-15'
+          # - label: 'apple-silicon'
+          #   runner: 'macos-15'
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.PAT }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
@@ -237,7 +236,7 @@ jobs:
           ls -la
 
       - name: Upload macOS installers
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: macos-installers-${{ matrix.label }}
           path: |
@@ -247,11 +246,11 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # LINUX - A SEPARATE BUILD PER VERSION (3 distinct files).
+  # LINUX - 20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04, +Python
+  #       - 22.04 -> ubuntu:22.04          (Python 3.10 default) -> 22.04 + 24.04
+  #       - 24.04 -> ubuntu:24.04          (Python 3.12 default) -> 24.04
   #
-  #   20.04 -> python:3.10-bullseye (glibc 2.31, Python 3.10 already included)
-  #   22.04 -> ubuntu:22.04         (Python 3.10)
-  #   24.04 -> ubuntu:24.04         (Python 3.12)
+  # TEMPORARILY DISABLED - only building Intel macOS for now.
   # ============================================================================
   build-linux:
     runs-on: ubuntu-22.04
@@ -480,78 +479,22 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # DOCS - Builds the MkDocs technical documentation site.
-  # ============================================================================
-  build-docs:
-    runs-on: ubuntu-latest
-    name: Build Documentation
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install docs dependencies
-        run: |
-          python3 -m venv .venv-docs
-          .venv-docs/bin/pip install -r docs/requirements.txt
-
-      - name: Cache docs offline assets
-        uses: actions/cache@v4
-        with:
-          path: .cache/plugin/privacy
-          key: docs-offline-cache-${{ hashFiles('docs/requirements.txt', 'mkdocs.yml') }}
-          restore-keys: |
-            docs-offline-cache-
-
-      - name: Check docs build (strict)
-        run: npm run docs:build
-
-      - name: Build offline docs copy
-        run: npm run docs:offline
-
-      - name: Upload offline docs archive
-        uses: actions/upload-artifact@v5
-        with:
-          name: docs-offline
-          path: helios-docs.zip
-          compression-level: 0
-          retention-days: 5
-          if-no-files-found: warn
-
-  # ============================================================================
-  # RELEASE
+  # RELEASE - Only depends on build-macos for now since Windows/Linux are
+  # disabled. Add build-windows and build-linux back to "needs" once
+  # those jobs are re-enabled.
   # ============================================================================
   release:
     name: Create QA Release
-    needs: [build-windows, build-macos, build-linux, build-docs]
+    needs: [build-macos]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Read version from package.json
-        id: version
-        shell: bash
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
       - name: Generate Release Notes
         shell: bash
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -e
 
@@ -560,11 +503,10 @@ jobs:
           SHORT_SHA="${SHA:0:7}"
           DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
 
-          echo "## Helios QA Release v${VERSION}" > notes.md
+          echo "## Helios QA Release" > notes.md
           echo "" >> notes.md
-          echo "Build from the \`M2\` branch." >> notes.md
+          echo "Latest build from \`develop/M2\` branch." >> notes.md
           echo "" >> notes.md
-          echo "- **Version:** v${VERSION}" >> notes.md
           echo "- **Commit:** \`${SHORT_SHA}\`" >> notes.md
           echo "- **Built:** ${DATE}" >> notes.md
           echo "" >> notes.md
@@ -603,7 +545,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: QA-Release
-          name: "Helios QA Release v${{ steps.version.outputs.version }}"
+          name: "Helios QA Release (latest develop/M2)"
           body_path: notes.md
           files: artifacts/**/*
           draft: false
