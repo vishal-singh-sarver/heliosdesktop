@@ -28,15 +28,18 @@ function isUnderTestAutomation(): boolean {
 // Probe ports starting at `start` and return the first one that bind succeeds on.
 // We try-bind on 127.0.0.1 instead of just checking /etc/services because another
 // process can be holding the port without it being a "well-known" binding.
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(false))
+    server.once('listening', () => server.close(() => resolve(true)))
+    server.listen(port, '127.0.0.1')
+  })
+}
+
 async function findFreePort(start: number, max = 50): Promise<number> {
   for (let port = start; port < start + max; port++) {
-    const free = await new Promise<boolean>((resolve) => {
-      const server = net.createServer()
-      server.once('error', () => resolve(false))
-      server.once('listening', () => server.close(() => resolve(true)))
-      server.listen(port, '127.0.0.1')
-    })
-    if (free) return port
+    if (await isPortFree(port)) return port
   }
   throw new Error(`No free port found in range ${start}..${start + max - 1}`)
 }
@@ -47,6 +50,61 @@ export interface BackendStatus {
   port?: number
   error?: string
   logFile?: string
+}
+
+// ── Reaping a previous backend ───────────────────────────────────────────────
+//
+// The backend records itself in <dataDir>/backend.pid on boot:
+//
+//   {"pid": 7539, "cmdline": "heliosgui_backend<NUL>--port=8008", "platform": "win32"}
+//
+// It reaps from there itself, but only AFTER it has started — by which time this
+// process has already chosen a port. So a leftover backend holding 8008 pushes us
+// to 8009, and the drift is permanent: the reap frees 8008 a second later and we
+// are already committed. Doing it HERE, before the port is picked, is the only
+// way the common case stays on the canonical port.
+//
+// It also covers Windows, where the backend's own reap does not run (it shells to
+// `ps`). This process has taskkill via forceKillTree, so it can do what the
+// backend cannot — and Windows is the one platform where the liveness pipe is
+// otherwise the only protection.
+//
+// Idempotent with the backend's own reap: whichever runs first wins and the other
+// finds nothing.
+interface BackendPidRecord {
+  pid: number
+  cmdline: string
+  platform: string
+}
+
+const PID_FILE = 'backend.pid'
+
+/**
+ * What identifies a backend, reduced to the two things every platform can agree
+ * on: which executable, and which port.
+ *
+ * Derived by pattern rather than by splitting on the platform's separator,
+ * because the three sources do not produce comparable strings. Linux reads
+ * /proc/<pid>/cmdline (NUL-separated, argv[0] as exec received it), macOS reads
+ * `ps -o command=` (space-separated), and Windows can only offer the RAW
+ * CreateProcess command line via WMI — which is not argv at all: it keeps the
+ * original quoting, and the packaged path sits under a directory with a space in
+ * it. Comparing a recorded sys.argv against that can never match.
+ *
+ * Which is precisely the bug the backend team hit going the other way — they
+ * recorded sys.argv and compared it against /proc, the match never succeeded, and
+ * the reap silently never fired. Their unit test passed because it compared the
+ * function against itself. Extracting an identity both sides can compute the same
+ * way is what stops that repeating here.
+ *
+ * Returns null when the string carries neither marker, which is how a recycled
+ * pid belonging to something else entirely reads.
+ */
+function backendIdentity(cmdline: string): { exe: string; port: string } | null {
+  const exe = /heliosgui_backend(\.exe)?/i.exec(cmdline)
+  const port = /--port[= ](\d+)/.exec(cmdline)
+  if (!exe || !port) return null
+  return { exe: exe[0].toLowerCase(), port: port[1] }
 }
 
 export class BackendManager {
@@ -137,6 +195,133 @@ export class BackendManager {
     } catch (error) {
       const err = error instanceof Error ? error.message : String(error)
       throw new Error(`Backend executable is not accessible: ${backendPath}\n${err}`)
+    }
+  }
+
+  /**
+   * The live command line of `pid`, or '' when it is not running.
+   *
+   * '' means DEAD, and that distinction is load-bearing. On Linux a zombie
+   * awaiting wait() still has a /proc entry, so treating "the entry exists" as
+   * "the process is alive" would have us SIGKILL a pid that had already exited —
+   * and, worse, a pid the OS is free to hand to something else.
+   */
+  private readLiveCmdline(pid: number): string {
+    try {
+      if (process.platform === 'linux') {
+        // NUL-separated. Normalised to spaces only for matching; nothing here
+        // depends on the separator surviving.
+        return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim()
+      }
+
+      if (process.platform === 'win32') {
+        // No Node API reaches another process's command line, and tasklist does
+        // not carry arguments. CIM is the only source that does.
+        const res = spawnSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`
+          ],
+          { encoding: 'utf8', timeout: 5000, windowsHide: true }
+        )
+        return res.status === 0 ? (res.stdout || '').trim() : ''
+      }
+
+      // darwin. Non-zero exit AND empty output both mean the pid is gone; `ps`
+      // reports the first for an unknown pid, so the two are treated alike.
+      const res = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], {
+        encoding: 'utf8',
+        timeout: 5000
+      })
+      return res.status === 0 ? (res.stdout || '').trim() : ''
+    } catch {
+      // Unreadable is not evidence of life. Falling through to '' means we
+      // decline to kill, which is the safe direction.
+      return ''
+    }
+  }
+
+  /**
+   * Kill a backend left over from a previous run, before a port is chosen.
+   *
+   * EVERY path out of here logs. That is not decoration: this whole class of fix
+   * fails by doing nothing quietly, and both teams have now been caught by a
+   * version of it — a gate that never armed, a reap whose comparison never
+   * matched, a thread that died before its exit call. A reaper that silently
+   * declines is indistinguishable from one that works until the day it matters.
+   *
+   * The pid file is only ever READ. The backend owns it and rewrites it on every
+   * boot, so deleting a stale one here would only race its write for no gain.
+   */
+  private reapPreviousBackend(dataDir: string): void {
+    const pidPath = path.join(dataDir, PID_FILE)
+
+    let raw: string
+    try {
+      raw = fs.readFileSync(pidPath, 'utf8')
+    } catch {
+      return // No file: a first run, or the backend has never recorded itself.
+    }
+
+    let record: BackendPidRecord
+    try {
+      record = JSON.parse(raw) as BackendPidRecord
+    } catch {
+      this.recordMessage('manager', `[reap] ${PID_FILE} is not valid JSON — skipping`)
+      return
+    }
+
+    if (!Number.isInteger(record?.pid) || record.pid <= 0 || typeof record.cmdline !== 'string') {
+      this.recordMessage('manager', `[reap] ${PID_FILE} is missing pid/cmdline — skipping`)
+      return
+    }
+
+    // A record written on another OS cannot describe a process on this one. Real
+    // when a home directory is shared or restored across machines.
+    if (record.platform && record.platform !== process.platform) {
+      this.recordMessage(
+        'manager',
+        `[reap] ${PID_FILE} was written on ${record.platform}, running on ` +
+          `${process.platform} — skipping`
+      )
+      return
+    }
+
+    const live = this.readLiveCmdline(record.pid)
+    if (!live) {
+      this.recordMessage('manager', `[reap] pid ${record.pid} is not running — nothing to reap`)
+      return
+    }
+
+    const recorded = backendIdentity(record.cmdline)
+    const running = backendIdentity(live)
+
+    if (!recorded || !running || recorded.exe !== running.exe || recorded.port !== running.port) {
+      // Logged with BOTH strings on purpose. If the two sides ever stop being
+      // comparable — a packaging change that alters argv[0], a new argument — this
+      // is the only thing that will say so. Truncated because a Windows command
+      // line carries the full install path.
+      this.recordMessage(
+        'manager',
+        `[reap] pid ${record.pid} did not match the record — leaving it alone. ` +
+          `recorded=${JSON.stringify(record.cmdline.slice(0, 120))} ` +
+          `live=${JSON.stringify(live.slice(0, 120))}`
+      )
+      return
+    }
+
+    this.recordMessage(
+      'manager',
+      `[reap] killing orphaned backend pid ${record.pid} on port ${running.port}`
+    )
+    try {
+      this.forceKillTree(record.pid, null)
+    } catch (error) {
+      const err = error instanceof Error ? error.message : String(error)
+      this.recordMessage('manager', `[reap] kill of pid ${record.pid} failed: ${err}`)
     }
   }
 
@@ -245,11 +430,27 @@ export class BackendManager {
       this.ensureRuntimeDirectories(runtimePaths.dataDir, runtimePaths.logDir)
       this.openLogStream(runtimePaths.logFile)
 
+      // BEFORE the port is chosen, not after. The backend reaps from the same
+      // record on its own boot, but that happens once it is already running — by
+      // which time we have committed to 8009 and the drift is permanent.
+      this.reapPreviousBackend(runtimePaths.dataDir)
+
       // Pick a free port starting at 8008. If 8008 is held by another process
       // (or a leftover backend from a crashed previous run), increment until
       // we find one that bind() succeeds on. Without this the spawn appears to
       // succeed but the backend exits with "address already in use".
       const desiredPort = this.port
+
+      // A reaped process does not release its port on the same tick, and a
+      // single probe a millisecond too early would send us to 8009 anyway —
+      // reaping the orphan and still taking none of the benefit. A listening
+      // socket does not enter TIME_WAIT, so this settles almost immediately;
+      // the retries are for scheduling, not for the protocol.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (await isPortFree(desiredPort)) break
+        await delay(100)
+      }
+
       this.port = await findFreePort(this.port)
       if (this.port !== desiredPort) {
         // Almost always an ORPHAN, not a genuine port clash: a backend from a
@@ -258,14 +459,15 @@ export class BackendManager {
         // starts a second backend that then contends with it for the database,
         // which is what makes the project list come back empty after a crash.
         //
-        // Routing around it silently is why this went unnoticed — say so loudly
-        // instead. Reaping it belongs with the backend's parent watchdog (see
-        // HELIOS_PARENT_PID below); this at least leaves a trail in the log.
+        // Reaching here now means the reap above did NOT clear it, which is worth
+        // saying plainly: either the holder is not a backend we recorded, or the
+        // record and the live process stopped being comparable. The [reap] line
+        // just above in this log says which.
         this.recordMessage(
           'manager',
-          `WARNING: port ${desiredPort} busy — using ${this.port} instead. ` +
-            `A backend from a previous run is probably still alive; ` +
-            `check with: pgrep -af heliosgui_backend`
+          `WARNING: port ${desiredPort} still busy after reaping — using ${this.port} ` +
+            `instead. Something is holding it that we did not recognise; ` +
+            `check with: pgrep -af heliosgui_backend (or tasklist on Windows)`
         )
       }
 
@@ -469,11 +671,16 @@ export class BackendManager {
   // Forcefully terminate the backend process tree. On Windows there is no
   // graceful signal for console children, so taskkill /F /T is the only
   // reliable reaper; elsewhere fall back to SIGKILL.
-  private forceKillTree(pid: number | undefined, proc: ChildProcess): void {
+  // `proc` is null when reaping a backend from a PREVIOUS run: it is not our
+  // child, so there is no ChildProcess to call kill() on and the signal has to go
+  // through process.kill by pid. taskkill never needed the handle anyway.
+  private forceKillTree(pid: number | undefined, proc: ChildProcess | null): void {
     if (process.platform === 'win32' && pid) {
       spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'])
-    } else {
+    } else if (proc) {
       proc.kill('SIGKILL')
+    } else if (pid) {
+      process.kill(pid, 'SIGKILL')
     }
   }
 
