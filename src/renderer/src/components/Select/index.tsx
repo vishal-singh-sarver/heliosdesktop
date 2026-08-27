@@ -424,7 +424,13 @@ export default function Select({
           {/* The chevron is its own button, not an overlay image: as a bare image
               it sat on top of the text input, so it showed the input's text
               (I-beam) cursor and its click fell through to the input — which only
-              ever opens the list. As a button it toggles, and shows the pointer. */}
+              ever opens the list. As a button it toggles, and shows the pointer.
+              Being a SIBLING of the input is also why it fades itself: the
+              caller's disabled styling rides on `className`, which goes to the
+              input alone, so a locked control greyed its text while leaving a
+              full-strength chevron next to it — the one part of the control that
+              says "there is a list behind me". The plain branch below needs
+              nothing: its chevron sits INSIDE the button carrying those classes. */}
           <button
             type="button"
             tabIndex={-1}
@@ -434,7 +440,7 @@ export default function Select({
             // re-open the list via onFocus right after we closed it.
             onMouseDown={(e) => e.preventDefault()}
             onClick={toggleList}
-            className="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center disabled:cursor-not-allowed"
+            className="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-60"
           >
             <img
               src={chevronDown}

@@ -68,6 +68,7 @@ import {
 import { fetchSpectralLabels } from './service'
 import MaterialRadiationEditor from './MaterialRadiationEditor'
 import MaterialVisualisationEditor from './MaterialVisualisationEditor'
+import type { TextureSubTab } from './TextureSelector'
 import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
@@ -763,11 +764,26 @@ function ParameterGroupCard({
   const [visualMode, setVisualMode] = React.useState<VisualisationMode>(() =>
     readVisualisationMode(group.values)
   )
+  // Which half of the texture editor is open. Card-owned rather than local to
+  // TextureSelector because the open tab is what decides WHICH texture Save
+  // persists — see `switchTextureTab`.
+  const [textureTab, setTextureTab] = React.useState<TextureSubTab>('library')
   // The highlighted library texture — transient: pressing a tile toggles it, and
   // it is only applied on Save. Not written to the value bag.
   const [pendingLibrary, setPendingLibrary] = React.useState<string | null>(null)
   const toggleLibrary = (path: string): void =>
     setPendingLibrary((prev) => (prev === path ? null : path))
+  // Leaving the Library tab drops its pick. The two tabs are two SOURCES for one
+  // texture, and only the open one is the user's answer — but the pick outranks
+  // the uploaded path in `chosenTexture` below (it has to: an upload stages its
+  // path in the value bag the moment it lands, so a library pick made afterwards
+  // would otherwise never win). Left standing, a tile touched on the way past beat
+  // the file the Upload tab was previewing, and Save wrote the library texture
+  // while the screen showed the upload.
+  const switchTextureTab = (next: TextureSubTab): void => {
+    if (next === 'upload') setPendingLibrary(null)
+    setTextureTab(next)
+  }
   const [pendingFile, setPendingFile] = React.useState<{ file: File; url: string } | null>(null)
   // The live object URL, mirrored in a ref so the unmount cleanup can revoke it
   // without touching state.
@@ -781,6 +797,10 @@ function ParameterGroupCard({
   // immediacy, then POST the file so its stored URL lands in the draft. Save
   // (below) persists the member afterwards.
   const pickFile = (file: File): void => {
+    // A file picked is the answer, so no library highlight may outrank it. The tab
+    // switch that got here already cleared one; this keeps the rule where the
+    // choice is made rather than only on the way in.
+    setPendingLibrary(null)
     setPending({ file, url: URL.createObjectURL(file) })
     onUploadTexture(file)
   }
@@ -818,6 +838,7 @@ function ParameterGroupCard({
     prevTypeId.current = group.typeId
     setPending(null) // revokes the object URL
     setPendingLibrary(null)
+    setTextureTab('library')
     // These values are gone, so the "user typed here" flags that went with them
     // are too — otherwise the first blur on the new type expands an untouched field.
     editedRef.current = {}
@@ -1015,6 +1036,10 @@ function ParameterGroupCard({
   // the path a just-completed upload staged into `values`. A picked FILE no
   // longer gates Save on its own — it's uploaded first, and it's the returned
   // URL (now in `values`) that counts.
+  //
+  // The pick can only outrank the staged path because it cannot survive leaving
+  // the Library tab (`switchTextureTab`): on the Upload tab there is never a pick
+  // to win, so what that tab previews is what Save writes.
   const chosenTexture = pendingLibrary ?? (group.values[TEXTURE_PROPERTY] || null)
   const textureReady = chosenTexture != null
   const modeComplete = !isVisualiser
@@ -1177,6 +1202,8 @@ function ParameterGroupCard({
                   saved={group.saved}
                   mode={visualMode}
                   onModeChange={setVisualMode}
+                  textureSubTab={textureTab}
+                  onTextureSubTabChange={switchTextureTab}
                   // The live pick when there is one, else the texture already
                   // stored on the member — `pendingLibrary` alone starts null on
                   // every reopen (and an outside click clears it), so a saved

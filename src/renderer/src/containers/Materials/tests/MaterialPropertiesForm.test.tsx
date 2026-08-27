@@ -1954,6 +1954,80 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     ).toBe(false)
   })
 
+  // The two sub-tabs are two SOURCES for one texture, and only the open one is the
+  // user's answer. A library pick outranks the uploaded path (it has to: an upload
+  // stages its path the moment it lands, so a pick made afterwards could never
+  // win) — but it used to survive leaving the Library tab, so a tile touched on the
+  // way past beat the file the Upload tab was previewing and Save wrote the stock
+  // texture instead of the user's own.
+  it('saves the UPLOADED file when the user returns to the Upload tab after a library pick', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Upload a file and leave it unsaved: the path is staged on the card.
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    act(() => {
+      store.dispatch(uploadTextureSucceeded('12', 1, 'uploads/materials/12/my-photo.png'))
+    })
+
+    // Wander through the library, press a tile…
+    fireEvent.click(screen.getByRole('button', { name: 'From Library' }))
+    const tile = await screen.findByRole('button', { name: 'Use texture grass' })
+    fireEvent.click(tile)
+    expect(tile).toHaveAttribute('aria-pressed', 'true')
+
+    // …then go back to the upload and save. Leaving the library dropped its pick,
+    // so the tile is no longer marked and the file is what gets persisted.
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const saved = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { properties?: Record<string, unknown> } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saved?.payload?.properties).toEqual({
+      texture_toggle: true,
+      texture_file: 'uploads/materials/12/my-photo.png'
+    })
+  })
+
+  // The mirror: a pick made on the tab that is still open is the answer, and it
+  // must still beat a path an earlier upload staged.
+  it('saves the library texture when the pick is made with the Library tab open', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    act(() => {
+      store.dispatch(uploadTextureSucceeded('12', 1, 'uploads/materials/12/my-photo.png'))
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'From Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use texture grass' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const saved = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { properties?: Record<string, unknown> } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saved?.payload?.properties).toEqual({
+      texture_toggle: true,
+      texture_file: 'uploads/grass.png'
+    })
+  })
+
   // Saving a colour must clear the texture half of the value bag, the mirror of
   // what the texture save does to the colour half. The payload was always right;
   // the DRAFT wasn't — and the draft is what gets snapshotted into savedValues and

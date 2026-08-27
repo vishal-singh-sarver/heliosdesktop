@@ -120,6 +120,68 @@ describe('loadSceneTexture — failures', () => {
   })
 })
 
+describe('loadSceneTexture — a request abandoned by a scene reload', () => {
+  // loadSceneWorker clears the cache at the top of every scene load, and it is
+  // takeLatest — so a reload cancels the saga but NOT the texture requests
+  // already on the wire. The next scene's meshes miss the emptied cache and start
+  // a second request for the same file, and for a moment two requests exist for
+  // one map key. The map is keyed by filename alone, so the abandoned request used
+  // to land on the live one's entry.
+
+  // Reload mid-load: clear, then let the new scene ask for the same file.
+  const reloadDuring = (file: string, onLoad: (tex: THREE.Texture) => void): void => {
+    clearTextureCache()
+    loadSceneTexture(file, onLoad)
+  }
+
+  it('does not strand the live request when the abandoned one FAILS', () => {
+    // The rare white square. The old request's error handler deleted the map
+    // entry — which by then belonged to the NEW request — so when the new request
+    // succeeded it found no waiters, notified nobody, and left the material on a
+    // null map. Permanently white, with a healthy 200 in the network tab.
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    loadSceneTexture('dirt.jpg', () => {})
+
+    const onLoad = vi.fn()
+    reloadDuring('dirt.jpg', onLoad)
+    expect(calls).toHaveLength(2)
+
+    calls[0].onError(new Error('blip')) // the abandoned request dies
+    const loaded = new THREE.Texture()
+    calls[1].onLoad(loaded) // the live one succeeds
+
+    expect(onLoad).toHaveBeenCalledWith(loaded)
+    spy.mockRestore()
+  })
+
+  it('does not hand the live request the abandoned one’s texture', () => {
+    // The mirror case. The old request's success consumed the new request's
+    // waiters and deleted the entry, so the new texture took the cache slot with
+    // nothing rendering it — clearTextureCache then disposed the unused copy and
+    // leaked the one on screen.
+    loadSceneTexture('dirt.jpg', () => {})
+
+    const onLoad = vi.fn()
+    reloadDuring('dirt.jpg', onLoad)
+
+    const abandoned = new THREE.Texture()
+    const dispose = vi.spyOn(abandoned, 'dispose')
+    calls[0].onLoad(abandoned)
+
+    // Inert: no callback, no cache slot, and its bytes released rather than left
+    // for the live request to overwrite.
+    expect(onLoad).not.toHaveBeenCalled()
+    expect(globalTextureCache.has('dirt.jpg')).toBe(false)
+    expect(dispose).toHaveBeenCalledTimes(1)
+
+    // The live request still settles normally — cache and waiters both its own.
+    const loaded = new THREE.Texture()
+    calls[1].onLoad(loaded)
+    expect(onLoad).toHaveBeenCalledWith(loaded)
+    expect(globalTextureCache.get('dirt.jpg')).toBe(loaded)
+  })
+})
+
 describe('clearTextureCache', () => {
   it('disposes every cached texture and empties the cache', () => {
     loadSceneTexture('dirt.jpg', () => {})

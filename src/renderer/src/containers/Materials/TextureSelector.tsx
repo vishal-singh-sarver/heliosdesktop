@@ -13,7 +13,7 @@ import { normalizeImageOrientation, TEXTURE_ACCEPT_ATTR, validateTextureFile } f
 // A library texture is identified by its serve `url`; the value we persist in
 // `texture_file` is the `path` query param inside that url.
 
-type SubTab = 'library' | 'upload'
+export type TextureSubTab = 'library' | 'upload'
 
 // Upload constraints (JPG/JPEG/PNG, at most 10 MB) live in ./validation, so they
 // can be unit-tested without a DOM and stay in one place.
@@ -37,12 +37,22 @@ function displayName(name: string): string {
 }
 
 export function TextureSelector({
+  sub,
+  onSubChange,
   selectedPath,
   pendingFileUrl,
   onPickLibrary,
   onPickFile,
   uploading
 }: {
+  // Which sub-tab is open. OWNED BY THE CARD, not by this component: the open tab
+  // is what says where the texture Save persists comes from, and the card is what
+  // builds that payload. While this state lived here the card couldn't see it, so
+  // a library pick made on the way through kept winning over the file the Upload
+  // tab was showing — Save wrote the library texture while the preview showed the
+  // upload.
+  sub: TextureSubTab
+  onSubChange: (sub: TextureSubTab) => void
   // The library path to highlight: the current pick if there is one, else the
   // texture already stored on the member — so a saved texture still shows which
   // tile it is when the material is reopened. Null when neither applies (or when
@@ -60,13 +70,13 @@ export function TextureSelector({
   onPickFile: (file: File) => void
   uploading: boolean
 }): React.JSX.Element {
-  const [sub, setSub] = React.useState<SubTab>('library')
   const [textures, setTextures] = React.useState<DefaultTexture[]>([])
   const [status, setStatus] = React.useState<'loading' | 'loaded' | 'error'>('loading')
   const [fileError, setFileError] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-  // Load the library once on mount (the "From Library" sub-tab is shown first).
+  // Load the library once on mount — both tabs need it: the grid renders it, and
+  // the Upload tab classifies the stored path against it (see below).
   React.useEffect(() => {
     let alive = true
     listDefaultTextures()
@@ -134,14 +144,14 @@ export function TextureSelector({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => setSub('library')}
+          onClick={() => onSubChange('library')}
           className={subClass(sub === 'library')}
         >
           {messages.textureFromLibraryTab}
         </button>
         <button
           type="button"
-          onClick={() => setSub('upload')}
+          onClick={() => onSubChange('upload')}
           className={subClass(sub === 'upload')}
         >
           {messages.textureUploadTab}
