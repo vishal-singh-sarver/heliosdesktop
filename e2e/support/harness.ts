@@ -10,6 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
+import Geometry from '../pages/Geometry.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { TIMEOUTS } from '../config/timeouts'
@@ -421,4 +422,31 @@ export async function staysFalse(
     .then(() => true)
     .catch(() => false)
   return becameTrue === false
+}
+
+/**
+ * Enter a fresh project and wait until the Geometry panel is usable.
+ *
+ * Unlike enterWeather there is no selectTab(): the left panel is a sibling of
+ * CenterWorkspace and is mounted whichever workspace tab is active.
+ *
+ * The wait matters. ProjectScreen fires four catalog loads on mount, and
+ * `+ Ground` early-returns when the object-type catalog has not yet produced a
+ * "Ground" type (Geometry/index.tsx onAddGround) — so a test that clicks too
+ * early silently creates NOTHING and then fails on a missing row, pointing at
+ * the wrong layer. Gating on the tree reaching a terminal state also covers the
+ * initial listNodes GET.
+ */
+export async function enterGeometry(label = 'geo'): Promise<{ id: string; name: string }> {
+  const project = await enterProject(label)
+  await Geometry.panel.waitForDisplayed({
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: 'the Geometry panel never mounted on ProjectScreen'
+  })
+  await Geometry.waitForTree()
+  await browser.waitUntil(async () => Geometry.addGroundButton.isEnabled().catch(() => false), {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: '+ Ground never became enabled (object-type catalog likely never loaded)'
+  })
+  return project
 }
