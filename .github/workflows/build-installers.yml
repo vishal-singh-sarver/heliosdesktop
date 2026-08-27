@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - M2
+      - feature/bugfixesp3
   workflow_dispatch:
 
 permissions:
@@ -12,60 +13,62 @@ permissions:
 
 jobs:
   # =============================================================================
-  # WINDOWS - Windows 10 And 11.
-  # TEMPORARILY DISABLED - only building Intel macOS for now.
+  # WINDOWS - ek hi .exe banta hai jo Windows 10 AUR 11 dono par chalta hai.
   # =============================================================================
-  # build-windows:
-  #   runs-on: windows-2022
-  #   name: Build Windows Installer (10 + 11)
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #       with:
-  #         submodules: recursive
-  #
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #
-  #     - name: Install dependencies
-  #       shell: bash
-  #       run: |
-  #         npm ci || npm install
-  #
-  #     - name: Create .env file
-  #       shell: bash
-  #       run: |
-  #         echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-  #
-  #     - name: Build application
-  #       run: npm run build
-  #
-  #     - name: Package Windows Installer
-  #       run: npm run package:win
-  #
-  #     - name: Upload Windows installer
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: windows-installer
-  #         path: |
-  #           dist/*.exe
-  #           release/*.exe
-  #         compression-level: 0
-  #         retention-days: 5
-  #         if-no-files-found: warn
+  build-windows:
+    runs-on: windows-2022
+    name: Build Windows Installer (10 + 11)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-  # ==============================================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          npm ci || npm install
+
+      - name: Create .env file
+        shell: bash
+        run: |
+          echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+
+      - name: Build application
+        run: npm run build
+
+      - name: Package Windows Installer
+        run: npm run package:win
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            dist/*.exe
+            release/*.exe
+          compression-level: 0
+          retention-days: 5
+          if-no-files-found: warn
+
+  # ============================================================================
   # macOS - 2 ALAG FILES: Intel (x86_64) + Apple Silicon (arm64).
   #
-  # Per-OS-version (12 vs 13 vs 14...)
+  # Per-OS-version (12 vs 13 vs 14...) alag build banti hi nahi - Apple ka
+  # design hai. minimumSystemVersion "12.0" set hai (package.json mein), to
+  # YE DONO files macOS 12 (Monterey) se 26 (Tahoe) tak SAB par chalti hain:
   #
-  #   intel file        -> Intel Macs (macOS 12-15)
-  #   apple-silicon     -> M1/M2/M3/M4 Macs (macOS 12-26)
+  #   intel file        -> sab Intel Macs (macOS 12-15)
+  #   apple-silicon     -> sab M1/M2/M3/M4 Macs (macOS 12-26)
   #
-  # TEMPORARILY: only building "intel" - apple-silicon entry commented out.
-  # ==============================================================================
+  # NOTE: package.json ke "mac" block mein zaroori hai:
+  #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
+  # ============================================================================
   build-macos:
     name: Build macOS (${{ matrix.label }})
     strategy:
@@ -74,8 +77,8 @@ jobs:
         include:
           - label: 'intel'
             runner: 'macos-15-intel'
-          # - label: 'apple-silicon'
-          #   runner: 'macos-15'
+          - label: 'apple-silicon'
+            runner: 'macos-15'
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
@@ -124,151 +127,148 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # LINUX - 20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04, +Python
-  #       - 22.04 -> ubuntu:22.04          (Python 3.10 default) -> 22.04 + 24.04
-  #       - 24.04 -> ubuntu:24.04          (Python 3.12 default) -> 24.04
+  # LINUX - HAR VERSION KI ALAG BUILD (3 alag files).
   #
-  # TEMPORARILY DISABLED - only building Intel macOS for now.
+  #   20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04 jaisa, +Python
+  #            3.10 pehle se. KOI deadsnakes/PPA nahi. Ye file 20.04, 22.04,
+  #            24.04 SAB par chalti hai.)
+  #   22.04 -> ubuntu:22.04          (Python 3.10 default) -> 22.04 + 24.04
+  #   24.04 -> ubuntu:24.04          (Python 3.12 default) -> 24.04
   # ============================================================================
-  # build-linux:
-  #   runs-on: ubuntu-22.04
-  #   name: Build Linux (${{ matrix.label }})
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       include:
-  #         - label: '20.04'
-  #           image: 'python:3.10-bullseye'
-  #         - label: '22.04'
-  #           image: 'ubuntu:22.04'
-  #         - label: '24.04'
-  #           image: 'ubuntu:24.04'
-  #   container:
-  #     image: ${{ matrix.image }}
-  #   env:
-  #     DEBIAN_FRONTEND: noninteractive
-  #     TZ: Etc/UTC
-  #   steps:
-  #     - name: Install base tools
-  #       run: |
-  #         apt-get update
-  #         apt-get install -y \
-  #           curl \
-  #           git \
-  #           ca-certificates \
-  #           gnupg \
-  #           python3 \
-  #           python3-venv \
-  #           python3-pip \
-  #           build-essential
-  #
-  #     - name: Verify Python 3.10+
-  #       run: |
-  #         set -e
-  #         echo "python3 path:"; which python3
-  #         python3 --version
-  #         OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3,10) else 0)')
-  #         if [ "$OK" != "1" ]; then
-  #           echo "ERROR: Python 3.10+ chahiye par purana mila. Container image galat hai."
-  #           exit 1
-  #         fi
-  #
-  #     - name: Setup Node.js 22
-  #       run: |
-  #         curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  #         apt-get install -y nodejs
-  #         node --version
-  #         npm --version
-  #
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #       with:
-  #         submodules: recursive
-  #
-  #     - name: Install Linux build dependencies
-  #       run: |
-  #         install_one() {
-  #           apt-get install -y "$1" 2>/dev/null || apt-get install -y "$2" 2>/dev/null || true
-  #         }
-  #
-  #         apt-get install -y \
-  #           cmake \
-  #           pkg-config \
-  #           git \
-  #           libgtk-3-dev \
-  #           libnss3 \
-  #           libxss1 \
-  #           libxtst6 \
-  #           libxrandr2 \
-  #           libdrm2 \
-  #           libgbm1 \
-  #           libxkbcommon0 \
-  #           libfuse2 \
-  #           fonts-liberation \
-  #           xdg-utils \
-  #           libglu1-mesa-dev \
-  #           freeglut3-dev \
-  #           mesa-common-dev \
-  #           libx11-dev \
-  #           libxext-dev \
-  #           libxrender-dev \
-  #           libglew-dev \
-  #           libglfw3-dev \
-  #           zlib1g-dev \
-  #           libpng-dev \
-  #           libjpeg-dev \
-  #           fakeroot \
-  #           dpkg \
-  #           rpm
-  #
-  #         install_one libasound2 libasound2t64
-  #         install_one libatk1.0-0 libatk1.0-0t64
-  #         install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
-  #
-  #     - name: Install dependencies
-  #       run: |
-  #         npm ci || npm install
-  #
-  #     - name: Create .env file
-  #       run: |
-  #         echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-  #
-  #     - name: Build application
-  #       run: npm run build
-  #
-  #     - name: Package Linux Installer
-  #       run: npm run package:linux
-  #
-  #     - name: Tag outputs with ubuntu version
-  #       run: |
-  #         cd dist
-  #         for f in *.deb *.AppImage; do
-  #           [ -e "$f" ] || continue
-  #           base="${f%.*}"
-  #           ext="${f##*.}"
-  #           mv "$f" "${base}-ubuntu${{ matrix.label }}.${ext}"
-  #         done
-  #         ls -la
-  #
-  #     - name: Upload Linux packages
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: linux-packages-${{ matrix.label }}
-  #         path: |
-  #           dist/*.AppImage
-  #           dist/*.deb
-  #         compression-level: 0
-  #         retention-days: 5
-  #         if-no-files-found: warn
+  build-linux:
+    runs-on: ubuntu-22.04
+    name: Build Linux (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: '20.04'
+            image: 'python:3.10-bullseye'
+          - label: '22.04'
+            image: 'ubuntu:22.04'
+          - label: '24.04'
+            image: 'ubuntu:24.04'
+    container:
+      image: ${{ matrix.image }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - name: Install base tools
+        run: |
+          apt-get update
+          apt-get install -y \
+            curl \
+            git \
+            ca-certificates \
+            gnupg \
+            python3 \
+            python3-venv \
+            python3-pip \
+            build-essential
 
-  # ============================================================================
-  # RELEASE - Only depends on build-macos for now since Windows/Linux are
-  # disabled. Add build-windows and build-linux back to "needs" once
-  # those jobs are re-enabled.
-  # ============================================================================
+      - name: Verify Python 3.10+
+        run: |
+          set -e
+          echo "python3 path:"; which python3
+          python3 --version
+          OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3,10) else 0)')
+          if [ "$OK" != "1" ]; then
+            echo "ERROR: Python 3.10+ chahiye par purana mila. Container image galat hai."
+            exit 1
+          fi
+
+      - name: Setup Node.js 22
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+          apt-get install -y nodejs
+          node --version
+          npm --version
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux build dependencies
+        run: |
+          install_one() {
+            apt-get install -y "$1" 2>/dev/null || apt-get install -y "$2" 2>/dev/null || true
+          }
+
+          apt-get install -y \
+            cmake \
+            pkg-config \
+            git \
+            libgtk-3-dev \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            libxrandr2 \
+            libdrm2 \
+            libgbm1 \
+            libxkbcommon0 \
+            libfuse2 \
+            fonts-liberation \
+            xdg-utils \
+            libglu1-mesa-dev \
+            freeglut3-dev \
+            mesa-common-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrender-dev \
+            libglew-dev \
+            libglfw3-dev \
+            zlib1g-dev \
+            libpng-dev \
+            libjpeg-dev \
+            fakeroot \
+            dpkg \
+            rpm
+
+          install_one libasound2 libasound2t64
+          install_one libatk1.0-0 libatk1.0-0t64
+          install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
+
+      - name: Install dependencies
+        run: |
+          npm ci || npm install
+
+      - name: Create .env file
+        run: |
+          echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+
+      - name: Build application
+        run: npm run build
+
+      - name: Package Linux Installer
+        run: npm run package:linux
+
+      - name: Tag outputs with ubuntu version
+        run: |
+          cd dist
+          for f in *.deb *.AppImage; do
+            [ -e "$f" ] || continue
+            base="${f%.*}"
+            ext="${f##*.}"
+            mv "$f" "${base}-ubuntu${{ matrix.label }}.${ext}"
+          done
+          ls -la
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages-${{ matrix.label }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+          compression-level: 0
+          retention-days: 5
+          if-no-files-found: warn
+
   release:
     name: Create QA Release
-    needs: [build-macos]
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -300,7 +300,7 @@ jobs:
             name=$(basename "$file")
             size=$(du -h "$file" | cut -f1)
             checksum=$(sha256sum "$file" | awk '{print $1}')
-            url="https://github.com/$REPO/releases/download/QA-Release/$name"
+            url="https://github.com/$REPO/releases/download/QA-Release-Desktop/$name"
 
             os="Unknown"
             [[ "$name" == *.exe ]] && os="Windows"
@@ -314,11 +314,11 @@ jobs:
 
           cat notes.md
 
-      - name: Delete previous QA-Release
+      - name: Delete previous QA-Release-Desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete QA-Release \
+          gh release delete QA-Release-Desktop \
             --yes \
             --cleanup-tag \
             --repo "${{ github.repository }}" || true
@@ -326,8 +326,8 @@ jobs:
       - name: Create QA Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: QA-Release
-          name: "Helios QA Release (latest develop/M2)"
+          tag_name: QA-Release-Desktop
+          name: "Helios QA Release Desktop(latest develop/M2)"
           body_path: notes.md
           files: artifacts/**/*
           draft: false
