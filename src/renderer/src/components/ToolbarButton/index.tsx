@@ -36,6 +36,13 @@ function ToolbarButton({
   ariaLabel,
   className = ''
 }: ToolbarButtonProps): React.JSX.Element {
+  // Test hook derived from the visible label this button already carries, so
+  // every instance is addressable without the caller passing an id:
+  // "Import from File" -> toolbar-import-from-file.
+  const testId = `toolbar-${label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')}`
   // 'light' → force icon white (good on dark bg).
   // 'dark'  → force icon black (good on light bg).
   const iconFilter =
@@ -76,6 +83,7 @@ function ToolbarButton({
       disabled={disabled}
       title={title}
       aria-label={ariaLabel}
+      data-testid={testId}
       style={{ backgroundColor: bgColor, color: textColor }}
       className={`flex items-center ${gap} rounded-md border border-app-border ${paddingX} ${height} text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40 ${className}`.trim()}
     >

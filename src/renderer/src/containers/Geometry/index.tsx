@@ -75,7 +75,7 @@ export function Geometry(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div data-testid="geometry-panel" className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap gap-2">
         <ToolbarButton
           label="Crop"

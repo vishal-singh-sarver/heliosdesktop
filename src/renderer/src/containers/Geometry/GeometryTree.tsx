@@ -49,7 +49,7 @@ export function GeometryTree(): React.JSX.Element {
 
   if (status === 'loading') {
     return (
-      <div className="flex items-center justify-center py-4">
+      <div data-testid="geometry-tree-loading" className="flex items-center justify-center py-4">
         <Spinner className="h-4 w-4 text-neutral-400" />
       </div>
     )
@@ -60,11 +60,15 @@ export function GeometryTree(): React.JSX.Element {
       if (projectId && scenarioId) dispatch(listNodesRequested(projectId, scenarioId))
     }
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+      <div
+        data-testid="geometry-tree-error"
+        className="flex flex-col items-center justify-center gap-3 py-8 text-center"
+      >
         <img src={alertIcon} alt="" aria-hidden="true" className="h-9 w-9" />
         <p className="text-[13px] text-neutral-300">{error ?? messages.loadError}</p>
         <button
           type="button"
+          data-testid="geometry-tree-retry"
           onClick={onRetry}
           className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
         >
@@ -79,7 +83,7 @@ export function GeometryTree(): React.JSX.Element {
     // Distinguish "nothing saved" from "search matched nothing".
     const hint = query.trim() ? messages.noMatches : messages.emptyTree
     return (
-      <p className="py-2 text-[13px]" style={{ color: '#7D7D7D' }}>
+      <p data-testid="geometry-tree-empty" className="py-2 text-[13px]" style={{ color: '#7D7D7D' }}>
         {hint}
       </p>
     )
@@ -103,6 +107,7 @@ export function GeometryTree(): React.JSX.Element {
 
   return (
     <div
+      data-testid="geometry-tree"
       className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleRootDrop}
