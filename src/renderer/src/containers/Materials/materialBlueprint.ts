@@ -212,6 +212,67 @@ export function resolveParameterGroups(types: MaterialTypeDef[]): ResolvedParame
   return result.concat(groups)
 }
 
+// An enum that DRIVES conditional groups — `stomatal_model`, `submodel` — as
+// opposed to an ordinary one like the Heat Transfer Flag. `enumLabels` is the
+// marker: resolveParameterGroups sets it only on a selector. The distinction
+// matters because clearing a selector takes a whole parameter group off the card,
+// while clearing an ordinary enum costs only its own value.
+export function isSelectorField(field: ResolvedMaterialField): boolean {
+  return field.enumLabels != null
+}
+
+// A selector offering exactly ONE option — Photosynthesis's `submodel`, whose
+// only value is 'farquhar_model'. There is nothing to choose between, so the form
+// treats it as settled rather than as a question: the card seeds it on type-pick
+// (defaultSelectorValues below) and its dropdown drops the "Select" clear row.
+// Until this existed, all 14 Farquhar coefficients sat hidden behind a dropdown
+// with a single entry that had to be picked to reveal them.
+//
+// Read off the CATALOG, not a property name. Stomatal Conductance's four
+// sub-models are a real choice and are untouched; a selector that later grows a
+// second option goes back to asking for one, since there would then be no reason
+// to prefer either sub-model.
+export function isFixedSelector(field: ResolvedMaterialField): boolean {
+  return isSelectorField(field) && field.enumValues?.length === 1
+}
+
+// Whether a field's dropdown offers the leading row that CLEARS it (the "Select"
+// placeholder entry — components/Select prepends it when `clearable`). True for
+// every ordinary field; a SELECTOR loses it in two cases.
+//
+// A fixed selector has nothing to clear to — its one option is already seeded.
+//
+// A selector on a SAVED card is the destructive case, and it is silent: blanking
+// it fails groupIsActive for every sub-model, so the whole parameter block
+// disappears from the card; the hygiene effect then blanks the coefficients that
+// group held; and since toNativeProperties skips blank values and the save is
+// full-replacement, the next Save DELETES them from material_data. Once a member
+// exists you may switch sub-models — never un-choose one.
+//
+// Before the first save there is nothing committed to lose, so a selector keeps
+// its clear row: "Select" is still a legitimate state for a card in progress.
+// Ordinary enums (the Heat Transfer Flag) gate nothing and are never affected.
+export function fieldIsClearable(field: ResolvedMaterialField, saved: boolean): boolean {
+  if (!isSelectorField(field)) return true
+  return !isFixedSelector(field) && !saved
+}
+
+// The values a card starts with once its material type is picked: every fixed
+// selector, already answered. Seeded as a real stored value rather than as a
+// rendered default because the gate reads the value bag — visibleParameterGroups
+// keys the group off it, and toNativeProperties only sends an active group's
+// fields, so a merely-displayed default would leave the group hidden and the
+// property absent from the payload.
+export function defaultSelectorValues(type: MaterialTypeDef): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const group of resolveParameterGroups([type])) {
+    for (const field of group.fields) {
+      if (isFixedSelector(field)) out[field.property] = (field.enumValues as string[])[0]
+    }
+  }
+  return out
+}
+
 // A conditional group is shown only while its selector property currently holds
 // its selector value; a group with no selector is always shown. Shared by the
 // form (what to render), the Save gate + validation (which fields count) and the
