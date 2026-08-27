@@ -439,6 +439,141 @@ describe('<MaterialPropertiesForm /> conditional parameter groups', () => {
     expect(screen.getByRole('option', { name: 'Ball-woodrow-berry' })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'BWB' })).not.toBeInTheDocument()
   })
+
+  // The live Photosynthesis shape: one gated group, so its selector offers a
+  // single option and there is nothing for the user to decide.
+  const photosynthesis: MaterialTypeDef = {
+    id: 4,
+    materialtype: 'Photosynthesis',
+    description: '',
+    properties: [
+      {
+        property_type_id: 90,
+        property: 'submodel',
+        label: 'Photosynthesis Model',
+        description: '',
+        datatype: 'enum',
+        min: null,
+        max: null,
+        enum_values: ['farquhar_model'],
+        display_order: 7
+      }
+    ],
+    groups: [
+      {
+        name: 'Farquhar model',
+        selector_property: 'submodel',
+        selector_value: 'farquhar_model',
+        display_order: 8,
+        properties: [
+          {
+            property_type_id: 7,
+            property: 'vcmax25',
+            label: 'V cmax25',
+            description: '',
+            datatype: 'float',
+            min: 0,
+            max: null,
+            display_order: 8
+          }
+        ]
+      }
+    ]
+  }
+
+  // Pick Photosynthesis in a fresh card's material-type dropdown.
+  const pickPhotosynthesis = (): void => {
+    fireEvent.click(screen.getByRole('combobox', { name: 'Material Type.01' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Photosynthesis' }))
+  }
+
+  it('opens Photosynthesis on its Farquhar fields, with the model already chosen', () => {
+    render(
+      <Provider store={liveStoreWith([card(1)], [photosynthesis])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    pickPhotosynthesis()
+
+    // The gated group is on screen with no further interaction, and the selector
+    // reads the model rather than the "Select" placeholder.
+    expect(screen.getByText('V cmax25')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /Photosynthesis Model/ })).toHaveTextContent(
+      'Farquhar model'
+    )
+  })
+
+  it('offers no way to clear the one-option Photosynthesis selector', () => {
+    render(
+      <Provider store={liveStoreWith([card(1)], [photosynthesis])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    pickPhotosynthesis()
+    fireEvent.click(screen.getByRole('combobox', { name: /Photosynthesis Model/ }))
+
+    // The model is the only row: no "Select" entry to fall back to, which would
+    // hide the whole Farquhar group and blank its values on the way out.
+    expect(screen.getByRole('option', { name: 'Farquhar model' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: messages.selectPlaceholder })
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers "Select" on an unsaved stomatal card', () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [card(1, { typeId: 6, values: { stomatal_model: 'BWB' } })],
+          [stomatal]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Model/ }))
+
+    // Nothing is committed yet, so backing out to "Select" is still legitimate.
+    expect(screen.getByRole('option', { name: messages.selectPlaceholder })).toBeInTheDocument()
+  })
+
+  it('drops "Select" once the stomatal card is saved', () => {
+    render(
+      <Provider
+        store={liveStoreWith(
+          [card(1, { typeId: 6, saved: true, values: { stomatal_model: 'BWB' } })],
+          [stomatal]
+        )}
+      >
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: /Stomatal Model/ }))
+
+    // The member exists now: sub-models can be switched, never un-chosen — the
+    // clear row would blank the group's coefficients and the next (full-replace)
+    // save would drop them.
+    expect(screen.getByRole('option', { name: 'Ball-woodrow-berry' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: messages.selectPlaceholder })
+    ).not.toBeInTheDocument()
+  })
+
+  it('still asks for a stomatal sub-model — four options is a real choice', () => {
+    render(
+      <Provider store={liveStoreWith([card(1)], [stomatal])}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: 'Material Type.01' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Stomatal Conductance' }))
+
+    // Nothing seeded, so no sub-model group is revealed yet.
+    expect(screen.queryByText('gs, o')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /Stomatal Model/ })).toHaveTextContent(
+      messages.selectPlaceholder
+    )
+  })
 })
 
 describe('<MaterialPropertiesForm /> Radiation editor', () => {
@@ -1952,6 +2087,80 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
       (store.getState() as unknown as { materials: MaterialsState }).materials.editDraft?.groups[0]
         .saved
     ).toBe(false)
+  })
+
+  // The two sub-tabs are two SOURCES for one texture, and only the open one is the
+  // user's answer. A library pick outranks the uploaded path (it has to: an upload
+  // stages its path the moment it lands, so a pick made afterwards could never
+  // win) — but it used to survive leaving the Library tab, so a tile touched on the
+  // way past beat the file the Upload tab was previewing and Save wrote the stock
+  // texture instead of the user's own.
+  it('saves the UPLOADED file when the user returns to the Upload tab after a library pick', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    // Upload a file and leave it unsaved: the path is staged on the card.
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    act(() => {
+      store.dispatch(uploadTextureSucceeded('12', 1, 'uploads/materials/12/my-photo.png'))
+    })
+
+    // Wander through the library, press a tile…
+    fireEvent.click(screen.getByRole('button', { name: 'From Library' }))
+    const tile = await screen.findByRole('button', { name: 'Use texture grass' })
+    fireEvent.click(tile)
+    expect(tile).toHaveAttribute('aria-pressed', 'true')
+
+    // …then go back to the upload and save. Leaving the library dropped its pick,
+    // so the tile is no longer marked and the file is what gets persisted.
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const saved = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { properties?: Record<string, unknown> } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saved?.payload?.properties).toEqual({
+      texture_toggle: true,
+      texture_file: 'uploads/materials/12/my-photo.png'
+    })
+  })
+
+  // The mirror: a pick made on the tab that is still open is the answer, and it
+  // must still beat a path an earlier upload staged.
+  it('saves the library texture when the pick is made with the Library tab open', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const store = liveStoreWith([card(1, { typeId: 7 })], [visualizer])
+    const dispatch = vi.spyOn(store, 'dispatch')
+    render(
+      <Provider store={store}>
+        <MaterialPropertiesForm />
+      </Provider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Texture' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    act(() => {
+      store.dispatch(uploadTextureSucceeded('12', 1, 'uploads/materials/12/my-photo.png'))
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'From Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use texture grass' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const saved = dispatch.mock.calls
+      .map((c) => c[0] as { type: string; payload?: { properties?: Record<string, unknown> } })
+      .find((a) => a?.type === SAVE_PARAMETER_GROUP_REQUESTED)
+    expect(saved?.payload?.properties).toEqual({
+      texture_toggle: true,
+      texture_file: 'uploads/grass.png'
+    })
   })
 
   // Saving a colour must clear the texture half of the value bag, the mirror of

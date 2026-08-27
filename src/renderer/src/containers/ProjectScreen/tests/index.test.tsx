@@ -20,7 +20,10 @@ const sel = {
     latitude: number
     longitude: number
     utc_offset: string
-  } | null
+  } | null,
+  // The coordinate PATCH's status, so a test can settle a save either way.
+  updateLoading: false,
+  updateError: null as string | null
 }
 
 vi.mock('react-redux', () => ({
@@ -33,7 +36,9 @@ vi.mock('utils/injectSaga', () => ({ useInjectSaga: vi.fn() }))
 
 vi.mock('../selectors', () => ({
   selectActiveProjectId: () => sel.activeProjectId,
-  selectActiveProject: () => sel.activeProject
+  selectActiveProject: () => sel.activeProject,
+  selectUpdateProjectLoading: () => sel.updateLoading,
+  selectUpdateProjectError: () => sel.updateError
 }))
 
 vi.mock('@renderer/containers/LeftPanel', () => ({
@@ -99,6 +104,8 @@ vi.mock('@renderer/components/LabeledField', () => ({
 function resetSel(): void {
   sel.activeProjectId = null
   sel.activeProject = null
+  sel.updateLoading = false
+  sel.updateError = null
 }
 
 describe('<ProjectScreen />', () => {
@@ -347,6 +354,175 @@ describe('<ProjectScreen />', () => {
     expect(mockDispatch).not.toHaveBeenCalledWith(
       projectActions.updateProjectRequested(expect.any(String), expect.any(Object))
     )
+  })
+
+  // ── Blur restores the saved coordinate ─────────────────────────────────
+  //
+  // The header is the only place the project's coordinates are shown, so an edit
+  // that can't be committed must not be left sitting in the box: it reads as the
+  // project's location while the project still holds the old one, and the red
+  // border says "invalid" without saying what IS stored. Clicking away puts the
+  // saved value back.
+
+  const projectAt = (latitude: number, longitude: number): void => {
+    sel.activeProjectId = 'p-1'
+    sel.activeProject = { id: 'p-1', name: 'demo', latitude, longitude, utc_offset: '+00:00' }
+  }
+
+  it('restores the saved latitude when an out-of-range value is blurred', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '95' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('10')
+    // And the field stops claiming to be invalid, since what it now holds isn't.
+    expect(screen.getByTestId('field-Latitude')).toHaveAttribute('data-invalid', 'false')
+  })
+
+  it('restores the saved longitude when a non-numeric value is blurred', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Longitude')
+
+    fireEvent.change(input, { target: { value: 'abc' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('20')
+  })
+
+  it('restores the saved latitude when the field is cleared and blurred', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('10')
+  })
+
+  it('restores the saved latitude when the field is left holding only spaces', () => {
+    // Whitespace passed BOTH guards: validate() trims before deciding, so no
+    // error, and the value is not literally ''. Blur then reached
+    // Number.parseFloat('   ') and PATCHed latitude: NaN — which JSON encodes as
+    // null.
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('10')
+    expect(mockDispatch).not.toHaveBeenCalledWith(
+      projectActions.updateProjectRequested(expect.any(String), expect.any(Object))
+    )
+  })
+
+  it('leaves a valid edit alone — restoring is only for what cannot be saved', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+
+    // The PATCH is on its way; snapping back to 10 here would flash the old
+    // coordinate and read as the edit being rejected.
+    expect(input).toHaveValue('11.5')
+  })
+
+  // ── A save that fails puts its field back too ──────────────────────────
+  //
+  // A valid edit is dispatched on blur and left on screen while the PATCH
+  // travels. If it fails, the project keeps its old coordinate and the header is
+  // left showing a number the backend never accepted — no red border, since the
+  // value is valid, and no message.
+
+  // Walk the PATCH through in-flight → settled, the way the reducer does.
+  const settleSave = (rerender: (ui: React.ReactElement) => void, error: string | null): void => {
+    sel.updateLoading = true
+    rerender(<ProjectScreen />)
+    sel.updateLoading = false
+    sel.updateError = error
+    rerender(<ProjectScreen />)
+  }
+
+  it('restores the saved latitude when the save fails', () => {
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+    expect(input).toHaveValue('11.5') // still on screen while in flight
+
+    settleSave(rerender, 'network down')
+
+    expect(input).toHaveValue('10')
+  })
+
+  it('leaves the field alone when the save succeeds', () => {
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+    settleSave(rerender, null)
+
+    expect(input).toHaveValue('11.5')
+  })
+
+  it('does not touch the OTHER field when a save fails', () => {
+    // The trap: resetForm() rewrites both boxes, so a longitude typed while the
+    // latitude save was in flight would be wiped mid-keystroke.
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const latitude = screen.getByTestId('input-Latitude')
+    const longitude = screen.getByTestId('input-Longitude')
+
+    fireEvent.change(latitude, { target: { value: '11.5' } })
+    fireEvent.blur(latitude)
+    // Still typing this one — it has never been blurred, let alone saved.
+    fireEvent.change(longitude, { target: { value: '25' } })
+
+    settleSave(rerender, 'network down')
+
+    expect(latitude).toHaveValue('10')
+    expect(longitude).toHaveValue('25')
+  })
+
+  it('does not overwrite a field the user has since typed into again', () => {
+    // What is in the box is newer than the save that failed, so it stands. The
+    // next blur decides what happens to it.
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+    fireEvent.change(input, { target: { value: '12' } })
+
+    settleSave(rerender, 'network down')
+
+    expect(input).toHaveValue('12')
+  })
+
+  it('does not restore anything when a failure arrives with no save of ours pending', () => {
+    // updateProject is dispatched from elsewhere too; a failure that is not this
+    // header's must not reach into its boxes.
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    settleSave(rerender, 'network down')
+
+    expect(input).toHaveValue('11.5')
   })
 
   it('keeps the UTC Offset input disabled', () => {

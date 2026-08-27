@@ -6,7 +6,7 @@ import type { CatalogPropertyDatatype } from 'containers/ProjectScreen/types'
 import type { ResolvedMaterialField, VisualisationMode } from './materialBlueprint'
 import messages from './messages'
 import { selectRecentColors } from './selectors'
-import TextureSelector from './TextureSelector'
+import TextureSelector, { type TextureSubTab } from './TextureSelector'
 
 // The body the Visualiser type's card renders instead of plain FormFields: the
 // material's visual appearance. Two mutually-exclusive layers —
@@ -46,6 +46,8 @@ export function MaterialVisualisationEditor({
   saved,
   mode,
   onModeChange,
+  textureSubTab,
+  onTextureSubTabChange,
   selectedPath,
   pendingFileUrl,
   onPickLibrary,
@@ -67,7 +69,10 @@ export function MaterialVisualisationEditor({
   // it drives the Save payload.
   mode: VisualisationMode
   onModeChange: (mode: VisualisationMode) => void
-  // Texture state (only used in texture mode).
+  // Texture state (only used in texture mode). The sub-tab is card-owned for the
+  // same reason the mode is: it decides which texture the Save payload carries.
+  textureSubTab: TextureSubTab
+  onTextureSubTabChange: (sub: TextureSubTab) => void
   selectedPath: string | null
   pendingFileUrl?: string
   onPickLibrary: (path: string) => void
@@ -209,6 +214,8 @@ export function MaterialVisualisationEditor({
         />
       ) : (
         <TextureSelector
+          sub={textureSubTab}
+          onSubChange={onTextureSubTabChange}
           selectedPath={selectedPath}
           pendingFileUrl={pendingFileUrl}
           onPickLibrary={onPickLibrary}
