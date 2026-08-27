@@ -380,8 +380,26 @@ export function* releaseLiveScenario(opts?: { exceptProjectId?: string }): Gener
 // Going back to the project list is the moment the scenario stops being needed.
 // The screen has already switched by the time this runs, so the autosave inside
 // /discard happens behind the user rather than in front of them.
+//
+// The caches are released HERE and not left to the next open, which is what this
+// used to do. Both are module-scoped, so unmounting the project screen drops
+// nothing: ObjectMesh's cleanup disposes the GPU buffers, but the parsed
+// PrimitiveInfo[] behind them stays resident for the whole time the user spends
+// choosing a project. runBoot clears them too, and still should — but it does so
+// microseconds before the next project's geometry starts arriving, which leaves
+// V8 no window to actually collect a large scene's worth of garbage. The two
+// then overlap, and that overlap is what runs the machine out of memory: a
+// 1000x1000 ground is 228 MB on the wire and several times that as objects.
+//
+// Nothing about WHAT is cached changes — only when it is dropped. Reopening the
+// same project already re-fetched its geometry, because runBoot cleared first.
 export function* onNavigateHome(action: NavigationAction): Generator {
   if (action.payload !== 'home') return
+
+  yield put(resetScene())
+  yield call(clearSceneCache)
+  yield call(clearTextureCache)
+
   yield* releaseLiveScenario()
 }
 

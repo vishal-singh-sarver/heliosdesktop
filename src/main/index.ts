@@ -94,6 +94,34 @@ function writeEarlyLog(message: string): void {
   }
 }
 
+/**
+ * writeEarlyLog for paths where a throw would cost more than the log is worth.
+ *
+ * writeEarlyLog is already guarded, but its own fallback is `console.error` — and
+ * a console write can itself throw once stdout is broken, which on a death path
+ * it may well be. That leaves the outer throw free to escape.
+ *
+ * Two ways that hurt, both real rather than theoretical:
+ *   - In a crash OBSERVER (render/child-process-gone), an escaping throw becomes
+ *     an uncaughtException, which exits the app — turning a renderer crash
+ *     Electron would have survived into a full shutdown. A diagnostic must never
+ *     escalate the fault it reports.
+ *   - In the uncaughtException handler itself, it would skip everything after it:
+ *     the backend reaper and the exit. The backend team hit precisely this in
+ *     their liveness watchdog, where a print() on the death path silently killed
+ *     the thread and the os._exit() below it never ran.
+ *
+ * So: swallow everything. A missing log line is a nuisance; a missed reaper is an
+ * orphaned backend holding a gigabyte until the machine is rebooted.
+ */
+function safeLog(message: string): void {
+  try {
+    writeEarlyLog(message)
+  } catch {
+    /* deliberately empty — see above */
+  }
+}
+
 function createWindow(splash?: BrowserWindow): BrowserWindow {
   const isMac = process.platform === 'darwin'
   // macOS: titleBarStyle 'hidden' keeps the native traffic lights (so the OS
@@ -736,4 +764,70 @@ app.on('will-quit', () => {
 process.on('exit', () => {
   if (SKIP_BACKEND) return
   backendManager.killSync()
+})
+
+// ── Crash reporting ──────────────────────────────────────────────────────────
+//
+// None of this existed, and its absence cost an afternoon. A user reported the
+// app "closing unexpectedly" on Ubuntu; the app's own logs had nothing at all —
+// not which process died, not why, not even that anything had. The cause had to
+// be reconstructed by hand from apport dumps and `ps` output.
+//
+// `reason` is the whole point of logging these. Electron reports 'oom' for the
+// failure this app is actually prone to: a scenario context is roughly 1.4 GB
+// and, on a machine already low on memory, whichever process allocates next is
+// the one refused. That is a one-word answer to a question that otherwise needs
+// a core dump.
+//
+// These only observe. A renderer crash is survivable and Electron keeps the app
+// alive, so nothing here quits or restarts anything.
+app.on('render-process-gone', (_event, contents, details) => {
+  // getURL() is read defensively because the WebContents is often ALREADY
+  // destroyed by the time this fires — its renderer is, after all, what just
+  // died — and every accessor on a destroyed WebContents throws "Object has
+  // been destroyed". An uncaught throw in here would be caught by the
+  // uncaughtException handler below and exit the app, turning a renderer crash
+  // Electron would otherwise have survived into a full shutdown. A diagnostic
+  // must never be able to escalate the fault it is reporting.
+  let url = 'unavailable'
+  try {
+    if (!contents.isDestroyed()) url = contents.getURL() || 'none'
+  } catch {
+    /* destroyed between the check and the read — the reason below is the useful part */
+  }
+
+  safeLog(`RENDERER GONE: reason=${details.reason} exitCode=${details.exitCode} url=${url}`)
+})
+
+app.on('child-process-gone', (_event, details) => {
+  safeLog(
+    `CHILD PROCESS GONE: type=${details.type} reason=${details.reason} ` +
+      `exitCode=${details.exitCode} name=${details.name ?? 'n/a'}`
+  )
+})
+
+// An uncaught throw in the main process takes the app with it, and takes the
+// 'will-quit' reaper with it too — so the backend survives with its whole
+// context resident and holds the port and the SQLite file for the next launch.
+// Reaping it here is the only chance left to prevent that. Still exits: this
+// handler exists to log and clean up, not to keep a broken main process running.
+//
+// EVERY step is independently guarded and the exit is unconditional, because the
+// ORDER of these three lines used to be a way to lose the reaper entirely. The
+// backend team hit exactly this in their own watchdog: a print() on the death
+// path raised (a real parent death takes stdout with it), which silently killed
+// the thread, so the os._exit() beneath it never ran — EOF was received
+// correctly, the process stayed alive anyway, and nothing was logged to say so.
+// The same shape was here: writeEarlyLog falls back to console.error, and a
+// console write on a broken stdout can throw, which would have skipped both
+// killSync and the exit. On a death path, cleanup may never sit downstream of
+// logging.
+process.on('uncaughtException', (err) => {
+  safeLog(`UNCAUGHT EXCEPTION in main: ${err?.stack || err}`)
+  try {
+    if (!SKIP_BACKEND) backendManager.killSync()
+  } catch {
+    /* nothing useful left to do — fall through to the exit regardless */
+  }
+  process.exit(1)
 })

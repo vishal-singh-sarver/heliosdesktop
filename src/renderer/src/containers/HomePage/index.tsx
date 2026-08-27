@@ -58,7 +58,16 @@ export function HomePage(): React.JSX.Element {
     success: createSuccess,
     data: createProjectData
   } = useSelector(selectCreateProject)
-  const { data: recentProjects } = useSelector(selectRecentProjects)
+  // `error` used to be dropped here. A backend that never answered left `data`
+  // at its initial [] and the table rendered "No Projects Found" — telling the
+  // user their projects were gone when they were on disk the whole time. That is
+  // the empty list in the crash report screenshot, and it sent the whole
+  // investigation down the wrong path.
+  const {
+    data: recentProjects,
+    error: recentProjectsError,
+    loading: recentProjectsLoading
+  } = useSelector(selectRecentProjects)
   const { inFlightIds: deletingIds } = useSelector(selectDeleteProject)
   const {
     loading: renameLoading,
@@ -320,6 +329,21 @@ export function HomePage(): React.JSX.Element {
             onRequestDelete={handleRequestDelete}
             onRequestRename={handleRequestRename}
             deletingIds={deletingIds}
+            // Both gated on there being NOTHING to fall back on, and gated here
+            // rather than in the table: the table receives only the FILTERED
+            // list, so it cannot tell "no projects" from "no matches".
+            //
+            // Without the gate, a search that matches nothing would render a
+            // backend error or a loading line over what is really just an empty
+            // search — and a background refresh (after a create, delete or
+            // rename) would briefly replace the empty-search state with
+            // "Loading projects…", which is both wrong and enough to fail the
+            // e2e specs that wait on the empty-state create button.
+            //
+            // A refresh that fails with rows already on screen keeps the rows.
+            loadError={recentProjects.length === 0 ? recentProjectsError : null}
+            loading={recentProjects.length === 0 && recentProjectsLoading}
+            onRetryLoad={() => dispatch(fetchRecentProjects())}
           />
         </main>
       </div>
