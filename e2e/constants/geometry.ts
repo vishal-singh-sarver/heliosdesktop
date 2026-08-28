@@ -29,6 +29,14 @@ export const GEOMETRY_MSG = {
   // so specs should compose it from values read at runtime rather than
   // hardcoding bounds that a backend migration can move.
   required: 'Required Field',
+  /**
+   * SUSPECTED DEAD on the ground form. validateFieldValue has an invalidInput
+   * branch for a non-finite value and for a non-integer in an integer field,
+   * but handleFieldChange refuses both BEFORE they can be stored and reports
+   * inputNotSupported instead — verified by a run, not by reading. Reaching it
+   * needs a value the guard admits and validation rejects. Do not assert this
+   * on length/resolution_* without establishing that path first.
+   */
   invalidInput: 'Invalid Input',
   valuesBetween: (min: number, max: number) => `Values should be between (${min} - ${max})`,
   valuesAtLeast: (min: number) => `Values should be greater than or equal to ${min}`,
@@ -49,12 +57,62 @@ export const GEOMETRY_MSG = {
   repeatAdjusted: (from: number, to: number, count: number) =>
     `Repeat adjusted ${from} → ${to} (must divide Resolution of ${count})`,
 
-  // Delete confirmation. NOTE the grammar differs from Materials', which is
-  // `Delete "<name>"?` — same dialog title, different heading.
+  // Delete confirmation.
+  //
+  // DEVIATION (two of them, both against the manual spec's Story 14):
+  //  - the spec asks for "Are you sure you want to delete this geometry? This
+  //    will delete the existing data and progress." The shipped body is generic
+  //    and mentions neither the geometry nor its data.
+  //  - the spec asks for "Yes" and "Cancel". The shipped buttons are "Cancel"
+  //    and "Delete", in that DOM order — which matters beyond the wording,
+  //    because components/Dialog focuses the LAST enabled body button on open
+  //    and triggers it on Enter. Opening this dialog and pressing Enter deletes.
+  //
+  // The HEADING depends on where the dialog was opened from, which is a real
+  // product inconsistency: the tree row builds its own sentence (quoted, with a
+  // question mark, and a member count for a group), while the right-hand
+  // Properties form uses messages.deleteHeading — `Delete Ground.001`, no
+  // quotes, no question mark.
   deleteTitle: 'Delete',
   deleteBody: 'Are you sure you want to delete this? This action cannot be undone.',
+  deleteCancel: 'Cancel',
+  deleteConfirm: 'Delete',
+  /** Tree-row heading for a leaf. */
+  deleteHeadingRow: (name: string) => `Delete "${name}"?`,
+  /** Tree-row heading for a group, which names how many geometries go with it. */
+  deleteHeadingGroup: (name: string, children: number) =>
+    `Delete "${name}" and its ${children} ${children === 1 ? 'geometry' : 'geometries'}?`,
+  /** Right-panel (Properties form) heading. Deliberately different grammar. */
+  deleteHeadingForm: (name: string) => `Delete ${name}`,
 
   objectDeletedNotice: 'This geometry was deleted. Close the panel.'
+} as const
+
+/**
+ * The Geometry panel's own chrome copy.
+ *
+ * DEVIATION: the manual spec calls these "Add Crop" / "Add Ground" / "Import
+ * from File". The "+" is an ICON on each ToolbarButton and the labels carry no
+ * "Add" prefix, so a test looking for "Add Ground" finds nothing.
+ */
+export const GEOMETRY_PANEL = {
+  addCrop: 'Crop',
+  addGround: 'Ground',
+  importFromFile: 'Import from File',
+  savedGeometries: 'Saved Geometries',
+  /** The three left-panel accordion titles, in render order. */
+  sections: ['Geometry', 'Materials', 'Models'] as string[],
+  /**
+   * The chevron's inline transform. One down-pointing asset, rotated when open.
+   *
+   * DEVIATION: the spec says the DEFAULT state points DOWN and flips UP when
+   * expanded. The rotation mapping is exactly that — but all three sections
+   * ship EXPANDED, so on first mount every chevron already points up and the
+   * spec's default state is never seen.
+   */
+  chevronOpen: 'rotate(180deg)',
+  /** Accordion writes the literal `none`, not an empty string, when closed. */
+  chevronClosed: 'none'
 } as const
 
 /**
@@ -67,7 +125,70 @@ export const GEOMETRY_TOAST = {
   created: (name: string) => `"${name}" has been successfully created.`,
   createFailed: 'Ground could not be created.',
   deleted: (name: string) => `"${name}" has been successfully deleted.`,
-  saved: 'Changes have been successfully saved'
+  saved: 'Changes have been successfully saved',
+  /**
+   * Material assignment, from store/toastMessages.ts (saga.ts:451/453).
+   *
+   * DEAD COPY WARNING — Geometry/messages.ts also defines
+   * `assignMaterialSuccess` ("X is added in Y") and `assignMaterialFailure`,
+   * and NEITHER ships: nothing references them. Same trap as `deleteSuccess` /
+   * `deleteFailure` / `createFailed` / `renameFailed` in that file. A test
+   * written from the feature's messages.ts fails; always mirror the toast from
+   * store/toastMessages.ts.
+   */
+  materialAssigned: (material: string, geometry: string) =>
+    `Material "${material}" has been successfully assigned to "${geometry}".`,
+  materialAssignFailed: (material: string, geometry: string) =>
+    `Material "${material}" could not be assigned to "${geometry}".`
+} as const
+
+/**
+ * The ground form's Materials section: the picker, the assigned rows, and the
+ * two dialogs that belong to material assignment.
+ *
+ * Verified against containers/Geometry/messages.ts and SelectMaterialsPopup.tsx.
+ */
+export const GEOMETRY_MATERIAL_MSG = {
+  // Picker chrome.
+  selectButton: 'Select',
+  pickerTitle: 'Select Materials',
+  searchLabel: 'Search materials',
+  /** Shared with the Materials panel — one string so the two cannot drift. */
+  noMatches: 'No materials found',
+  // The EMPTY-LIBRARY shape, which has no radiogroup at all.
+  emptyTitle: 'No Material Found',
+  emptyBody: 'No Record Found. Please add a new Material.',
+  addNewMaterial: 'Add New Material',
+
+  // Re-picking the material a ground already carries: an INFO toast, not a
+  // success one — nothing was posted and nothing changed.
+  alreadyAssigned: (target: string) => `This material is already assigned to ${target}`,
+
+  // Unassign confirmation (a material's trash), shown ONLY for a material
+  // already saved on the ground; a draft-only pick is removed silently.
+  unassignTitle: 'Unassign Material',
+  unassignHeading: (name: string) => `Are you sure you want to unassign "${name}"?`,
+  unassignBody: 'This action will delete any progress made using this material.',
+  unassignConfirm: 'Unassign',
+  unassignCancel: 'Cancel',
+
+  // Replace confirmation. NOTE it is raised by SAVE — the point at which the
+  // displaced material is actually unassigned — NOT by picking in the popup.
+  replaceTitle: 'Replace Material',
+  replaceHeading: (target: string) =>
+    `Are you sure you want to replace the material already assigned to ${target}?`,
+  replaceConfirm: 'Replace',
+  replaceCancel: 'Cancel',
+
+  // The read-only properties popup opened from an assigned material's name.
+  detailTitle: (name: string) => `${name} properties`,
+  detailClose: 'Close material properties',
+  detailEmpty:
+    'No Material type is assigned to this Material. Assign one to see its properties.',
+
+  // The amber sync dot's two titles — the only place either state is exposed.
+  staleTitle: 'This material group was removed from the library',
+  driftTitle: 'Values differ from the material library'
 } as const
 
 /**

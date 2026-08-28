@@ -56,6 +56,47 @@ class LeftPanelPage {
     return (await this.collapseButton.getAttribute('aria-label')) === 'Expand panel'
   }
 
+  /**
+   * Every accordion's VISIBLE heading text, in DOM order.
+   *
+   * The rest of this page object addresses sections through the derived testid
+   * `accordion-{title.toLowerCase()}`, which means every existing assertion
+   * would still pass if a title were changed to "geometry" or "Geometry Tools".
+   * This is the only read that observes the copy the user actually sees, and
+   * the only one that would notice a FOURTH section appearing.
+   */
+  async sectionTitles(): Promise<string[]> {
+    return browser.execute(() =>
+      Array.from(document.querySelectorAll('[data-testid^="accordion-"][data-testid$="-toggle"]'))
+        .map((el) => (el.querySelector('span')?.textContent ?? '').trim())
+        .filter((s) => s.length > 0)
+    ) as Promise<string[]>
+  }
+
+  /**
+   * The inline transform on a section's chevron, e.g. "rotate(180deg)" or "none".
+   *
+   * Read the STYLE ATTRIBUTE, never getCSSProperty('transform') — the latter
+   * resolves to a matrix(...) and cannot be compared to the value the component
+   * writes. The chevron is one asset (a down-pointing glyph) rotated 180° when
+   * open, and it is aria-hidden, so this is the only way to observe the
+   * direction the user sees. `aria-expanded` remains the state oracle; this is
+   * specifically for asserting the ICON follows it.
+   */
+  async chevronTransform(key: Section): Promise<string> {
+    return browser.execute((k: string) => {
+      // `:scope >` is load-bearing. The header also carries an optional section
+      // ICON, and that one is nested inside the title <span> — a bare
+      // querySelector('img') would return it (it comes first in document order)
+      // and report the icon's transform, which never changes. The chevron is
+      // the button's own direct img child.
+      const img = document
+        .querySelector(`[data-testid="accordion-${k}-toggle"]`)
+        ?.querySelector(':scope > img') as HTMLElement | null
+      return img?.style.transform ?? ''
+    }, key) as Promise<string>
+  }
+
   /** All three sections' expanded state in one read. */
   async expandedMap(): Promise<Record<Section, boolean>> {
     return browser.execute(() => {

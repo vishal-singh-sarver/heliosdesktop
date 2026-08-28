@@ -120,7 +120,7 @@ npx wdio run wdio.config.ts --spec ./e2e/tests/geometry.test.ts
 # waitForMainWindow() returns. Do not conclude the flag is broken.
 HELIOS_E2E_HEADED=1 npx wdio run wdio.config.ts --spec ./e2e/tests/geometry.test.ts
 
-# Narrow to one area — 106 tests otherwise flash past
+# Narrow to one area — 133 tests otherwise flash past
 npx wdio run wdio.config.ts --spec ./e2e/tests/geometry.test.ts --mochaOpts.grep "inline rename"
 
 # Reproduce CI's narrow display
@@ -197,23 +197,64 @@ snapshot with **added attributes and zero deletions**.
     copy arriving as a driver error rather than as the assertion it belongs to.
     Read field state with ELEMENT commands instead. (Product-side: worth a look,
     it would reach an error boundary in production.)
-12. **HTML5 drag needs synthetic events.** Pointer actions cannot produce
+12. **`setField` does NOT bypass the keystroke guards.** `ObjectProperties.setField`
+    used to claim it did, and two tests written on that belief failed. Its
+    `input` dispatch runs React's `onChange`, which IS `handleFieldChange` — the
+    guard tests the WHOLE incoming value and returns without storing it. What
+    `setField` skips is per-CHARACTER delivery, not the guard. Consequence:
+    `messages.invalidInput` looks **unreachable** on the ground form, because
+    the guard refuses non-numerics and refuses adding a `.` to an integer field
+    before `validateFieldValue` ever sees them, reporting
+    `This input is not supported` instead. Same shape as the unreachable
+    `loadError`. Confirm the reachable path before asserting that copy anywhere.
+13. **HTML5 drag needs synthetic events.** Pointer actions cannot produce
     `dragstart`/`dataTransfer`. Rows split 30/40/30 by `clientY`, and
     `handleDrop` reads React state written by `handleDragOver` — so dragover and
     drop must be SEPARATE `browser.execute` calls with a polled settle between.
-13. **Fault injection must patch XHR, not fetch.** axios resolves
+14. **Fault injection must patch XHR, not fetch.** axios resolves
     `new XMLHttpRequest()` at call time, so every REST call is XHR; `fetch`
     carries only the 3D mesh. A fetch stub would pass vacuously.
-14. **`+ Ground` opens THAT ground's form.** After a second create the panel
+15. **`+ Ground` opens THAT ground's form.** After a second create the panel
     shows the new one — select the row you mean before editing it.
-15. **This file has no `beforeEach(reloadToHome)`** (shared provisioning), so
+16. **A SELECTOR ENUM SHOWS THE GROUP NAME, NOT ITS STORED VALUE.**
+    `materialBlueprint` maps each `selector_value` to the NAME OF THE GROUP it
+    unlocks — its own comment says "so the driving dropdown reads
+    'Ball-woodrow-berry' not 'BWB'". So the user picks `Farquhar model` while the
+    stored value is `farquhar_model`. This broke **31 tests** in one run. Always
+    go through `enumLabel(type, property, value)` in `e2e/constants/materials.ts`.
+17. **`FormField` puts `input-{name}` on a DIV for an enum**, not on a control —
+    its own comment explains why. So `MaterialProperties.setField` (which calls
+    the HTMLInputElement value setter) throws `Illegal invocation` against every
+    enum property. That one bug is why no material dropdown was ever tested. Use
+    the `enumControl` / `openEnum` / `enumOptions` / `setEnum` helpers.
+18. **Four strings in `Geometry/messages.ts` are DEAD CODE**: `deleteSuccess`,
+    `deleteFailure`, `createFailed`, `renameFailed`, plus
+    `assignMaterialSuccess` / `assignMaterialFailure`. The saga toasts come from
+    `store/toastMessages.ts`. A test written from the feature's own messages.ts
+    fails. Mirror toasts from `toastMessages.ts`, always.
+19. **The assign toast belongs to the DROP path only.** `assignMaterialWorker`
+    raises `materialAssigned`, and only `TreeRow` dispatches it. The right-panel
+    Save goes through `updateObjectWorker`, whose only toast is `changesSaved`.
+20. **This file has no `beforeEach(reloadToHome)`** (shared provisioning), so
     anything needing the Home sidebar must return there itself.
 
 ---
 
 ## 6. Coverage today
 
-### `e2e/tests/geometry.test.ts` — 106 tests, ~7m 45s
+### `e2e/tests/geometry.test.ts` — 133 tests
+
+Was 106 (92 literal `it(` + 3 parameterised loops expanding to 17). Do not
+"correct" the count down to the literal one. The 27 added are the three new
+groups below plus 6 rows appended to the existing range/boundary loops
+(`length`/`breadth` above max, `position_*` at both bounds — neither had a
+case).
+
+Runtime: **8m 3.8s**, measured 2026-08-28 on this machine (130 passing,
+1 skipped). Neither figure this file used to carry was right: the header's
+"~7m 45s" and trap 1's "2m6s" contradicted each other, and the real number is
+above both. Trap 1's 7m53s→2m6s pair describes the dialog fix's effect on a
+much smaller file, not today's suite — treat it as history, not a baseline.
 
 One file per surface, matching `homepage.test.ts` / `projectscreen.test.ts`.
 Shared provisioning: one project for the file; each test creates rows via
@@ -239,6 +280,9 @@ Shared provisioning: one project for the file; each test creates rows via
 | save round-trip | 2 | PATCH + toast + mesh rebuild, survives reselect |
 | texture repeat divisor | 2 | snaps on commit, exceeds-resolution blocks Save |
 | name field negative | 1 | empty name does NOT disable Save |
+| **panel chrome copy** | 5 | three sections by VISIBLE title, chevron rotation, all three headers round-trip, first tap hides the create actions, labels carry no "Add" prefix |
+| **delete confirmation** | 6 | heading + generic body, Cancel-then-Delete with no "Yes", focus on Delete so Enter deletes, Escape, header ×, rapid taps open one dialog |
+| **validation copy** | 8 | the catalog range message on 6 fields, "Invalid Input" for non-numeric and for an in-range non-integer |
 | **grouping** | 10 | drag creates a group, expanded with indented members, chevron, add third, sibling-not-nested, Group.NNN sequence, duplicate group name, drag payload, two scope-loss guards |
 | **backend failures** | 7 | failed create / delete / visibility-revert / rename / save, tree error + Retry, Retry recovers |
 | **persistence + isolation** | 6 | customised props survive reopen, several grounds independently, new project empty, switching keeps each project's own, hidden + renamed survive reopen |
@@ -257,18 +301,77 @@ prove it was painted correctly — nothing available to WebDriver can. It does
 catch the failure that cost a day: a stale `libhelios.dll` makes the create 500
 with `BUILD_FAILED` and no mesh is ever requested.
 
+### `e2e/tests/materials.test.ts` — 151 tests, ~5m 15s
+
+Measured 2026-08-28: **149 passing, 2 skipped, 0 failing**. Was 55.
+
+**It had never run green, and it was ONE assertion away.**
+`it('a new material opens with NO type cards')` asserted zero cards while
+`reducer.ts:314` seeds `groups: [emptyCard(1, 1)]` ("Open it with one blank
+card, ready to pick a material type") and the card's testid renders outside the
+`open &&` gate. Corrected to assert exactly ONE blank card. Every other
+assertion in the file was already right.
+
+| Group | n | Covers |
+|---|---:|---|
+| panel / creation / naming / name validation | 17 | unchanged |
+| material type dropdown | 5 | unchanged |
+| **parameter ranges — the catalog sweep** | 41 | one test per numeric property: both bounds accepted, just-above-max rejected with the exact catalog message |
+| **parameter ranges — below the minimum** | 4 | one representative property per type |
+| **enum parameters (the portalled Select)** | 15 | every enum's options against the catalog, the pick sticking, the selector value/label split, the flag being a dropdown |
+| **conditional parameter groups** | 3 | Farquhar revealed by its selector, all four stomatal sub-models swapping groups, gamma_co2 staying top-level |
+| **catalog properties the form withholds** | 3 | the superseded broadband trio, the absent `glass_n_`, computed/external getting no input |
+| **visualiser** | 23 | was 9 — inline picker, tab-not-toggle, absent sub-tabs, channel bounds, integer guard, save round-trip, texture library |
+| radiation / generic cards / field validation | 12 | unchanged |
+| **library list — ordering and chrome** | 4 | newest-LAST ordering, heading, search selecting a row |
+| **delete confirmation — the material** | 5 | shipped copy, Escape, header ×, no stacked dialogs |
+| **material-type cards** | 4 | the THIRD delete confirmation (a saved card), the all-types-added limit |
+| **backend failures — loading the library** | 2 | failed list, failed open |
+| search / delete / persistence / failures | 13 | unchanged |
+
+The 2 skips are honest self-skips, not hidden failures: the empty-library test
+(the library is GLOBAL, so it is essentially never empty) and the texture-library
+test — which skips because **the library genuinely ships empty**, see below.
+
+### `e2e/tests/material-assignment.test.ts` — 23 tests, ~2m
+
+New file. **22 passing, 1 skipped, 0 failing** first run. Covers the largest
+previously-untested surface: the Select Materials picker (both shapes, its
+search, the single-select radio rule), picking as a draft change, the Replace
+confirmation, the CONDITIONAL unassign, the read-only detail popup, a failed
+save, and the amber `stale` sync dot.
+
+Not covered, deliberately: **drag-and-drop assign** (the helper now exists —
+`dnd.ts` `dragMaterialOnto` / `readMaterialDragPayload` — but no test uses it
+yet), and the **`drift`** sync dot, which is UNREACHABLE from the GUI because
+every client write hardcodes `sync: true`.
+
 ### Supporting files
 ```
 e2e/pages/Geometry.page.ts          rows, groups, tree states, one-execute snapshot
-e2e/pages/LeftPanel.page.ts         panel + accordion chrome
+e2e/pages/LeftPanel.page.ts         panel + accordion chrome, titles, chevrons
 e2e/pages/ObjectProperties.page.ts  ground form: fields, tooltip errors, save
-e2e/support/dnd.ts                  synthetic HTML5 drag (grouping)
+e2e/pages/Materials.page.ts         library rows, search, delete
+e2e/pages/MaterialProperties.page.ts type cards, portalled Select, card fields
+e2e/support/dialogs.ts              READ an open <dialog> without completing it
+e2e/support/dnd.ts                  synthetic HTML5 drag (grouping AND material assign)
 e2e/support/faults.ts               XHR fault injection
 e2e/support/toasts.ts               snackbar reads (auto-dismiss ~2.5s)
 e2e/support/viewport3d.ts           3D mesh-fetch verification
 e2e/constants/geometry.ts           copy, live-catalog bounds, safety ceiling
-e2e/support/harness.ts              enterGeometry()
+e2e/constants/materials.ts          materials copy, limits, live catalog types
+e2e/support/harness.ts              enterGeometry(), enterMaterials()
 ```
+
+`dialogs.ts` is the one that unblocked a whole class of assertion. Both page
+objects only offered helpers that drive a confirmation straight to completion
+(`deleteRow` / `cancelDelete`), so nothing could observe a dialog while it was
+open — which is why none of its copy had ever been asserted and why
+`deleteTitle` / `deleteBody` sat in the constants with no consumer. Two traps
+it encodes: the header `×` lives OUTSIDE the body div, so a bare
+`dialog[open] button` list has three entries where the component only counts
+two; and the heading is two sibling `<p>` on a tree row but `<h3>` + `<p>`
+everywhere else.
 
 ---
 
@@ -289,6 +392,15 @@ Tests follow the code. Each is marked `DEVIATION` inline.
 | Type "Visualisation Properties" | It is **`Visualiser`**. The other six names are correct — Solar Position and Boundary Layer Conductance *are* material types (and model types too) |
 | Toast "Unable to create group…" | No such string; shipped toasts come from `store/toastMessages.ts` |
 | Empty material name disables Save | It blocks the **rename commit** only |
+| Delete dialog: "Are you sure you want to delete this geometry? This will delete the existing data and progress." | Generic body: `Are you sure you want to delete this? This action cannot be undone.` — names neither the geometry nor its data. Same string for materials |
+| Delete dialog buttons "Yes" / "Cancel" | `Cancel` then `Delete`. Order matters: Dialog focuses the LAST enabled body button, so **Enter on an opened confirmation deletes outright** |
+| Dialog background is blurred | Flat `backdrop:bg-black/50` scrim. `backdrop-blur` appears only in `Weather/SelectionActionBar` and `Viewport3D` |
+| One delete-dialog heading | TWO. The tree row builds `Delete "Ground.001"?` (and `Delete "G" and its N geometries?`); the right panel uses `Delete Ground.001` — no quotes, no question mark |
+| Chevron points DOWN by default | The rotation mapping is right, but all three sections ship EXPANDED, so the default a user meets is the UP chevron |
+
+These six are now **pinned by tests** rather than only recorded here: the suite
+asserts the shipped copy and carries the conflict as a DEVIATION comment, so a
+change in either direction surfaces. The rest of the table is recorded only.
 
 ### NOT a bug: the trailing space in `constants.ts:91`
 
@@ -302,12 +414,39 @@ space — "404 → scope loss → go-Home dialog" — without ever checking whet
 survives into the request. One `new URL()` call would have ended it. Tidy the
 space up if you like; do not treat it as a defect.
 
-### NOT a feature: dropping on the tree background
+### PRODUCT FINDINGS from the materials work (not test bugs)
+
+- **The texture library ships EMPTY.** `GET /api/textures/defaults` returns
+  `{"textures": []}` in a packaged build: `list_default_textures()` resolves
+  `Path(__file__).parents[2]/assets` = `_internal/assets`, and
+  `scripts/build_binary.ps1` has no `--add-data` for
+  `helios-desktop-backend/assets` — which DOES hold `dirt.jpg`, `dirt2.jpg`,
+  `grass.jpg`. So the story's "select a texture from a set of predefined Helios
+  textures" cannot be satisfied by any current build. The e2e test for it
+  self-skips and will start passing the day the assets are bundled.
+- **`GEOMETRY_MSG.invalidInput` looks unreachable on the ground form.** The
+  keystroke guard refuses non-numerics and refuses adding a `.` to an integer
+  field BEFORE `validateFieldValue` sees them, reporting
+  `This input is not supported` instead. Same shape as the unreachable
+  `loadError`.
+- **`drift` on the material sync dot is unreachable from the GUI.** Every client
+  write hardcodes `sync: true`, so only `stale` can be produced.
+- **`topt_tpu` is 273-373 in the catalog; Story 10 states 272.** Every other
+  numeric bound in that story matches the live catalog exactly.
+- **Both `031` migrations DID land** on this machine's database (schema v31
+  carries the spectrum properties AND the photosynthesis submodel selector), so
+  the duplicate-version risk did not materialise here. It is still worth fixing:
+  a database stamped 31 by the first file before the second existed would skip
+  the second permanently.
+
+### OPEN: ungroup by dropping on the tree background
 
 Dragging a member onto the empty area below the tree does **not** ungroup it,
-despite `handleRootDrop` existing. Confirmed with the feature owner. A group
-only loses a member when that member is deleted (which dissolves the group once
-it falls below two).
+despite `handleRootDrop` existing — so there is no test for it.
+
+**This is unresolved, not settled.** The acceptance criteria explicitly require
+the gesture, so it is either a missing feature or a stale requirement. Parked by
+the team for now; revisit before Geometry sign-off.
 
 ### Ground bounds (live catalog, backend `91b4099`)
 

@@ -150,6 +150,66 @@ export async function dragRowOnto(
 }
 
 /**
+ * Drag a MATERIAL from the library onto a geometry or group row.
+ *
+ * MATERIAL_MIME has been exported since this file was written and never had a
+ * caller — the material drag was anticipated and never wired up. This is that
+ * caller, and it is deliberately thin: it reuses the same fireDragOver /
+ * isHighlighted / fireDrop machinery as dragRowOnto, because the settle between
+ * dragover and drop is the whole difficulty and must not be re-rolled per call
+ * site (handleDrop reads React state that handleDragOver writes).
+ *
+ * TWO DIFFERENCES FROM A GEOMETRY DRAG, both in TreeRow.handleDragOver:
+ *  - A material drag has NO edge bands. The whole row is a single 'into' target,
+ *    however close to its top or bottom edge the pointer is — there is nothing
+ *    to reorder, so the 30/40/30 split does not apply. Hence 'into', always.
+ *  - Dropping on a COLLAPSED group spring-opens it after a dwell, and the drop
+ *    then fans out over the group's non-group children.
+ *
+ * The payload is what MaterialRow.onDragStart writes: the material's groupId and
+ * its name, NOT the bare id array a geometry drag carries.
+ */
+export async function dragMaterialOnto(
+  material: { groupId: string; name: string },
+  targetRowId: string
+): Promise<void> {
+  const target = rowSel(targetRowId)
+  const payload = JSON.stringify(material)
+
+  await fireDragOver(target, MATERIAL_MIME, payload, 'into')
+  await browser.waitUntil(async () => isHighlighted(targetRowId), {
+    timeout: TIMEOUTS.SHORT,
+    timeoutMsg:
+      `row ${targetRowId} never showed the drop highlight for a material drag, so ` +
+      'handleDrop would read dropZone=null and the drop would be a no-op'
+  })
+  await fireDrop(target, MATERIAL_MIME, payload)
+}
+
+/**
+ * Fire a REAL dragstart on a MATERIAL row and read back what it wrote.
+ *
+ * The counterpart to readDragPayload: dragMaterialOnto synthesises its own
+ * payload, so this is the only thing that exercises MaterialRow's own
+ * handleDragStart — and the only way to catch the payload SHAPE drifting away
+ * from what TreeRow.handleDrop parses.
+ */
+export async function readMaterialDragPayload(
+  materialRowId: string
+): Promise<{ groupId: string; name: string } | null> {
+  const raw = (await browser.execute((sel: string, mime: string) => {
+    const el = document.querySelector(sel) as HTMLElement | null
+    if (!el) throw new Error(`dnd: no material row for ${sel}`)
+    const dt = new DataTransfer()
+    el.dispatchEvent(
+      new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt })
+    )
+    return dt.getData(mime)
+  }, `[data-testid="material-row-${materialRowId}"]`, MATERIAL_MIME)) as string
+  return raw ? (JSON.parse(raw) as { groupId: string; name: string }) : null
+}
+
+/**
  * Fire a REAL dragstart on a row and read back what handleDragStart wrote.
  *
  * The drop helpers above synthesise the payload themselves, so they never

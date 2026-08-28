@@ -33,7 +33,13 @@ import Geometry from '../pages/Geometry.page'
 import LeftPanel from '../pages/LeftPanel.page'
 import ObjectProperties from '../pages/ObjectProperties.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
-import { GEOMETRY_LIMITS, GEOMETRY_MSG, GEOMETRY_TOAST, GROUND_BOUNDS } from '../constants/geometry'
+import {
+  GEOMETRY_LIMITS,
+  GEOMETRY_MSG,
+  GEOMETRY_PANEL,
+  GEOMETRY_TOAST,
+  GROUND_BOUNDS
+} from '../constants/geometry'
 import { TIMEOUTS } from '../config/timeouts'
 import {
   enterGeometry,
@@ -44,6 +50,12 @@ import {
   waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
+import {
+  clickDialogClose,
+  countOpenDialogs,
+  waitForNoOpenDialog,
+  waitForOpenDialog
+} from '../support/dialogs'
 import { dragRowOnto, readDragPayload } from '../support/dnd'
 import { clearApiFaults, installApiFault, withApiFault } from '../support/faults'
 import { drainToasts, waitForToast } from '../support/toasts'
@@ -145,6 +157,80 @@ describe('Geometry', () => {
       // workspace would break this and every helper that skips selectTab().
       expect(await ProjectScreen.tabActive('3dwindow')).toBe(true)
       await expect(Geometry.panel).toBeDisplayed()
+    })
+  })
+
+  describe('left panel — chrome copy and chevrons', () => {
+    // Every other panel assertion in this file addresses a section through the
+    // derived testid `accordion-{title.toLowerCase()}`, so all of them would
+    // still pass if a title were renamed to "geometry" or "Geometry Tools".
+    // These read what the user actually sees.
+
+    it('the panel holds exactly THREE sections, named Geometry, Materials and Models', async () => {
+      const titles = await LeftPanel.sectionTitles()
+      expect(titles).toEqual(GEOMETRY_PANEL.sections)
+    })
+
+    it('the chevron points UP while a section is open and DOWN once it is closed', async () => {
+      // DEVIATION: the manual spec says the DEFAULT state points down and flips
+      // up on expand. The rotation mapping is exactly that — but all three
+      // sections ship EXPANDED, so the default a user meets is the UP chevron
+      // and the spec's stated default state is never seen on first mount.
+      //
+      // Read the style ATTRIBUTE. getCSSProperty('transform') resolves to a
+      // matrix(...) and cannot be compared with the value the component writes.
+      // The chevron is aria-hidden, so this is the only oracle for the direction.
+      expect(await LeftPanel.sectionExpanded('geometry')).toBe(true)
+      expect(await LeftPanel.chevronTransform('geometry')).toBe(GEOMETRY_PANEL.chevronOpen)
+
+      await LeftPanel.toggleSection('geometry')
+      expect(await LeftPanel.chevronTransform('geometry')).toBe(GEOMETRY_PANEL.chevronClosed)
+
+      await LeftPanel.toggleSection('geometry')
+      expect(await LeftPanel.chevronTransform('geometry')).toBe(GEOMETRY_PANEL.chevronOpen)
+    })
+
+    it('EVERY section header round-trips on single taps, not just Geometry', async () => {
+      // Materials and Models are only ever clicked inside a swallowed
+      // afterEach reset today, so a regression in either would be invisible.
+      for (const key of ['geometry', 'materials', 'models'] as const) {
+        expect(`${key} initial=${await LeftPanel.sectionExpanded(key)}`).toBe(`${key} initial=true`)
+        await LeftPanel.toggleSection(key)
+        expect(`${key} afterOneTap=${await LeftPanel.sectionExpanded(key)}`).toBe(
+          `${key} afterOneTap=false`
+        )
+        await LeftPanel.toggleSection(key)
+        expect(`${key} afterTwoTaps=${await LeftPanel.sectionExpanded(key)}`).toBe(
+          `${key} afterTwoTaps=true`
+        )
+      }
+    })
+
+    it('the FIRST tap on Geometry HIDES the create actions; the second brings them back', async () => {
+      // DEVIATION: the spec says selecting the Geometry tab expands it to reveal
+      // the create options. Because the section ships open, the first tap does
+      // the opposite. Asserted as SHIPPED, and deliberately as one sequence —
+      // the existing tests prove the body hides and that aria-expanded
+      // round-trips, but nothing joins those to the buttons themselves.
+      await expect(Geometry.addGroundButton).toBeDisplayed()
+
+      await LeftPanel.toggleSection('geometry')
+      expect(await Geometry.addGroundButton.isDisplayed()).toBe(false)
+      // Hidden, NOT unmounted — the section keeps its state and never re-runs
+      // its data-loading effects on a toggle.
+      expect(await Geometry.addGroundButton.isExisting()).toBe(true)
+
+      await LeftPanel.toggleSection('geometry')
+      await expect(Geometry.addGroundButton).toBeDisplayed()
+    })
+
+    it('the create actions read Crop, Ground and Import from File — with no "Add" prefix', async () => {
+      // DEVIATION: the spec calls these "Add Crop" and "Add Ground". The plus is
+      // an ICON on each ToolbarButton; the labels carry no prefix. An existing
+      // test proves the three buttons are DISPLAYED; none reads their text.
+      await expect(Geometry.addCropButton).toHaveText(GEOMETRY_PANEL.addCrop)
+      await expect(Geometry.addGroundButton).toHaveText(GEOMETRY_PANEL.addGround)
+      await expect(Geometry.importFileButton).toHaveText(GEOMETRY_PANEL.importFromFile)
     })
   })
 
@@ -519,6 +605,85 @@ describe('Geometry', () => {
       await waitForToast(GEOMETRY_TOAST.deleted(name))
     })
 
+    // ── The confirmation itself ────────────────────────────────────────────
+    // Everything above drives the dialog straight to completion, so none of its
+    // copy had ever been observed. These six read it while it is open.
+
+    it('the confirmation names the geometry over the generic consequence line', async () => {
+      // DEVIATION: the manual spec asks for "Are you sure you want to delete
+      // this geometry? This will delete the existing data and progress." The
+      // shipped body is generic and mentions neither the geometry nor its data;
+      // only the heading names the row. Asserted as SHIPPED.
+      const id = await track()
+      const name = await nameOf(id)
+      await Geometry.openDeleteConfirm(id)
+      const dlg = await waitForOpenDialog()
+      expect(dlg.ariaLabel).toBe(GEOMETRY_MSG.deleteTitle)
+      expect(dlg.heading).toBe(GEOMETRY_MSG.deleteHeadingRow(name))
+      expect(dlg.body).toBe(GEOMETRY_MSG.deleteBody)
+    })
+
+    it('the buttons are Cancel then Delete — there is NO "Yes"', async () => {
+      // DEVIATION: the spec asks for "Yes" and "Cancel". Order is asserted too,
+      // not just membership: Dialog treats the LAST enabled body button as the
+      // primary action, so Cancel-then-Delete is what makes Enter destructive.
+      const id = await track()
+      await Geometry.openDeleteConfirm(id)
+      const dlg = await waitForOpenDialog()
+      expect(dlg.buttons).toEqual([GEOMETRY_MSG.deleteCancel, GEOMETRY_MSG.deleteConfirm])
+      expect(dlg.buttons).not.toContain('Yes')
+      // The header × is NOT one of the two — it lives outside the body, which is
+      // why Dialog's own primary-button logic ignores it.
+      expect(dlg.hasCloseButton).toBe(true)
+    })
+
+    it('focus lands on Delete, so Enter deletes without a second click', async () => {
+      // A real hazard, pinned deliberately. The dialog has no input, so Dialog
+      // focuses the last enabled body button — the destructive one — and Enter
+      // triggers it. Differential: giving Cancel focus, or adding a field, turns
+      // this red, which is exactly when someone should be told.
+      const id = await track()
+      await Geometry.openDeleteConfirm(id)
+      expect((await waitForOpenDialog()).focused).toBe(GEOMETRY_MSG.deleteConfirm)
+
+      await browser.keys(['Enter'])
+      await browser.waitUntil(async () => (await Geometry.rowState(id)) === undefined, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'Enter on the focused Delete button did not delete the row'
+      })
+      created = created.filter((x) => x !== id)
+    })
+
+    it('Escape closes the confirmation and KEEPS the row', async () => {
+      const id = await track()
+      await Geometry.openDeleteConfirm(id)
+      await browser.keys(['Escape'])
+      await waitForNoOpenDialog()
+      expect(await Geometry.rowState(id)).toBeDefined()
+    })
+
+    it('the header × closes the confirmation and KEEPS the row', async () => {
+      // The × is a third way out of the dialog that neither Cancel nor Escape
+      // covers, and it runs the same onClose. Nothing asserted it existed.
+      const id = await track()
+      await Geometry.openDeleteConfirm(id)
+      await clickDialogClose()
+      await waitForNoOpenDialog()
+      expect(await Geometry.rowState(id)).toBeDefined()
+    })
+
+    it('three rapid taps on the trash open exactly ONE dialog', async () => {
+      // Business rule: repeated taps must not stack dialogs. Shipped behaviour
+      // satisfies it structurally — confirmOpen is one boolean per row — so this
+      // guards the structure rather than a guard clause. One execute, three
+      // clicks: separate round-trips would let React commit between them and
+      // stop being a rapid tap at all.
+      const id = await track()
+      await Geometry.clickRowDeleteRapidly(id, 3)
+      await waitForOpenDialog()
+      expect(await countOpenDialogs()).toBe(1)
+    })
+
     it('deleting the last row returns the tree to its empty state', async function () {
       const id = await track()
       // Leftovers from an earlier failure would make this assert the wrong
@@ -610,7 +775,12 @@ describe('Geometry', () => {
     const aboveMax: [Parameters<typeof ObjectProperties.fieldState>[0], string][] = [
       ['resolution_x', String(GROUND_BOUNDS.resolution_x.max + 1)],
       ['resolution_y', String(GROUND_BOUNDS.resolution_y.max + 1)],
-      ['rotation_z', '361']
+      ['rotation_z', '361'],
+      // The size fields had no upper-bound case at all: every existing above-max
+      // row was a resolution or a rotation, so `length`/`breadth` were only ever
+      // driven below their minimum. Validation only, never saved.
+      ['length', String(GROUND_BOUNDS.length.max + 1)],
+      ['breadth', String(GROUND_BOUNDS.breadth.max + 1)]
     ]
 
     for (const [prop, value] of aboveMax) {
@@ -663,7 +833,13 @@ describe('Geometry', () => {
       ['rotation_z', String(GROUND_BOUNDS.rotation_z.min)], // 0
       ['rotation_z', String(GROUND_BOUNDS.rotation_z.max)], // 360
       ['texture_x', String(GROUND_BOUNDS.texture_x.min)], // 1
-      ['position_x', '-1000'] // negatives are legal here
+      ['position_x', '-1000'], // negatives are legal here
+      // position_* had no BOUNDARY case — only an interior negative. These are
+      // the actual catalog limits, and they are inclusive at both ends.
+      ['position_x', String(GROUND_BOUNDS.position_x.min)], // -1000000
+      ['position_x', String(GROUND_BOUNDS.position_x.max)], // 1000000
+      ['position_y', String(GROUND_BOUNDS.position_y.min)],
+      ['position_z', String(GROUND_BOUNDS.position_z.max)]
     ]
 
     for (const [prop, value] of accepted) {
@@ -687,6 +863,92 @@ describe('Geometry', () => {
     })
   })
 
+  describe('ground properties — validation COPY (the message, not just the flag)', () => {
+    // Everything above asserts the EFFECT of validation — aria-invalid, or that
+    // some error exists. Nothing asserted the WORDING, which is why
+    // GEOMETRY_MSG.valuesBetween, .invalidInput, .decimalLimit and
+    // .inputNotSupported had no consumer despite being mirrored from the app.
+    //
+    // validateFieldValue's branch order is what these pin (propertyBlueprint.ts):
+    //   empty + required -> "Required Field"
+    //   not finite       -> "Invalid Input"
+    //   out of range     -> the range message, built from the CATALOG bounds
+    //   integer + non-integer -> "Invalid Input"
+    // The range check running BEFORE the datatype check is the load-bearing
+    // part: an out-of-range non-integer keeps the range copy, and only an
+    // IN-range non-integer falls through to "Invalid Input".
+    //
+    // Bounds come from GROUND_BOUNDS, mirrored from the live catalog. A backend
+    // migration that moves a bound moves the message with it and turns these
+    // red — which is the point: the copy is generated from the numbers the app
+    // was actually served.
+    const ranged: [Parameters<typeof ObjectProperties.fieldState>[0], string, number, number][] = [
+      ['length', '0.001', GROUND_BOUNDS.length.min, GROUND_BOUNDS.length.max],
+      ['breadth', '0.001', GROUND_BOUNDS.breadth.min, GROUND_BOUNDS.breadth.max],
+      ['resolution_x', '0', GROUND_BOUNDS.resolution_x.min, GROUND_BOUNDS.resolution_x.max],
+      ['rotation_z', '-1', GROUND_BOUNDS.rotation_z.min, GROUND_BOUNDS.rotation_z.max],
+      [
+        'resolution_y',
+        String(GROUND_BOUNDS.resolution_y.max + 1),
+        GROUND_BOUNDS.resolution_y.min,
+        GROUND_BOUNDS.resolution_y.max
+      ],
+      ['rotation_z', '361', GROUND_BOUNDS.rotation_z.min, GROUND_BOUNDS.rotation_z.max]
+    ]
+
+    for (const [prop, value, min, max] of ranged) {
+      it(`${prop} = ${value} reports the catalog range, not a generic error`, async () => {
+        await track()
+        await ObjectProperties.waitForOpen()
+        await ObjectProperties.setField(prop, value)
+        expect(await ObjectProperties.errorFor(prop)).toBe(GEOMETRY_MSG.valuesBetween(min, max))
+      })
+    }
+
+    // ── The guard PRE-EMPTS validateFieldValue ─────────────────────────────
+    // These two started life asserting "Invalid Input" and were corrected by the
+    // run. validateFieldValue does have an invalidInput branch for a non-finite
+    // value and for a non-integer in an integer field — but neither is reachable
+    // by putting such a value in the box, because handleFieldChange runs FIRST
+    // and returns without storing it:
+    //   !isPartialNumericInput('abc')                    -> inputNotSupported
+    //   isInteger && adds a '.' the field does not have  -> inputNotSupported
+    // A native-setter write does NOT skip this. setField dispatches an `input`
+    // event, React's onChange is handleFieldChange, and the guard tests the whole
+    // incoming value — what setField skips is per-CHARACTER delivery, not the
+    // guard itself.
+    //
+    // FINDING for the feature owner: GEOMETRY_MSG.invalidInput may be dead on
+    // this form. Reaching it needs a value the guard admits but validation
+    // rejects — an incomplete exponent ("1e", held back until blur), or a '.'
+    // already present in an integer field (blur expanding "1e-3" to "0.001",
+    // which is then ALSO below the minimum and gets the range message instead).
+    // Same shape as the unreachable `loadError`. Not asserted here because the
+    // reachable path is not yet established; worth confirming before anyone
+    // "fixes" the copy.
+
+    it('a non-numeric value is refused by the GUARD, before validation sees it', async () => {
+      await track()
+      await ObjectProperties.waitForOpen()
+      await ObjectProperties.setField('length', 'abc')
+      expect(await ObjectProperties.errorFor('length')).toBe(GEOMETRY_MSG.inputNotSupported)
+      // The guard returns without storing, so the field keeps its previous value.
+      expect((await ObjectProperties.fieldState('length')).value).not.toContain('a')
+    })
+
+    it('a decimal offered to an INTEGER field is refused by the GUARD', async () => {
+      // 5.5 is inside 1–25000, so this is not a range rejection — it is the '.'
+      // keystroke being refused outright, which is why "Invalid Input" (the
+      // datatype branch) never appears. Do NOT blur: handleFieldBlur drops the
+      // guard error and hands back to committed-value validation.
+      await track()
+      await ObjectProperties.waitForOpen()
+      await ObjectProperties.setField('resolution_x', '5.5')
+      expect(await ObjectProperties.errorFor('resolution_x')).toBe(GEOMETRY_MSG.inputNotSupported)
+      expect((await ObjectProperties.fieldState('resolution_x')).invalid).toBe(true)
+    })
+  })
+
   describe('ground properties — keystroke guards (negative)', () => {
     it('letters typed into a numeric field are REJECTED, leaving the value intact', async () => {
       // Differential: the guard rejects the incoming value rather than accepting
@@ -699,6 +961,24 @@ describe('Geometry', () => {
       const after = (await ObjectProperties.fieldState('length')).value
       expect(after).not.toContain('a')
       expect(after === '' || after === before).toBe(true)
+    })
+
+    it('a rejected letter surfaces "This input is not supported"', async () => {
+      // The guard's own copy, which nothing asserted. Read WITHOUT blurring:
+      // handleFieldBlur drops guardErrors and hands over to committed-value
+      // validation, so a blur here would replace the message under test with
+      // whatever the (unchanged, still valid) value validates to — i.e. null.
+      await track()
+      await ObjectProperties.waitForOpen()
+      await ObjectProperties.typeField('length', 'abc')
+      expect(await ObjectProperties.errorFor('length')).toBe(GEOMETRY_MSG.inputNotSupported)
+    })
+
+    it('the 8th decimal surfaces "Only 7 Decimal places are supported"', async () => {
+      await track()
+      await ObjectProperties.waitForOpen()
+      await ObjectProperties.typeField('length', GEOMETRY_LIMITS.decimals8)
+      expect(await ObjectProperties.errorFor('length')).toBe(GEOMETRY_MSG.decimalLimit)
     })
 
     it('more than 7 decimal places is refused at the 8th character', async () => {
@@ -868,10 +1148,12 @@ describe('Geometry', () => {
      * bands. See e2e/support/dnd.ts for why the events are synthetic and why
      * dragover and drop are separate commands.
      *
-     * NOT A FEATURE: dragging a member onto the empty tree background does NOT
-     * ungroup it. Confirmed with the feature owner — do not add that test back.
-     * The only way a group loses a member is deleting it, which dissolves the
-     * group once it drops below two.
+     * OPEN QUESTION — no coverage here on purpose. The acceptance criteria say
+     * "ungroup geometries by dragging them out of a group and dropping them
+     * anywhere in the saved geometries list", but the behaviour does not work
+     * and the team has parked the question. Until it is settled this is either
+     * a missing feature or a stale requirement, so writing a test either way
+     * would assert something nobody has agreed on. Revisit before sign-off.
      */
 
     /**
@@ -1015,11 +1297,12 @@ describe('Geometry', () => {
       created = created.filter((x) => x !== a)
       // cleanupDissolvedGroups runs AFTER the member delete succeeds, so give
       // the bad request time to come back and the dialog time to mount.
-      // staysFalse's 3s NEGATIVE_GATE is too short here: the dialog only
-      // appears after the delete succeeds AND the follow-up cleanup request
-      // fails, so a short window can pass vacuously. Watch explicitly for
-      // longer, and fail with what the dialog actually said.
-      const stray = await scopeDialogWithin(TIMEOUTS.LONG)
+      // NEGATIVE_GATE, not LONG. This was widened to 20s while chasing a
+      // suspected scope-loss bug that turned out not to exist. The delete has
+      // already completed by the time we look, so a dialog raised by it would
+      // be on screen within a second — two 20s waits were 40s of the run spent
+      // watching nothing happen.
+      const stray = await scopeDialogWithin(TIMEOUTS.NEGATIVE_GATE)
       expect(stray ?? 'no scope dialog').toBe('no scope dialog')
       await expect(Geometry.panel).toBeDisplayed()
     })
@@ -1031,11 +1314,12 @@ describe('Geometry', () => {
       const [groupId] = await makeGroup()
       await Geometry.deleteRow(groupId).catch(() => {})
       created = created.filter((x) => x !== groupId)
-      // staysFalse's 3s NEGATIVE_GATE is too short here: the dialog only
-      // appears after the delete succeeds AND the follow-up cleanup request
-      // fails, so a short window can pass vacuously. Watch explicitly for
-      // longer, and fail with what the dialog actually said.
-      const stray = await scopeDialogWithin(TIMEOUTS.LONG)
+      // NEGATIVE_GATE, not LONG. This was widened to 20s while chasing a
+      // suspected scope-loss bug that turned out not to exist. The delete has
+      // already completed by the time we look, so a dialog raised by it would
+      // be on screen within a second — two 20s waits were 40s of the run spent
+      // watching nothing happen.
+      const stray = await scopeDialogWithin(TIMEOUTS.NEGATIVE_GATE)
       expect(stray ?? 'no scope dialog').toBe('no scope dialog')
       await expect(Geometry.panel).toBeDisplayed()
     })
