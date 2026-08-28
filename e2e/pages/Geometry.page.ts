@@ -409,6 +409,46 @@ class GeometryPage {
   }
 
   /**
+   * Open a row's delete confirmation and LEAVE IT OPEN.
+   *
+   * deleteRow/cancelDelete both drive the dialog straight to completion, so
+   * until this existed nothing could observe the confirmation while it was up —
+   * which is why none of its copy has ever been asserted. Callers must let
+   * afterEach sweep, or close it themselves; see e2e/support/dialogs.ts.
+   */
+  async openDeleteConfirm(id: string): Promise<void> {
+    await this.clickInRow(id, 'Delete')
+    await this.deleteDialog.waitForDisplayed({
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: `the delete confirmation never opened for row ${id}`
+    })
+  }
+
+  /**
+   * Click a row's trash `times` times in ONE in-page pass, with no waiting.
+   *
+   * For the "repeated taps do not stack dialogs" case. It must be one execute:
+   * separate round-trips give React time to commit between them, which is the
+   * opposite of the rapid-tap condition under test. Clicks are dispatched on
+   * the node directly because after the first one the dialog is modal and sits
+   * in the top layer, so a WebDriver click would be intercepted.
+   */
+  async clickRowDeleteRapidly(id: string, times = 3): Promise<void> {
+    await this.row(id).waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    await browser.execute(
+      (rowId: string, n: number) => {
+        const row = document.querySelector(`[data-testid="geo-row-${rowId}"]`)
+        if (!row) throw new Error(`clickRowDeleteRapidly: no row ${rowId}`)
+        const btn = row.querySelector('[aria-label="Delete"]') as HTMLElement | null
+        if (!btn) throw new Error(`clickRowDeleteRapidly: row ${rowId} has no trash`)
+        for (let i = 0; i < n; i++) btn.click()
+      },
+      id,
+      times
+    )
+  }
+
+  /**
    * Delete a row through its confirmation dialog.
    *
    * Delete is PESSIMISTIC — the row stays until the server confirms — so the

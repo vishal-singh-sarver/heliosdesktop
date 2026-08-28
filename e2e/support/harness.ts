@@ -11,6 +11,7 @@
 import { readFileSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
 import Geometry from '../pages/Geometry.page'
+import Materials from '../pages/Materials.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { TIMEOUTS } from '../config/timeouts'
@@ -447,6 +448,26 @@ export async function enterGeometry(label = 'geo'): Promise<{ id: string; name: 
   await browser.waitUntil(async () => Geometry.addGroundButton.isEnabled().catch(() => false), {
     timeout: TIMEOUTS.LONG,
     timeoutMsg: '+ Ground never became enabled (object-type catalog likely never loaded)'
+  })
+  return project
+}
+
+/**
+ * Enter a fresh project and wait until the Materials panel is usable.
+ *
+ * Like enterGeometry there is no selectTab(): the left panel is a sibling of
+ * CenterWorkspace. The extra wait is on the material-type catalog, which gates
+ * the type dropdown — pick a type before it lands and the list is empty.
+ */
+export async function enterMaterials(label = 'mat'): Promise<{ id: string; name: string }> {
+  const project = await enterProject(label)
+  await Materials.panel.waitForDisplayed({
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: 'the Materials panel never mounted on ProjectScreen'
+  })
+  await browser.waitUntil(async () => Materials.addButton.isEnabled().catch(() => false), {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: '+ Add Materials never became enabled'
   })
   return project
 }
