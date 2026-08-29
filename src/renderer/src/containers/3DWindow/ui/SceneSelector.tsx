@@ -42,13 +42,14 @@ export function SceneSelector(): React.JSX.Element {
       : (objects.find((o) => o.id === selectedObjectId)?.name ?? messages.sceneSelector.allOption)
 
   return (
-    <div ref={containerRef}>
+    <div ref={containerRef} data-testid="scene-selector">
       <div className="relative">
         <button
+          data-testid="scene-selector-trigger"
           onClick={() => setOpen((v) => !v)}
           className="flex min-w-[140px] items-center justify-between rounded border border-neutral-600 bg-neutral-800 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-blue-500"
         >
-          <span className="truncate" onMouseEnter={showFullTextOnHover}>
+          <span data-testid="scene-selector-label" className="truncate" onMouseEnter={showFullTextOnHover}>
             {currentLabel}
           </span>
           <span className="ml-2 shrink-0 text-neutral-400">{open ? '▲' : '▼'}</span>
@@ -57,6 +58,7 @@ export function SceneSelector(): React.JSX.Element {
         {open && (
           <div className="absolute left-0 top-full z-30 mt-1 max-h-48 w-full min-w-[140px] overflow-y-auto rounded border border-neutral-600 bg-neutral-800 shadow-lg [scrollbar-width:thin] [scrollbar-color:theme(colors.neutral.600)_transparent] [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-600">
             <button
+              data-testid="scene-selector-option-all"
               ref={selectedObjectId === null ? selectedItemRef : null}
               onClick={() => handleSelect(null)}
               className={`w-full px-2 py-1.5 text-left text-xs ${
@@ -70,6 +72,7 @@ export function SceneSelector(): React.JSX.Element {
             {objects.map((obj) => (
               <button
                 key={obj.id}
+                data-testid={`scene-selector-option-${obj.id}`}
                 ref={selectedObjectId === obj.id ? selectedItemRef : null}
                 onClick={() => handleSelect(obj.id)}
                 className={`w-full px-2 py-1.5 text-left text-xs ${
