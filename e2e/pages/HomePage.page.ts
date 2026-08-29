@@ -362,10 +362,29 @@ class HomePagePage {
    * the click via JS, which still fires React's onClick handler.
    */
   async clickMenuItem(label: string): Promise<void> {
-    await browser.execute((lbl: string) => {
+    // Report a miss instead of silently doing nothing.
+    //
+    // This used to be `node?.click()`, which made every no-op assertion in the
+    // toolbar block unfalsifiable: `it('a no-op toolbar item (Undo) does nothing')`
+    // passed unchanged if the label were misspelled, the testid renamed, or the
+    // entire MenuBar deleted — because "nothing happened" was exactly what the
+    // test asserted. A helper that cannot miss cannot support a negative test.
+    const clicked = await browser.execute((lbl: string) => {
       const node = document.querySelector(`[data-testid="menu-${lbl}"]`) as HTMLElement | null
-      node?.click()
+      if (!node) return false
+      node.click()
+      return true
     }, label)
+
+    if (!clicked) {
+      throw new Error(
+        `No menu item found for data-testid="menu-${label}".\n` +
+          '  The testid is the item label verbatim, spaces included ' +
+          '(e.g. "menu-New Project"), and every item is permanently in the DOM — ' +
+          'the dropdown is hidden with CSS visibility, not unmounted. So a miss here ' +
+          'means a wrong label or a changed MenuBar, not a closed menu.'
+      )
+    }
   }
 
   // ----- Project row cells (4 <td>: name / last_updated / size / actions) -----

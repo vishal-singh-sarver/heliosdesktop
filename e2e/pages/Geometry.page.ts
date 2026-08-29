@@ -503,18 +503,44 @@ class GeometryPage {
    * the browser's TOP LAYER and swallows clicks anywhere on the page — a
    * confirmation left open by a failed step makes every later test in the file
    * fail with "element click intercepted", pointing at whatever they clicked
-   * rather than at the real culprit. Escape is not reliable enough to clean up
-   * with (Dialog manages its own key handling), so close() them directly.
+   * rather than at the real culprit.
+   *
+   * Sending a real Escape KEYPRESS is not reliable here (it depends on focus,
+   * and Dialog manages its own key handling), so this dispatches the `cancel`
+   * event that Escape would have produced and then closes the node — see the
+   * body for why the event is required and not just the close().
    *
    * Cleanup only — never use this to dismiss a dialog a test is asserting on.
    */
   async closeAnyOpenDialog(): Promise<void> {
     await browser.execute(() => {
       document.querySelectorAll('dialog[open]').forEach((d) => {
+        const dlg = d as HTMLDialogElement
+        // Fire `cancel` BEFORE close(), because close() alone desynchronises the
+        // component from its owner.
+        //
+        // components/Dialog opens in an effect keyed on `isOpen`
+        // (`if (isOpen && !dialog.open) showModal()`) and wires only `onCancel`
+        // to `onClose`. The native `close` event is not wired. So a bare
+        // `dialog.close()` shuts the DOM node while the owner's state still says
+        // open — and the next click on the same trigger sets that state to the
+        // value it already holds, which is not a state change, so the effect
+        // never re-runs and THE DIALOG CAN NEVER REOPEN. In practice that meant
+        // any test leaving a confirmation open made its row permanently
+        // undeletable, and teardown leaked it silently.
+        //
+        // `cancel` is what Escape produces and is the one path that clears the
+        // owner's state. It does not bubble, so React attaches it directly to
+        // the node rather than delegating — dispatching it here reaches onCancel.
         try {
-          ;(d as HTMLDialogElement).close()
+          dlg.dispatchEvent(new Event('cancel', { bubbles: false, cancelable: true }))
         } catch {
-          d.removeAttribute('open')
+          /* not a dialog we own — fall through to the hard close below */
+        }
+        try {
+          dlg.close()
+        } catch {
+          dlg.removeAttribute('open')
         }
       })
     })

@@ -61,3 +61,63 @@ export const IMPORT_MSG = {
   couldNotOpen: 'Could not open file.',
   charColumnsDisabled: 'Character-based columns are disabled'
 } as const
+
+/**
+ * Weather shift-click selection pill + its BULK delete confirmation.
+ * Mirrors containers/Weather/messages.ts `selection` and `deleteSelectedRows`.
+ *
+ * The heading is the discriminator that matters: four dialogs in this app share
+ * aria-label="Delete", and only the heading tells the bulk confirmation apart
+ * from the single-row one ("Delete Row") when reading via support/dialogs.ts.
+ */
+export const WEATHER_SELECTION = {
+  /** SelectionActionBar renders `{count} {summary(count)}` — the count is a sibling span. */
+  summarySingular: 'row is selected',
+  summaryPlural: 'rows are selected',
+  pillDeleteButton: 'Delete',
+  dialogTitle: 'Delete',
+  heading: 'Delete Selected Rows',
+  body: 'Are you sure you want to delete these rows? This action cannot be undone.',
+  confirmButton: 'Delete',
+  /** Note the real ellipsis character (U+2026), not three dots. */
+  confirmButtonBusy: 'Deleting…',
+  cancelButton: 'Cancel'
+} as const
+
+/**
+ * Project-boot surfaces: the Opening loader, the boot error dialog, and the
+ * scope-lost dialog. Mirrors containers/ProjectBoot/messages.ts.
+ *
+ * All three are addressed by `dialog[aria-label="<title>"][open]` — none of them
+ * carries a data-testid, and the titles are unique across the app.
+ *
+ * `Retry` is rendered ONLY when the failure is retryable, which is
+ * `!(400 <= status < 500)`. `Go to Home` is always present.
+ */
+export const BOOT_MSG = {
+  loaderTitle: 'Opening',
+  loaderCancel: 'Cancel',
+  errorTitle: 'Could not open project',
+  errorRetry: 'Retry',
+  errorHome: 'Go to Home',
+  errorGeneric: 'Something went wrong while opening this project.',
+  scopeTitle: 'Project unavailable',
+  scopeHome: 'Go to Home',
+  scopeProject: 'This project no longer exists. It may have been deleted in another window.',
+  scopeScenario: 'This scenario no longer exists. It may have been deleted in another window.'
+} as const
+
+/**
+ * Server-sent progress captions during a project boot, in order.
+ *
+ * Recorded because the loader's caption comes from the BACKEND's `message`
+ * field and nothing else — the frontend writes no fallback text. Note the
+ * `done` event's own message ("Scenario ready") is never rendered: the saga
+ * returns on isInitDone before dispatching progress, so the last caption a user
+ * ever sees is `persist`, held at 100%.
+ */
+export const BOOT_PROGRESS_CAPTIONS = [
+  'Loading scenario context',
+  'Preparing geometry',
+  'Saving scenario'
+] as const

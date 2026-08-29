@@ -289,33 +289,68 @@ describe('Material assignment', () => {
   })
 
   afterEach(async () => {
+    // Steps stay best-effort, but their errors are COLLECTED rather than
+    // discarded, and the teardown ends by checking that both tracked sets are
+    // actually gone. This file shares one project across every test AND writes
+    // into the global material library, so a leak corrupts later tests in two
+    // slices at once — and it surfaces far from its cause.
+    const failures: string[] = []
+    const step = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
+      try {
+        await fn()
+      } catch (err) {
+        failures.push(`${label} — ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
     // Dialogs first. components/Dialog uses the native showModal(), so one left
     // open by a failed step sits in the TOP LAYER and makes every later click in
     // the file fail with "element click intercepted" — naming the wrong element.
-    await Geometry.closeAnyOpenDialog().catch(() => {})
+    await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     // Then popups. A leaked AnchoredPopup's `fixed inset-0 z-40` overlay does the
     // same thing to everything under the right panel.
-    await sweepPopups().catch(() => {})
+    await step('sweepPopups', () => sweepPopups())
     // Filters BEFORE deleting: a row filtered out of a list is not in the DOM, so
     // its trash cannot be clicked and cleanup would silently leak it.
-    await Geometry.clearSearch().catch(() => {})
-    await Materials.clearSearch().catch(() => {})
+    await step('Geometry.clearSearch', () => Geometry.clearSearch())
+    await step('Materials.clearSearch', () => Materials.clearSearch())
 
     // GROUNDS FIRST. Deleting a material that is still assigned drags the eager
     // backend reconcile and the geometry slice's REMOVE_MATERIAL purge in with
     // it; removing the ground first makes cleanup a plain pair of deletes.
-    for (const id of [...grounds].reverse()) {
-      await Geometry.deleteRow(id).catch(() => {})
-      await Geometry.closeAnyOpenDialog().catch(() => {})
+    const trackedGrounds = [...grounds].reverse()
+    const trackedMaterials = [...materials].reverse()
+    for (const id of trackedGrounds) {
+      await step(`Geometry.deleteRow(${id})`, () => Geometry.deleteRow(id))
+      await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     }
-    for (const id of [...materials].reverse()) {
-      await Materials.deleteRow(id).catch(() => {})
-      await Materials.closeAnyOpenDialog().catch(() => {})
+    for (const id of trackedMaterials) {
+      await step(`Materials.deleteRow(${id})`, () => Materials.deleteRow(id))
+      await step('closeAnyOpenDialog', () => Materials.closeAnyOpenDialog())
     }
     grounds = []
     materials = []
-    await Geometry.closeAnyOpenDialog().catch(() => {})
-    await clearApiFaults().catch(() => {})
+    await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
+    await step('clearApiFaults', () => clearApiFaults())
+
+    const leakedGrounds: string[] = []
+    for (const id of trackedGrounds) {
+      if (await Geometry.row(id).isExisting().catch(() => false)) leakedGrounds.push(id)
+    }
+    const leakedMaterials: string[] = []
+    for (const id of trackedMaterials) {
+      if (await Materials.row(id).isExisting().catch(() => false)) leakedMaterials.push(id)
+    }
+    if (leakedGrounds.length || leakedMaterials.length) {
+      throw new Error(
+        'Cleanup left rows behind in the shared project.\n' +
+          (leakedGrounds.length ? `  geometry: ${leakedGrounds.join(', ')}\n` : '') +
+          (leakedMaterials.length ? `  materials (GLOBAL library): ${leakedMaterials.join(', ')}\n` : '') +
+          (failures.length
+            ? `  cleanup errors:\n    ${failures.join('\n    ')}`
+            : '  No cleanup step reported an error, so the delete silently no-opped.')
+      )
+    }
   })
 
   // ══ The picker ═══════════════════════════════════════════════════════════
