@@ -34,6 +34,7 @@ import { TIMEOUTS } from '../config/timeouts'
 type MeshCall = { status: number; bytes: number; url: string }
 
 const RECORDER = '__e2eMeshCalls'
+const MESH_FAULTS = '__e2eMeshFaults'
 
 /**
  * Start recording 3D mesh fetches. Idempotent — safe to call in a before hook
@@ -42,21 +43,33 @@ const RECORDER = '__e2eMeshCalls'
  * A browser.refresh() drops the patch (fresh renderer), so re-arm after one.
  */
 export async function recordMeshFetches(): Promise<void> {
-  await browser.execute((key: string) => {
+  await browser.execute((key: string, MESH_FAULT_KEY: string) => {
     const w = window as never as Record<string, unknown>
     w[key] = []
+    if (!w[MESH_FAULT_KEY]) w[MESH_FAULT_KEY] = []
     if (w[`${key}__patched`]) return
     w[`${key}__patched`] = true
     const orig = window.fetch
     window.fetch = async (...args: Parameters<typeof fetch>) => {
       const url = typeof args[0] === 'string' ? args[0] : String(args[0])
+      // Fault injection lives HERE rather than in support/faults.ts, which
+      // patches XMLHttpRequest only and documents why. The 3D binary mesh is
+      // the one thing in this app that travels by fetch, so this wrapper is the
+      // only place that can fail it — and failing it is the ONLY way to reach
+      // the viewport's error banner, because loadSceneWorker's catch is fed by
+      // fetchObjectGeometryBinary and nothing else. (The other LOAD_SCENE_FAILED
+      // site is loadObjectGeometryWorker, whose action is never dispatched.)
+      const faults = (w[MESH_FAULT_KEY] as string[] | undefined) ?? []
+      if (faults.some((part) => url.includes(part))) {
+        throw new TypeError(`Failed to fetch (e2e mesh fault): ${url}`)
+      }
       const res = await orig(...args)
       let bytes = Number(res.headers.get('content-length') ?? -1)
       if (Number.isNaN(bytes)) bytes = -1
       ;(w[key] as MeshCall[]).push({ status: res.status, bytes, url })
       return res
     }
-  }, RECORDER)
+  }, RECORDER, MESH_FAULTS)
 }
 
 /** Everything recorded since the last recordMeshFetches(). */
@@ -94,4 +107,38 @@ export async function waitForMeshFetch(
     }
   )
   return found as MeshCall
+}
+
+/**
+ * Make the 3D binary-mesh fetch fail for any URL containing `urlPart`.
+ *
+ * Throws a TypeError from fetch, which is exactly what a real network failure
+ * produces, so the saga's own catch runs and dispatches LOAD_SCENE_FAILED.
+ *
+ * Requires recordMeshFetches() to have installed the patch first. Like every
+ * renderer-side patch in this suite, a browser.refresh() drops it.
+ */
+export async function installMeshFault(urlPart: string): Promise<void> {
+  await recordMeshFetches()
+  await browser.execute(
+    (key: string, part: string) => {
+      const w = window as never as Record<string, unknown>
+      const rules = (w[key] as string[] | undefined) ?? []
+      rules.push(part)
+      w[key] = rules
+    },
+    MESH_FAULTS,
+    urlPart
+  )
+}
+
+/** Remove every mesh fault. The patch stays installed but matches nothing. */
+export async function clearMeshFaults(): Promise<void> {
+  await browser
+    .execute((key: string) => {
+      ;(window as never as Record<string, unknown>)[key] = []
+    }, MESH_FAULTS)
+    .catch(() => {
+      // The renderer may have been refreshed away; nothing to clear.
+    })
 }
