@@ -196,6 +196,22 @@ class MaterialPropertiesPage {
     property: string
   ): Promise<{ value: string; error: string | null; invalid: boolean }> {
     const input = this.field(cardId, property)
+
+    // A field that is not on screen is NOT a field that is "valid and empty".
+    // Every read below degrades to { value: '', error: null, invalid: false },
+    // which is exactly a healthy untouched input — so a card that never rendered,
+    // or a property renamed in the catalog, would satisfy "shows no error".
+    // See the twin guard in ObjectProperties.fieldState for the full reasoning.
+    if (!(await input.isExisting())) {
+      throw new Error(
+        `MaterialProperties.fieldState(${cardId}, '${property}'): the field is not in the DOM.\n` +
+          '  Reading it would return { value: "", error: null, invalid: false }, which is ' +
+          'indistinguishable from a healthy empty field — so this throws instead of ' +
+          'reporting a false pass.\n' +
+          '  Check the card is open and the property exists on this material type.'
+      )
+    }
+
     const value = (await input.getValue().catch(() => '')) as string
     const invalid = (await input.getAttribute('aria-invalid').catch(() => null)) === 'true'
     const tip = $(`[data-testid="formfield-${cardId}-${property}"]`).$(

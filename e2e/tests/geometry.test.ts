@@ -92,25 +92,59 @@ describe('Geometry', () => {
   })
 
   afterEach(async () => {
+    // Individual steps stay best-effort, but their errors are now COLLECTED
+    // rather than discarded, and the teardown ends by checking the thing that
+    // actually matters: are the tracked rows gone?
+    //
+    // Why that distinction. A step failing is often benign — a dialog the test
+    // already closed, a row the test deleted itself. A row still present is
+    // not: this file shares ONE project, Ground.NNN naming is gap-filling, and
+    // several tests assert against tree contents. A leaked row therefore
+    // corrupts a LATER test and surfaces as a failure nowhere near its cause.
+    // Failing here costs one confusing debug session instead of many.
+    const failures: string[] = []
+    const step = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
+      try {
+        await fn()
+      } catch (err) {
+        failures.push(`${label} — ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
     // Order matters. A confirmation dialog left open by a failed step uses
     // native showModal(), so it sits in the top layer and makes EVERY later
     // click in the file fail with "element click intercepted" — pointing at the
     // wrong element entirely. Close dialogs before anything else tries to click.
-    await Geometry.closeAnyOpenDialog().catch(() => {})
+    await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     // Clear the filter BEFORE deleting: a row filtered out of the tree is not
     // in the DOM, so its trash cannot be clicked and cleanup would silently
     // leak rows into the next test's naming expectations.
-    await Geometry.clearSearch().catch(() => {})
-    for (const id of [...created].reverse()) {
-      await Geometry.deleteRow(id).catch(() => {})
+    await step('clearSearch', () => Geometry.clearSearch())
+
+    const tracked = [...created].reverse()
+    for (const id of tracked) {
+      await step(`deleteRow(${id})`, () => Geometry.deleteRow(id))
       // deleteRow self-cleans on failure, but cancelDelete-style leftovers and
       // any dialog opened by the test itself still need sweeping between rows.
-      await Geometry.closeAnyOpenDialog().catch(() => {})
+      await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     }
     created = []
-    await Geometry.closeAnyOpenDialog().catch(() => {})
+    await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     // Panel/section state is component-local React state — no backend cost.
-    await LeftPanel.resetToDefault().catch(() => {})
+    await step('resetToDefault', () => LeftPanel.resetToDefault())
+
+    const leaked: string[] = []
+    for (const id of tracked) {
+      if (await Geometry.row(id).isExisting().catch(() => false)) leaked.push(id)
+    }
+    if (leaked.length) {
+      throw new Error(
+        `Cleanup left ${leaked.length} geometry row(s) in the shared project: ${leaked.join(', ')}.\n` +
+          (failures.length
+            ? `  cleanup errors:\n    ${failures.join('\n    ')}`
+            : '  No cleanup step reported an error, so the delete silently no-opped.')
+      )
+    }
   })
 
   // ══ Panel shell ══════════════════════════════════════════════════════════

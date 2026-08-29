@@ -245,13 +245,28 @@ class MaterialsPage {
     }
   }
 
+  /**
+   * Force every open <dialog> shut. Mirrors Geometry.closeAnyOpenDialog — see
+   * the long note there for why the `cancel` event is dispatched rather than
+   * calling close() alone: components/Dialog wires only onCancel to onClose, so
+   * a bare close() leaves the owner's React state saying "open" and the dialog
+   * can never be reopened for that row.
+   *
+   * Cleanup only — never use this to dismiss a dialog a test is asserting on.
+   */
   async closeAnyOpenDialog(): Promise<void> {
     await browser.execute(() => {
       document.querySelectorAll('dialog[open]').forEach((d) => {
+        const dlg = d as HTMLDialogElement
         try {
-          ;(d as HTMLDialogElement).close()
+          dlg.dispatchEvent(new Event('cancel', { bubbles: false, cancelable: true }))
         } catch {
-          d.removeAttribute('open')
+          /* not a dialog we own — fall through to the hard close below */
+        }
+        try {
+          dlg.close()
+        } catch {
+          dlg.removeAttribute('open')
         }
       })
     })

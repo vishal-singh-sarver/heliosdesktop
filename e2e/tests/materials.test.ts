@@ -154,10 +154,26 @@ describe('Materials', () => {
   })
 
   afterEach(async () => {
+    // Steps stay best-effort, but their errors are COLLECTED rather than
+    // discarded, and the teardown ends by checking that the tracked rows are
+    // actually gone. Materials.deleteRow genuinely throws when a delete fails,
+    // and that throw used to be swallowed — so a row could survive teardown and
+    // corrupt a later test with no trace of where it came from. The library is
+    // GLOBAL (it outlives the project and the run), which makes a leak here
+    // more expensive than in any other spec.
+    const failures: string[] = []
+    const step = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
+      try {
+        await fn()
+      } catch (err) {
+        failures.push(`${label} — ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
     // Dialogs first: components/Dialog uses native showModal(), so one left open
     // sits in the top layer and makes every later click in the file fail
     // against whatever it touched.
-    await Materials.closeAnyOpenDialog().catch(() => {})
+    await step('closeAnyOpenDialog', () => Materials.closeAnyOpenDialog())
     // …then the overlays that are NOT dialogs. The ImportWizard is a plain div
     // whose open flag lives in REDUX, so it survives navigation and re-appears
     // whenever the Weather tab mounts — one stray open turned a single failing
@@ -166,13 +182,30 @@ describe('Materials', () => {
     // test left it, and should be findable.
     const leaked = await sweepBlockingOverlays().catch(() => false)
     if (leaked) console.warn('[afterEach] closed a leaked full-screen overlay')
-    await Materials.clearSearch().catch(() => {})
-    for (const id of [...created].reverse()) {
-      await Materials.deleteRow(id).catch(() => {})
-      await Materials.closeAnyOpenDialog().catch(() => {})
+    await step('clearSearch', () => Materials.clearSearch())
+
+    const tracked = [...created].reverse()
+    for (const id of tracked) {
+      await step(`deleteRow(${id})`, () => Materials.deleteRow(id))
+      await step('closeAnyOpenDialog', () => Materials.closeAnyOpenDialog())
     }
     created = []
-    await clearApiFaults().catch(() => {})
+    await step('clearApiFaults', () => clearApiFaults())
+
+    const stillThere: string[] = []
+    for (const id of tracked) {
+      if (await Materials.row(id).isExisting().catch(() => false)) stillThere.push(id)
+    }
+    if (stillThere.length) {
+      throw new Error(
+        `Cleanup left ${stillThere.length} material(s) in the GLOBAL library: ${stillThere.join(', ')}.\n` +
+          '  These outlive the project and the run, so they will skew naming, ordering and ' +
+          'search assertions in later tests and later sessions.\n' +
+          (failures.length
+            ? `  cleanup errors:\n    ${failures.join('\n    ')}`
+            : '  No cleanup step reported an error, so the delete silently no-opped.')
+      )
+    }
   })
 
   // ══ Panel shell ══════════════════════════════════════════════════════════

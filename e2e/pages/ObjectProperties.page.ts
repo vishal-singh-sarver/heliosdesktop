@@ -86,6 +86,29 @@ class ObjectPropertiesPage {
     // stays usable — but it would reach an error boundary or any window.onerror
     // reporting in production. Worth a look by the feature owner.
     const input = this.field(name)
+
+    // A field that is not on screen is NOT a field that is "valid and empty".
+    //
+    // Every read below degrades to exactly the shape of a healthy, untouched
+    // input — { value: '', error: null, invalid: false } — so without this guard
+    // a form that never mounted, a row that was never selected, or a renamed
+    // field all satisfy assertions like "the field shows no error". Around 17
+    // assertions across the geometry and material specs compare against that
+    // precise triple, which makes the failure mode both silent and widespread.
+    //
+    // The per-command catches below are kept deliberately: they absorb genuine
+    // transient tear (the tooltip mounting/unmounting mid-read), which is a
+    // different problem from the element not being there at all.
+    if (!(await input.isExisting())) {
+      throw new Error(
+        `ObjectProperties.fieldState('${name}'): the field is not in the DOM.\n` +
+          '  Reading it would return { value: "", error: null, invalid: false }, which is ' +
+          'indistinguishable from a healthy empty field — so this throws instead of ' +
+          'reporting a false pass.\n' +
+          '  Check the Properties form is open and the intended row is selected.'
+      )
+    }
+
     const value = (await input.getValue().catch(() => '')) as string
     const invalid = (await input.getAttribute('aria-invalid').catch(() => null)) === 'true'
     const tip = this.fieldWrapper(name).$('[aria-label^="Validation error:"]')
@@ -169,6 +192,19 @@ class ObjectPropertiesPage {
   async typeField(name: GroundField, text: string): Promise<void> {
     const el = this.field(name)
     await el.click()
+    // Wait for focus before sending the select-all chord.
+    //
+    // Without this the sequence is timing-dependent: under full-suite load the
+    // click can still be settling when Control+A arrives, the chord goes to the
+    // document instead of the input, Delete clears nothing, and the typed text
+    // is APPENDED to the blueprint default. That surfaced as a flake asserting
+    // "101.1234567" against an expected "1.1234567" — the guard had worked
+    // correctly and only the clear had failed. Passes in isolation, fails in a
+    // full run, which is the signature worth removing.
+    await browser.waitUntil(async () => el.isFocused(), {
+      timeout: TIMEOUTS.SHORT,
+      timeoutMsg: `the ${name} field never took focus, so select-all would miss it`
+    })
     await browser.keys([process.platform === 'darwin' ? 'Meta' : 'Control', 'a'])
     await browser.keys(['Delete'])
     for (const ch of text) await browser.keys([ch])

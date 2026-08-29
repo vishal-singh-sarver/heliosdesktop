@@ -213,6 +213,93 @@ export async function getStorage(key: string): Promise<string | null> {
 }
 
 /**
+ * Call the backend DIRECTLY, from inside the renderer, using the same base URL
+ * and session header the app itself uses.
+ *
+ * This is how a test reaches a state the UI cannot produce — most importantly a
+ * REAL 404. e2e/support/faults.ts can only ever manufacture a connection
+ * failure (status 0), by design, so it can never raise the scope-loss dialog,
+ * which triggers on 404 and nothing else. Deleting a project out from under the
+ * open window is the honest way to produce that, and it exercises the real
+ * backend response rather than a synthesised one.
+ *
+ * The base URL comes from window.api.getBackendUrl() because the backend port
+ * is chosen at runtime (it increments past anything already bound), so it is
+ * not knowable from the test process. Pattern lifted from the network barrier
+ * in projectscreen.test.ts, which inlined it before this existed.
+ */
+export async function backendFetch(
+  path: string,
+  init: { method?: string; body?: string; headers?: Record<string, string> } = {}
+): Promise<{ status: number; body: unknown }> {
+  return browser.execute(
+    async (p: string, opts: { method?: string; body?: string; headers?: Record<string, string> }) => {
+      const w = window as unknown as {
+        api?: { getBackendUrl?: () => Promise<string | null> }
+        __APP_BASE_URL__?: string
+      }
+      const base = (await w.api?.getBackendUrl?.()) ?? w.__APP_BASE_URL__ ?? ''
+      const sessionId = localStorage.getItem('helios_session_id') ?? ''
+      const res = await fetch(`${base}${p}`, {
+        method: opts.method ?? 'GET',
+        headers: {
+          accept: 'application/json',
+          'session-id': sessionId,
+          ...(opts.body ? { 'content-type': 'application/json' } : {}),
+          ...(opts.headers ?? {})
+        },
+        ...(opts.body ? { body: opts.body } : {})
+      })
+      let parsed: unknown = null
+      try {
+        parsed = await res.json()
+      } catch {
+        parsed = null
+      }
+      return { status: res.status, body: parsed }
+    },
+    path,
+    init
+  )
+}
+
+/**
+ * Delete a project behind the app's back, so the open window's next call 404s.
+ *
+ * Throws on a non-2xx: a test that believes it deleted the project, but did
+ * not, would go on to assert that no scope dialog appeared and pass for
+ * entirely the wrong reason.
+ */
+export async function deleteProjectViaBackend(projectId: string): Promise<void> {
+  const res = await backendFetch(`/api/project/${projectId}`, { method: 'DELETE' })
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(
+      `deleteProjectViaBackend(${projectId}) failed: HTTP ${res.status} ${JSON.stringify(res.body)}`
+    )
+  }
+}
+
+/**
+ * Delete a scenario behind the app's back. Note the PLURAL `scenarios` segment —
+ * the weather routes use the singular `scenario` and the two are not
+ * interchangeable.
+ */
+export async function deleteScenarioViaBackend(
+  projectId: string,
+  scenarioId: string
+): Promise<void> {
+  const res = await backendFetch(`/api/project/${projectId}/scenarios/${scenarioId}`, {
+    method: 'DELETE'
+  })
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(
+      `deleteScenarioViaBackend(${projectId}, ${scenarioId}) failed: ` +
+        `HTTP ${res.status} ${JSON.stringify(res.body)}`
+    )
+  }
+}
+
+/**
  * Return to HomePage in the SAME session: clear the active ids (so
  * pickInitialScreen -> 'home') and refresh the renderer. Backend session-id
  * survives, so projects created earlier in the run still exist.
@@ -413,15 +500,52 @@ export async function reopenByName(name: string): Promise<void> {
  * True if `predicate` stays false for the whole NEGATIVE_GATE window — i.e. a gate
  * that is correctly never satisfied (submit stays disabled, dialog never opens).
  * Replaces the per-spec `staysDisabled` copies that hard-coded the 3s window.
+ *
+ * A predicate that THROWS is not the same as a gate that stayed closed, and the
+ * difference is the whole value of this helper. The previous implementation
+ * swallowed the throw inside the poll (`predicate().catch(() => false)`), so a
+ * selector pointing at an unmounted form — or a typo — reported "the gate held"
+ * and the assertion passed having observed nothing at all. That shape is silent
+ * by construction: the test goes green, so nobody looks.
+ *
+ * So: a throw on SOME polls is tolerated (a form re-rendering mid-poll is
+ * normal), but a predicate that threw on EVERY poll never evaluated the gate
+ * once, and that is reported as a failure rather than a pass.
  */
 export async function staysFalse(
   predicate: () => Promise<boolean>,
   timeout: number = TIMEOUTS.NEGATIVE_GATE
 ): Promise<boolean> {
+  let polls = 0
+  let throws = 0
+  let lastErrorMessage = ''
+
   const becameTrue = await browser
-    .waitUntil(async () => predicate().catch(() => false), { timeout })
+    .waitUntil(
+      async () => {
+        polls += 1
+        try {
+          return await predicate()
+        } catch (err) {
+          throws += 1
+          lastErrorMessage = err instanceof Error ? err.message : String(err)
+          return false
+        }
+      },
+      { timeout }
+    )
     .then(() => true)
     .catch(() => false)
+
+  if (polls > 0 && throws === polls) {
+    throw new Error(
+      `staysFalse never evaluated its predicate: all ${polls} poll(s) threw, so the ` +
+        'gate was never observed. Reporting "stayed false" here would be a false pass — ' +
+        'fix the selector or the precondition instead.\n' +
+        `  last error: ${lastErrorMessage}`
+    )
+  }
+
   return becameTrue === false
 }
 
