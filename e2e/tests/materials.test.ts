@@ -869,11 +869,15 @@ describe('Materials', () => {
         timeoutMsg: 'the hidden file input never rendered'
       })
 
-      // e2e/fixtures holds only weather/ — there is no image on disk to hand a
-      // real <input type=file>. So the file is built IN THE PAGE and assigned
-      // through a DataTransfer, which is the only way to reach onFileChange
-      // without one. React routes file inputs through the native `change` event
+      // The file is built IN THE PAGE and assigned through a DataTransfer, which
+      // is the only way to reach onFileChange: the input is `hidden`, so there is
+      // no visible control for WebDriver's own file upload to target. React
+      // routes file inputs through the native `change` event
       // (shouldUseChangeEvent), so a bubbling change is what onChange listens for.
+      //
+      // Inline rather than a fixture BY DESIGN — a .txt is the point of this test,
+      // and there is no reason to keep a deliberately-wrong file on disk. The
+      // real-image path lives in material-uploads.test.ts.
       //
       // A .txt fails validateTextureFile on formatFromExtension — before the file
       // is read, and before any POST — so this leaves nothing behind on the
@@ -2494,10 +2498,16 @@ describe('Materials', () => {
     /**
      * Hand the card's spectral picker a file built IN THE PAGE.
      *
-     * e2e/fixtures holds only weather/, and this is a real hidden
-     * <input type="file"> — so the file is assigned through a DataTransfer and a
-     * bubbling `change`, which is what React listens for on a file input. Scoped to
-     * the CARD so it can never resolve to the Visualiser's texture input.
+     * This is a real hidden <input type="file">, so the file is assigned through
+     * a DataTransfer and a bubbling `change`, which is what React listens for on
+     * a file input. Scoped to the CARD so it can never resolve to the
+     * Visualiser's texture input.
+     *
+     * Built inline BY DESIGN, even though e2e/fixtures/materials now holds real
+     * files: every case below is a file shaped to fail one specific rule, and
+     * writing five broken fixtures to disk to express that would be worse than
+     * building them here. The real-file paths — a valid spectral library, and a
+     * genuine third-party XML — live in material-uploads.test.ts.
      */
     const pickSpectralFile = async (
       cardId: number,

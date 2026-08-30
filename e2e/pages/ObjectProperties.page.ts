@@ -425,6 +425,25 @@ class ObjectPropertiesPage {
     }, name) as Promise<string[]>
   }
 
+  /**
+   * `src` of every image rendered inside the detail popup.
+   *
+   * buildMaterialSections turns a member's `texture_file` into a row carrying an
+   * `image`, so a non-empty result is how an UPLOADED texture proves it reached
+   * the geometry's material data — the nearest DOM-readable thing to "the
+   * texture is on the ground". Whether the surface is actually painted with it
+   * stays manual: nothing available to WebDriver reads pixels out of the WebGL
+   * canvas.
+   */
+  async detailImages(name: string): Promise<string[]> {
+    return browser.execute((want: string) => {
+      const popup = document.querySelector(`[role="dialog"][aria-label="${want} properties"]`)
+      return Array.from(popup?.querySelectorAll('img') ?? [])
+        .map((i) => i.getAttribute('src') ?? '')
+        .filter((s) => s.length > 0)
+    }, name) as Promise<string[]>
+  }
+
   async closeMaterialDetail(name: string): Promise<void> {
     await browser.execute((want: string) => {
       const popup = document.querySelector(`[role="dialog"][aria-label="${want} properties"]`)
