@@ -474,6 +474,141 @@ class MaterialPropertiesPage {
     return (await this.spectralToggle.getAttribute('aria-checked')) === 'true'
   }
 
+  // ===== File uploads (texture image + spectral XML) =====
+  //
+  // Both are real hidden <input type="file"> elements. WebDriver's own file
+  // upload cannot drive them here — the inputs are `className="hidden"`, and the
+  // app opens them through a button that calls fileInputRef.current.click(), so
+  // there is no visible control to send a path to. The working route is to build
+  // the File in the page and assign it through a DataTransfer, then dispatch a
+  // BUBBLING `change`: React routes file inputs through the native change event
+  // (shouldUseChangeEvent), so that is what its onChange listens for.
+  //
+  // Every query is scoped to the card. Unscoped, a spectral pick on a Radiation
+  // card could resolve to a Visualiser card's texture input in the same form.
+
+  /**
+   * Hand a card's file input a TEXT file (spectral XML) built in the page.
+   *
+   * `text` is the real file's content, read in the node process by the caller —
+   * these tests upload genuine fixtures from e2e/fixtures/materials rather than
+   * hand-built strings.
+   */
+  async pickTextFile(
+    cardId: number,
+    fileName: string,
+    text: string,
+    mime = 'text/xml'
+  ): Promise<void> {
+    await browser.execute(
+      (sel: string, name: string, body: string, type: string) => {
+        const input = document.querySelector(`${sel} input[type="file"]`) as HTMLInputElement | null
+        if (!input) throw new Error(`no file input inside ${sel}`)
+        const dt = new DataTransfer()
+        dt.items.add(new File([body], name, { type }))
+        input.files = dt.files
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      },
+      `[data-testid="material-card-${cardId}"]`,
+      fileName,
+      text,
+      mime
+    )
+  }
+
+  /**
+   * Hand a card's file input a BINARY file (a texture image) built in the page.
+   *
+   * The bytes travel as base64 because everything crossing into browser.execute
+   * is JSON-serialised — a Buffer or a Uint8Array arrives as an object of
+   * numeric keys, which File() then stringifies into garbage that fails the PNG
+   * signature check. atob + a Uint8Array rebuilds the exact bytes, which matters:
+   * validateTextureFile reads the real signature and decodes the image.
+   */
+  async pickBinaryFile(
+    cardId: number,
+    fileName: string,
+    base64: string,
+    mime = 'image/png'
+  ): Promise<void> {
+    await browser.execute(
+      (sel: string, name: string, b64: string, type: string) => {
+        const input = document.querySelector(`${sel} input[type="file"]`) as HTMLInputElement | null
+        if (!input) throw new Error(`no file input inside ${sel}`)
+        const binary = atob(b64)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+        const dt = new DataTransfer()
+        dt.items.add(new File([bytes], name, { type }))
+        input.files = dt.files
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      },
+      `[data-testid="material-card-${cardId}"]`,
+      fileName,
+      base64,
+      mime
+    )
+  }
+
+  /**
+   * The card's visible error text, or null.
+   *
+   * Covers both the file-validation error and the upload error — they render
+   * through the same `.form-error-text` paragraph.
+   */
+  async cardError(cardId: number): Promise<string | null> {
+    return browser.execute((sel: string) => {
+      const el = document.querySelector(`${sel} .form-error-text`)
+      return el ? (el.textContent ?? '').trim() : null
+    }, `[data-testid="material-card-${cardId}"]`)
+  }
+
+  // ----- Spectral file (Radiation) -----
+
+  /**
+   * True once a spectral file is STORED on the card.
+   *
+   * The Remove button is the oracle rather than the absence of an error: the
+   * file row REPLACES the upload button entirely and renders only when
+   * spectralPath is set, so its presence means the POST returned a path. An
+   * error simply not appearing would also be true one frame before the upload
+   * finished.
+   */
+  async spectralStored(cardId: number): Promise<boolean> {
+    return this.spectralRemove(cardId).isExisting()
+  }
+
+  spectralRemove(cardId: number): El {
+    return this.card(cardId).$('[aria-label="Remove spectral data file"]')
+  }
+
+  /** The stored file's basename, as shown beside the Remove button. */
+  async spectralFileName(cardId: number): Promise<string | null> {
+    return browser.execute((sel: string) => {
+      const btn = document.querySelector(`${sel} [aria-label="Remove spectral data file"]`)
+      const row = btn?.parentElement
+      const span = row?.querySelector('span span')
+      return span ? (span.textContent ?? '').trim() : null
+    }, `[data-testid="material-card-${cardId}"]`)
+  }
+
+  // ----- Texture preview (Visualiser) -----
+
+  /**
+   * The preview image's src, or null when no texture is chosen.
+   *
+   * Keyed off alt="Selected texture", which the component already sets from
+   * messages.texturePreviewAlt — so this needs no new testid. The placeholder
+   * state renders a checkerboard div with no <img> at all, making null a real
+   * signal rather than a timing artefact.
+   */
+  async texturePreviewSrc(cardId: number): Promise<string | null> {
+    return browser.execute((sel: string) => {
+      const img = document.querySelector(`${sel} img[alt="Selected texture"]`) as HTMLImageElement | null
+      return img ? img.getAttribute('src') : null
+    }, `[data-testid="material-card-${cardId}"]`)
+  }
+
   // ===== Save =====
 
   async saveEnabled(cardId: number): Promise<boolean> {

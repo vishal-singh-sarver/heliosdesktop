@@ -10,7 +10,11 @@
  * back-fill + column-name validation) → cell edit + cell validation (non-numeric
  * gate, unit range, global ±1e6) → unit conversion round-trip → row selection →
  * delete column + delete row → multiple projects (coexist + switch) → reopen
- * (everything persisted) → rename → delete cleanup.
+ * (everything persisted) → shift-click bulk delete → rename → delete cleanup →
+ * then a self-contained M2 arc: a ground APPEARS in the 3D scene → a material is
+ * given a RED Visualiser and APPLIED to it (toast + assignment + mesh rebuild)
+ * → deleting the
+ * ground removes it from the scene.
  *
  * Phase 9 delete-row asserts the deleted row actually disappears. Because the
  * table is virtualized, it checks that the SPECIFIC deleted row unmounts (not a
@@ -21,12 +25,19 @@
  */
 
 import { join } from 'node:path'
+import Geometry from '../pages/Geometry.page'
 import HomePage from '../pages/HomePage.page'
+import MaterialProperties from '../pages/MaterialProperties.page'
+import Materials from '../pages/Materials.page'
+import ObjectProperties from '../pages/ObjectProperties.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
+import Viewport from '../pages/Viewport3D.page'
 import Weather from '../pages/Weather.page'
 import {
   ACTIVE_PROJECT_KEY,
   ACTIVE_SCENARIO_KEY,
+  deleteProjectViaBackend,
+  enterGeometry,
   enterProject,
   getStorage,
   setInputValue,
@@ -35,6 +46,12 @@ import {
   waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
+import { recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
+import { dragMaterialOnto } from '../support/dnd'
+import { drainToasts, waitForToast } from '../support/toasts'
+import { TIMEOUTS } from '../config/timeouts'
+import { WEATHER_SELECTION } from '../constants/messages'
+import { GEOMETRY_TOAST } from '../constants/geometry'
 
 before(async () => {
   await waitForMainWindow()
@@ -74,6 +91,8 @@ describe('Helios smoke journey', () => {
   const B = { id: '', name: '' }
   const C = { id: '', name: '' }
   let committedUtc = ''
+  // Shared across phases 13-15, which build one project and tear it down.
+  const G = { projectId: '', groundId: '', groundName: '', materialId: '' }
   let importedRowCount = 0
 
   it('1. create project A — an invalid coordinate is blocked, then a valid create lands on Weather', async function () {
@@ -421,13 +440,56 @@ describe('Helios smoke journey', () => {
     expect(await ProjectScreen.getUtcValue()).toBe(committedUtc)
   })
 
-  it('11b. sweep project A empty — delete every managed column, then every row', async function () {
+  it('11b. shift-click selects rows, and the pill bulk-deletes exactly those', async function () {
+    this.timeout(60000)
+    // Placed HERE, between the persistence checks and the sweep, for two reasons.
+    // It needs rows, and 11c destroys them — so it cannot go after. And it must
+    // not go before phase 11: a bulk delete is free to remove row0/row1, which
+    // phases 5 and 9 went out of their way to preserve as the persistence
+    // oracle. This is the one window where deleting arbitrary rows is safe.
+    //
+    // Still on project A's Weather table (reopened in phase 11).
+    const before = await Weather.visibleRowIds()
+    if (before.length < 3) {
+      throw new Error(`bulk-delete needs at least 3 rows, table has ${before.length}`)
+    }
+    // A row that will NOT be deleted, as the survivor oracle — proving the delete
+    // removed exactly the highlighted rows rather than simply "some rows".
+    const dtCol = await Weather.dateTimeColId()
+    const survivor = await Weather.dateTimeCellText(before[2], dtCol)
+
+    await Weather.shiftClickRow(before[0])
+    await Weather.shiftClickRow(before[1])
+    await Weather.selectionActionBar.waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    expect(await Weather.selectionCount()).toBe(2)
+    expect(await Weather.selectionText()).toContain(WEATHER_SELECTION.summaryPlural)
+
+    await Weather.selectionDeleteButton.click()
+    await Weather.deleteSelectedRowsDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await Weather.deleteSelectedRowsDialog.$(`button=${WEATHER_SELECTION.confirmButton}`).click()
+
+    // A successful delete plays a 480ms exit animation during which the table
+    // renders from a FROZEN snapshot, so the count does not drop immediately —
+    // this has to be a wait, never a bare read.
+    await browser.waitUntil(async () => (await Weather.rowCount()) === before.length - 2, {
+      timeout: TIMEOUTS.MUTATION,
+      timeoutMsg: `row count never dropped by the two selected rows (from ${before.length})`
+    })
+    expect(await Weather.selectionActionBar.isExisting()).toBe(false)
+
+    const after = await Weather.visibleRowIds()
+    const texts: string[] = []
+    for (const r of after) texts.push(await Weather.dateTimeCellText(r, dtCol))
+    expect(texts).toContain(survivor)
+  })
+
+  it('11c. sweep project A empty — delete every managed column, then every row', async function () {
     this.timeout(180000)
     // Runs AFTER the phase-11 persistence checks so it can tear the table all the
     // way down without disturbing the note[row0]/note[row1] assertions. Deleting
     // ~two dozen rows one by one exercises the delete-row path at volume (the
     // single-delete in phase 9 only proved it once). We are on project A's Weather
-    // table (reopened in phase 11).
+    // table (reopened in phase 11, minus the two rows phase 11b bulk-deleted).
     await Weather.deleteAllManagedColumns()
     await expect((await Weather.managedColumnIds()).length).toBe(0)
     await Weather.deleteAllRows()
@@ -468,5 +530,139 @@ describe('Helios smoke journey', () => {
         timeoutMsg: `project "${name}" was not removed after delete`
       })
     }
+  })
+
+  it('13. a ground APPEARS in the 3D scene', async function () {
+    this.timeout(90000)
+    // Phases 13-15 are their own arc, deliberately last: phase 12 has already
+    // torn the chain down, so they build a fresh project, walk
+    // geometry -> material -> assignment -> deletion, and clean up after
+    // themselves.
+    //
+    // Why this earns a place in the smoke run: before the viewport work,
+    // creating and deleting geometry were asserted only against the TREE ROW,
+    // so a viewport that kept a deleted object on screen passed the whole
+    // suite. The scene-statistics overlay is the only DOM-readable proxy for
+    // what the scene actually holds.
+    const project = await enterGeometry('smoke3d')
+    // The 3D Window is already the default workspace tab, so no selectTab here.
+    await recordMeshFetches()
+
+    const groundId = await Geometry.addGround()
+    // Wait for the mesh to land before reading the scene rather than assuming
+    // it has: the fetch is what puts primitives in the cache.
+    await waitForMeshFetch(groundId)
+    await Viewport.waitForIdle()
+
+    // readStats() re-toggles the overlay on every read, which is what forces
+    // the memo to recompute — its deps do not track the geometry cache, so a
+    // naive read reports Primitives: 0 for a ground that is visible.
+    const withGround = await Viewport.readStats()
+    expect(withGround.objects).toBe(1)
+    expect(withGround.primitives).toBeGreaterThan(0)
+    expect(withGround.triangles).toBeGreaterThan(0)
+
+    // Close it before phase 14 starts clicking: the overlay paints over the
+    // left toolbar and would intercept those clicks.
+    await Viewport.closeStats()
+
+    G.projectId = project.id
+    G.groundId = groundId
+    G.groundName = (await Geometry.rowName(groundId).getText()).trim()
+  })
+
+  it('14. give a material a RED Visualiser, then APPLY it to the ground', async function () {
+    this.timeout(90000)
+    // The Materials library and material-to-geometry assignment are the two
+    // largest M2 surfaces, and neither was exercised by the smoke run at all.
+    //
+    // The material is given a real VISUALISER type with an explicit red colour
+    // rather than being left blank, because that is what makes the assignment
+    // mean something: a bare material changes nothing about how the ground is
+    // drawn, so the mesh refetch below would be the only moving part. With a
+    // colour saved, the refetch is fetching genuinely different geometry.
+    //
+    // Still in the phase-13 project, with its ground.
+    await Materials.panel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await browser.waitUntil(async () => Materials.addButton.isEnabled().catch(() => false), {
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: '+ Add Materials never became enabled (material catalog never loaded)'
+    })
+
+    const materialId = await Materials.addMaterial()
+    const materialName = (await Materials.rowName(materialId).getText()).trim()
+    G.materialId = materialId
+
+    // ── Give it a red Visualiser ──────────────────────────────────────────
+    // "Visualiser" is the shipped type name, not the "Visualisation Properties"
+    // the manual spec calls it — a recorded DEVIATION, mirrored the same way
+    // materials.test.ts does.
+    await MaterialProperties.waitForOpen()
+    const cardId = await MaterialProperties.addCard()
+    await MaterialProperties.pickType(cardId, 'Visualiser')
+
+    // Channels are 0-255 integers on the ColorPicker, which renders its own
+    // inputs rather than FormFields.
+    await MaterialProperties.setColorChannel('r', '255')
+    await MaterialProperties.setColorChannel('g', '0')
+    await MaterialProperties.setColorChannel('b', '0')
+
+    // Save only unlocks once the colour is COMPLETE — waiting on it is the
+    // gate's own oracle, not just a settle.
+    await browser.waitUntil(async () => MaterialProperties.saveEnabled(cardId), {
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: 'Save never enabled for a complete red colour'
+    })
+    await MaterialProperties.saveCard(cardId)
+
+    // The colour actually stuck, rather than the save merely being clickable.
+    expect(await MaterialProperties.colorChannel('r').getValue()).toBe('255')
+    expect(await MaterialProperties.colorChannel('g').getValue()).toBe('0')
+    expect(await MaterialProperties.colorChannel('b').getValue()).toBe('0')
+
+    // ── Apply it to the ground ────────────────────────────────────────────
+    // Creating/editing a material leaves ITS form in the right panel; select the
+    // ground again so the panel shows the object's Materials row.
+    await Geometry.selectRow(G.groundId)
+    await ObjectProperties.waitForOpen()
+
+    // Drain first so an earlier toast cannot satisfy the wait below, and re-arm
+    // the recorder after draining so its log holds only what the assign caused.
+    await drainToasts()
+    await recordMeshFetches()
+
+    await dragMaterialOnto({ groupId: materialId, name: materialName }, G.groundId)
+
+    await waitForToast(GEOMETRY_TOAST.materialAssigned(materialName, G.groundName))
+    await browser.waitUntil(
+      async () => (await ObjectProperties.assignedNames()).includes(materialName),
+      {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: `"${materialName}" never appeared on ${G.groundName} after the drop`
+      }
+    )
+    // The half that matters for the 3D window: an assignment that never
+    // refetched would leave the ground painted exactly as it was. That it is
+    // now visibly RED stays manual — nothing available to WebDriver reads
+    // pixels out of the WebGL canvas.
+    await waitForMeshFetch(G.groundId)
+  })
+
+  it('15. deleting the ground removes it from the scene', async function () {
+    this.timeout(90000)
+    await Geometry.deleteRow(G.groundId)
+    await browser.waitUntil(async () => (await Viewport.readStats()).objects === 0, {
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: 'deleting the ground did not remove it from the 3D scene'
+    })
+    expect((await Viewport.readStats()).primitives).toBe(0)
+    await Viewport.closeStats()
+
+    // Clean up both, for the same reason phase 12 does: do not let the shared
+    // backend session accumulate. The material needs its OWN delete — the
+    // library is GLOBAL, so it outlives the project and would otherwise skew
+    // naming and search assertions in later runs.
+    if (G.materialId) await Materials.deleteRow(G.materialId).catch(() => {})
+    await deleteProjectViaBackend(G.projectId)
   })
 })
