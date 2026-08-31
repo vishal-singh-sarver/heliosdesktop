@@ -7,6 +7,7 @@ import { selectSceneObject } from '../store/actions'
 import { selectSelectedObjectId } from '../store/selectors'
 import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache'
 import type { PrimitiveInfo } from '../models/types'
+import { cameraRangeFor } from './cameraRange'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -248,8 +249,12 @@ export function KeyboardShortcuts(): null {
       const vFovHalf = (perspCam.fov * Math.PI) / 180 / 2
       const dist = sphere.radius / Math.sin(vFovHalf)
 
-      perspCam.near = Math.max(0.01, dist * 0.001)
-      perspCam.far = dist * 10
+      // One call for planes AND limits — set apart, `far = dist * 10` beside
+      // `maxDistance = dist * 20` let the wheel travel twice as far as the
+      // camera could see. See cameraRange.ts.
+      const range = cameraRangeFor(dist, dist, sphere.radius)
+      perspCam.near = range.near
+      perspCam.far = range.far
       perspCam.updateProjectionMatrix()
 
       // Keep the current viewing direction, adjust distance and target.
@@ -265,8 +270,8 @@ export function KeyboardShortcuts(): null {
       // the controls have not attached yet. Everything above this point is
       // already a no-op in that state, so there is nothing to finish.
       if (!controls) return
-      controls.minDistance = perspCam.near * 10
-      controls.maxDistance = dist * 20
+      controls.minDistance = range.minDistance
+      controls.maxDistance = range.maxDistance
       driveTransition()
     }
 

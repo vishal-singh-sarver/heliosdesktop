@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache'
 import type { PrimitiveInfo } from '../models/types'
+import { cameraRangeFor } from './cameraRange'
 
 /**
  * How many multiples of an object's median extent to frame when the camera
@@ -90,8 +91,11 @@ function FitToScene({
       // Near/far must still span the full geometry even when the camera is
       // capped close — the long axis can extend far beyond `distance`.
       const reach = Math.max(fitAll, distance)
-      perspCam.near = Math.max(0.01, distance * 0.001)
-      perspCam.far = reach * 10
+      // Planes and dolly limits come from one call so they cannot disagree; see
+      // cameraRange.ts for why that mattered.
+      const range = cameraRangeFor(distance, reach, radius)
+      perspCam.near = range.near
+      perspCam.far = range.far
       perspCam.updateProjectionMatrix()
 
       const elevation = (50 * Math.PI) / 180
@@ -99,8 +103,8 @@ function FitToScene({
       const camY = center.y - distance * Math.cos(elevation)
       const camZ = center.z + distance * Math.sin(elevation)
 
-      controls.minDistance = perspCam.near * 10
-      controls.maxDistance = reach * 20
+      controls.minDistance = range.minDistance
+      controls.maxDistance = range.maxDistance
       controls.setLookAt(camX, camY, camZ, center.x, center.y, center.z, false)
       controls.update(1 / 60)
       invalidate()
@@ -112,6 +116,79 @@ function FitToScene({
   return null
 }
 
+/**
+ * Keeps the clipping planes big enough for whatever geometry is on screen,
+ * WITHOUT moving the camera.
+ *
+ * FitToScene above owns the planes, but it only runs when the camera re-frames —
+ * scene load and selection changes — and deliberately not when geometry changes,
+ * because re-framing would throw away the user's zoom and pan. That left the
+ * planes stranded at the last framed scene's scale: load a project holding a
+ * 10x10 ground (far ~167), add a 1000x1000 one, and the new ground rendered with
+ * a far plane sized for the old one. It filled the viewport, then zooming out
+ * swept a straight horizontal cut down the screen until the scene was empty, and
+ * zooming back in restored it.
+ *
+ * This runs on geometry changes and only ever WIDENS. Narrowing is left to
+ * FitToScene: pulling `maxDistance` in below where the user is currently parked
+ * would have CameraControls clamp on the next update and jerk the camera — fine
+ * during a deliberate re-frame, unacceptable as a side effect of saving an edit.
+ * So a scene that grows gets the room it needs, and a scene that shrinks simply
+ * keeps more room than it strictly needs until the next real re-frame.
+ */
+function CameraRangeForGeometry({
+  geometryVersion,
+  selectedObjectId
+}: {
+  geometryVersion: number
+  selectedObjectId: number | null
+}): null {
+  const { camera, invalidate } = useThree()
+  const controls = useThree((s) => s.controls) as CameraControls | null
+
+  useEffect(() => {
+    if (!controls) return
+
+    // Same deferral as FitToScene: geometryVersion bumps as each object lands in
+    // the cache, so read it a frame later rather than mid-commit.
+    const handle = requestAnimationFrame(() => {
+      const primitives =
+        selectedObjectId !== null
+          ? (getObjectPrimitives(selectedObjectId) ?? [])
+          : getAllCachedPrimitives()
+
+      const box = new THREE.Box3()
+      const pt = new THREE.Vector3()
+      for (const prim of primitives) {
+        for (const v of prim.vertices) {
+          box.expandByPoint(pt.set(v.x, v.y, v.z))
+        }
+      }
+      if (box.isEmpty()) return
+
+      const sphere = new THREE.Sphere()
+      box.getBoundingSphere(sphere)
+
+      const perspCam = camera as THREE.PerspectiveCamera
+      const fit = sphere.radius / Math.sin((perspCam.fov * Math.PI) / 180 / 2)
+      const range = cameraRangeFor(fit, fit, sphere.radius)
+
+      if (range.far > perspCam.far) {
+        perspCam.far = range.far
+        perspCam.updateProjectionMatrix()
+        invalidate()
+      }
+      if (range.maxDistance > controls.maxDistance) {
+        controls.maxDistance = range.maxDistance
+      }
+    })
+
+    return () => cancelAnimationFrame(handle)
+  }, [geometryVersion, selectedObjectId, controls, camera, invalidate])
+
+  return null
+}
+
 interface GridParams {
   size: number
   cellSize: number
@@ -119,7 +196,12 @@ interface GridParams {
   fadeDistance: number
 }
 
-export const DEFAULT_GRID: GridParams = { size: 100, cellSize: 1, sectionSize: 10, fadeDistance: 150 }
+export const DEFAULT_GRID: GridParams = {
+  size: 100,
+  cellSize: 1,
+  sectionSize: 10,
+  fadeDistance: 150
+}
 
 /**
  * Identifies the scene state the grid is derived from. Reset-view stamps this
@@ -227,7 +309,12 @@ interface SceneHelpersProps {
 }
 
 /** Ground grid (XY plane, Z-up), orientation gizmo and camera navigation. */
-export function SceneHelpers({ fitVersion, selectedObjectId, geometryVersion, gridResetAt = null }: SceneHelpersProps): React.JSX.Element {
+export function SceneHelpers({
+  fitVersion,
+  selectedObjectId,
+  geometryVersion,
+  gridResetAt = null
+}: SceneHelpersProps): React.JSX.Element {
   const grid = useAdaptiveGrid(geometryVersion, selectedObjectId, gridResetAt)
 
   return (
@@ -281,6 +368,13 @@ export function SceneHelpers({ fitVersion, selectedObjectId, geometryVersion, gr
       </GizmoHelper>
 
       <FitToScene fitVersion={fitVersion} selectedObjectId={selectedObjectId} />
+      {/* Planes must track the GEOMETRY too, not only the camera re-frame —
+          adding a ground far larger than the framed scene otherwise renders it
+          against a far plane sized for the old one. */}
+      <CameraRangeForGeometry
+        geometryVersion={geometryVersion}
+        selectedObjectId={selectedObjectId}
+      />
     </>
   )
 }
