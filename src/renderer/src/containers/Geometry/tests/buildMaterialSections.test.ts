@@ -214,11 +214,51 @@ const visualiser: MaterialTypeDef = {
   materialtype: 'Visualiser',
   description: '',
   properties: [
-    { property_type_id: 11, property: 'color_r', description: '', datatype: 'integer', min: 0, max: 255, display_order: 90 },
-    { property_type_id: 12, property: 'color_g', description: '', datatype: 'integer', min: 0, max: 255, display_order: 91 },
-    { property_type_id: 13, property: 'color_b', description: '', datatype: 'integer', min: 0, max: 255, display_order: 92 },
-    { property_type_id: 85, property: 'opacity', description: '', datatype: 'integer', min: 0, max: 100, display_order: 93 },
-    { property_type_id: 14, property: 'texture_file', description: '', datatype: 'file', min: null, max: null, display_order: 94 }
+    {
+      property_type_id: 11,
+      property: 'color_r',
+      description: '',
+      datatype: 'integer',
+      min: 0,
+      max: 255,
+      display_order: 90
+    },
+    {
+      property_type_id: 12,
+      property: 'color_g',
+      description: '',
+      datatype: 'integer',
+      min: 0,
+      max: 255,
+      display_order: 91
+    },
+    {
+      property_type_id: 13,
+      property: 'color_b',
+      description: '',
+      datatype: 'integer',
+      min: 0,
+      max: 255,
+      display_order: 92
+    },
+    {
+      property_type_id: 85,
+      property: 'opacity',
+      description: '',
+      datatype: 'integer',
+      min: 0,
+      max: 100,
+      display_order: 93
+    },
+    {
+      property_type_id: 14,
+      property: 'texture_file',
+      description: '',
+      datatype: 'file',
+      min: null,
+      max: null,
+      display_order: 94
+    }
   ],
   groups: []
 }
@@ -310,9 +350,47 @@ describe('buildMaterialSections — Visualiser texture mode', () => {
     // what you assumed. The editable ColorPicker prints a "%" inside the box; with
     // no box here, it goes in the label.
     expect(labelOf('opacity')).toBe('Opacity (%)')
-    // Everything the map doesn't name is still left alone, keeping whatever the
-    // catalog gave it (or the humanized property name).
-    expect(labelOf('texture_file')).toBe('Texture File')
+  })
+
+  // Colour mode was listing the mode machinery alongside the colour: a bare
+  // "Texture Toggle: false" and a "Texture File" holding either nothing or a path
+  // left over from an earlier texture save. Neither describes how the material
+  // looks — the four colour rows do — so both are dropped. (Texture mode never
+  // reached this branch; it renders its own Texture Name + Texture Image rows.)
+  it('omits the texture toggle and texture file rows in colour mode', () => {
+    const withToggle: MaterialTypeDef = {
+      ...visualiser,
+      properties: [
+        ...visualiser.properties,
+        {
+          property_type_id: 15,
+          property: 'texture_toggle',
+          description: '',
+          datatype: 'boolean',
+          min: null,
+          max: null,
+          display_order: 89
+        }
+      ]
+    }
+    const sections = buildMaterialSections(
+      [
+        memberWith({
+          texture_toggle: false,
+          texture_file: 'uploads/materials/7/stale.png',
+          color_r: 48,
+          color_g: 22,
+          color_b: 22,
+          opacity: 100
+        })
+      ],
+      [withToggle]
+    )
+    const properties = sections[0].groups.flatMap((g) => g.rows).map((r) => r.property)
+
+    expect(properties).not.toContain('texture_toggle')
+    expect(properties).not.toContain('texture_file')
+    expect(properties).toEqual(['color_r', 'color_g', 'color_b', 'opacity'])
   })
 })
 

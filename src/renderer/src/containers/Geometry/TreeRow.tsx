@@ -70,12 +70,7 @@ function BusyIcon(): React.JSX.Element {
       <circle cx="12" cy="12" r="9" stroke={BUSY_TRACK} strokeWidth="4" />
       {/* A quarter turn of the ring, rounded so the leading edge reads as
           movement rather than as a chipped circle. */}
-      <path
-        d="M21 12a9 9 0 0 0-9-9"
-        stroke={BUSY_ARC}
-        strokeWidth="4"
-        strokeLinecap="round"
-      />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke={BUSY_ARC} strokeWidth="4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -540,6 +535,7 @@ function TreeRow({
               projectId={projectId}
               scenarioId={scenarioId}
               existingNames={otherNames}
+              isGroup={isGroup}
               ariaLabel={isGroup ? 'Group name' : 'Geometry name'}
               onErrorChange={setEditError}
               onClose={() => {

@@ -7,7 +7,14 @@ const messages = {
   // Rename validation / errors
   nameRequired: 'Name is required',
   nameTooLong: 'Character limit exceeded',
+  // Groups and leaf geometries are SEPARATE namespaces (a group may share a name
+  // with a geometry), so a clash has to name the kind that actually clashed —
+  // otherwise renaming a group to another group's name reports a geometry
+  // conflict that isn't there, and the user hunts for a geometry by that name.
+  // Both match the backend's own copy for the same rejection
+  // (GEOMETRY_NAME_EXISTS / GROUP_NAME_EXISTS in scene_object_service.py).
   nameExists: 'Geometry name already exists',
+  groupNameExists: 'Group name already exists',
   renameFailed: 'Unable to rename group. Please try again',
   createFailed: 'Unable to create geometry. Please try again',
   // Field-value validation copy. A value that fails the catalog range shows the

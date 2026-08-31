@@ -2,6 +2,7 @@ import type { Task } from 'redux-saga'
 import { call, cancel, fork, put, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import toastMessages from '@renderer/store/toastMessages'
+import { ApiError } from 'utils/api'
 import type { RecentColor } from 'utils/color'
 import type {
   CreateMaterialRequestedAction,
@@ -68,7 +69,10 @@ export function* renameMaterialWorker(action: RenameMaterialRequestedAction): Ge
     yield call(service.renameGroup, id, name, scenarioId)
     yield put(actions.renameMaterialSucceeded(id, name))
   } catch (err) {
-    yield put(actions.renameMaterialFailed(id, (err as Error).message))
+    // The backend's `code` rides along so the reducer can single out a duplicate
+    // name (MATERIAL_GROUP_NAME_EXISTS) — see RENAME_MATERIAL_FAILED there.
+    const code = err instanceof ApiError ? err.code : null
+    yield put(actions.renameMaterialFailed(id, (err as Error).message, code))
   }
 }
 
@@ -288,8 +292,14 @@ export function* deleteParameterGroupWorker(
 //   - anything else → the generic per-property file endpoint.
 // On success we hand the returned path back keyed by its property.
 export function* uploadTextureWorker(action: UploadTextureRequestedAction): Generator {
-  const { groupId, cardId, materialTypeId, file, scenarioId, property = 'texture_file' } =
-    action.payload
+  const {
+    groupId,
+    cardId,
+    materialTypeId,
+    file,
+    scenarioId,
+    property = 'texture_file'
+  } = action.payload
   try {
     const upload =
       property === 'texture_file'
