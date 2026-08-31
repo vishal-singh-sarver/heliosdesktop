@@ -88,6 +88,11 @@ export type RenameMaterialFailedAction = {
   type: typeof RENAME_MATERIAL_FAILED
   id: string
   payload: string
+  // The backend's machine-readable reason, when it sent one. Carried so the
+  // reducer can tell a duplicate name apart from every other rejection without
+  // matching on English text (which api.ts warns is free to be reworded).
+  // Null for a network/unknown failure.
+  code?: string | null
 }
 export type SetNameErrorAction = {
   type: typeof SET_NAME_ERROR
@@ -334,10 +339,15 @@ export const renameMaterialSucceeded = (
   id: string,
   name: string
 ): RenameMaterialSucceededAction => ({ type: RENAME_MATERIAL_SUCCEEDED, id, name })
-export const renameMaterialFailed = (id: string, error: string): RenameMaterialFailedAction => ({
+export const renameMaterialFailed = (
+  id: string,
+  error: string,
+  code: string | null = null
+): RenameMaterialFailedAction => ({
   type: RENAME_MATERIAL_FAILED,
   id,
-  payload: error
+  payload: error,
+  code
 })
 export const setNameError = (id: string, error: string | null): SetNameErrorAction => ({
   type: SET_NAME_ERROR,

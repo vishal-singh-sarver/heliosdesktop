@@ -16,6 +16,7 @@ import {
   LIST_MATERIALS_REQUESTED,
   LIST_MATERIALS_SUCCEEDED,
   MATERIAL_DETAIL_LOADED,
+  MATERIAL_GROUP_NAME_EXISTS,
   OPEN_SAVED_MATERIAL_FAILED,
   OPEN_SAVED_MATERIAL_LOADED,
   OPEN_SAVED_MATERIAL_REQUESTED,
@@ -45,6 +46,7 @@ import {
   TEXTURE_TOGGLE_PROPERTY,
   USE_RADIATION_BANDS_PROPERTY
 } from './materialBlueprint'
+import messages from './messages'
 import { lowestFreeNumber } from './naming'
 import { loadRecentColors, prependRecentColor } from './recentColors'
 import type { Material, MaterialDraft, MaterialGroupDetail, MaterialParameterGroup } from './types'
@@ -348,18 +350,34 @@ const materialsReducer = (
         break
       }
 
-      case RENAME_MATERIAL_FAILED:
+      case RENAME_MATERIAL_FAILED: {
+        // A duplicate is shown exactly the way the Geometry right panel shows one
+        // ("Geometry name already exists"): the refused name stays in the field,
+        // the border goes red, and the reason sits under it — so the user can see
+        // what was rejected and edit it, rather than watching the name snap back
+        // with no explanation.
+        //
+        // Only the WORDING is ours. The backend says "Material group name already
+        // exists"; the panel says "Material name already exists", because what the
+        // user renamed is a material — "group" names an internal table. It is also
+        // the string the left panel's own inline editor already uses, so the same
+        // mistake reads the same in both places. Matched on the backend's `code`,
+        // never its English text (see api.ts). Every other rejection (a network
+        // drop, a 500, a too-long name) is shown as the backend worded it.
+        const message =
+          action.code === MATERIAL_GROUP_NAME_EXISTS ? messages.nameExists : action.payload
         // A rejection for the material open in the right-panel form belongs to
         // that form — under its name field, where the refused text still sits.
         // The left row shows the committed (still valid) old name, so an error
         // beneath it would point at the wrong name and linger stale. Renames from
         // anywhere else (the row's own inline editor) surface on the row.
         if (draft.editDraft && draft.editDraft.groupId === action.id) {
-          draft.editDraft.nameError = action.payload
+          draft.editDraft.nameError = message
         } else {
-          draft.nameErrors[action.id] = action.payload
+          draft.nameErrors[action.id] = message
         }
         break
+      }
 
       case SET_NAME_ERROR:
         if (action.payload === null) delete draft.nameErrors[action.id]
@@ -530,11 +548,22 @@ const materialsReducer = (
           // A material-wide property is ONE value for the whole material, so
           // answering it on one card answers it everywhere — otherwise the same
           // question, asked once per material type, could be given contradictory
-          // answers. The other cards go dirty, which is honest: each still has to
-          // be saved for the backend to agree with what's on screen.
+          // answers.
+          //
+          // Their SAVED baselines move with it, so they stay clean. The backend
+          // applies this flag across the whole material from the one save that
+          // carries it, so a card the user never touched has nothing left to
+          // persist — and leaving it dirty re-opened its Save button, telling the
+          // user to go and re-save a card they hadn't edited, for a change that
+          // was already on its way. The card that was EDITED keeps its own
+          // baseline and goes dirty as usual: that save is the one that has to
+          // happen. A card not yet saved has no baseline to move (savedValues
+          // null) and stays dirty on its own account — it still needs its POST.
           if (MATERIAL_WIDE_PROPERTIES.has(action.property)) {
             for (const other of draft.editDraft?.groups ?? []) {
-              if (other.id !== card.id) other.values[action.property] = action.value
+              if (other.id === card.id) continue
+              other.values[action.property] = action.value
+              if (other.savedValues != null) other.savedValues[action.property] = action.value
             }
           }
           // Editing answers the failure — the message described the values as

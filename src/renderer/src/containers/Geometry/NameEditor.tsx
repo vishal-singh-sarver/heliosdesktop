@@ -11,6 +11,9 @@ interface NameEditorProps {
   // Lowercased names of OTHER nodes of the same kind (this one excluded), for
   // the unique-name check (geometry and group names are separate namespaces).
   existingNames: Set<string>
+  // Which kind this row is. Picks the wording of a name clash — a group clashing
+  // with a group must not be reported as a geometry clash.
+  isGroup: boolean
   // a11y label — "Group name" or "Geometry name".
   ariaLabel: string
   // Reports the current validation error (or null) so the row box can colour
@@ -30,6 +33,7 @@ export default function NameEditor({
   projectId,
   scenarioId,
   existingNames,
+  isGroup,
   ariaLabel,
   onErrorChange,
   onClose
@@ -43,7 +47,7 @@ export default function NameEditor({
     inputRef.current?.select()
   }, [])
 
-  const error = validateGroupName(value, existingNames)
+  const error = validateGroupName(value, existingNames, isGroup)
 
   // Push the current validity to the parent (drives the row box colour), and
   // clear it when the editor unmounts.

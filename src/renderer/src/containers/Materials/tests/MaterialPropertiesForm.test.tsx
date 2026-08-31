@@ -257,7 +257,9 @@ describe('<MaterialPropertiesForm /> opening state', () => {
       materials: { ...materialsInitialState, openingId, editDraft: draft },
       projectScreen: projectScreenInitialState
     }
-    const store = createStore(((s = state) => s) as Reducer<unknown, UnknownAction>) as InjectableStore
+    const store = createStore(
+      ((s = state) => s) as Reducer<unknown, UnknownAction>
+    ) as InjectableStore
     store.injectedReducers = {}
     store.injectedSagas = {}
     store.runSaga = () => ({ toPromise: () => Promise.resolve() }) as any
@@ -740,16 +742,23 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
 
   it('ignores the band-sum rule while spectral mode is ON (bands are superseded)', () => {
     const { container } = render(
-      <Provider store={liveStoreWith([card(1, {
-          typeId: 1,
-          // A complete spectral setup, so toggling into spectral mode leaves the
-          // band-sum rule as the only thing that could block Save.
-          values: {
-            spectral_data: 'uploads/groups/12/leaf.xml',
-            reflectivity_spectrum: 'leaf_reflectivity',
-            transmissivity_spectrum: 'leaf_transmissivity'
-          }
-        })], [radiationType])}>
+      <Provider
+        store={liveStoreWith(
+          [
+            card(1, {
+              typeId: 1,
+              // A complete spectral setup, so toggling into spectral mode leaves the
+              // band-sum rule as the only thing that could block Save.
+              values: {
+                spectral_data: 'uploads/groups/12/leaf.xml',
+                reflectivity_spectrum: 'leaf_reflectivity',
+                transmissivity_spectrum: 'leaf_transmissivity'
+              }
+            })
+          ],
+          [radiationType]
+        )}
+      >
         <MaterialPropertiesForm />
       </Provider>
     )
@@ -797,7 +806,9 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
 
       expect(screen.queryByLabelText(rangeMsg)).toBeNull()
       // The number is untouched — only the complaint went away.
-      expect(container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')?.value).toBe('5')
+      expect(container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')?.value).toBe(
+        '5'
+      )
     })
 
     it('brings the same error back when the toggle returns', () => {
@@ -812,7 +823,9 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
       fireEvent.click(screen.getByRole('switch')) // OFF — bands live again
 
       expect(screen.getAllByLabelText(rangeMsg).length).toBeGreaterThan(0)
-      expect(container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')?.value).toBe('5')
+      expect(container.querySelector<HTMLInputElement>('[id="1-reflectivity_PAR"]')?.value).toBe(
+        '5'
+      )
     })
 
     it('does not let the hidden error block Save', () => {
@@ -820,16 +833,23 @@ describe('<MaterialPropertiesForm /> Radiation editor', () => {
       // the card with nothing on screen explaining why. The band is dropped on
       // save anyway.
       const { container } = render(
-        <Provider store={liveStoreWith([card(1, {
-          typeId: 1,
-          // A complete spectral setup, so toggling into spectral mode leaves the
-          // band-sum rule as the only thing that could block Save.
-          values: {
-            spectral_data: 'uploads/groups/12/leaf.xml',
-            reflectivity_spectrum: 'leaf_reflectivity',
-            transmissivity_spectrum: 'leaf_transmissivity'
-          }
-        })], [radiationType])}>
+        <Provider
+          store={liveStoreWith(
+            [
+              card(1, {
+                typeId: 1,
+                // A complete spectral setup, so toggling into spectral mode leaves the
+                // band-sum rule as the only thing that could block Save.
+                values: {
+                  spectral_data: 'uploads/groups/12/leaf.xml',
+                  reflectivity_spectrum: 'leaf_reflectivity',
+                  transmissivity_spectrum: 'leaf_transmissivity'
+                }
+              })
+            ],
+            [radiationType]
+          )}
+        >
           <MaterialPropertiesForm />
         </Provider>
       )
@@ -1437,7 +1457,9 @@ describe('<MaterialPropertiesForm /> material name', () => {
       const input = openEditor(store)
 
       fireEvent.change(input, { target: { value: '   ' } })
-      expect(screen.getByText('Name is required')).toBeInTheDocument()
+      // Reported by the in-field info icon (aria-label), as in the Geometry
+      // panel — there is no second copy of the sentence under the row.
+      expect(screen.getByLabelText('Validation error: Name is required')).toBeInTheDocument()
       expect(input).toHaveAttribute('aria-invalid', 'true')
 
       fireEvent.blur(input)
@@ -1452,7 +1474,9 @@ describe('<MaterialPropertiesForm /> material name', () => {
       const input = openEditor(store)
 
       fireEvent.change(input, { target: { value: 'x'.repeat(21) } })
-      expect(screen.getByText('Character limit exceeded')).toBeInTheDocument()
+      expect(
+        screen.getByLabelText('Validation error: Character limit exceeded')
+      ).toBeInTheDocument()
       fireEvent.blur(input)
       expect(renameTypes(dispatch)).toEqual([])
     })
@@ -1466,17 +1490,21 @@ describe('<MaterialPropertiesForm /> material name', () => {
       const input = openEditor(store)
 
       fireEvent.change(input, { target: { value: 'Concrete' } })
-      expect(screen.queryByText('Material name already exists')).not.toBeInTheDocument()
+      expect(
+        screen.queryByLabelText('Validation error: Material name already exists')
+      ).not.toBeInTheDocument()
       expect(input).toHaveAttribute('aria-invalid', 'false')
 
       fireEvent.blur(input)
       expect(renameTypes(dispatch)).toEqual([RENAME_MATERIAL_REQUESTED])
 
-      // ...and the backend's refusal is what surfaces it, under this field.
+      // ...and the backend's refusal is what surfaces it, on this field's icon.
       act(() => {
         store.dispatch(renameMaterialFailed('12', 'Material name already exists'))
       })
-      expect(screen.getByText('Material name already exists')).toBeInTheDocument()
+      expect(
+        screen.getByLabelText('Validation error: Material name already exists')
+      ).toBeInTheDocument()
     })
 
     it('accepts a valid change and renames on blur', () => {
@@ -1491,7 +1519,7 @@ describe('<MaterialPropertiesForm /> material name', () => {
       expect(renameTypes(dispatch)).toEqual([RENAME_MATERIAL_REQUESTED])
     })
 
-    it('shows a backend rejection under the field, and clears it on the next edit', () => {
+    it('shows a backend rejection on the field icon, and clears it on the next edit', () => {
       const store = liveStoreWith([card(1)])
       render(
         <Provider store={store}>
@@ -1501,17 +1529,20 @@ describe('<MaterialPropertiesForm /> material name', () => {
       act(() => {
         store.dispatch(renameMaterialFailed('12', 'Material name already exists'))
       })
-      expect(screen.getByText('Material name already exists')).toBeInTheDocument()
+      expect(
+        screen.getByLabelText('Validation error: Material name already exists')
+      ).toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
       fireEvent.change(screen.getByLabelText('Material name'), { target: { value: 'Granite' } })
-      expect(screen.queryByText('Material name already exists')).not.toBeInTheDocument()
+      expect(
+        screen.queryByLabelText('Validation error: Material name already exists')
+      ).not.toBeInTheDocument()
     })
   })
 })
 
 describe('<MaterialPropertiesForm /> visualisation type', () => {
-
   it('renders the colour picker for a visualisation-type card, not plain fields', () => {
     Element.prototype.scrollIntoView = vi.fn()
     render(
@@ -2047,9 +2078,13 @@ describe('<MaterialPropertiesForm /> visualisation type', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
-    const corrupt = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'shot.png', {
-      type: 'image/png'
-    })
+    const corrupt = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+      'shot.png',
+      {
+        type: 'image/png'
+      }
+    )
     fireEvent.change(input, { target: { files: [corrupt] } })
 
     expect(await screen.findByText(messages.textureFileCorruptError)).toBeInTheDocument()
@@ -2553,7 +2588,14 @@ describe('exponent input keeps a card field usable', () => {
 
   it('leaves an integer field editable after a blur expansion introduces a decimal point', () => {
     const store = liveStoreWith(
-      [card(1, { typeId: 1, saved: true, values: { tile_count: '5' }, savedValues: { tile_count: '5' } })],
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { tile_count: '5' },
+          savedValues: { tile_count: '5' }
+        })
+      ],
       [counted]
     )
     render(
@@ -2580,7 +2622,14 @@ describe('exponent input keeps a card field usable', () => {
 
   it('still rejects a decimal point typed into a clean integer field', () => {
     const store = liveStoreWith(
-      [card(1, { typeId: 1, saved: true, values: { tile_count: '5' }, savedValues: { tile_count: '5' } })],
+      [
+        card(1, {
+          typeId: 1,
+          saved: true,
+          values: { tile_count: '5' },
+          savedValues: { tile_count: '5' }
+        })
+      ],
       [counted]
     )
     render(

@@ -68,7 +68,6 @@ import {
   type ResolvedFormGroup
 } from './propertyBlueprint'
 import reducer from './reducer'
-import { groundCost, groundCostWarning } from './sceneCost'
 import RepeatField from './RepeatField'
 import saga from './saga'
 import SelectMaterialsPopup from './SelectMaterialsPopup'
@@ -230,6 +229,15 @@ function isTextureMode(properties: Record<string, number | string | boolean | nu
   return toggle === true || toggle === 1 || toggle === 'true' || toggle === '1'
 }
 
+// The two Visualiser properties that describe the MODE rather than the material's
+// appearance. Whichever mode is saved, the other one's value is still stored on the
+// member, so the read-only popup hides both and lets the mode's own rows speak:
+// colour mode shows R/G/B/Opacity, texture mode shows Texture Name + Texture Image.
+const VISUALISATION_MODE_PROPERTIES: ReadonlySet<string> = new Set([
+  TEXTURE_TOGGLE_PROPERTY,
+  TEXTURE_PROPERTY
+])
+
 // One material within a group, as the popup needs it — from the object GET's
 // baseline (carries `materialTypeName`) OR the Materials library detail cache
 // (name absent, resolved from the catalog).
@@ -275,12 +283,13 @@ export function buildMaterialSections(
       const groups = resolved
         .filter((g) => active.has(g))
         .map((pg) => {
+          const visualisation = isVisualisationFieldSet(pg.fields)
           // The Visualiser in texture mode gets a dedicated section: the texture's
           // name + the image itself, served from the same /api/textures/serve
           // endpoint the visualiser editor and 3D scene already use. Every other
           // group — and the Visualiser in colour mode — keeps the generic text
           // mapping below.
-          if (isVisualisationFieldSet(pg.fields) && isTextureMode(member.properties)) {
+          if (visualisation && isTextureMode(member.properties)) {
             const path = asDisplay(member.properties[TEXTURE_PROPERTY])
             const name = fileDisplayName(path)
             return {
@@ -308,30 +317,39 @@ export function buildMaterialSections(
             // their catalog name as the section heading.
             group: pg.name ?? 'general',
             label: pg.name ?? 'General',
-            rows: pg.fields.map((f) => {
-              const stored = asDisplay(member.properties[f.property])
-              // A SELECTOR enum stores a code — 'BMF', 'farquhar_model'. Show the
-              // STORED code, not the sub-model's full name: the popup reports what
-              // the material actually holds, and 'BMF' is how the backend names it.
-              // Humanized only, so an underscored code doesn't leak as-is
-              // ('farquhar_model' → "Farquhar Model"); an acronym has no
-              // underscores and only its first letter is touched, so 'BMF' stays
-              // 'BMF'. `enumLabels` marks the selector enums — ordinary ones (e.g.
-              // the Heat Transfer Flag's 'Two Sided') pass through untouched.
-              const value = f.enumLabels && stored !== '' ? humanizeProperty(stored) : stored
-              return {
-                property: f.property,
-                // The Visualiser's colour channels read "R"/"G"/"B" here, matching
-                // the editable form's ColorPicker. Every other field keeps the
-                // label the catalog gave it (or the humanized property name).
-                label: VISUALISATION_CHANNEL_LABELS[f.property] ?? f.label,
-                // A file property (the Radiation spectral data file) holds a
-                // stored PATH; show the file's name, the same thing the Materials
-                // editor shows once it's uploaded and the same treatment the
-                // texture row above already gets.
-                value: f.datatype === 'file' && value !== '' ? fileDisplayName(value) : value
-              }
-            })
+            // The Visualiser in COLOUR mode shows its colour, and nothing about
+            // the mode it isn't in: `texture_toggle` is the backend's own
+            // discriminator (it read as a bare "Texture Toggle: false" row), and
+            // `texture_file` is either empty or a path left behind by an earlier
+            // texture save. Neither is a property of the material as the user set
+            // it up — the colour rows are. Texture mode already answers this by
+            // rendering its own two rows above.
+            rows: pg.fields
+              .filter((f) => !(visualisation && VISUALISATION_MODE_PROPERTIES.has(f.property)))
+              .map((f) => {
+                const stored = asDisplay(member.properties[f.property])
+                // A SELECTOR enum stores a code — 'BMF', 'farquhar_model'. Show the
+                // STORED code, not the sub-model's full name: the popup reports what
+                // the material actually holds, and 'BMF' is how the backend names it.
+                // Humanized only, so an underscored code doesn't leak as-is
+                // ('farquhar_model' → "Farquhar Model"); an acronym has no
+                // underscores and only its first letter is touched, so 'BMF' stays
+                // 'BMF'. `enumLabels` marks the selector enums — ordinary ones (e.g.
+                // the Heat Transfer Flag's 'Two Sided') pass through untouched.
+                const value = f.enumLabels && stored !== '' ? humanizeProperty(stored) : stored
+                return {
+                  property: f.property,
+                  // The Visualiser's colour channels read "R"/"G"/"B" here, matching
+                  // the editable form's ColorPicker. Every other field keeps the
+                  // label the catalog gave it (or the humanized property name).
+                  label: VISUALISATION_CHANNEL_LABELS[f.property] ?? f.label,
+                  // A file property (the Radiation spectral data file) holds a
+                  // stored PATH; show the file's name, the same thing the Materials
+                  // editor shows once it's uploaded and the same treatment the
+                  // texture row above already gets.
+                  value: f.datatype === 'file' && value !== '' ? fileDisplayName(value) : value
+                }
+              })
           }
         })
       return { typeId: member.materialTypeId, typeName, groups }
@@ -1000,41 +1018,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     )
   }
 
-  // The cost line under the Resolution row. Full width below the 2-column grid,
-  // like the repeat notes above and for the same reason — the sentence does not
-  // fit half a panel column.
-  //
-  // A NOTICE, not an error: Save stays enabled and nothing is blocked. The
-  // engine accepts these values and someone may genuinely want them; what was
-  // missing is any signal at all that 1000 in this box is a hundred times 100 in
-  // it. Placed on the group rather than either field because the cost is the
-  // product of both, so neither axis owns it.
-  const renderResolutionFooter = (group: ResolvedFormGroup): React.JSX.Element | null => {
-    const hasResolution = group.fields.some(
-      (f) => f.property === 'resolution_x' || f.property === 'resolution_y'
-    )
-    if (!hasResolution) return null
-
-    const cost = groundCost(draft.values.resolution_x, draft.values.resolution_y)
-    const warning = groundCostWarning(cost)
-    if (!warning) return null
-
-    return (
-      // role="status" (polite), matching the repeat notes: this appears in
-      // response to typing and must not interrupt it. Amber at caution, red at
-      // the level that stopped a real project from reopening.
-      <p
-        role="status"
-        data-testid="resolution-cost-warning"
-        className={`mt-1 text-[12px] leading-[16px] ${
-          cost?.level === 'warning' ? 'text-[#D92D20]' : 'text-[#B54708]'
-        }`}
-      >
-        {warning}
-      </p>
-    )
-  }
-
   return (
     // Hug content with a 10px vertical rhythm (Figma: Height Hug, Gap 10px) so
     // the form never needs an inner scrollbar — even with every field showing an
@@ -1213,7 +1196,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               })}
             </div>
             {renderRepeatFooter(group)}
-            {renderResolutionFooter(group)}
           </div>
         ))}
 
