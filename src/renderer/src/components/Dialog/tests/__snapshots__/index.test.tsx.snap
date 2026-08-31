@@ -3,10 +3,10 @@
 exports[`<Dialog /> > should match the snapshot (closed) 1`] = `
 <dialog
   aria-label="Test Dialog"
-  class="fixed inset-0 m-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
+  class="app-no-drag fixed top-1/2 bottom-auto left-1/2 right-auto m-0 max-h-[calc(100vh-48px)] -translate-x-1/2 overflow-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
 >
   <header
-    class="flex items-center justify-between bg-neutral-200 px-4 py-2"
+    class="flex items-center justify-between min-h-[52px] bg-neutral-200 px-4 py-2"
   >
     <h2
       class="text-md font-medium text-black"
@@ -15,8 +15,9 @@ exports[`<Dialog /> > should match the snapshot (closed) 1`] = `
     </h2>
     <button
       aria-label="Close dialog"
-      class="px-2 py-1 text-xl font-light text-[#101828] cursor-pointer rounded"
+      class="flex h-6 w-6 cursor-pointer items-center justify-center rounded p-0 text-xl font-light leading-none text-[#101828] hover:bg-black/10 active:bg-black/20"
       data-testid="dialog-close"
+      type="button"
     >
       ×
     </button>
@@ -34,11 +35,12 @@ exports[`<Dialog /> > should match the snapshot (closed) 1`] = `
 exports[`<Dialog /> > should match the snapshot (open) 1`] = `
 <dialog
   aria-label="Test Dialog"
-  class="fixed inset-0 m-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
+  class="app-no-drag fixed top-1/2 bottom-auto left-1/2 right-auto m-0 max-h-[calc(100vh-48px)] -translate-x-1/2 overflow-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
   open=""
+  style="top: 384px;"
 >
   <header
-    class="flex items-center justify-between bg-neutral-200 px-4 py-2"
+    class="flex items-center justify-between min-h-[52px] bg-neutral-200 px-4 py-2"
   >
     <h2
       class="text-md font-medium text-black"
@@ -47,8 +49,9 @@ exports[`<Dialog /> > should match the snapshot (open) 1`] = `
     </h2>
     <button
       aria-label="Close dialog"
-      class="px-2 py-1 text-xl font-light text-[#101828] cursor-pointer rounded"
+      class="flex h-6 w-6 cursor-pointer items-center justify-center rounded p-0 text-xl font-light leading-none text-[#101828] hover:bg-black/10 active:bg-black/20"
       data-testid="dialog-close"
+      type="button"
     >
       ×
     </button>

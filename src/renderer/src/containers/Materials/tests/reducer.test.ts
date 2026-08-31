@@ -1,4 +1,5 @@
 import * as actions from '../actions'
+import { MATERIAL_GROUP_NAME_EXISTS } from '../constants'
 import materialsReducer, { initialState } from '../reducer'
 import type { Material, MaterialGroupDetail } from '../types'
 
@@ -258,7 +259,10 @@ describe('materialsReducer', () => {
         s1,
         actions.setParameterGroupValue(1, 'spectral_data', 'uploads/groups/12/leaf.xml')
       )
-      const s3 = materialsReducer(s2, actions.setParameterGroupValue(1, 'transmissivity_PAR', '0.3'))
+      const s3 = materialsReducer(
+        s2,
+        actions.setParameterGroupValue(1, 'transmissivity_PAR', '0.3')
+      )
       const result = materialsReducer(s3, actions.saveParameterGroupSucceeded('12', 1))
 
       const props = result.detailsById['12'].members[0].properties
@@ -274,7 +278,10 @@ describe('materialsReducer', () => {
         typed,
         actions.setParameterGroupValue(1, 'use_radiation_bands', 'true')
       )
-      const s2 = materialsReducer(s1, actions.setParameterGroupValue(1, 'transmissivity_PAR', '0.3'))
+      const s2 = materialsReducer(
+        s1,
+        actions.setParameterGroupValue(1, 'transmissivity_PAR', '0.3')
+      )
       const s3 = materialsReducer(
         s2,
         actions.setParameterGroupValue(1, 'spectral_data', 'uploads/groups/12/leaf.xml')
@@ -351,7 +358,10 @@ describe('materialsReducer', () => {
       const opened = materialsReducer(initialState, actions.createMaterialSucceeded('12', 'Mat'))
       const typed = materialsReducer(opened, actions.setParameterGroupType(1, 1))
       const failed = materialsReducer(typed, actions.uploadTextureFailed('12', 1, 'boom'))
-      const edited = materialsReducer(failed, actions.setParameterGroupValue(1, 'emissivity', '0.9'))
+      const edited = materialsReducer(
+        failed,
+        actions.setParameterGroupValue(1, 'emissivity', '0.9')
+      )
       expect(edited.editDraft?.groups[0].uploadStatus).toBe('idle')
       expect(edited.editDraft?.groups[0].uploadError).toBeNull()
     })
@@ -433,10 +443,7 @@ describe('materialsReducer', () => {
   // trash must lock while it's in flight or a second confirm fires a duplicate
   // DELETE that 404s on the already-gone material.
   describe('whole-material delete in flight', () => {
-    const listed = materialsReducer(
-      initialState,
-      actions.listMaterialsSucceeded([make('11', 'A')])
-    )
+    const listed = materialsReducer(initialState, actions.listMaterialsSucceeded([make('11', 'A')]))
 
     it('DELETE_MATERIAL_REQUESTED marks the id as deleting', () => {
       const result = materialsReducer(listed, actions.deleteMaterialRequested('11', null))
@@ -512,6 +519,47 @@ describe('materialsReducer', () => {
       const result = materialsReducer(open, actions.renameMaterialFailed('37', 'boom'))
       expect(result.nameErrors['37']).toBe('boom')
       expect(result.editDraft?.nameError).toBeNull()
+    })
+
+    // The backend's "Material group name already exists" is re-worded to the
+    // panel's own string — the same one the left row's inline editor uses, and
+    // the same shape Geometry shows ("Geometry name already exists"). The refused
+    // name STAYS in the field so it can be seen and edited.
+    it('re-words a duplicate name and keeps the refused text in the field', () => {
+      const editing = materialsReducer(open, actions.setMaterialDraftName('Taken'))
+      const result = materialsReducer(
+        editing,
+        actions.renameMaterialFailed(
+          '12',
+          'Material group name already exists',
+          MATERIAL_GROUP_NAME_EXISTS
+        )
+      )
+      expect(result.editDraft?.nameError).toBe('Material name already exists')
+      expect(result.editDraft?.name).toBe('Taken')
+    })
+
+    // Only the wording of the duplicate is ours; anything else the backend says
+    // is passed through untouched.
+    it('passes a non-duplicate rejection through as the backend worded it', () => {
+      const result = materialsReducer(
+        open,
+        actions.renameMaterialFailed('12', 'Network Error', null)
+      )
+      expect(result.editDraft?.nameError).toBe('Network Error')
+    })
+
+    // The same re-wording on the left panel's row, so the two never disagree.
+    it('re-words a duplicate on the row when the form holds another material', () => {
+      const result = materialsReducer(
+        open,
+        actions.renameMaterialFailed(
+          '37',
+          'Material group name already exists',
+          MATERIAL_GROUP_NAME_EXISTS
+        )
+      )
+      expect(result.nameErrors['37']).toBe('Material name already exists')
     })
 
     it('is cleared by editing the draft name, and by a rename that lands', () => {
@@ -767,7 +815,10 @@ describe('materialsReducer', () => {
     // edit-clears-error path gated on the STATUS never fired for it — the red text
     // stuck around reading as a save failure.
     it('a delete error clears on the next edit, like a save error does', () => {
-      const failed = materialsReducer(requested, actions.deleteParameterGroupFailed('12', 1, 'boom'))
+      const failed = materialsReducer(
+        requested,
+        actions.deleteParameterGroupFailed('12', 1, 'boom')
+      )
       expect(failed.editDraft?.groups[0].saveError).toBe('boom')
 
       const result = materialsReducer(failed, actions.setParameterGroupValue(1, 'opacity', '50'))
@@ -866,6 +917,49 @@ describe('materialsReducer', () => {
 
       expect(swapped.editDraft?.groups[1].values[FLAG]).toBe('Two Sided')
       expect(swapped.editDraft?.groups[1].values.stomatal_sidedness).toBeUndefined()
+    })
+
+    // The reported flow: save card 1 with One Sided, then add card 2 and set Two
+    // Sided there. Card 1's selection follows — but its SAVE BUTTON used to light
+    // up with it, sending the user back to re-save a card they never edited. The
+    // backend applies this flag across the whole material from card 2's save, so
+    // card 1 has nothing left to persist: its baseline moves with the value and
+    // it stays clean. (Save reads dirty as `values ≠ savedValues`.)
+    it('keeps an already-saved card CLEAN when the flag is changed elsewhere', () => {
+      const set = materialsReducer(twoCards(), actions.setParameterGroupValue(1, FLAG, 'One Sided'))
+      const saved = materialsReducer(set, actions.saveParameterGroupSucceeded('12', 1))
+      const changed = materialsReducer(saved, actions.setParameterGroupValue(2, FLAG, 'Two Sided'))
+
+      const card1 = changed.editDraft?.groups[0]
+      expect(card1?.values[FLAG]).toBe('Two Sided')
+      expect(card1?.savedValues?.[FLAG]).toBe('Two Sided')
+      expect(card1?.values).toEqual(card1?.savedValues)
+    })
+
+    // …while the card the change was MADE on keeps its own baseline and goes
+    // dirty. That save is the one that has to happen — without it nothing reaches
+    // the backend at all.
+    it('leaves the edited card dirty so its own save still runs', () => {
+      const set = materialsReducer(twoCards(), actions.setParameterGroupValue(2, FLAG, 'One Sided'))
+      const saved = materialsReducer(set, actions.saveParameterGroupSucceeded('12', 2))
+      const changed = materialsReducer(saved, actions.setParameterGroupValue(2, FLAG, 'Two Sided'))
+
+      const card2 = changed.editDraft?.groups[1]
+      expect(card2?.values[FLAG]).toBe('Two Sided')
+      expect(card2?.savedValues?.[FLAG]).toBe('One Sided')
+    })
+
+    // A card that was never saved has no baseline to move. It must stay dirty —
+    // it still needs its first POST — so the null is left alone rather than
+    // conjured into an empty object that would read as "clean".
+    it('does not invent a baseline for a card that was never saved', () => {
+      const changed = materialsReducer(
+        twoCards(),
+        actions.setParameterGroupValue(1, FLAG, 'Two Sided')
+      )
+
+      expect(changed.editDraft?.groups[1].values[FLAG]).toBe('Two Sided')
+      expect(changed.editDraft?.groups[1].savedValues).toBeNull()
     })
 
     it('does not let an unanswered card blank an answer another card holds', () => {

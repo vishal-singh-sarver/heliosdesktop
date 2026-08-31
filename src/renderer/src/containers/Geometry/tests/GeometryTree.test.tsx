@@ -198,15 +198,27 @@ describe('<GeometryTree />', () => {
   })
 
   it('shows the error copy on failure', () => {
-    renderTree({ ...emptyScenarioGeometry(), loadStatus: 'error', loadError: 'Unable to load Geometries' })
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'error',
+      loadError: 'Unable to load Geometries'
+    })
     expect(screen.getByText('Unable to load Geometries')).toBeInTheDocument()
   })
 
   it('Retry on the error state re-dispatches the load', () => {
-    renderTree({ ...emptyScenarioGeometry(), loadStatus: 'error', loadError: 'Unable to load Geometries' })
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'error',
+      loadError: 'Unable to load Geometries'
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'app/Geometry/LIST_NODES_REQUESTED', projectId: 'p1', scenarioId: 's1' })
+      expect.objectContaining({
+        type: 'app/Geometry/LIST_NODES_REQUESTED',
+        projectId: 'p1',
+        scenarioId: 's1'
+      })
     )
   })
 
@@ -469,7 +481,11 @@ describe('<GeometryTree />', () => {
     fireEvent.change(input, { target: { value: 'Backyard' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'app/Geometry/RENAME_REQUESTED', id: 'g', payload: 'Backyard' })
+      expect.objectContaining({
+        type: 'app/Geometry/RENAME_REQUESTED',
+        id: 'g',
+        payload: 'Backyard'
+      })
     )
   })
 
@@ -488,6 +504,42 @@ describe('<GeometryTree />', () => {
     expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'app/Geometry/RENAME_REQUESTED' })
     )
+  })
+
+  // Renaming a group onto ANOTHER GROUP's name is a group clash, so it must say
+  // so — "Geometry name already exists" sent the user hunting for a geometry by
+  // that name, and groups/geometries are separate namespaces so there needn't be
+  // one at all.
+  it('names the group namespace when a group is renamed onto another group', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { g: group('g', 'Group.001', []), h: group('h', 'Group.002', []) },
+      rootOrder: ['g', 'h']
+    })
+    fireEvent.doubleClick(screen.getByText('Group.002'))
+    const input = screen.getByLabelText('Group name')
+    fireEvent.change(input, { target: { value: 'Group.001' } })
+    expect(screen.getByText('Group name already exists')).toBeInTheDocument()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app/Geometry/RENAME_REQUESTED' })
+    )
+  })
+
+  // The leaf side is unchanged — a geometry clashing with a geometry still reads
+  // as a geometry conflict.
+  it('still names the geometry namespace when a leaf is renamed onto another leaf', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001'), b: ground('b', 'Ground.002') },
+      rootOrder: ['a', 'b']
+    })
+    fireEvent.doubleClick(screen.getByText('Ground.002'))
+    const input = screen.getByLabelText('Geometry name')
+    fireEvent.change(input, { target: { value: 'Ground.001' } })
+    expect(screen.getByText('Geometry name already exists')).toBeInTheDocument()
   })
 
   it('dropping a leaf onto another root leaf requests a new group', () => {

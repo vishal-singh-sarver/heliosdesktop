@@ -414,8 +414,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     // which fills the rest of the space and scrolls its own cards.
     <div className="flex h-full flex-col gap-2.5">
       {/* Header: material name with a + (add a Parameter Group), a pencil (unlock
-          to rename) and a trash (delete the whole material). The name and its
-          error stack, so the error pushes nothing sideways. */}
+          to rename) and a trash (delete the whole material). A rejected name is
+          reported by the in-field icon alone, so the row's height never changes
+          and the buttons beside it don't shift. */}
       <div className="flex shrink-0 flex-col">
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
@@ -450,11 +451,10 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
                     : 'border-transparent hover:border-app-border'
               }`}
             />
-            {/* The same in-field error icon the Geometry panel's name carries, so
-              the reason a name is rejected is readable without hunting for the
-              line under the row — which the panel's own scrolling can put out of
-              sight. The message stays below as well; this is a second way to
-              reach it, not a move. */}
+            {/* The in-field error icon, exactly as the Geometry panel's name
+              carries it — and, as there, the ONLY place the reason is shown. It
+              used to be repeated as a line under the row as well, which said the
+              same sentence twice on screen for one mistake. */}
             {nameError && (
               <Tooltip
                 text={nameError}
@@ -504,8 +504,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             <img src={deleteIcon} alt="" aria-hidden="true" className="h-4 w-4" />
           </button>
         </div>
-        {/* Below the row, like the left panel's — so the icons don't shift. */}
-        {nameError && <p className="form-error-text mt-1">{nameError}</p>}
       </div>
 
       {/* The numbered "Parameter Group.0N" cards, scrolling as a group so they all
@@ -636,7 +634,10 @@ function MaterialFieldGrid({
                 value,
                 // Enum selects read "Select" when empty (not the field's own name);
                 // text/number fields keep the label as their placeholder.
-                placeholder: field.datatype === 'enum' ? messages.selectPlaceholder : trimText(field.label, PLACEHOLDER_CHARS),
+                placeholder:
+                  field.datatype === 'enum'
+                    ? messages.selectPlaceholder
+                    : trimText(field.label, PLACEHOLDER_CHARS),
                 error,
                 // Surface the validation error as an in-cell info-icon tooltip
                 // (matches the Geometry right panel); selects keep the inline message.
@@ -1216,140 +1217,140 @@ function ParameterGroupCard({
               // from the control they belong to.
               .filter((pg) => pg !== spectrumPg)
               .map((pg) =>
-              isVisualisationFieldSet(pg.fields) ? (
-                <MaterialVisualisationEditor
-                  key="__visualiser"
-                  values={group.values}
-                  fields={pg.fields}
-                  fieldError={fieldError}
-                  onFieldChange={handleFieldChange}
-                  onFieldBlur={handleFieldBlur}
-                  saved={group.saved}
-                  mode={visualMode}
-                  onModeChange={setVisualMode}
-                  textureSubTab={textureTab}
-                  onTextureSubTabChange={switchTextureTab}
-                  // The live pick when there is one, else the texture already
-                  // stored on the member — `pendingLibrary` alone starts null on
-                  // every reopen (and an outside click clears it), so a saved
-                  // library texture came back with NO tile highlighted and the
-                  // user couldn't tell which one was applied.
-                  selectedPath={chosenTexture}
-                  // ONLY the object URL of a file just picked in the Upload tab.
-                  // This used to fall back to whatever `texture_file` held, which
-                  // meant a saved LIBRARY texture rendered as the upload preview —
-                  // the Upload tab claiming the user had uploaded a stock asset.
-                  // The stored texture's preview is TextureSelector's own call now:
-                  // it holds the library list, so only it can tell an uploaded path
-                  // from a library one.
-                  pendingFileUrl={pendingFile?.url}
-                  onPickLibrary={toggleLibrary}
-                  onPickFile={pickFile}
-                  uploading={uploading}
-                  // `group.saveError` is NOT passed down: the card renders it
-                  // once below Save, for every kind of card. Feeding it here as
-                  // well printed a failed upload's message twice, a few rows
-                  // apart. TextureSelector still shows its own client-side file
-                  // checks (wrong type, too large), which have no other home.
-                />
-              ) : isRadiationFieldSet(pg.fields) ? (
-                <MaterialRadiationEditor
-                  key="__radiation"
-                  idPrefix={group.id}
-                  values={group.values}
-                  fields={pg.fields}
-                  fieldError={fieldError}
-                  onFieldChange={handleFieldChange}
-                  onFieldBlur={handleFieldBlur}
-                  applySpectral={applySpectral}
-                  onToggleSpectral={() =>
-                    onChangeValue(USE_RADIATION_BANDS_PROPERTY, applySpectral ? 'true' : 'false')
-                  }
-                  uploading={uploading}
-                  uploadError={group.uploadError}
-                  onPickSpectralFile={onUploadSpectral}
-                  // Removing the file takes its spectrum choices with it: they
-                  // are labels INSIDE that file, so with the file gone they name
-                  // nothing. Left behind they stay selected and saveable, and a
-                  // label the engine can't resolve doesn't error — it falls back
-                  // to a reflectivity of 0 and blackens the surface for the whole
-                  // run. Cleared here rather than by the selector-hygiene effect,
-                  // which is deliberately exempt for this group (a mode toggle
-                  // must not lose the choice); this is the user removing the
-                  // thing the choices belong to, which is a different act.
-                  onClearSpectral={() => {
-                    onChangeValue(SPECTRAL_DATA_PROPERTY, '')
-                    for (const field of spectrumPg?.fields ?? []) {
-                      onChangeValue(field.property, '')
+                isVisualisationFieldSet(pg.fields) ? (
+                  <MaterialVisualisationEditor
+                    key="__visualiser"
+                    values={group.values}
+                    fields={pg.fields}
+                    fieldError={fieldError}
+                    onFieldChange={handleFieldChange}
+                    onFieldBlur={handleFieldBlur}
+                    saved={group.saved}
+                    mode={visualMode}
+                    onModeChange={setVisualMode}
+                    textureSubTab={textureTab}
+                    onTextureSubTabChange={switchTextureTab}
+                    // The live pick when there is one, else the texture already
+                    // stored on the member — `pendingLibrary` alone starts null on
+                    // every reopen (and an outside click clears it), so a saved
+                    // library texture came back with NO tile highlighted and the
+                    // user couldn't tell which one was applied.
+                    selectedPath={chosenTexture}
+                    // ONLY the object URL of a file just picked in the Upload tab.
+                    // This used to fall back to whatever `texture_file` held, which
+                    // meant a saved LIBRARY texture rendered as the upload preview —
+                    // the Upload tab claiming the user had uploaded a stock asset.
+                    // The stored texture's preview is TextureSelector's own call now:
+                    // it holds the library list, so only it can tell an uploaded path
+                    // from a library one.
+                    pendingFileUrl={pendingFile?.url}
+                    onPickLibrary={toggleLibrary}
+                    onPickFile={pickFile}
+                    uploading={uploading}
+                    // `group.saveError` is NOT passed down: the card renders it
+                    // once below Save, for every kind of card. Feeding it here as
+                    // well printed a failed upload's message twice, a few rows
+                    // apart. TextureSelector still shows its own client-side file
+                    // checks (wrong type, too large), which have no other home.
+                  />
+                ) : isRadiationFieldSet(pg.fields) ? (
+                  <MaterialRadiationEditor
+                    key="__radiation"
+                    idPrefix={group.id}
+                    values={group.values}
+                    fields={pg.fields}
+                    fieldError={fieldError}
+                    onFieldChange={handleFieldChange}
+                    onFieldBlur={handleFieldBlur}
+                    applySpectral={applySpectral}
+                    onToggleSpectral={() =>
+                      onChangeValue(USE_RADIATION_BANDS_PROPERTY, applySpectral ? 'true' : 'false')
                     }
-                  }}
-                  spectrumFields={spectrumPg?.fields ?? []}
-                  spectrumLabels={spectrumLabels}
-                  spectrumLabelsStatus={spectrumLabelsStatus}
-                />
-              ) : pg.name == null ? (
-                <MaterialFieldGrid
-                  key="__top"
-                  groupId={group.id}
-                  fields={pg.fields}
-                  values={group.values}
-                  saved={group.saved}
-                  fieldError={fieldError}
-                  onFieldChange={handleFieldChange}
-                  onFieldBlur={handleFieldBlur}
-                />
-              ) : pg.selectorProperty != null ? (
-                // A selector-driven group (e.g. a stomatal sub-model): the enum
-                // dropdown above already names it, so its fields render directly
-                // with no header — nothing greyish here.
-                <MaterialFieldGrid
-                  key={pg.name}
-                  groupId={group.id}
-                  fields={pg.fields}
-                  values={group.values}
-                  saved={group.saved}
-                  fieldError={fieldError}
-                  onFieldChange={handleFieldChange}
-                  onFieldBlur={handleFieldBlur}
-                />
-              ) : (
-                // An always-shown titled group (e.g. Farquhar model): only the
-                // HEADER is greyish; its fields sit on the plain card background
-                // below, unwrapped — matching the mockup.
-                <div key={pg.name} className="flex flex-col gap-2.5">
-                  <button
-                    type="button"
-                    aria-expanded={!collapsedGroups.has(pg.name)}
-                    onClick={() => toggleGroupSection(pg.name as string)}
-                    className="flex items-center justify-between rounded bg-[#313131] px-3 py-2 text-left"
-                  >
-                    <span className="text-[13px] font-normal leading-[15px] text-neutral-200">
-                      {pg.name}
-                    </span>
-                    <img
-                      src={chevronDown}
-                      alt=""
-                      aria-hidden="true"
-                      className="h-1.5 w-auto transition-transform duration-150"
-                      style={{
-                        transform: collapsedGroups.has(pg.name) ? 'none' : 'rotate(180deg)'
-                      }}
-                    />
-                  </button>
-                  {!collapsedGroups.has(pg.name) && (
-                    <MaterialFieldGrid
-                      groupId={group.id}
-                      fields={pg.fields}
-                      values={group.values}
-                      saved={group.saved}
-                      fieldError={fieldError}
-                      onFieldChange={handleFieldChange}
-                      onFieldBlur={handleFieldBlur}
-                    />
-                  )}
-                </div>
-              )
-            )}
+                    uploading={uploading}
+                    uploadError={group.uploadError}
+                    onPickSpectralFile={onUploadSpectral}
+                    // Removing the file takes its spectrum choices with it: they
+                    // are labels INSIDE that file, so with the file gone they name
+                    // nothing. Left behind they stay selected and saveable, and a
+                    // label the engine can't resolve doesn't error — it falls back
+                    // to a reflectivity of 0 and blackens the surface for the whole
+                    // run. Cleared here rather than by the selector-hygiene effect,
+                    // which is deliberately exempt for this group (a mode toggle
+                    // must not lose the choice); this is the user removing the
+                    // thing the choices belong to, which is a different act.
+                    onClearSpectral={() => {
+                      onChangeValue(SPECTRAL_DATA_PROPERTY, '')
+                      for (const field of spectrumPg?.fields ?? []) {
+                        onChangeValue(field.property, '')
+                      }
+                    }}
+                    spectrumFields={spectrumPg?.fields ?? []}
+                    spectrumLabels={spectrumLabels}
+                    spectrumLabelsStatus={spectrumLabelsStatus}
+                  />
+                ) : pg.name == null ? (
+                  <MaterialFieldGrid
+                    key="__top"
+                    groupId={group.id}
+                    fields={pg.fields}
+                    values={group.values}
+                    saved={group.saved}
+                    fieldError={fieldError}
+                    onFieldChange={handleFieldChange}
+                    onFieldBlur={handleFieldBlur}
+                  />
+                ) : pg.selectorProperty != null ? (
+                  // A selector-driven group (e.g. a stomatal sub-model): the enum
+                  // dropdown above already names it, so its fields render directly
+                  // with no header — nothing greyish here.
+                  <MaterialFieldGrid
+                    key={pg.name}
+                    groupId={group.id}
+                    fields={pg.fields}
+                    values={group.values}
+                    saved={group.saved}
+                    fieldError={fieldError}
+                    onFieldChange={handleFieldChange}
+                    onFieldBlur={handleFieldBlur}
+                  />
+                ) : (
+                  // An always-shown titled group (e.g. Farquhar model): only the
+                  // HEADER is greyish; its fields sit on the plain card background
+                  // below, unwrapped — matching the mockup.
+                  <div key={pg.name} className="flex flex-col gap-2.5">
+                    <button
+                      type="button"
+                      aria-expanded={!collapsedGroups.has(pg.name)}
+                      onClick={() => toggleGroupSection(pg.name as string)}
+                      className="flex items-center justify-between rounded bg-[#313131] px-3 py-2 text-left"
+                    >
+                      <span className="text-[13px] font-normal leading-[15px] text-neutral-200">
+                        {pg.name}
+                      </span>
+                      <img
+                        src={chevronDown}
+                        alt=""
+                        aria-hidden="true"
+                        className="h-1.5 w-auto transition-transform duration-150"
+                        style={{
+                          transform: collapsedGroups.has(pg.name) ? 'none' : 'rotate(180deg)'
+                        }}
+                      />
+                    </button>
+                    {!collapsedGroups.has(pg.name) && (
+                      <MaterialFieldGrid
+                        groupId={group.id}
+                        fields={pg.fields}
+                        values={group.values}
+                        saved={group.saved}
+                        fieldError={fieldError}
+                        onFieldChange={handleFieldChange}
+                        onFieldBlur={handleFieldBlur}
+                      />
+                    )}
+                  </div>
+                )
+              )}
 
             {/* This card's own Save — adds its material type to the material the
                 first time, updates it after that. */}

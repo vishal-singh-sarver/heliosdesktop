@@ -45,7 +45,8 @@ export const OPEN_SAVED_MATERIAL_FAILED = 'app/Materials/OPEN_SAVED_MATERIAL_FAI
 // editor form — used by the geometry Materials popup to show a picked material's
 // properties. Reuses the same detailsById cache + GET as OPEN_SAVED_MATERIAL,
 // minus the form side effect.
-export const LOAD_MATERIAL_DETAIL_REQUESTED = 'app/Materials/LOAD_MATERIAL_DETAIL_REQUESTED' as const
+export const LOAD_MATERIAL_DETAIL_REQUESTED =
+  'app/Materials/LOAD_MATERIAL_DETAIL_REQUESTED' as const
 export const MATERIAL_DETAIL_LOADED = 'app/Materials/MATERIAL_DETAIL_LOADED' as const
 
 // "+ Add Material Type" — append a new, empty "Parameter Group.0N" card (client
@@ -98,3 +99,10 @@ export const MATERIAL_DND_MIME = 'application/x-material' as const
 // Record a colour the user just saved onto a material (most-recent-first, capped,
 // de-duped); a saga mirrors the resulting list to localStorage.
 export const RECORD_RECENT_COLOR = 'app/Materials/RECORD_RECENT_COLOR' as const
+
+// ── Backend error codes ──────────────────────────────────────────────────────
+// The `code` half of the backend's `detail: {error, code}` shape. Material group
+// names are unique case-insensitively across the WHOLE database (022's
+// idx_material_group_name_ci — no project or scenario in the index), so a rename
+// can collide with a material that lives in a different project entirely.
+export const MATERIAL_GROUP_NAME_EXISTS = 'MATERIAL_GROUP_NAME_EXISTS' as const
