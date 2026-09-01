@@ -7,6 +7,7 @@ import { selectSceneObject } from '../store/actions'
 import { selectSelectedObjectId } from '../store/selectors'
 import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache'
 import type { PrimitiveInfo } from '../models/types'
+import { cameraRangeFor } from './cameraRange'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -248,9 +249,11 @@ export function KeyboardShortcuts(): null {
       const vFovHalf = (perspCam.fov * Math.PI) / 180 / 2
       const dist = sphere.radius / Math.sin(vFovHalf)
 
-      perspCam.near = Math.max(0.01, dist * 0.001)
-      perspCam.far = dist * 10
-      perspCam.updateProjectionMatrix()
+      // Dolly limits only. The clipping planes belong to AdaptiveClipping, which
+      // re-derives them from the camera's real position every frame; setting
+      // them from a framing distance is what stranded them at the wrong scale
+      // twice over. See cameraRange.ts.
+      const range = cameraRangeFor(dist, dist, sphere.radius)
 
       // Keep the current viewing direction, adjust distance and target.
       const camPos = new THREE.Vector3()
@@ -265,8 +268,8 @@ export function KeyboardShortcuts(): null {
       // the controls have not attached yet. Everything above this point is
       // already a no-op in that state, so there is nothing to finish.
       if (!controls) return
-      controls.minDistance = perspCam.near * 10
-      controls.maxDistance = dist * 20
+      controls.minDistance = range.minDistance
+      controls.maxDistance = range.maxDistance
       driveTransition()
     }
 
