@@ -249,13 +249,11 @@ export function KeyboardShortcuts(): null {
       const vFovHalf = (perspCam.fov * Math.PI) / 180 / 2
       const dist = sphere.radius / Math.sin(vFovHalf)
 
-      // One call for planes AND limits — set apart, `far = dist * 10` beside
-      // `maxDistance = dist * 20` let the wheel travel twice as far as the
-      // camera could see. See cameraRange.ts.
+      // Dolly limits only. The clipping planes belong to AdaptiveClipping, which
+      // re-derives them from the camera's real position every frame; setting
+      // them from a framing distance is what stranded them at the wrong scale
+      // twice over. See cameraRange.ts.
       const range = cameraRangeFor(dist, dist, sphere.radius)
-      perspCam.near = range.near
-      perspCam.far = range.far
-      perspCam.updateProjectionMatrix()
 
       // Keep the current viewing direction, adjust distance and target.
       const camPos = new THREE.Vector3()
