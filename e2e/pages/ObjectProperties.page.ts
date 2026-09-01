@@ -484,6 +484,163 @@ class ObjectPropertiesPage {
   async nameValue(): Promise<string> {
     return this.nameInput.getValue()
   }
+
+  // ===== The name row: pencil, blur-commit, validation tooltip =====
+  //
+  // THREE THINGS DECIDE HOW THESE ARE WRITTEN:
+  //
+  // 1. THE NAME IS READ-ONLY UNTIL THE PENCIL IS TAPPED (spec: "edit icon which
+  //    should be tapped only to edit the name"). Writing into it without
+  //    editName() first still mutates the draft — React does not honour
+  //    `readOnly` against a native-setter write — so a test that skips the
+  //    pencil proves nothing about the lock.
+  // 2. IT COMMITS ON BLUR, not on Enter and not via Save. `handleNameBlur`
+  //    (ObjectPropertiesForm.tsx:899) is the only path to renameRequested, and
+  //    Save is field-only — `dirty` never consults the name.
+  // 3. THE ERROR TOOLTIP IS NOT IN A formfield-{name} BOX. For the numeric
+  //    fields the trigger sits inside `formfield-{property}`; the name's sits as
+  //    a SIBLING of the input inside its own `relative` wrapper. Scoping a
+  //    `[aria-label^="Validation error:"]` query to the form would match every
+  //    field's tooltip too, so it is read from the input's parentElement.
+
+  /** The pencil that unlocks the name. Scoped to THIS form — the Materials
+   *  properties form renders a button with the same aria-label. */
+  get editNameButton(): El {
+    return this.form.$('button[aria-label="Edit name"]')
+  }
+
+  /** The header trash. Same scoping reason as the pencil. */
+  get deleteButton(): El {
+    return this.form.$('button[aria-label="Delete geometry"]')
+  }
+
+  /**
+   * The "This geometry was deleted. Close the panel." notice.
+   *
+   * UNREACHABLE from the GUI's own delete: DELETE_NODE_SUCCEEDED nulls
+   * createDraft whenever the removed object is the one on screen, so the form
+   * unmounts instead of entering the deleted state (reducer.ts:465-470).
+   * Reaching it needs the node to vanish from nodesById while the draft
+   * survives — a LIST_NODES refetch after a delete performed elsewhere. Kept
+   * addressable for whoever tests that path.
+   */
+  get deletedNotice(): El {
+    return this.form.$('p[role="alert"]')
+  }
+
+  /**
+   * The name tooltip's trigger. An ADJACENT-SIBLING selector, because the name's
+   * Tooltip renders immediately after the input inside its `relative` wrapper —
+   * unlike the numeric fields, whose triggers sit inside a formfield-{name} box.
+   * Scoping to the form instead would match every field's tooltip as well.
+   */
+  private get nameTooltip(): El {
+    return $('[data-testid="object-name"] + span[aria-label^="Validation error:"]')
+  }
+
+  /**
+   * Value + lock + disabled + validation message.
+   *
+   * READ WITH ELEMENT COMMANDS, NEVER browser.execute. Committing an invalid
+   * name makes the app throw out of its change/blur handler, and WebdriverIO
+   * holds that pending page error and re-raises it on the NEXT `execute/sync` —
+   * so a browser.execute read comes back as
+   * `WebDriverError: Geometry name already exists`, the app's own copy arriving
+   * as a driver failure instead of the value under assertion. It fails the
+   * command rather than the expectation, and names the wrong cause. The same
+   * trap governs fieldState's callers on an out-of-range field.
+   */
+  async nameState(): Promise<{
+    value: string
+    readOnly: boolean
+    disabled: boolean
+    error: string | null
+  }> {
+    await this.nameInput.waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    const value = await this.nameInput.getValue()
+    // React removes the attribute entirely when the field is unlocked.
+    const readOnly = (await this.nameInput.getAttribute('readonly')) !== null
+    const disabled = !(await this.nameInput.isEnabled())
+    const error = (await this.nameTooltip.isExisting())
+      ? await this.nameTooltip.getAttribute('data-tooltip-content')
+      : null
+    return { value, readOnly, disabled, error }
+  }
+
+  /** Tap the pencil and wait for the field to actually unlock. */
+  async editName(): Promise<void> {
+    await this.editNameButton.waitForClickable({ timeout: TIMEOUTS.MEDIUM })
+    await this.editNameButton.click()
+    await browser.waitUntil(async () => !(await this.nameState()).readOnly, {
+      timeout: TIMEOUTS.SHORT,
+      timeoutMsg: 'the pencil never unlocked the name field'
+    })
+  }
+
+  /**
+   * Write a name WITHOUT committing it.
+   *
+   * The native value setter plus an `input` event, because a plain setValue()
+   * loses to React on a controlled input — the same technique setField uses.
+   * Commit is a separate step: see commitName().
+   */
+  async setName(value: string): Promise<void> {
+    await this.nameInput.waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    await browser.execute((val: string) => {
+      const node = document.querySelector('[data-testid="object-name"]') as HTMLInputElement | null
+      if (!node) throw new Error('setName: the Properties form has no name input')
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      )?.set
+      node.focus()
+      setter?.call(node, val)
+      node.dispatchEvent(new Event('input', { bubbles: true }))
+    }, value)
+  }
+
+  /** Blur the name field — the ONLY thing that commits a rename. */
+  async commitName(): Promise<void> {
+    await browser.execute(() => {
+      const node = document.querySelector('[data-testid="object-name"]') as HTMLInputElement | null
+      node?.blur()
+    })
+  }
+
+  /**
+   * Consume a pending page error so it cannot fail an unrelated later command.
+   *
+   * A rejected rename makes the app throw asynchronously, out of its own
+   * handler. WebdriverIO stores that and re-raises it on the NEXT execute/sync
+   * — which is typically some later helper (Geometry.rowState snapshots through
+   * browser.execute), so the run dies mid-teardown reporting
+   * "Geometry name already exists" against a command that had nothing to do
+   * with it. Burning it deliberately keeps the failure where it belongs.
+   */
+  async drainPageError(): Promise<void> {
+    try {
+      await browser.execute(() => undefined)
+    } catch {
+      // That WAS the stored page error. It is now cleared.
+    }
+  }
+
+  /** The name's validation message, waiting briefly for it to appear.
+   *  `timeout` is widened to `number` deliberately — TIMEOUTS is a const object,
+   *  so an inferred default would fix the parameter to that one literal and
+   *  reject every other entry in the table. */
+  async nameError(timeout: number = TIMEOUTS.SHORT): Promise<string | null> {
+    try {
+      await browser.waitUntil(async () => (await this.nameState()).error !== null, { timeout })
+    } catch {
+      // No error appeared inside the window — the caller asserts on null.
+    }
+    const { error } = await this.nameState()
+    // The message is on screen, so the app has already thrown if it was going
+    // to. Clear it here rather than leaving it for the next unrelated command.
+    await this.drainPageError()
+    return error
+  }
 }
 
 export default new ObjectPropertiesPage()

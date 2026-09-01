@@ -952,14 +952,15 @@ describe('Geometry', () => {
     // incoming value — what setField skips is per-CHARACTER delivery, not the
     // guard itself.
     //
-    // FINDING for the feature owner: GEOMETRY_MSG.invalidInput may be dead on
-    // this form. Reaching it needs a value the guard admits but validation
-    // rejects — an incomplete exponent ("1e", held back until blur), or a '.'
-    // already present in an integer field (blur expanding "1e-3" to "0.001",
-    // which is then ALSO below the minimum and gets the range message instead).
-    // Same shape as the unreachable `loadError`. Not asserted here because the
-    // reachable path is not yet established; worth confirming before anyone
-    // "fixes" the copy.
+    // GEOMETRY_MSG.invalidInput IS reachable — this comment used to say it might
+    // be dead, and that was wrong. The route is an INCOMPLETE EXPONENT: "1e"
+    // passes isPartialNumericInput (the guard must admit it, or an error would
+    // flash on the 'e' of a perfectly good "1e3"), expandForDisplay leaves it
+    // alone because it is not a complete number, and so it survives the blur as
+    // a value Number() reads as NaN — which validateFieldValue reports as
+    // "Invalid Input". It is the ONLY route: every other candidate is refused by
+    // handleFieldChange first and reports inputNotSupported instead.
+    // Covered in e2e/tests/ground.test.ts, describe('an incomplete exponent').
 
     it('a non-numeric value is refused by the GUARD, before validation sees it', async () => {
       await track()

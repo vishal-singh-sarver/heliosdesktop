@@ -30,12 +30,20 @@ export const GEOMETRY_MSG = {
   // hardcoding bounds that a backend migration can move.
   required: 'Required Field',
   /**
-   * SUSPECTED DEAD on the ground form. validateFieldValue has an invalidInput
-   * branch for a non-finite value and for a non-integer in an integer field,
-   * but handleFieldChange refuses both BEFORE they can be stored and reports
-   * inputNotSupported instead — verified by a run, not by reading. Reaching it
-   * needs a value the guard admits and validation rejects. Do not assert this
-   * on length/resolution_* without establishing that path first.
+   * REACHABLE, by exactly one route: an INCOMPLETE EXPONENT left in the field.
+   *
+   * This used to read "SUSPECTED DEAD", which was wrong. Type `1e` and blur:
+   * the keystroke guard admits it (isPartialNumericInput has to, or an error
+   * would flash on the 'e' of a valid "1e3"), expandForDisplay leaves it alone
+   * because it is not a complete number, and the blur therefore commits a value
+   * Number() reads as NaN — validateFieldValue's non-finite branch, i.e. this
+   * string. Works on float and integer fields alike; the guard refuses the '.'
+   * character, not 'e'.
+   *
+   * Every OTHER candidate really is pre-empted: a letter, or a '.' added to an
+   * integer field, is refused by handleFieldChange first and reports
+   * inputNotSupported. So assert this only for the exponent case.
+   * Covered by e2e/tests/ground.test.ts, describe('an incomplete exponent').
    */
   invalidInput: 'Invalid Input',
   valuesBetween: (min: number, max: number) => `Values should be between (${min} - ${max})`,
@@ -236,8 +244,16 @@ export const GEOMETRY_LIMITS = {
    * exceeds this in e2e. The 3D window is always mounted and fetches the built
    * mesh with no timeout; a 1000x1000 ground is ~228MB and a max-boundary
    * 25000x25000 save would wedge the runner for the whole 120s mocha budget,
-   * then every remaining test in the file. Boundary cases assert VALIDATION
-   * state only and never press Save.
+   * then every remaining test in the file.
+   *
+   * SCOPE: this bounds the SUBDIVISION COUNT and nothing else. It used to end
+   * "boundary cases assert VALIDATION state only and never press Save", which
+   * read as a rule over every field — and that is why no ground had ever been
+   * SAVED at its length/breadth/position/rotation maxima, for a cost that does
+   * not exist. Mesh size is cells, not extent: a 1,000,000 x 1,000,000 ground at
+   * resolution 2x2 is four triangles. Only a RESOLUTION boundary must stop at
+   * validation; the rest are free to save, and ground.test.ts now does
+   * ("a ground at its catalog maxima").
    */
   MAX_SAVEABLE_RESOLUTION_CELLS: 100
 } as const
