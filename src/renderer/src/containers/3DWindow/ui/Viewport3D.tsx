@@ -2,15 +2,12 @@ import type { CameraControls } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
-import * as THREE from 'three'
 import type { PrimitiveInfo } from '../models/types'
 import messages from '../messages'
 import {
-  selectGeometryVersion,
   selectMeshReady,
   selectSceneLoad,
-  selectSceneObjects,
-  selectSelectedObjectId
+  selectSceneObjects
 } from '../store/selectors'
 import { getAllCachedPrimitives } from '../store/sceneCache'
 import type { LightingMode } from './materials'
@@ -19,7 +16,6 @@ import { defaultLightingSettings } from './SceneLighting'
 import LightingSettingsDialog from './LightingSettingsDialog'
 import SceneCanvas from './SceneCanvas'
 import SceneContent from './SceneContent'
-import { gridStamp, isGridResetSpent } from './SceneHelpers'
 import SceneSelector from './SceneSelector'
 
 // ── Inline SVG icons (no external dependency) ────────────────────────────────
@@ -200,7 +196,6 @@ function ControlsBridge({
 }: {
   actionsRef: React.MutableRefObject<ViewportActions | null>
 }): null {
-  const { camera } = useThree()
   const controls = useThree((s) => s.controls) as CameraControls | null
   const invalidate = useThree((s) => s.invalidate)
 
@@ -238,19 +233,14 @@ function ControlsBridge({
         driveTransition()
       },
       resetView: () => {
-        // Restore default camera planes and control limits so the scene
-        // renders at the correct scale for the origin.
-        const perspCam = camera as THREE.PerspectiveCamera
-        perspCam.near = 0.1
-        perspCam.far = 1_000_000
-        perspCam.updateProjectionMatrix()
-
+        // Restore the default control limits so the scene navigates at the
+        // scale of the origin again. The clipping planes are deliberately not
+        // touched: AdaptiveClipping re-derives them from the camera on the very
+        // next frame, and writing them here only fought with it.
         controls.minDistance = 0.5
         controls.maxDistance = Infinity
 
-        // Instant snap (smooth=false) to avoid vibration — a smooth
-        // transition would traverse positions where the new near/far
-        // planes clip the far-away geometry, causing flicker.
+        // Instant snap (smooth=false) to avoid vibration.
         controls.setLookAt(...DEFAULT_POS, ...DEFAULT_TARGET, false)
         controls.update(1 / 60)
         invalidate()
@@ -262,7 +252,7 @@ function ControlsBridge({
       cancelAnimationFrame(transitionTimer)
       actionsRef.current = null
     }
-  }, [controls, invalidate, actionsRef, camera])
+  }, [controls, invalidate, actionsRef])
 
   return null
 }
@@ -320,50 +310,16 @@ export function Viewport3D(): React.JSX.Element {
   const sceneLoad = useSelector(selectSceneLoad)
   const meshReady = useSelector(selectMeshReady)
   const objects = useSelector(selectSceneObjects)
-  const geometryVersion = useSelector(selectGeometryVersion)
-  const selectedObjectId = useSelector(selectSelectedObjectId)
 
   const [lightingSettings, setLightingSettings] =
     useState<LightingSettings>(defaultLightingSettings)
   const [showLightingDialog, setShowLightingDialog] = useState(false)
   const [showStats, setShowStats] = useState(false)
 
-  // Stamped on reset so the grid falls back to default params, and stays there
-  // until geometry or selection moves on. Captured here in the click handler
-  // rather than compared during render — see SceneHelpers.gridStamp.
-  const [gridResetAt, setGridResetAt] = useState<string | null>(null)
-
-  // Drop the stamp once the scene has moved past it, which makes a reset
-  // one-shot: it applies until the next geometry or selection change and is
-  // then spent, matching the counter this replaced.
-  //
-  // Without this the stamp lives forever and the reset re-fires whenever the
-  // scene happens to return to the state it was taken in — select B, reset,
-  // select A, select B again, and the grid drops to defaults a second time
-  // even though reset was pressed once. Selection alone is enough to trigger
-  // that, because picking an object does not bump geometryVersion.
-  //
-  // Clearing here rather than inside useAdaptiveGrid keeps that hook pure —
-  // the reason the stamp exists at all. There is no window where the old value
-  // is wrongly applied: the render that changes the scene already fails the
-  // stamp comparison, so this only tidies up afterwards.
-  //
-  // Adjusted during render, not in an effect: React re-runs this component
-  // before committing, so there is no extra paint, and the condition is false
-  // once the stamp is null so it cannot loop. Same shape as the dialog state
-  // in Weather/WeatherToolbar. An effect here would both paint an extra frame
-  // and trip react-hooks' cascading-render rule.
-  if (isGridResetSpent(gridResetAt, geometryVersion, selectedObjectId)) {
-    setGridResetAt(null)
-  }
-
   const actionsRef = useRef<ViewportActions | null>(null)
   const handleZoomIn = useCallback(() => actionsRef.current?.zoomIn(), [])
   const handleZoomOut = useCallback(() => actionsRef.current?.zoomOut(), [])
-  const handleResetView = useCallback(() => {
-    actionsRef.current?.resetView()
-    setGridResetAt(gridStamp(geometryVersion, selectedObjectId))
-  }, [geometryVersion, selectedObjectId])
+  const handleResetView = useCallback(() => actionsRef.current?.resetView(), [])
 
   const isFetching = sceneLoad.loading || sceneLoad.objectLoading || sceneLoad.selectionLoading
   // Only surface the loading overlay when the scene actually has geometry to
@@ -385,7 +341,7 @@ export function Viewport3D(): React.JSX.Element {
   return (
     <div className="relative h-full w-full">
       <SceneCanvas>
-        <SceneContent lightingSettings={lightingSettings} gridResetAt={gridResetAt} />
+        <SceneContent lightingSettings={lightingSettings} />
         <ControlsBridge actionsRef={actionsRef} />
       </SceneCanvas>
 

@@ -1,10 +1,11 @@
-import { CameraControls, GizmoHelper, GizmoViewport, Grid } from '@react-three/drei'
+import { CameraControls, GizmoHelper, GizmoViewport } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import React, { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache'
 import type { PrimitiveInfo } from '../models/types'
 import { cameraRangeFor, clippingForView } from './cameraRange'
+import { createGridMaterial, updateGridMaterial } from './gridMaterial'
 
 /**
  * How many multiples of an object's median extent to frame when the camera
@@ -207,52 +208,63 @@ const CLIP_UPDATE_THRESHOLD = 0.02
  */
 function AdaptiveClipping({
   geometryVersion,
-  selectedObjectId,
-  gridSize
+  selectedObjectId
 }: {
   geometryVersion: number
   selectedObjectId: number | null
-  /** Width of the ground grid, which reaches well past the geometry. */
-  gridSize: number
 }): null {
   const { camera } = useThree()
-  // Recomputed only when the scene does; the per-frame path just measures
-  // against it. Null only if there is nothing at all to measure.
+  const controls = useThree((s) => s.controls) as CameraControls | null
+  // Recomputed only when the geometry does; the per-frame path just measures
+  // against it. Null when nothing is cached — the grid alone still needs planes,
+  // which is the empty-scenario case.
   const boxRef = useRef<THREE.Box3 | null>(null)
 
   useEffect(() => {
     const box = boundsOf(primitivesInView(selectedObjectId))
-    // The grid is drawn too, and useAdaptiveGrid sizes it to four times the
-    // geometry's extent — so a frustum wrapped around the geometry alone would
-    // cut straight through it while it is still well inside its fade. It sits
-    // on the XY plane at the origin.
-    const half = gridSize / 2
-    box.expandByPoint(new THREE.Vector3(-half, -half, 0))
-    box.expandByPoint(new THREE.Vector3(half, half, 0))
     boxRef.current = box.isEmpty() ? null : box
     // geometryVersion is not read here — it is the only signal React gets that
     // the module-level cache changed.
-  }, [geometryVersion, selectedObjectId, gridSize])
+  }, [geometryVersion, selectedObjectId])
 
   useFrame(() => {
-    const box = boxRef.current
-    if (!box) return
-
     const perspCam = camera as THREE.PerspectiveCamera
     const pos = perspCam.position
 
-    // Distance to the nearest point of the box — 0 inside it, and for a camera
-    // hovering over a large flat ground, simply its height above the surface.
-    // The bounding SPHERE would report a negative distance there and force the
-    // near plane to its floor, which is the case that has to work.
-    const nearDist = box.distanceToPoint(pos)
-    // Furthest corner. For an AABB the extreme along each axis is independent,
-    // so this needs no loop over the eight corners.
-    const farDist = Math.hypot(
-      Math.max(pos.x - box.min.x, box.max.x - pos.x),
-      Math.max(pos.y - box.min.y, box.max.y - pos.y),
-      Math.max(pos.z - box.min.z, box.max.z - pos.z)
-    )
+    // The grid has to be measured separately from the geometry, and it moved
+    // when the grid became infinite. It used to be a finite square at the origin
+    // whose corners could just be folded into the bounding box; now drei's
+    // `followCamera` rides it under the camera and it fades out at
+    // `fadeDistance` from the point directly below. So the furthest visible
+    // grid fragment is the hypotenuse of that radius and the camera's height,
+    // and the nearest is the point straight down. Without this the far plane
+    // would wrap the geometry alone and cut the grid off in a ring.
+    const gridFade = gridParamsForView(
+      viewDistanceOf(controls, perspCam),
+      perspCam.fov
+    ).fadeDistance
+    const height = Math.abs(pos.z)
+    let nearDist = height
+    let farDist = Math.hypot(gridFade, height)
+
+    const box = boxRef.current
+    if (box) {
+      // Distance to the nearest point of the box — 0 inside it, and for a camera
+      // hovering over a large flat ground, simply its height above the surface.
+      // The bounding SPHERE would report a negative distance there and force the
+      // near plane to its floor, which is the case that has to work.
+      nearDist = Math.min(nearDist, box.distanceToPoint(pos))
+      // Furthest corner. For an AABB the extreme along each axis is independent,
+      // so this needs no loop over the eight corners.
+      farDist = Math.max(
+        farDist,
+        Math.hypot(
+          Math.max(pos.x - box.min.x, box.max.x - pos.x),
+          Math.max(pos.y - box.min.y, box.max.y - pos.y),
+          Math.max(pos.z - box.min.z, box.max.z - pos.z)
+        )
+      )
+    }
 
     const { near, far } = clippingForView(nearDist, farDist)
     const moved =
@@ -268,151 +280,137 @@ function AdaptiveClipping({
   return null
 }
 
-interface GridParams {
-  size: number
+export interface GridParams {
+  /**
+   * Continuous decade level. The finest lines drawn are 10^floor(level), and the
+   * fractional part is how far they have faded towards the next decade.
+   */
+  level: number
+  /** Spacing of the finest lines drawn, always a power of ten. */
   cellSize: number
+  /** Spacing of the bright section lines, a hundred times the finest. */
   sectionSize: number
+  /** Radius around the camera at which the grid has faded to nothing. */
   fadeDistance: number
 }
 
-export const DEFAULT_GRID: GridParams = {
-  size: 100,
-  cellSize: 1,
-  sectionSize: 10,
-  fadeDistance: 150
+/**
+ * Roughly how many of the finest cells span the viewport's height at the moment
+ * a decade takes over. The grid is re-derived from the camera every frame, so
+ * this — not the scene's size — is what fixes the on-screen density.
+ *
+ * Because three decades are drawn at once, this is a floor rather than an exact
+ * count: mid-transition the finest set is up to ten times denser than this while
+ * fading out, with the next decade sitting at a tenth of it. There is always one
+ * set in a readable range, which is the property the cross-fade buys.
+ */
+const GRID_TARGET_CELLS = 16
+
+/** Fade radius as a multiple of the view distance. Tuning value. */
+const GRID_FADE_FACTOR = 5
+
+/**
+ * Grid dimensions for a camera at `viewDistance`, in world units.
+ *
+ * The grid used to be derived from the GEOMETRY's bounding box — four times its
+ * extent, cells at a fiftieth of it. That made it behave like a ground object:
+ * a finite square parked at the origin, so zooming out shrank it into a small
+ * patch and an empty scenario showed a bare 100x100 plane floating in the dark.
+ *
+ * Deriving it from the camera is what makes it read as a grid rather than a
+ * surface. Spacings are powers of ten so an object's size always relates to a
+ * cell by a factor of ten — a 10-unit ground is one cell or ten, never two or
+ * five. See gridMaterial.ts for why decades need the cross-fade to work, and
+ * why the two arrived together.
+ */
+export function gridParamsForView(viewDistance: number, fovDegrees: number): GridParams {
+  const safeDistance = Number.isFinite(viewDistance) && viewDistance > 0 ? viewDistance : 1
+  // World-space height of the viewport at the distance being looked at.
+  const visibleHeight = 2 * safeDistance * Math.tan((fovDegrees * Math.PI) / 180 / 2)
+  const idealCell = visibleHeight / GRID_TARGET_CELLS
+  const level = Math.log10(idealCell)
+  const cellSize = Math.pow(10, Math.floor(level))
+  return {
+    level,
+    cellSize,
+    sectionSize: cellSize * 100,
+    fadeDistance: safeDistance * GRID_FADE_FACTOR
+  }
 }
 
 /**
- * Identifies the scene state the grid is derived from. Reset-view stamps this
- * at click time and the grid shows defaults for as long as the stamp still
- * matches — i.e. until geometry or selection moves on.
+ * How far the camera is from what it is looking at.
  *
- * Selection is part of the stamp, not just geometryVersion: picking "All" in
- * the dropdown dispatches only meshReady() and does NOT bump geometryVersion
- * (see store/saga.ts selectSceneObjectWorker), so keying on geometry alone
- * would strand the grid on defaults after reset -> "All".
+ * CameraControls' own orbit distance, which is exactly the zoom level and stays
+ * meaningful when the camera is level with the grid plane — the camera's height
+ * above the plane collapses to zero there while the view still stretches to the
+ * horizon. Height is only the fallback for before the controls attach.
  */
-export function gridStamp(geometryVersion: number, selectedObjectId: number | null): string {
-  return `${geometryVersion}:${selectedObjectId}`
+function viewDistanceOf(controls: CameraControls | null, camera: THREE.Camera): number {
+  const distance = controls?.distance
+  if (typeof distance === 'number' && Number.isFinite(distance) && distance > 0) return distance
+  return Math.max(Math.abs(camera.position.z), 1)
+}
+
+const GRID_COLORS = {
+  // The viewport's original palette. Section lines are marked out by being
+  // twice as thick, not by being brighter — sectionColor is in fact slightly
+  // darker than cellColor, which is how the grid has always read.
+  cell: '#8888bb',
+  section: '#666680'
 }
 
 /**
- * True once the scene has moved past the stamp, meaning the reset it recorded
- * has been used up and the stamp should be dropped.
+ * The ground grid, pointed at the camera every frame.
  *
- * A reset is one-shot: it holds the grid at defaults until the next geometry or
- * selection change, then stops applying — the behaviour of the counter this
- * replaced. A stamp that is kept forever instead re-fires whenever the scene
- * returns to the state it was taken in (select B, reset, select A, select B
- * again), which is not a thing the user asked for. Selection alone is enough to
- * hit that, since picking an object does not bump geometryVersion.
- *
- * Kept out of useAdaptiveGrid so that hook stays pure; the owner of the stamp
- * calls this while rendering and drops the stamp itself. See Viewport3D.
+ * Written straight into the material's uniforms rather than through props: the
+ * camera moves continuously, and re-rendering this subtree on every wheel tick
+ * to pass a new number down is not something React should be asked to do.
  */
-export function isGridResetSpent(
-  gridResetAt: string | null,
-  geometryVersion: number,
-  selectedObjectId: number | null
-): boolean {
-  return gridResetAt !== null && gridResetAt !== gridStamp(geometryVersion, selectedObjectId)
-}
+function AdaptiveGrid(): React.JSX.Element {
+  const { camera } = useThree()
+  const controls = useThree((s) => s.controls) as CameraControls | null
+  const material = useMemo(() => createGridMaterial(GRID_COLORS), [])
 
-/** Derive grid dimensions from the scene's bounding box so the grid
- *  always matches the model scale.  While gridResetAt still matches the
- *  current scene the grid stays at defaults (camera reset to origin). */
-export function useAdaptiveGrid(
-  geometryVersion: number,
-  selectedObjectId: number | null,
-  gridResetAt: string | null
-): GridParams {
-  return useMemo(() => {
-    // After a view-reset, return defaults until the scene moves on. Comparing
-    // stamps keeps this pure — the previous version latched a ref during
-    // render, so a render React discarded could consume the reset and leave
-    // the grid unchanged. Two values compared on every render cannot be spent.
-    if (gridResetAt !== null && gridResetAt === gridStamp(geometryVersion, selectedObjectId)) {
-      return DEFAULT_GRID
-    }
+  useEffect(() => () => material.dispose(), [material])
 
-    const primitives = primitivesInView(selectedObjectId)
-    if (primitives.length === 0) {
-      return DEFAULT_GRID
-    }
+  useFrame(() => {
+    const perspCam = camera as THREE.PerspectiveCamera
+    const params = gridParamsForView(viewDistanceOf(controls, perspCam), perspCam.fov)
+    updateGridMaterial(
+      material,
+      perspCam.position.x,
+      perspCam.position.y,
+      params.level,
+      params.fadeDistance
+    )
+  })
 
-    const box = boundsOf(primitives)
-
-    const extentSize = new THREE.Vector3()
-    box.getSize(extentSize)
-    const maxExtent = Math.max(extentSize.x, extentSize.y, extentSize.z, 1)
-
-    // Round cell size to a clean number: pick a power-of-10 that gives ~40-80 cells
-    const rawCell = maxExtent / 50
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawCell)))
-    const steps = [1, 2, 5, 10]
-    let cellSize = magnitude
-    for (const s of steps) {
-      if (s * magnitude >= rawCell) {
-        cellSize = s * magnitude
-        break
-      }
-    }
-
-    const sectionSize = cellSize * 10
-    const size = maxExtent * 4
-    const fadeDistance = size * 0.8
-
-    return { size, cellSize, sectionSize, fadeDistance }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- geometryVersion proxies cache changes
-  }, [geometryVersion, selectedObjectId, gridResetAt])
+  // The quad is positioned entirely by the vertex shader, so no transform here.
+  return (
+    <mesh material={material} frustumCulled={false} renderOrder={-1}>
+      <planeGeometry args={[2, 2]} />
+    </mesh>
+  )
 }
 
 interface SceneHelpersProps {
   fitVersion: number
   selectedObjectId: number | null
   geometryVersion: number
-  /** Scene stamp captured when reset-view was last pressed; see gridStamp. */
-  gridResetAt?: string | null
 }
 
 /** Ground grid (XY plane, Z-up), orientation gizmo and camera navigation. */
 export function SceneHelpers({
   fitVersion,
   selectedObjectId,
-  geometryVersion,
-  gridResetAt = null
+  geometryVersion
 }: SceneHelpersProps): React.JSX.Element {
-  const grid = useAdaptiveGrid(geometryVersion, selectedObjectId, gridResetAt)
-
   return (
     <>
-      {/* Adaptive finite grid — scales cell/section sizes to the loaded
-          geometry so it always looks proportional. polygonOffset pushes
-          depth back so ground geometry at z=0 occludes it. */}
-      <Grid
-        ref={(gridMesh: THREE.Mesh | null) => {
-          if (!gridMesh) return
-          const mat = gridMesh.material as THREE.Material
-          if (mat) {
-            mat.polygonOffset = true
-            mat.polygonOffsetFactor = 4
-            mat.polygonOffsetUnits = 4
-            mat.depthWrite = false
-          }
-        }}
-        position={[0, 0, 0]}
-        rotation={[Math.PI / 2, 0, 0]}
-        args={[grid.size, grid.size]}
-        cellSize={grid.cellSize}
-        cellThickness={0.6}
-        cellColor="#8888bb"
-        sectionSize={grid.sectionSize}
-        sectionThickness={1.2}
-        sectionColor="#666680"
-        fadeDistance={grid.fadeDistance}
-        fadeStrength={1.5}
-        renderOrder={-1}
-      />
+      {/* Sized from the CAMERA, not the geometry, so it reads as a grid at any
+          zoom instead of shrinking away like a ground plane. */}
+      <AdaptiveGrid />
 
       {/* CameraControls damps rotate, pan AND zoom (unlike OrbitControls).
           maxPolarAngle=π allows rotating all the way under the ground. */}
@@ -443,11 +441,7 @@ export function SceneHelpers({
       />
       {/* Clipping planes follow the CAMERA, every frame. Rendered after
           CameraControls above so it reads this frame's position. */}
-      <AdaptiveClipping
-        geometryVersion={geometryVersion}
-        selectedObjectId={selectedObjectId}
-        gridSize={grid.size}
-      />
+      <AdaptiveClipping geometryVersion={geometryVersion} selectedObjectId={selectedObjectId} />
     </>
   )
 }
