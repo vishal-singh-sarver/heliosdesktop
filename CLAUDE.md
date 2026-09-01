@@ -201,12 +201,18 @@ snapshot with **added attributes and zero deletions**.
     used to claim it did, and two tests written on that belief failed. Its
     `input` dispatch runs React's `onChange`, which IS `handleFieldChange` — the
     guard tests the WHOLE incoming value and returns without storing it. What
-    `setField` skips is per-CHARACTER delivery, not the guard. Consequence:
-    `messages.invalidInput` looks **unreachable** on the ground form, because
-    the guard refuses non-numerics and refuses adding a `.` to an integer field
+    `setField` skips is per-CHARACTER delivery, not the guard. Consequence: the
+    guard refuses non-numerics and refuses adding a `.` to an integer field
     before `validateFieldValue` ever sees them, reporting
-    `This input is not supported` instead. Same shape as the unreachable
-    `loadError`. Confirm the reachable path before asserting that copy anywhere.
+    `This input is not supported` instead — so those routes never produce
+    `messages.invalidInput`.
+    **RESOLVED — `invalidInput` IS reachable**, by one route: an *incomplete
+    exponent*. `1e` passes the guard (it must, or an error would flash on the
+    `e` of a valid `1e3`), `expandForDisplay` leaves it alone because it is not
+    a complete number, and the blur commits a value `Number()` reads as NaN.
+    Float and integer fields alike. This file, `e2e/constants/geometry.ts` and
+    `geometry.test.ts` all used to call the string dead; they were wrong.
+    Covered by `ground.test.ts` → `describe('an incomplete exponent')`.
 13. **HTML5 drag needs synthetic events.** Pointer actions cannot produce
     `dragstart`/`dataTransfer`. Rows split 30/40/30 by `clientY`, and
     `handleDrop` reads React state written by `handleDragOver` — so dragover and
@@ -346,11 +352,51 @@ Not covered, deliberately: **drag-and-drop assign** (the helper now exists —
 yet), and the **`drift`** sync dot, which is UNREACHABLE from the GUI because
 every client write hardcodes `sync: true`.
 
+### `e2e/tests/ground.test.ts` — 22 tests, ~1m 25s
+
+New file. **22 passing, 0 failing.** Written from a case-by-case audit of the
+239 cases in `docs/test-cases-ground-container.md` against EVERY layer — e2e,
+the 1579-line `Geometry/tests/ObjectPropertiesForm.test.tsx`,
+`RightPanel/tests/index.test.tsx`, and the backend pytest suite. That audit
+found 98 covered, 117 covered at unit/API level but not e2e, and **24 covered
+nowhere**. This file holds every one of those that is reachable from the UI.
+
+**The other five stay MANUAL.** `GRD-API-01/02/03/16/17` (DATATYPE_MISMATCH,
+INVALID_NUMBER, and `properties` as an array) are API-contract cases with no
+route from the form — the keystroke guard blocks every path — so testing them
+means editing the backend suite, which the no-backend-changes rule forbids.
+They are documented cases, not gaps waiting to be filled. Do not "fix" them by
+adding a pytest file.
+
+**Do not add field-validation, keystroke-guard, save-gating or texture-repeat
+cases here.** They are already covered — mostly at the unit layer, which sees
+them better and faster. The audit's whole point was that the e2e suite had been
+read in isolation and the same ground re-covered.
+
+The through-line of what was missing: **the right panel's NAME field.** Nothing
+at any layer had driven the pencil, so `handleNameBlur` — the only path to a
+rename from this form, and the only place `NO_NAME_CONFLICTS` makes the form
+behave differently from the tree — was unreached code.
+
+| Group | n | Covers |
+|---|---:|---|
+| rename from the Properties form | 5 | read-only until the pencil, double-click, BLUR commits (Enter does not), delete closes the form |
+| duplicate name — the form path | 3 | no client-side check → the real 409, error survives a panel collapse, group/geometry namespaces |
+| save gating — the name | 1 | a name change alone never lights Save |
+| an incomplete exponent | 4 | the ONE reachable route to `Invalid Input` |
+| **a ground at its catalog maxima** | 2 | length/breadth/position/rotation ALL at max, SAVED, and surviving a reselect |
+| save gating — partial recovery | 1 | two invalid fields, fix one, Save stays down |
+| the name validation tooltip | 2 | empty name sends no PATCH; the tooltip goes with the form |
+| inline rename by BLUR | 2 | the discard and commit branches — `commit:'blur'` had never been passed |
+| loading a ground | 1 | an unsaved edit is discarded on switching rows |
+| a failed per-object load | 1 | it is SILENT (deviation + product finding) |
+
 ### Supporting files
 ```
 e2e/pages/Geometry.page.ts          rows, groups, tree states, one-execute snapshot
 e2e/pages/LeftPanel.page.ts         panel + accordion chrome, titles, chevrons
-e2e/pages/ObjectProperties.page.ts  ground form: fields, tooltip errors, save
+e2e/pages/ObjectProperties.page.ts  ground form: fields, tooltip errors, save, NAME row
+e2e/pages/RightPanel.page.ts        the collapse chevron (display:none, never unmount)
 e2e/pages/Materials.page.ts         library rows, search, delete
 e2e/pages/MaterialProperties.page.ts type cards, portalled Select, card fields
 e2e/support/dialogs.ts              READ an open <dialog> without completing it
@@ -424,11 +470,25 @@ space up if you like; do not treat it as a defect.
   `grass.jpg`. So the story's "select a texture from a set of predefined Helios
   textures" cannot be satisfied by any current build. The e2e test for it
   self-skips and will start passing the day the assets are bundled.
-- **`GEOMETRY_MSG.invalidInput` looks unreachable on the ground form.** The
-  keystroke guard refuses non-numerics and refuses adding a `.` to an integer
-  field BEFORE `validateFieldValue` sees them, reporting
-  `This input is not supported` instead. Same shape as the unreachable
-  `loadError`.
+- **`GEOMETRY_MSG.invalidInput` is reachable after all — via an incomplete
+  exponent.** Earlier notes here called it dead. Type `1e` and blur: the guard
+  admits it, `expandForDisplay` cannot expand it, and `Number('1e')` is NaN. It
+  is the ONLY route — a letter, or a `.` added to an integer field, is refused
+  by the guard first and reports `This input is not supported`. Now covered by
+  `ground.test.ts`.
+- **`GEOMETRY_MSG.objectDeletedNotice` IS unreachable from the GUI.**
+  `This geometry was deleted. Close the panel.` never appears from either trash:
+  `DELETE_NODE_SUCCEEDED` nulls `createDraft` when the removed object is the one
+  on screen (`reducer.ts:465-470`, "close it rather than leave it in the
+  read-only 'deleted' state"), so the form unmounts instead. `objectDeleted`
+  needs the node to leave `nodesById` while the draft SURVIVES — a `LIST_NODES`
+  refetch after a delete performed elsewhere. That is why the string has never
+  had a consumer. `ground.test.ts` pins the shipped close instead.
+- **A failed per-object load is COMPLETELY SILENT.** `loadObjectFailed` is
+  dispatched (`saga.ts:274`) and handled by nothing — no reducer case, no toast,
+  no listener anywhere in `src/`. Clicking a ground whose `GET` fails produces no
+  feedback at all and leaves the panel as it was. Pinned as a DEVIATION in
+  `ground.test.ts`; worth a product decision before Geometry sign-off.
 - **`drift` on the material sync dot is unreachable from the GUI.** Every client
   write hardcodes `sync: true`, so only `stale` can be produced.
 - **`topt_tpu` is 273-373 in the catalog; Story 10 states 272.** Every other
