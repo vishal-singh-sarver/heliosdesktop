@@ -1,261 +1,147 @@
-import { renderHook } from '@testing-library/react'
-import { StrictMode } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
-import type { PrimitiveInfo } from '../models/types'
-import { clearSceneCache, setObjectPrimitives } from '../store/sceneCache'
-import { DEFAULT_GRID, gridStamp, isGridResetSpent, useAdaptiveGrid } from '../ui/SceneHelpers'
+import { describe, expect, it } from 'vitest'
+import { clippingForView } from '../ui/cameraRange'
+import { gridParamsForView } from '../ui/SceneHelpers'
 
-// The grid sizes itself off the scene's bounding box, which lives in the
-// module-level sceneCache rather than in Redux. These tests drive the real
-// cache (the same thing saga.test.ts does) instead of mocking it, so the
-// arithmetic under test runs against the data shape the app actually stores.
+// The grid used to be derived from the scene's bounding box — a finite square
+// parked at the origin, four times the geometry's extent. That made it behave
+// like a ground object: zooming out shrank it into a small patch, and an empty
+// scenario showed a bare 100x100 plane floating in the dark. It is now derived
+// from the camera, which is why these tests take a view distance and no
+// geometry at all — the signature is the change.
+//
+// The tests that lived here before pinned the geometry-derived sizing and the
+// one-shot reset-view stamp that existed to paper over it (reset moved the
+// camera but not the grid, so the grid had to be forced back to defaults). A
+// camera-derived grid is correct by construction after a reset, so that whole
+// subsystem is gone rather than re-tested.
 
-/** One primitive spanning the origin to `extent` along X. */
-function boxOfExtent(extent: number): PrimitiveInfo {
-  return {
-    uuid: 1,
-    vertices: [
-      { x: 0, y: 0, z: 0 },
-      { x: extent, y: 0, z: 0 }
-    ],
-    color: { r: 1, g: 1, b: 1 }
-  }
+const FOV = 50
+
+/** Viewport height in world units at a given camera distance. */
+function visibleHeight(distance: number): number {
+  return 2 * distance * Math.tan((FOV * Math.PI) / 180 / 2)
 }
 
-// Worked through by hand from the cellSize algorithm, so a change to the
-// rounding steps fails loudly here rather than silently reshaping the grid:
-//   extent 100 -> rawCell 2   -> magnitude 1   -> cellSize 2
-//   extent  20 -> rawCell 0.4 -> magnitude 0.1 -> cellSize 0.5
-const GRID_FOR_100 = { size: 400, cellSize: 2, sectionSize: 20, fadeDistance: 320 }
-const GRID_FOR_20 = { size: 80, cellSize: 0.5, sectionSize: 5, fadeDistance: 64 }
+/**
+ * The three line spacings the shader actually draws at once: the finest decade,
+ * which fades out as the camera pulls back, and the two above it.
+ */
+function drawnSpacings(distance: number): number[] {
+  const { cellSize } = gridParamsForView(distance, FOV)
+  return [cellSize, cellSize * 10, cellSize * 100]
+}
 
-afterEach(() => clearSceneCache())
+// Seven orders of magnitude — a 10-unit ground up to the 1000000-unit one from
+// the clipping bug, and in past both.
+const DISTANCES = [0.1, 1, 16, 250, 5_000, 120_000, 1.7e6, 5e7]
 
-describe('useAdaptiveGrid — deriving the grid from geometry', () => {
-  it('falls back to defaults when nothing is cached', () => {
-    const { result } = renderHook(() => useAdaptiveGrid(0, null, null))
-    expect(result.current).toEqual(DEFAULT_GRID)
-  })
-
-  it('sizes the grid to every cached object when nothing is selected', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    setObjectPrimitives(2, [boxOfExtent(20)])
-
-    const { result } = renderHook(() => useAdaptiveGrid(1, null, null))
-    expect(result.current).toEqual(GRID_FOR_100)
-  })
-
-  it('sizes the grid to just the selected object', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    setObjectPrimitives(2, [boxOfExtent(20)])
-
-    const { result } = renderHook(() => useAdaptiveGrid(1, 2, null))
-    expect(result.current).toEqual(GRID_FOR_20)
-  })
-
-  it('falls back to defaults when the selected object is not cached', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-
-    const { result } = renderHook(() => useAdaptiveGrid(1, 99, null))
-    expect(result.current).toEqual(DEFAULT_GRID)
-  })
-
-  it('recomputes when geometryVersion bumps, since the cache is invisible to React', () => {
-    setObjectPrimitives(1, [boxOfExtent(20)])
-    const { result, rerender } = renderHook(
-      ({ v }: { v: number }) => useAdaptiveGrid(v, null, null),
-      { initialProps: { v: 1 } }
-    )
-    expect(result.current).toEqual(GRID_FOR_20)
-
-    // A cache write alone must NOT be picked up — geometryVersion is the only
-    // signal the hook has that the cache changed.
-    setObjectPrimitives(2, [boxOfExtent(100)])
-    expect(result.current).toEqual(GRID_FOR_20)
-
-    rerender({ v: 2 })
-    expect(result.current).toEqual(GRID_FOR_100)
-  })
-})
-
-// Reset-view stamps the scene state it was pressed at; the grid shows defaults
-// for as long as that stamp still describes the current scene. `reset` below
-// stands in for what Viewport3D's click handler stores.
-type ResetProps = { v: number; sel: number | null; reset: string | null }
-
-describe('useAdaptiveGrid — reset-view behaviour', () => {
-  it('returns defaults when a reset lands, even with geometry cached', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset }: ResetProps) => useAdaptiveGrid(v, sel, reset),
-      { initialProps: { v: 1, sel: null, reset: null } as ResetProps }
-    )
-    expect(result.current).toEqual(GRID_FOR_100)
-
-    rerender({ v: 1, sel: null, reset: gridStamp(1, null) })
-    expect(result.current).toEqual(DEFAULT_GRID)
-  })
-
-  it('goes back to adaptive values on the next geometry change', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    const reset = gridStamp(1, null)
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset: r }: ResetProps) => useAdaptiveGrid(v, sel, r),
-      { initialProps: { v: 1, sel: null, reset } as ResetProps }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
-
-    rerender({ v: 2, sel: null, reset })
-    expect(result.current).toEqual(GRID_FOR_100)
-  })
-
-  // Selecting "All" in the dropdown dispatches only meshReady() and does NOT
-  // bump geometryVersion (store/saga.ts selectSceneObjectWorker), so selection
-  // is an independent way out of the post-reset default. Pinned because a fix
-  // keyed on geometryVersion alone would silently regress this path.
-  it('goes back to adaptive values when the selection changes instead', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    setObjectPrimitives(2, [boxOfExtent(20)])
-    const reset = gridStamp(1, null)
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset: r }: ResetProps) => useAdaptiveGrid(v, sel, r),
-      { initialProps: { v: 1, sel: null, reset } as ResetProps }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
-
-    rerender({ v: 1, sel: 2, reset })
-    expect(result.current).toEqual(GRID_FOR_20)
-  })
-
-  it('stays on defaults while nothing about the scene has changed', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset }: ResetProps) => useAdaptiveGrid(v, sel, reset),
-      { initialProps: { v: 1, sel: null, reset: gridStamp(1, null) } as ResetProps }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
-
-    // Pressing reset again with an unchanged scene re-stamps the same value,
-    // and the grid keeps showing defaults.
-    rerender({ v: 1, sel: null, reset: gridStamp(1, null) })
-    expect(result.current).toEqual(DEFAULT_GRID)
-  })
-
-  // The whole point of the rewrite: the old version latched a ref during
-  // render, so it could only fire once. Re-rendering with identical inputs
-  // used to consume the latch and silently drop back to adaptive values.
-  it('keeps returning defaults across repeated renders with identical inputs', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    const props: ResetProps = { v: 1, sel: null, reset: gridStamp(1, null) }
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset }: ResetProps) => useAdaptiveGrid(v, sel, reset),
-      { initialProps: props }
-    )
-
-    for (let i = 0; i < 5; i++) {
-      rerender({ ...props })
-      expect(result.current).toEqual(DEFAULT_GRID)
+describe('gridParamsForView — the grid tracks the camera, not the scene', () => {
+  // THE property the grid was changed for. Spacings are powers of ten, so an
+  // object's size always relates to a cell by a factor of ten. With the 1/2/5
+  // rounding this replaced, a 10-unit ground sat inside 2 cells at one zoom and
+  // 5 at another, which is no use for reading a dimension off the grid.
+  it.each(DISTANCES)('spaces lines by a power of ten at distance %p', (distance) => {
+    for (const spacing of drawnSpacings(distance)) {
+      const exponent = Math.log10(spacing)
+      expect(exponent).toBeCloseTo(Math.round(exponent), 10)
     }
   })
 
-  // The app mounts under React.StrictMode (main.tsx), which double-invokes
-  // component bodies. A stamp comparison is unaffected by construction; this
-  // pins that, so a future rewrite that reintroduces render-phase state has to
-  // clear the same bar. (Note: the old ref latch also passed this in practice
-  // — StrictMode was not enough to surface its one-shot flaw.)
-  it('survives StrictMode double-invocation', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    const { result } = renderHook(
-      ({ v, sel, reset }: ResetProps) => useAdaptiveGrid(v, sel, reset),
-      {
-        wrapper: StrictMode,
-        initialProps: { v: 1, sel: null, reset: gridStamp(1, null) } as ResetProps
-      }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
+  // The same property stated the way it is actually looked at: how many cells
+  // does a 10-unit ground cover? Ten, one, or a tenth — never two or five.
+  it.each(DISTANCES)('puts a 10-unit ground on a power of ten of cells at %p', (distance) => {
+    for (const spacing of drawnSpacings(distance)) {
+      const cells = 10 / spacing
+      expect(Math.log10(cells)).toBeCloseTo(Math.round(Math.log10(cells)), 10)
+    }
+  })
+
+  // What the cross-fade buys. Decade steps are 10x apart, so any single level is
+  // ten times too dense or ten times too sparse for most of the range — which is
+  // why decades alone would look worse than the 1/2/5 rounding, not better.
+  // Drawing three at once means one of them is always in a readable range.
+  it.each(DISTANCES)('always has a readable set of lines on screen at %p', (distance) => {
+    const counts = drawnSpacings(distance).map((s) => visibleHeight(distance) / s)
+    expect(counts.some((c) => c >= 5 && c <= 55)).toBe(true)
+  })
+
+  // The level has to move CONTINUOUSLY with the camera — that continuity is the
+  // cross-fade. If someone re-introduces rounding here the shader goes back to
+  // swapping whole sets of lines in and out at once, which is the popping the
+  // custom material exists to remove, and no other test would catch it.
+  it.each(DISTANCES)('moves the level smoothly rather than in steps at %p', (distance) => {
+    const step =
+      gridParamsForView(distance * 1.01, FOV).level - gridParamsForView(distance, FOV).level
+    expect(step).toBeCloseTo(Math.log10(1.01), 6)
+  })
+
+  // Zooming out has to grow the grid, not shrink it — the reported complaint.
+  it('grows every dimension monotonically as the camera pulls back', () => {
+    for (let i = 1; i < DISTANCES.length; i++) {
+      const near = gridParamsForView(DISTANCES[i - 1], FOV)
+      const far = gridParamsForView(DISTANCES[i], FOV)
+      expect(far.level).toBeGreaterThan(near.level)
+      expect(far.cellSize).toBeGreaterThanOrEqual(near.cellSize)
+      expect(far.fadeDistance).toBeGreaterThan(near.fadeDistance)
+    }
+  })
+
+  // A camera at the default pose, before anything is loaded. The old grid gave
+  // a 100x100 plane here regardless of where the camera was. The finest decade
+  // is 0.1 but is ~97% faded out at this level, so what reads on screen is the
+  // 1-unit grid with bright lines every 10.
+  it('produces a sane grid for an empty scenario at the default camera', () => {
+    const { level, cellSize, sectionSize, fadeDistance } = gridParamsForView(16, FOV)
+    expect(cellSize).toBe(0.1)
+    expect(sectionSize).toBe(10)
+    expect(fadeDistance).toBe(80)
+    expect(level - Math.floor(level)).toBeGreaterThan(0.9) // finest nearly gone
+  })
+
+  // The camera distance comes from CameraControls, which can hand back 0 or NaN
+  // before it has attached. A grid with a cell size of 0 or NaN is an infinite
+  // loop in the shader's fract(), not a cosmetic problem.
+  it.each([0, -5, NaN, Infinity])('falls back to a usable grid for %p', (bad) => {
+    const { level, cellSize, sectionSize, fadeDistance } = gridParamsForView(bad, FOV)
+    for (const value of [cellSize, sectionSize, fadeDistance]) {
+      expect(Number.isFinite(value)).toBe(true)
+      expect(value).toBeGreaterThan(0)
+    }
+    expect(Number.isFinite(level)).toBe(true)
   })
 })
 
-// A reset is one-shot: it holds the grid at defaults until the next geometry or
-// selection change, then is spent — the behaviour of the counter the stamp
-// replaced. useAdaptiveGrid alone cannot express that, because a stamp kept
-// forever re-applies whenever the scene returns to the state it was taken in.
-// Viewport3D drops the stamp at that point via isGridResetSpent; these drive the
-// same loop so the pair is pinned together rather than each half in isolation.
-describe('reset-view is one-shot', () => {
-  /** Mirrors Viewport3D: hold the stamp, and clear it once the scene moves on. */
-  function scene(reset: string | null, v: number, sel: number | null): string | null {
-    return isGridResetSpent(reset, v, sel) ? null : reset
-  }
+// The infinite grid changed what the far plane has to cover, so these pin the
+// seam between the two. AdaptiveClipping used to fold the grid's corners into
+// the geometry's bounding box, which only worked while the grid was a finite
+// square at the origin. It now rides under the camera and fades out at
+// `fadeDistance`, so the numbers below are what that component computes for a
+// scene with nothing in it but the grid.
+describe('the grid and the clipping planes agree', () => {
+  /** Camera height above the grid plane, at FitToScene's 50-degree elevation. */
+  const heightAt = (distance: number): number => distance * Math.sin((50 * Math.PI) / 180)
 
-  it('does not re-fire when the selection returns to where reset was pressed', () => {
-    setObjectPrimitives(1, [boxOfExtent(100)])
-    setObjectPrimitives(2, [boxOfExtent(20)])
+  it.each(DISTANCES)('never clips the grid at distance %p', (distance) => {
+    const height = heightAt(distance)
+    const { fadeDistance } = gridParamsForView(distance, FOV)
+    // Nearest visible grid fragment is straight down; furthest is at the fade
+    // radius, out across the plane.
+    const farDist = Math.hypot(fadeDistance, height)
+    const { near, far } = clippingForView(height, farDist)
 
-    // Object 2 selected, user presses Reset View.
-    let reset: string | null = gridStamp(1, 2)
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset: r }: ResetProps) => useAdaptiveGrid(v, sel, r),
-      { initialProps: { v: 1, sel: 2, reset } as ResetProps }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
-
-    // Selection moves to object 1 — grid goes adaptive and the stamp is spent.
-    reset = scene(reset, 1, 1)
-    rerender({ v: 1, sel: 1, reset })
-    expect(result.current).toEqual(GRID_FOR_100)
-    expect(reset).toBeNull()
-
-    // Back to object 2. Reset was pressed once, so the grid must fit object 2,
-    // NOT drop to defaults a second time.
-    reset = scene(reset, 1, 2)
-    rerender({ v: 1, sel: 2, reset })
-    expect(result.current).toEqual(GRID_FOR_20)
+    expect(near).toBeLessThan(height) // the grid below the camera survives
+    expect(far).toBeGreaterThan(farDist) // so does its outer edge
   })
 
-  it('does not re-fire when geometryVersion returns to the stamped value', () => {
-    setObjectPrimitives(1, [boxOfExtent(20)])
+  // Zooming out grows the fade radius, which grows the far plane. If the near
+  // plane did not grow with it the depth buffer would run out exactly the way
+  // the geometry did in the original bug — the failure this pairing exists to
+  // avoid.
+  it.each(DISTANCES)('keeps the depth-buffer ratio safe at distance %p', (distance) => {
+    const height = heightAt(distance)
+    const { fadeDistance } = gridParamsForView(distance, FOV)
+    const { near, far } = clippingForView(height, Math.hypot(fadeDistance, height))
 
-    let reset: string | null = gridStamp(1, null)
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset: r }: ResetProps) => useAdaptiveGrid(v, sel, r),
-      { initialProps: { v: 1, sel: null, reset } as ResetProps }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
-
-    reset = scene(reset, 2, null)
-    rerender({ v: 2, sel: null, reset })
-    expect(result.current).toEqual(GRID_FOR_20)
-
-    reset = scene(reset, 1, null)
-    rerender({ v: 1, sel: null, reset })
-    expect(result.current).toEqual(GRID_FOR_20)
-  })
-
-  it('a fresh reset still applies after an earlier one was spent', () => {
-    setObjectPrimitives(1, [boxOfExtent(20)])
-
-    let reset: string | null = gridStamp(1, null)
-    const { result, rerender } = renderHook(
-      ({ v, sel, reset: r }: ResetProps) => useAdaptiveGrid(v, sel, r),
-      { initialProps: { v: 1, sel: null, reset } as ResetProps }
-    )
-    expect(result.current).toEqual(DEFAULT_GRID)
-
-    reset = scene(reset, 2, null)
-    rerender({ v: 2, sel: null, reset })
-    expect(result.current).toEqual(GRID_FOR_20)
-
-    // User presses Reset View again at the current scene state.
-    reset = gridStamp(2, null)
-    rerender({ v: 2, sel: null, reset })
-    expect(result.current).toEqual(DEFAULT_GRID)
-  })
-
-  it('isGridResetSpent leaves a live stamp alone and never fires with no reset', () => {
-    expect(isGridResetSpent(gridStamp(1, 2), 1, 2)).toBe(false)
-    expect(isGridResetSpent(gridStamp(1, 2), 1, 3)).toBe(true)
-    expect(isGridResetSpent(gridStamp(1, 2), 2, 2)).toBe(true)
-    expect(isGridResetSpent(null, 1, 2)).toBe(false)
+    expect(far / near).toBeLessThanOrEqual(1e6)
   })
 })
