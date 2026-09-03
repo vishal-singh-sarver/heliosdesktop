@@ -18,6 +18,7 @@ import { LOAD_OBJECT_GEOMETRY_REQUESTED, LOAD_SCENE_REQUESTED } from '../store/c
 import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
+  onMeshReady,
   onMaterialAssigned,
   onMaterialDeleted,
   onMaterialSaved,
@@ -28,6 +29,7 @@ import threeDWindowSaga, {
 } from '../store/saga'
 import { selectSceneObjects } from '../store/selectors'
 import { clearSceneCache, removeObjectPrimitives, setObjectPrimitives } from '../store/sceneCache'
+import { beginSceneLoad, endSceneLoad } from '../perf/metrics'
 import { clearTextureCache } from '../ui/textureCache'
 
 const testObject: SceneObject = { id: 28, name: 'Ground.001', object_type_id: 1 }
@@ -75,6 +77,9 @@ describe('loadSceneWorker', () => {
   it('settles an empty success when no active project/scenario is selected', () => {
     const gen = loadSceneWorker()
 
+    // The perf harness opens the measurement window before any work starts, so
+    // a slow clear is inside the number rather than hidden before it.
+    expect(gen.next().value).toEqual(call(beginSceneLoad))
     expect(gen.next().value).toEqual(call(clearSceneCache))
     expect(gen.next().value).toEqual(call(clearTextureCache))
     expect(gen.next().value).toEqual(select(selectActiveProjectId))
@@ -88,6 +93,7 @@ describe('loadSceneWorker', () => {
   it('settles an empty scene without waiting when the node tree is already loaded', () => {
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -106,6 +112,7 @@ describe('loadSceneWorker', () => {
   it('waits for the node tree while a list is genuinely in flight', () => {
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -129,6 +136,7 @@ describe('loadSceneWorker', () => {
     const second: SceneObject = { id: 29, name: 'Ground.002', object_type_id: 1 }
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -394,6 +402,17 @@ describe('onMaterialUnassigned', () => {
     gen.next() // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
     expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+})
+
+describe('onMeshReady', () => {
+  it('closes the perf harness measurement window', () => {
+    // MESH_READY is the first moment the geometry is actually on screen, which
+    // is two steps past loadSceneSucceeded. endSceneLoad is a no-op unless a
+    // load is outstanding, so the selection-change MESH_READYs cost nothing.
+    const gen = onMeshReady()
+    expect(gen.next().value).toEqual(call(endSceneLoad))
+    expect(gen.next().done).toBe(true)
   })
 })
 

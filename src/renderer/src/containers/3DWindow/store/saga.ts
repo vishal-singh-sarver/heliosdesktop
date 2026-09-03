@@ -45,13 +45,18 @@ import { ApiError } from 'utils/api'
 import {
   abortObjectGeometry,
   fetchObjectGeometryBinary,
+  fetchObjectGeometryGpu,
   isGeometryAborted
 } from '../api/geometry'
+import type { GpuGeometry } from '../api/geometryV2'
+import { getGeometryFormat } from './featureFlags'
 import type { ApiErrorPayload, PrimitiveInfo, SceneObject } from '../models/types'
+import { beginSceneLoad, endSceneLoad } from '../perf/metrics'
 import * as actions from './actions'
 import {
   LOAD_OBJECT_GEOMETRY_REQUESTED,
   LOAD_SCENE_REQUESTED,
+  MESH_READY,
   SELECT_SCENE_OBJECT
 } from './constants'
 import { clearTextureCache } from '../ui/textureCache'
@@ -59,8 +64,10 @@ import {
   bumpGeometryGeneration,
   clearSceneCache,
   geometryToken,
+  getObjectGpu,
   getObjectPrimitives,
   removeObjectPrimitives,
+  setObjectGpu,
   setObjectPrimitives
 } from './sceneCache'
 import {
@@ -122,14 +129,9 @@ function* fetchAndCacheObjectGeometry(
   // fetch ends some other way. Every exit below settles it.
   yield put(actions.objectGeometryPending(objectId))
 
-  let primitives: PrimitiveInfo[]
+  let fetched: FetchedGeometry
   try {
-    primitives = (yield call(
-      fetchObjectGeometryBinary,
-      projectId,
-      scenarioId,
-      objectId
-    )) as PrimitiveInfo[]
+    fetched = yield* fetchGeometry(projectId, scenarioId, objectId)
   } catch (err) {
     yield put(actions.objectGeometryPending(objectId, false))
     // Cancelled on purpose, because a newer fetch for this object replaced this
@@ -156,10 +158,56 @@ function* fetchAndCacheObjectGeometry(
   // through OBJECT_GEOMETRY_REMOVED.
   if (geometryToken(objectId) !== token) return
 
-  yield call(setObjectPrimitives, objectId, primitives)
+  yield* commitGeometry(objectId, fetched)
   yield put(
     autoSelect ? actions.objectGeometryLoaded(objectId) : actions.objectGeometryCached(objectId)
   )
+}
+
+/**
+ * One object's geometry, in whichever wire format is selected.
+ *
+ * Fetching and CACHING are deliberately separate. The staleness token has to be
+ * re-checked between them — a download that lands after the object was hidden,
+ * saved or restyled is not merely late, it is wrong, and writing it would put
+ * geometry on screen that contradicts the tree. Folding the cache write into the
+ * fetch skips that check; the two tests in geometryStaleness.test.ts exist
+ * because that is not a hypothetical.
+ */
+type FetchedGeometry =
+  | { format: 'v1'; primitives: PrimitiveInfo[] }
+  | { format: 'v2'; gpu: GpuGeometry | null }
+
+function* fetchGeometry(
+  projectId: string,
+  scenarioId: string,
+  objectId: number
+): Generator<unknown, FetchedGeometry> {
+  if (getGeometryFormat() === 'v2') {
+    const gpu = (yield call(
+      fetchObjectGeometryGpu,
+      projectId,
+      scenarioId,
+      objectId
+    )) as GpuGeometry | null
+    return { format: 'v2', gpu }
+  }
+  const primitives = (yield call(
+    fetchObjectGeometryBinary,
+    projectId,
+    scenarioId,
+    objectId
+  )) as PrimitiveInfo[]
+  return { format: 'v1', primitives }
+}
+
+/** Commit a fetched result. Only ever called once its token has been re-checked. */
+function* commitGeometry(objectId: number, fetched: FetchedGeometry): Generator {
+  if (fetched.format === 'v2') {
+    if (fetched.gpu) yield call(setObjectGpu, objectId, fetched.gpu)
+    return
+  }
+  yield call(setObjectPrimitives, objectId, fetched.primitives)
 }
 
 export function* loadObjectGeometryWorker(
@@ -306,6 +354,10 @@ export function* onGeometryDeleted(): Generator {
 
 export function* loadSceneWorker(): Generator {
   try {
+    // Starts the perf harness's measurement window for this load, and clears the
+    // previous load's stage stats. No-op unless the harness is switched on.
+    yield call(beginSceneLoad)
+
     // Clear stale caches from any previous project/scenario before loading.
     // Scene state is already reset by the LOAD_SCENE_REQUESTED reducer so the
     // loader stays visible throughout the fetch cycle.
@@ -360,13 +412,8 @@ export function* loadSceneWorker(): Generator {
     }
 
     for (const obj of objects) {
-      const primitives = (yield call(
-        fetchObjectGeometryBinary,
-        projectId,
-        scenarioId,
-        obj.id
-      )) as PrimitiveInfo[]
-      yield call(setObjectPrimitives, obj.id, primitives)
+      const fetched = yield* fetchGeometry(projectId, scenarioId, obj.id)
+      yield* commitGeometry(obj.id, fetched)
       yield put(actions.objectGeometryCached(obj.id))
     }
 
@@ -419,8 +466,13 @@ export function* selectSceneObjectWorker(): Generator {
       return
     }
 
-    // Use cached primitives if available — no API call needed.
-    const cached = (yield call(getObjectPrimitives, selectedId)) as PrimitiveInfo[] | undefined
+    // Use cached geometry if available — no API call needed. Checked in the
+    // active format's cache: asking the v1 map while running v2 would miss every
+    // time and re-fetch an object already in memory.
+    const cached =
+      getGeometryFormat() === 'v2'
+        ? ((yield call(getObjectGpu, selectedId)) as GpuGeometry | undefined)
+        : ((yield call(getObjectPrimitives, selectedId)) as PrimitiveInfo[] | undefined)
     if (cached) {
       yield put(actions.objectGeometryLoaded(selectedId))
       return
@@ -431,14 +483,8 @@ export function* selectSceneObjectWorker(): Generator {
 
     if (!projectId || !scenarioId) return
 
-    const primitives = (yield call(
-      fetchObjectGeometryBinary,
-      projectId,
-      scenarioId,
-      selectedId
-    )) as PrimitiveInfo[]
-
-    yield call(setObjectPrimitives, selectedId, primitives)
+    const fetched = yield* fetchGeometry(projectId, scenarioId, selectedId)
+    yield* commitGeometry(selectedId, fetched)
     yield put(actions.objectGeometryLoaded(selectedId))
   } catch {
     // Selection fetch failure is non-fatal.
@@ -529,6 +575,20 @@ export function* onVisibilitySyncFailed(action: VisibilitySyncFailedAction): Gen
   }
 }
 
+// ── Perf harness ──────────────────────────────────────────────────────────────
+
+// A scene load is only finished when the geometry is on screen, which is two
+// steps past loadSceneSucceeded: the mesh still has to be built and drawn. So
+// the wall clock is closed here, on the MESH_READY that SceneContent dispatches
+// after its first paint.
+//
+// MESH_READY also fires for selection changes, which are not loads. That is
+// harmless: endSceneLoad only records when a beginSceneLoad is outstanding and
+// clears it, so the first one after a load wins and the rest do nothing.
+export function* onMeshReady(): Generator {
+  yield call(endSceneLoad)
+}
+
 // ── Root watcher ──────────────────────────────────────────────────────────────
 
 export default function* threeDWindowSaga(): Generator {
@@ -543,6 +603,8 @@ export default function* threeDWindowSaga(): Generator {
   yield takeLatest(LIST_NODES_SUCCEEDED, onNodesListed)
 
   yield takeLatest(SELECT_SCENE_OBJECT, selectSceneObjectWorker)
+
+  yield takeEvery(MESH_READY, onMeshReady)
 
   // Listen to Geometry container events to keep the 3D viewport in sync.
   yield takeEvery(CREATE_OBJECT_SUCCEEDED, onGeometryCreated)
