@@ -67,6 +67,14 @@ export const MATERIALS_MSG = {
   textureFileTypeError: 'Only JPG, JPEG or PNG files are allowed',
   textureFileSizeError: 'File must be 10 MB or smaller',
   textureFileContentError: 'This file is not a valid JPG, JPEG or PNG image',
+  // A REAL image whose extension names the OTHER format. Distinct from
+  // textureFileContentError, which is for bytes that are no image at all: this
+  // file uploads and stores fine and only dies later, wherever a decoder is
+  // picked by extension — so the message names the mismatch rather than calling
+  // a perfectly good picture invalid.
+  textureFileFormatMismatch: (actual: string, named: string): string =>
+    `This is a ${actual} image named "${named}". ` +
+    'Rename it with the matching extension and try again',
 
   // Radiation
   applySpectralData: 'Apply spectral data',
@@ -75,7 +83,22 @@ export const MATERIALS_MSG = {
 
   // Delete confirmation
   deleteTitle: 'Delete',
-  deleteHeading: (name: string) => `Delete "${name}"?`
+  deleteHeading: (name: string) => `Delete "${name}"?`,
+
+  /**
+   * The DUPLICATE-NAME rejection from the BACKEND, which is a different string
+   * from the client's `nameExists` above — one word different, and easy to
+   * mistake for it.
+   *
+   * Which one you get depends on WHICH rename you drove:
+   *  - the LEFT PANEL row editor validates client-side and never sends a
+   *    duplicate, so it shows `nameExists`;
+   *  - the RIGHT PANEL form passes an EMPTY conflict set to validateMaterialName
+   *    (MaterialPropertiesForm's NO_NAME_CONFLICTS), so it has no client-side
+   *    duplicate check at all and the only rejection is this 409.
+   * Source: material_library_service.py — 409 MATERIAL_GROUP_NAME_EXISTS.
+   */
+  nameExistsBackend: 'Material group name already exists'
 } as const
 
 /**
@@ -310,3 +333,156 @@ export const justBelowMin = (p: MaterialPropertyDef): string =>
   p.datatype === 'integer' ? String((p.min as number) - 1) : String((p.min as number) - 0.1)
 export const justAboveMax = (p: MaterialPropertyDef): string =>
   p.datatype === 'integer' ? String((p.max as number) + 1) : String((p.max as number) + 0.1)
+
+// ── Visible LABELS ──────────────────────────────────────────────────────────
+//
+// MATERIAL_CATALOG above mirrors the catalog's SHAPE (datatype, bounds, groups)
+// but not its `label` column, and a label is what both the form's <label> and
+// the ground's read-only <dt> actually render. Without them a test can only
+// assert values positionally, which says nothing about the row it read.
+//
+// Resolution rule, mirrored from materialBlueprint.toResolvedField:
+//     LABEL_OVERRIDES[property] ?? catalog.label ?? humanizeProperty(property)
+// Read from the live catalog (GET /api/catalog/material-types, backend 91b4099)
+// on 2026-09-02, not transcribed from the stories.
+
+/** "resolution_x" -> "Resolution X". Mirrors Geometry/propertyBlueprint. */
+export const humanizeProperty = (property: string): string =>
+  property
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+
+/**
+ * Labels the catalog ships, plus the two sets the app supplies itself.
+ *
+ * Anything absent here resolves through humanizeProperty, which is exactly what
+ * the app does — so `materialLabel()` below is correct for every property, not
+ * just the listed ones.
+ *
+ * Two entries are NOT the catalog's own text and will not be found by grepping
+ * the database:
+ *  - `stomatal_model` ships as "Stomatal Conductance" and is OVERRIDDEN to
+ *    "Stomatal Model" (LABEL_OVERRIDES). Photosynthesis's `submodel` is not
+ *    overridden and keeps its catalog "Photosynthesis Model".
+ *  - The four Visualiser channels have NO catalog label; the app supplies
+ *    R / G / B / "Opacity (%)" (VISUALISATION_CHANNEL_LABELS). Opacity carries
+ *    its unit in the label because the read-only popup has no box to print a
+ *    "%" in.
+ *
+ * NOTE three properties share the label "gs, o" and two share "a1", across
+ * different stomatal sub-models. That is safe to assert on only because the
+ * sub-models are mutually exclusive: one group is active at a time, so a
+ * rendered popup never shows two rows with the same label.
+ */
+const CATALOG_LABELS: Record<string, string> = {
+  two_sided_heat_transfer: 'Heat Transfer Flag',
+  stomatal_sidedness: 'Stomatal Sidedness',
+  // Photosynthesis
+  submodel: 'Photosynthesis Model',
+  vcmax25: 'Vcmax_25', jmax25: 'Jmax_25', tpu25: 'TPU_25', rd25: 'Rd25',
+  alpha: 'alpha', theta: 'theta',
+  dha_vcmax: 'dHa_Vcmax', topt_vcmax: 'Topt_Vcmax',
+  dha_jmax: 'dHa_Jmax', topt_jmax: 'Topt_Jmax', dhd_jmax: 'dHd_Jmax',
+  dha_tpu: 'dHa_TPU', topt_tpu: 'Topt_TPU', dhd_tpu: 'dHd_TPU',
+  // Stomatal Conductance
+  gamma_co2: 'Gamma_CO2',
+  stomatal_model: 'Stomatal Model',
+  bwb_gs0: 'gs, o', bwb_a1: 'a1',
+  bbl_gs0: 'gs, o', bbl_a1: 'a1', bbl_d0: 'Do',
+  medlyn_gs0: 'gs, o', medlyn_g1: 'g1',
+  bmf_em: 'Em', bmf_i0: 'io', bmf_k: 'k', bmf_b: 'b',
+  // Visualiser
+  color_r: 'R', color_g: 'G', color_b: 'B', opacity: 'Opacity (%)'
+}
+
+/** The label rendered for a property, in the form AND the read-only popup. */
+export const materialLabel = (property: string): string =>
+  CATALOG_LABELS[property] ?? humanizeProperty(property)
+
+/**
+ * What the GROUND'S READ-ONLY POPUP prints for an enum value — which is NOT
+ * what the editable form shows for the same value.
+ *
+ * buildMaterialSections renders a SELECTOR enum as the humanized STORED CODE
+ * (`farquhar_model` -> "Farquhar Model", `BWB` -> "BWB"), while the form renders
+ * the NAME OF THE GROUP that value unlocks (`Farquhar model`,
+ * `Ball-woodrow-berry`). So a user picks "Ball-woodrow-berry" and reads back
+ * "BWB" on the ground.
+ *
+ * DEVIATION, pinned by material-submodels.test.ts: the two surfaces disagree
+ * about the same stored value. Tests follow the code; this is recorded, not
+ * corrected.
+ *
+ * An ORDINARY enum (two_sided_heat_transfer, boundary_layer_model) drives no
+ * group, so the popup passes it through raw and the form shows it raw too —
+ * both ends agree and this function is the identity for them.
+ */
+export const readOnlyEnumValue = (type: string, property: string, value: string): string =>
+  isSelectorEnum(type, property) ? humanizeProperty(value) : value
+
+// ── Sub-models ──────────────────────────────────────────────────────────────
+
+/**
+ * The two material types whose parameters live behind a sub-model selector, and
+ * the groups each selector value unlocks.
+ *
+ * `selector` is the driving property; each entry maps a STORED value to the
+ * group it reveals — which is also the option LABEL the form shows for it (see
+ * enumOptionLabels). `props` lists the parameters that appear only while that
+ * value is chosen; every other sub-model's parameters are hidden AND blanked.
+ */
+export const SUBMODELS = {
+  Photosynthesis: {
+    selector: 'submodel',
+    /** Top-level fields that stay visible whichever sub-model is chosen. */
+    alwaysVisible: ['two_sided_heat_transfer', 'stomatal_sidedness', 'submodel'],
+    groups: {
+      farquhar_model: {
+        label: 'Farquhar model',
+        props: [
+          'vcmax25', 'jmax25', 'tpu25', 'rd25', 'alpha', 'theta',
+          'dha_vcmax', 'topt_vcmax', 'dha_jmax', 'topt_jmax', 'dhd_jmax',
+          'dha_tpu', 'topt_tpu', 'dhd_tpu'
+        ]
+      }
+    }
+  },
+  'Stomatal Conductance': {
+    selector: 'stomatal_model',
+    alwaysVisible: ['gamma_co2', 'stomatal_model'],
+    groups: {
+      BWB: { label: 'Ball-woodrow-berry', props: ['bwb_gs0', 'bwb_a1'] },
+      BBL: { label: 'Ball-berry-leuning', props: ['bbl_gs0', 'bbl_a1', 'bbl_d0'] },
+      Medlyn: { label: 'Medlyn Optimality', props: ['medlyn_gs0', 'medlyn_g1'] },
+      BMF: { label: 'Buckley-mott-farquhar', props: ['bmf_em', 'bmf_i0', 'bmf_k', 'bmf_b'] }
+    }
+  }
+} as const
+
+/**
+ * A value comfortably inside a property's catalog range, and DISTINCT per
+ * property so a mis-wired assertion cannot pass by coincidence.
+ *
+ * Derived from the bounds rather than hardcoded: `min + (max - min) * frac`,
+ * rounded to 4 decimals so it never trips the 7-decimal keystroke guard, and
+ * never lands on a bound (which several other tests already cover).
+ *
+ * `frac` is varied by the caller — passing the property's index spreads the
+ * values apart, so "did Vcmax_25's value land in Jmax_25's row?" is answerable.
+ */
+export const midRangeValue = (p: MaterialPropertyDef, frac = 0.5): string => {
+  const min = p.min as number
+  const max = p.max as number
+  const raw = min + (max - min) * frac
+  const rounded = Math.round(raw * 10000) / 10000
+  return p.datatype === 'integer' ? String(Math.round(rounded)) : String(rounded)
+}
+
+/** Look one property definition up inside a type. */
+export const propDef = (type: string, property: string): MaterialPropertyDef => {
+  const found = (MATERIAL_CATALOG[type] ?? []).find((p) => p.property === property)
+  if (!found) throw new Error(`propDef: ${type} has no property "${property}"`)
+  return found
+}

@@ -67,7 +67,7 @@
 import Geometry from '../pages/Geometry.page'
 import MaterialProperties from '../pages/MaterialProperties.page'
 import Materials from '../pages/Materials.page'
-import ObjectProperties from '../pages/ObjectProperties.page'
+import ObjectProperties, { type DetailRow } from '../pages/ObjectProperties.page'
 import { GEOMETRY_MATERIAL_MSG, GEOMETRY_TOAST } from '../constants/geometry'
 import { TIMEOUTS } from '../config/timeouts'
 import {
@@ -84,7 +84,7 @@ import {
   waitForNoOpenDialog,
   waitForOpenDialog
 } from '../support/dialogs'
-import { MATERIALS_TOAST } from '../constants/materials'
+import { MATERIALS_MSG, MATERIALS_TOAST, materialLabel } from '../constants/materials'
 import {
   MATERIAL_MIME,
   dragMaterialOnto,
@@ -1254,13 +1254,7 @@ describe('Material assignment', () => {
       // [aria-expanded] headings, so the <dl> rows are read inline: every value in
       // this popup is a <dd> by construction (read-only by design — there is no
       // input anywhere in it). 0.25 belongs to no other field on the card.
-      const detailRows = (await browser.execute((want: string) => {
-        const popup = document.querySelector(`[role="dialog"][aria-label="${want} properties"]`)
-        return Array.from(popup?.querySelectorAll('dl > div') ?? []).map((row) => ({
-          label: (row.querySelector('dt')?.textContent ?? '').trim(),
-          value: (row.querySelector('dd')?.textContent ?? '').trim()
-        }))
-      }, b)) as { label: string; value: string }[]
+      const detailRows = await ObjectProperties.detailRows(b)
       expect(detailRows.length).toBeGreaterThan(0)
       expect(detailRows.map((r) => r.value)).toContain('0.25')
 
@@ -1382,6 +1376,611 @@ describe('Material assignment', () => {
     })
   })
 
+  // ══ Renaming a material that is ON a ground ═══════════════════════════════
+  //
+  // PLACED BEFORE the sync-dot block deliberately. Everything from `the sync dot`
+  // down navigates away from this file's shared project (reloadToHome +
+  // enterGeometry('stalea'/'staleb'), then reopenByName), so a block appended
+  // after it would run in a DIFFERENT project from the one `before` provisioned —
+  // still workable, but for no reason, and it would put two navigations between
+  // this block and the state it assumes. Everything here stays in `matassign`.
+
+  describe('renaming a material that is ON a ground', () => {
+    /**
+     * A ground wearing a freshly created material, SAVED, with the ground form
+     * open and the material's auto-assigned name in hand.
+     *
+     * Materials FIRST, ground LAST: +Add Materials swaps the right panel to the
+     * MATERIAL form, so creating one after the ground would leave the panel
+     * showing the wrong thing and every pick below would land nowhere.
+     */
+    const groundWearing = async (): Promise<{
+      groundId: string
+      materialId: string
+      name: string
+    }> => {
+      const materialId = await trackMaterial()
+      const name = await materialNameOf(materialId)
+      const groundId = await trackGround()
+      await ObjectProperties.waitForOpen()
+      await pick(name)
+      await saveForm()
+      await waitForAssigned([name])
+      return { groundId, materialId, name }
+    }
+
+    /**
+     * A rename target that is unique in the GLOBAL library and inside the
+     * 20-character limit.
+     *
+     * NOT a literal like "Renamed". The library survives projects AND runs, so a
+     * fixed string collides with a leftover from an earlier run and the rename is
+     * refused for a reason that has nothing to do with the test — which would read
+     * as this feature being broken. `R` + 8 digits + a counter is 11-12 chars.
+     */
+    let renameCounter = 0
+    const freshName = (): string => {
+      renameCounter += 1
+      return `R${Date.now().toString().slice(-8)}-${renameCounter}`
+    }
+
+    /**
+     * Rename from the LEFT list and wait for the row to actually take the name.
+     *
+     * The settle is the ROW, and it has to be: there is NO toast for a material
+     * rename, in either direction. It is also the honest oracle — renameMaterialWorker
+     * dispatches SUCCEEDED only after the PATCH resolves, so the list showing the
+     * new name is proof the backend accepted it, not just that React re-rendered.
+     */
+    const renameInLibrary = async (materialId: string, next: string): Promise<void> => {
+      await Materials.renameRow(materialId, next, 'enter')
+      await browser.waitUntil(async () => (await materialNameOf(materialId)) === next, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: `the library row never took the new name "${next}"`
+      })
+    }
+
+    // ── The RIGHT-PANEL form's name row ────────────────────────────────────
+    //
+    // Local to this block on purpose. MaterialProperties.page.ts exposes the name
+    // input and its value but nothing that UNLOCKS, WRITES or COMMITS it, because
+    // until now nothing had ever renamed a material from the right panel — the one
+    // path where NO_NAME_CONFLICTS makes the form behave differently from the list.
+    // They belong in the page object the moment a second spec needs them; adding
+    // them there for one describe would edit a file three other specs share.
+
+    /** True while the field is still locked. React DROPS the attribute when it
+     *  unlocks, so presence — not a truthy value — is the test. */
+    const materialNameLocked = async (): Promise<boolean> =>
+      (await MaterialProperties.nameInput.getAttribute('readonly')) !== null
+
+    /**
+     * Tap the pencil and wait for the field to actually unlock.
+     *
+     * The pencil is reached by walking OUT of the name input rather than by a bare
+     * `button[aria-label="Edit name"]`: the GROUND form renders a pencil carrying
+     * exactly the same label. RightPanel only ever mounts one form at a time, so
+     * today the bare query would be unambiguous — but a selector that would
+     * silently address the other panel is not worth keeping. The input sits inside
+     * a `relative` wrapper, which sits in the header row beside the pencil, hence
+     * the two hops.
+     */
+    const editMaterialName = async (): Promise<void> => {
+      await browser.execute(() => {
+        const input = document.querySelector('[data-testid="material-form-name"]')
+        if (!input) throw new Error('editMaterialName: the material form is not open')
+        const header = input.parentElement?.parentElement
+        const btn = header?.querySelector('[aria-label="Edit name"]') as HTMLElement | null
+        if (!btn) throw new Error('editMaterialName: the material form has no pencil')
+        btn.click()
+      })
+      await browser.waitUntil(async () => !(await materialNameLocked()), {
+        timeout: TIMEOUTS.SHORT,
+        timeoutMsg: 'the pencil never unlocked the material name field'
+      })
+    }
+
+    /** Write a name WITHOUT committing it — the native value setter plus `input`,
+     *  because a plain setValue loses to React on a controlled field. */
+    const setMaterialName = async (value: string): Promise<void> => {
+      await browser.execute((val: string) => {
+        const node = document.querySelector(
+          '[data-testid="material-form-name"]'
+        ) as HTMLInputElement | null
+        if (!node) throw new Error('setMaterialName: the material form is not open')
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+          ?.set
+        node.focus()
+        setter?.call(node, val)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+      }, value)
+    }
+
+    /** Blur the field — the ONLY thing that commits a rename here. */
+    const commitMaterialName = async (): Promise<void> => {
+      await browser.execute(() => {
+        const node = document.querySelector(
+          '[data-testid="material-form-name"]'
+        ) as HTMLInputElement | null
+        node?.blur()
+      })
+    }
+
+    /**
+     * The message under the form's name field, read from the TOOLTIP trigger.
+     *
+     * NOT from `.form-error-text`: every parameter card renders that class for its
+     * own errors, so an unscoped read can return a card's message and a scoped one
+     * would need a wrapper that carries no testid. The Tooltip is an immediate
+     * SIBLING of the input (`{nameError && <Tooltip …/>}` inside the input's
+     * `relative` wrapper), which addresses it exactly — the same adjacency
+     * ObjectProperties.nameState relies on for the ground form's name.
+     *
+     * Returns null when no error appeared inside the window, so a caller can
+     * assert the ABSENCE of one instead of this throwing an unrelated timeout.
+     */
+    const materialNameError = async (timeout: number = TIMEOUTS.SHORT): Promise<string | null> => {
+      const tip = $('[data-testid="material-form-name"] + span[aria-label^="Validation error:"]')
+      try {
+        await browser.waitUntil(async () => tip.isExisting(), { timeout })
+      } catch {
+        /* absent is a legitimate answer — see above */
+      }
+      return (await tip.isExisting()) ? tip.getAttribute('data-tooltip-content') : null
+    }
+
+    it('a rename in the LIBRARY LIST relabels the OPEN ground form in place', async () => {
+      // This is observable at all only because of HOW the rename is opened.
+      // Materials.openRename dispatches a SYNTHETIC dblclick on the name span,
+      // which reaches React's onDoubleClick but never fires the ROW's onClick — so
+      // the material row is not selected, RightPanel's open-nonce does not move,
+      // and the GROUND form stays mounted right through the rename. A real
+      // double-click would select the row, swap the panel to the material form, and
+      // there would be nothing left on screen to observe.
+      const { name, materialId } = await groundWearing()
+      const renamed = freshName()
+
+      // Read BEFORE, so what follows is a CHANGE and not a coincidence — an app
+      // that had shown `renamed` all along would satisfy the wait below on its own.
+      expect(await ObjectProperties.assignedNames()).toEqual([name])
+
+      await renameInLibrary(materialId, renamed)
+
+      // THE POINT: nothing touched the ground, and it relabels anyway.
+      // ObjectPropertiesForm resolves an assigned material's label through
+      // nameFor(), which reads the LIVE materials slice — so the row follows
+      // RENAME_MATERIAL_SUCCEEDED with no refetch and no reselect.
+      await waitForAssigned([renamed])
+      // …and the panel really is still the GROUND's. If the dblclick had selected
+      // the row, RightPanel would have unmounted this form entirely (it renders one
+      // form at a time), and `waitForAssigned` above would have been reading a
+      // Materials section that no longer existed.
+      await expect(ObjectProperties.form).toBeDisplayed()
+      await expect(MaterialProperties.nameInput).not.toBeExisting()
+    })
+
+    it("the read-only popup follows the NEW name and keeps the material's values", async () => {
+      // Two claims that only mean something together.
+      //
+      // RENAME_MATERIAL_SUCCEEDED patches the cached DETAIL's name in place
+      // (`if (cached) cached.name = action.name`) rather than dropping the entry —
+      // chosen so a rename costs no refetch. The risk that carries is the mirror
+      // image of a stale label: the MEMBERS surviving is the whole point of
+      // patching rather than invalidating, and the label moving is what must not
+      // disturb them.
+      //
+      // The popup is also the one surface where a stale label makes it UNREACHABLE
+      // rather than merely wrong: it is addressed by `{name} properties`, and the
+      // trigger that opens it is found by its rendered name.
+      const materialId = await trackMaterial()
+      await MaterialProperties.waitForOpen()
+      // A fresh material already carries ONE blank card, so this is card 2.
+      const cardId = await MaterialProperties.addCard()
+      await MaterialProperties.pickType(cardId, 'Visualiser')
+      await MaterialProperties.setColorChannel('r', '12')
+      await MaterialProperties.setColorChannel('g', '34')
+      await MaterialProperties.setColorChannel('b', '56')
+      await browser.waitUntil(async () => MaterialProperties.saveEnabled(cardId), {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: 'Save never enabled for a complete colour'
+      })
+      await MaterialProperties.saveCard(cardId)
+      const name = await materialNameOf(materialId)
+
+      await trackGround()
+      await ObjectProperties.waitForOpen()
+      await pick(name)
+      await saveForm()
+      await waitForAssigned([name])
+
+      const renamed = freshName()
+      await renameInLibrary(materialId, renamed)
+      await waitForAssigned([renamed])
+
+      await ObjectProperties.openMaterialDetail(renamed)
+      await expect(ObjectProperties.materialDetail(renamed)).toBeDisplayed()
+      // Asserted with a popup ACTUALLY OPEN, which is the only moment it says
+      // anything: before the open, the old selector matches nothing either and the
+      // check would pass on an app that never renamed at all.
+      await expect(ObjectProperties.materialDetail(name)).not.toBeExisting()
+
+      await browser.waitUntil(
+        async () => (await ObjectProperties.detailSections(renamed)).includes('Visualiser'),
+        {
+          timeout: TIMEOUTS.MUTATION,
+          timeoutMsg: 'the renamed material lost its Visualiser section on the ground'
+        }
+      )
+      const rows = await ObjectProperties.detailRows(renamed)
+      // materialLabel() resolves R/G/B the way the app does (the four Visualiser
+      // channels have no catalog label; VISUALISATION_CHANNEL_LABELS supplies
+      // them), rather than hardcoding three letters that mean nothing on their own.
+      expect(
+        [
+          ObjectProperties.valueIn(rows, 'Visualiser', materialLabel('color_r')),
+          ObjectProperties.valueIn(rows, 'Visualiser', materialLabel('color_g')),
+          ObjectProperties.valueIn(rows, 'Visualiser', materialLabel('color_b'))
+        ].join('/')
+      ).toBe('12/34/56')
+
+      await ObjectProperties.closeMaterialDetail(renamed)
+      // Load-bearing, not tidying: an open AnchoredPopup lays a `fixed inset-0
+      // z-40` overlay across the panel, and afterEach's first WebDriver click would
+      // be intercepted by it — naming whatever it clicked, not this popup.
+      await browser.waitUntil(
+        async () => !(await ObjectProperties.materialDetail(renamed).isExisting()),
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the material properties popup never closed' }
+      )
+    })
+
+    it('the Select picker offers the NEW name, drops the old one, and keeps the tick', async () => {
+      // SelectMaterialsPopup lists the library slice directly, so it is a DIFFERENT
+      // consumer from nameFor() — and the one that decides what a user can pick
+      // next. Three assertions because each alone is satisfiable by a broken app:
+      // the new name being listed holds if the popup kept BOTH; the old one being
+      // gone holds if the rename had emptied the library; and the tick is what says
+      // the picker still recognises this as the SAME material (it keys selection on
+      // the group id, which a rename does not touch).
+      const { name, materialId } = await groundWearing()
+      const renamed = freshName()
+
+      await renameInLibrary(materialId, renamed)
+      await waitForAssigned([renamed])
+
+      await openPicker()
+      const state = await ObjectProperties.pickerState()
+      const names = state.rows.map((r) => r.name)
+      expect(names).toContain(renamed)
+      expect(names).not.toContain(name)
+      // Membership only — the library is GLOBAL and carries other runs' leftovers,
+      // so its size is never an assertion.
+      expect(state.rows.filter((r) => r.selected).map((r) => r.name)).toEqual([renamed])
+      await ObjectProperties.closeMaterialPicker()
+    })
+
+    it('a RESELECT of the ground still shows the new name — the stale copy is never repaired', async () => {
+      // THE STRONGEST ORACLE for nameFor() in this suite, because the reselect goes
+      // deliberately through the one path that CANNOT have been fixed up:
+      //
+      //  - DraftMaterialGroup.name is a DENORMALIZED copy, taken when the material
+      //    was picked. The geometry slice has no RENAME_MATERIAL_SUCCEEDED handler,
+      //    so nothing ever rewrites it — unlike Materials' REMOVE_MATERIAL, which
+      //    that same reducer does intercept and act on.
+      //  - loadObjectWorker SHORT-CIRCUITS on the detail cache: a ground that has
+      //    been loaded once is reselected with NO GET, so the rebuilt draft is
+      //    seeded from exactly that stale copy.
+      //
+      // The name on screen is therefore correct ONLY because nameFor() masks it
+      // with the live library. Take nameFor() away and this test fails while the
+      // three above still pass — which is the whole reason it is written as a round
+      // trip rather than as another live read.
+      const materialId = await trackMaterial()
+      const name = await materialNameOf(materialId)
+      const target = await trackGround()
+      const other = await trackGround()
+      // +Ground opens the NEW ground's form, so the panel is showing `other`.
+      // Select the one under test or the pick lands on the wrong row.
+      await Geometry.selectRow(target)
+      await ObjectProperties.waitForOpen()
+      await pick(name)
+      await saveForm()
+      await waitForAssigned([name])
+
+      const renamed = freshName()
+      await renameInLibrary(materialId, renamed)
+      await waitForAssigned([renamed])
+
+      // Away and back. `other` carries nothing, so the empty read in the middle
+      // also proves the panel genuinely changed hands rather than simply not
+      // re-rendering — without it, a form that never updated at all would pass.
+      await Geometry.selectRow(other)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([])
+      await Geometry.selectRow(target)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([renamed])
+    })
+
+    it('the RIGHT-PANEL name field ignores ENTER and commits only on BLUR', async () => {
+      // MaterialPropertiesForm's name <input> carries onChange, onDoubleClick and
+      // onBlur — and NO onKeyDown at all. So Enter is not "handled and rejected",
+      // it is not handled, and that no-op half is the interesting one: a user who
+      // types a name and presses Enter (the gesture the LEFT list row DOES honour)
+      // gets no feedback whatsoever, and the rename fires later, whenever something
+      // else happens to take focus.
+      //
+      // FINDING, pinned rather than left in a doc: the two rename surfaces for the
+      // same material disagree about the commit key. The list commits on Enter and
+      // discards on Escape; the form has neither, and only blur commits.
+      const { groundId, materialId, name } = await groundWearing()
+      const renamed = freshName()
+
+      // A REAL click on the row here — this test wants the panel handed over.
+      await Materials.openMaterial(materialId)
+      await MaterialProperties.waitForOpen()
+      await editMaterialName()
+      await setMaterialName(renamed)
+
+      await browser.keys(['Enter'])
+      // The LIST is the oracle, not the field. handleNameChange writes every
+      // keystroke into the draft, so the field holds the typed text whether or not
+      // the PATCH fired — reading it back would pass either way.
+      expect(await staysFalse(async () => (await materialNameOf(materialId)) === renamed)).toBe(
+        true
+      )
+      // …and the edit is still OPEN: Enter did not even end it, which is what
+      // separates "not handled" from "handled and refused" (handleNameBlur re-locks
+      // the field on every commit attempt, valid or not).
+      expect(await materialNameLocked()).toBe(false)
+
+      // Now blur, which IS the commit path — handleNameBlur is the only caller of
+      // renameMaterialRequested from this form.
+      await commitMaterialName()
+      await browser.waitUntil(async () => (await materialNameOf(materialId)) === renamed, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'blurring the form name field never committed the rename'
+      })
+      expect(await materialNameOf(materialId)).not.toBe(name)
+
+      // The ground's form is not even mounted right now — RightPanel unmounted it
+      // when the material took the panel — so this also proves the relabel is not a
+      // live patch of a rendered row but a resolution done at render time.
+      await Geometry.selectRow(groundId)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([renamed])
+    })
+
+    it('a duplicate name is refused CLIENT-side on the list row and by the BACKEND on the form', async () => {
+      // ONE test, both surfaces, because the point is the CONTRAST. The two
+      // messages are a word apart and each is only ever produced by one path:
+      //   - the LEFT row hands validateMaterialName the names it already holds, so
+      //     it never sends the PATCH            -> MATERIALS_MSG.nameExists
+      //   - the RIGHT form hands it an EMPTY set (MaterialPropertiesForm's
+      //     NO_NAME_CONFLICTS: "uniqueness is the backend's to enforce on the
+      //     rename, so this form doesn't pre-empt it"), so the PATCH goes and comes
+      //     back 409                            -> MATERIALS_MSG.nameExistsBackend
+      // Pinning each against the other's string is what fails if the two paths are
+      // ever collapsed into one.
+      const keeperId = await trackMaterial()
+      const keeperName = await materialNameOf(keeperId)
+      const { materialId, name } = await groundWearing()
+
+      // ── the LEFT list row: refused before anything is sent ────────────────
+      await Materials.renameRow(materialId, keeperName, 'enter')
+      expect(await Materials.renameError(materialId)).toBe(MATERIALS_MSG.nameExists)
+      // Enter did NOT commit: MaterialNameEditor.commit returns early while the
+      // editor is invalid, so it stays open with the refused text still in it.
+      await browser.keys(['Escape'])
+      await browser.waitUntil(async () => !(await Materials.nameEditor.isExisting()), {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: 'Escape never closed the inline rename editor'
+      })
+      // Read the row only AFTER the editor is gone. While it is open the row
+      // renders an INPUT in place of the name span and Materials.snapshot falls
+      // back to that input's value — so the row would "read" as the refused text
+      // and this assertion would fail for entirely the wrong reason.
+      expect(await materialNameOf(materialId)).toBe(name)
+      // The ground never saw a thing, which is the other half of "never sent".
+      await waitForAssigned([name])
+
+      // ── the RIGHT panel form: refused by the 409 ──────────────────────────
+      await Materials.openMaterial(materialId)
+      await MaterialProperties.waitForOpen()
+      await editMaterialName()
+      await setMaterialName(keeperName)
+      await commitMaterialName()
+
+      // MUTATION: unlike the list's check this one is a round trip, so the message
+      // cannot appear until the backend has answered.
+      const shown = await materialNameError(TIMEOUTS.MUTATION)
+      expect(shown).toBe(MATERIALS_MSG.nameExistsBackend)
+      // Spelled out because the DIFFERENCE is what is under test, not either
+      // message on its own — a form that had grown a client-side duplicate check
+      // would show the other string here and every other assertion would still
+      // hold.
+      expect(shown).not.toBe(MATERIALS_MSG.nameExists)
+      // The rejection was ROUTED to the form, not to the row: RENAME_MATERIAL_FAILED
+      // writes editDraft.nameError when the failing material is the one open in the
+      // panel, deliberately, because "the left row shows the committed (still
+      // valid) old name, so an error beneath it would point at the wrong name".
+      //
+      // Called with no timeout: renameError's default is inferred from TIMEOUTS,
+      // which is `as const`, so the parameter is narrowed to the literal 5000 and a
+      // shorter budget will not type-check. 5s of watching an error NOT appear is
+      // the cost of that — the same narrowing ObjectProperties.nameError widens by
+      // hand, and worth widening here too the next time this file is opened.
+      expect(await Materials.renameError(materialId)).toBe(null)
+      // Pessimistic: the list keeps the committed name…
+      expect(await materialNameOf(materialId)).toBe(name)
+      // …while the field keeps the refused text, so the user can see what was
+      // rejected rather than watching it silently revert.
+      expect(await MaterialProperties.nameValue()).toBe(keeperName)
+    })
+  })
+
+  // ══ One material, SEVERAL grounds ═════════════════════════════════════════
+
+  describe('one material on SEVERAL grounds', () => {
+    /**
+     * Two INDEPENDENT grounds (no group) both wearing the same material, SAVED,
+     * with ground `a` left on screen.
+     *
+     * The file's only other multi-ground case is the collapsed-GROUP drag fan-out,
+     * where the members share a parent and the assignment is made ONCE against the
+     * group. That shape cannot express anything below: a per-object unassign has to
+     * be able to leave a sibling alone, and through a group there is no sibling to
+     * leave alone.
+     *
+     * Assigned through the FORM rather than by drag. The drop path commits with no
+     * Save and folds itself into materialBaseline in the same action, which would
+     * make "was this actually saved?" a second thing under test in every assertion
+     * that follows — and the unassign test below depends on the material being a
+     * BASELINE, since that is what decides whether the trash confirms or drops
+     * silently.
+     */
+    const twoGroundsWearing = async (): Promise<{
+      a: string
+      b: string
+      materialId: string
+      name: string
+    }> => {
+      const materialId = await trackMaterial()
+      const name = await materialNameOf(materialId)
+      const a = await trackGround()
+      const b = await trackGround()
+      // +Ground opens the NEW ground's form, so the panel is on `b` right now.
+      await ObjectProperties.waitForOpen()
+      await pick(name)
+      await saveForm()
+      await waitForAssigned([name])
+      await Geometry.selectRow(a)
+      await ObjectProperties.waitForOpen()
+      await pick(name)
+      await saveForm()
+      await waitForAssigned([name])
+      return { a, b, materialId, name }
+    }
+
+    it('the SAME material can be assigned to two independent grounds', async () => {
+      // The single-material rule is PER GROUND, not per material — a material is a
+      // library entry and nothing about assigning it consumes it. Worth pinning
+      // because the picker's radio shape ("a ground carries ONE material") reads
+      // very easily as the converse.
+      const { a, b, name } = await twoGroundsWearing()
+
+      // Read both back from the PERSISTED side rather than from whichever draft
+      // happened to be on screen when each was saved: reselecting rebuilds the
+      // draft from the detail cache the PATCH refreshed.
+      await Geometry.selectRow(b)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([name])
+      await Geometry.selectRow(a)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([name])
+
+      // …and it is still ONE library row. A second assignment that had duplicated
+      // the material instead of referencing it would show up here as a second row
+      // with the same name — invisible from either ground.
+      expect((await Materials.names()).filter((n) => n === name)).toEqual([name])
+    })
+
+    it('DELETING it from the library empties BOTH grounds AND both pickers', async () => {
+      // Two different mechanisms, one delete:
+      //  - the ground ON SCREEN loses its row with no reselect at all, because the
+      //    geometry reducer intercepts Materials' REMOVE_MATERIAL and filters the
+      //    group out of createDraft.materials AND createDraft.materialBaseline.
+      //  - the OTHER ground was never open when the delete happened, so it can only
+      //    be right if that same branch also walked byScope.detailsById — which it
+      //    does, scope-wide, because REMOVE_MATERIAL carries no scenario id. And
+      //    reselecting is served FROM that cache with no GET (loadObjectWorker
+      //    short-circuits on it), so this really is reading the client-side purge
+      //    and not a fresh backend answer that would have been empty regardless.
+      //
+      // The two PICKERS ride along on this setup rather than provisioning a second
+      // one of their own. 'deleting an ASSIGNED material removes it from the LIST,
+      // the GROUND and the PICKER' already pins the picker for one ground, and the
+      // picker is fed by the LIBRARY slice — the same list whichever ground is
+      // selected — so a separate two-ground test that only re-read it would have
+      // been a duplicate wearing a second expensive setup.
+      const { a, b, materialId, name } = await twoGroundsWearing()
+      // twoGroundsWearing leaves `a` on screen, still wearing it.
+      await waitForAssigned([name])
+
+      await drainToasts()
+      // MaterialRow's trash calls e.stopPropagation(), so this does NOT select the
+      // material row: the GROUND form stays up and the live purge can be read
+      // directly, without a reselect that would hide it behind a rebuild.
+      await Materials.deleteRow(materialId)
+      await waitForToast(MATERIALS_TOAST.deleted(name))
+      // Untracked immediately — afterEach must not try to delete it a second time.
+      materials = materials.filter((x) => x !== materialId)
+
+      // 1. the ground that was open, with nothing touched in between
+      await waitForAssigned([], TIMEOUTS.MUTATION)
+      // 2. the one that was not
+      await Geometry.selectRow(b)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([], TIMEOUTS.MUTATION)
+      // 3. and it is GONE from the library, not merely detached from both grounds
+      expect(await Materials.rowState(materialId)).toBeUndefined()
+
+      // 4. neither ground can pick it again. The picker is a third consumer of the
+      //    library slice — separate from the ground's Materials row and from the
+      //    read-only popup — and the one that decides what a user can pick NEXT: a
+      //    deleted material still listed here is an assignment that would fail on
+      //    Save, offered from a row the user was invited to choose.
+      //    `b` first — it is already selected, so its picker is read with nothing
+      //    moved in between.
+      for (const groundId of [b, a]) {
+        await Geometry.selectRow(groundId)
+        await ObjectProperties.waitForOpen()
+        await openPicker()
+        // Membership only, and only about THIS material: the library is global, so
+        // whether it is now empty or still holds other runs' leftovers is not this
+        // test's business — and openPicker() keys on the heading precisely so both
+        // shapes are readable here.
+        expect((await ObjectProperties.pickerState()).rows.map((r) => r.name)).not.toContain(name)
+        // Closed before the next selectRow: an open AnchoredPopup lays a
+        // `fixed inset-0 z-40` overlay across the panel and would eat that click.
+        await ObjectProperties.closeMaterialPicker()
+      }
+    })
+
+    it('UNASSIGNING it from one ground leaves the OTHER one wearing it', async () => {
+      // THE DIFFERENTIAL that gives the delete test above its meaning. Both
+      // gestures empty the Materials section of the ground in front of you, and a
+      // test that only ever looked at that ground could not tell them apart.
+      // UNASSIGN_MATERIAL_SUCCEEDED is keyed on {objectId, groupId} and touches
+      // exactly that object's detail and node; REMOVE_MATERIAL walks every cached
+      // scope. Without this test, an unassign that had been wired scope-wide would
+      // pass the whole file.
+      const { b, materialId, name } = await twoGroundsWearing()
+
+      // `a` is on screen with the material SAVED, which is what makes the trash
+      // CONFIRM rather than silently drop a draft pick — the conditional branch is
+      // chosen on draft.materialBaseline.
+      await ObjectProperties.removeAssigned(name)
+      const dlg = await waitForOpenDialog()
+      expect(dlg.ariaLabel).toBe(GEOMETRY_MATERIAL_MSG.unassignTitle)
+      // The heading names the MATERIAL (the Replace dialog on the same form names
+      // the GROUND), so this also confirms the dialog that opened is the unassign
+      // one and not something else the click could have raised.
+      expect(dlg.heading).toBe(GEOMETRY_MATERIAL_MSG.unassignHeading(name))
+      await clickDialogButton(GEOMETRY_MATERIAL_MSG.unassignConfirm)
+      await waitForNoOpenDialog()
+      // PESSIMISTIC: the row goes only once the DELETE comes back.
+      await waitForAssigned([], TIMEOUTS.MUTATION)
+
+      // The other ground is untouched…
+      await Geometry.selectRow(b)
+      await ObjectProperties.waitForOpen()
+      await waitForAssigned([name])
+      // …and so is the library row. An unassign must never consume the material —
+      // if it did, ground `b` would be left pointing at nothing and would come back
+      // flagged `stale` on the next reopen.
+      expect(await materialNameOf(materialId)).toBe(name)
+    })
+  })
 
   describe('the sync dot', () => {
     /**
@@ -1671,50 +2270,13 @@ describe('Material assignment', () => {
   // ══ Editing a material that is already on a ground ════════════════════════
 
   describe('editing an applied material', () => {
-    type DetailRow = { section: string; label: string; value: string }
-
-    /**
-     * The read-only popup's VALUE rows.
-     *
-     * MaterialPropertiesPopup renders each property as a <dt> (the catalog label)
-     * over a <dd> (the stored value), inside one <dl> per parameter group, inside
-     * one collapsible card per material type. ObjectProperties.detailSections()
-     * reads only the section HEADINGS — so nothing in the suite has ever read a
-     * VALUE out of this popup at all, which is the whole of section 13.
-     *
-     * Rows carry their SECTION deliberately: a material with two types renders two
-     * <dl> sets, and "R" means nothing without saying which type's R it is. The
-     * section header button is a direct child of its card, so the card is its
-     * parentElement — there is no testid on either.
-     */
-    const detailRows = (name: string): Promise<DetailRow[]> =>
-      browser.execute((want: string) => {
-        const out: { section: string; label: string; value: string }[] = []
-        const popup = document.querySelector(`[role="dialog"][aria-label="${want} properties"]`)
-        Array.from(popup?.querySelectorAll('[aria-expanded]') ?? []).forEach((btn) => {
-          const section = (btn.textContent || '').trim()
-          Array.from(btn.parentElement?.querySelectorAll('dl > div') ?? []).forEach((pair) => {
-            out.push({
-              section,
-              label: (pair.querySelector('dt')?.textContent || '').trim(),
-              value: (pair.querySelector('dd')?.textContent || '').trim()
-            })
-          })
-        })
-        return out
-      }, name) as Promise<DetailRow[]>
-
-    /**
-     * One row's value, by section and label.
-     *
-     * Per-property, never a whole-popup text match: the popup lists EVERY catalog
-     * property of a type, including the ones the material never set, and those
-     * render with an empty value.
-     */
-    const valueIn = (rows: DetailRow[], section: string, label: string): string => {
-      const row = rows.find((r) => r.section === section && r.label === label)
-      return row ? row.value : `<no "${label}" row in ${section}>`
-    }
+    // detailRows / valueIn were local to this describe. They are now
+    // ObjectProperties.detailRows / .valueIn, because material-submodels.test.ts
+    // needs the same reader and a second hand-rolled copy of a <dl> walker is
+    // how the two drift apart.
+    const detailRows = (name: string): Promise<DetailRow[]> => ObjectProperties.detailRows(name)
+    const valueIn = (rows: DetailRow[], section: string, label: string): string =>
+      ObjectProperties.valueIn(rows, section, label)
 
     /**
      * The open card carrying `type`, or -1 while the form is still mounting.

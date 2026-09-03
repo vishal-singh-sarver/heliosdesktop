@@ -34,7 +34,8 @@ import {
   isSelectorEnum,
   justAboveMax,
   justBelowMin,
-  numericProps
+  numericProps,
+  propDef
 } from '../constants/materials'
 import { TIMEOUTS } from '../config/timeouts'
 import {
@@ -1067,6 +1068,324 @@ describe('Materials', () => {
       await MaterialProperties.typeField(cardId, 'specular_scale', 'abc')
       const after = (await MaterialProperties.fieldState(cardId, 'specular_scale')).value
       expect(after).not.toContain('a')
+    })
+  })
+
+  // ══ Scientific notation and the incomplete exponent ══════════════════════
+  //
+  // WHAT THIS BLOCK IS FOR: three of this form's validation strings had NO
+  // consumer anywhere in e2e/ — `fieldInvalid`, `decimalLimit` and
+  // `fieldRequired`. The first two are reached here. The third is left alone on
+  // purpose: validateMaterialFieldValue returns it only for an empty value on a
+  // field whose resolved `required` is true, and materialBlueprint's own comment
+  // records that the material-type payload never carries the flag ("the API
+  // sends `required` on object types only"), so `required` resolves to false for
+  // every material field. An empty material field is VALID — which is what
+  // "the transient keystroke guard error clears on BLUR" already asserts. A test
+  // for `fieldRequired` could only ever be written against a value the catalog
+  // cannot produce.
+  //
+  // WHY "1e" IS THE ONLY DIRECT ROUTE TO "Invalid Input"
+  // validateMaterialFieldValue reports `fieldInvalid` for a committed value
+  // Number() cannot read as finite. Every other way of producing such a value is
+  // refused a layer EARLIER by handleFieldChange's keystroke guard, which returns
+  // WITHOUT STORING and reports its own copy instead: a letter fails
+  // isPartialNumericInput ("This input is not supported"), and so does a '.' the
+  // keystroke ADDS to an integer field. "1e" survives because the guard MUST
+  // admit it — isPartialNumericInput accepts a trailing exponent so that typing
+  // the 'e' of a perfectly good "1e3" does not flash an error on the middle
+  // keystroke — and expandForDisplay leaves it alone because it is not a complete
+  // number. So the blur commits the literal text "1e", and Number('1e') is NaN.
+  //
+  // The GROUND-side twin of this reasoning is ground.test.ts →
+  // describe('an incomplete exponent'). Same mechanism, DIFFERENT CONSTANTS: this
+  // form has its own messages.ts and its own range copy ("Values should be
+  // between 0-255", no parens — Geometry's has them), so nothing here may be
+  // asserted against GEOMETRY_MSG.
+  describe('scientific notation and the incomplete exponent', () => {
+    /**
+     * A Stomatal Conductance card, which is where every FLOAT case below runs.
+     *
+     * `gamma_co2` is the field under test throughout: it is TOP-LEVEL, so unlike
+     * this type's four stomatal sub-model groups (Ball-woodrow-berry,
+     * Ball-berry-leuning, Medlyn Optimality, Buckley-mott-farquhar) it needs no
+     * selector set first, and its catalog range is 0-1000 — which is what lets
+     * "1e3" land exactly on its inclusive maximum instead of merely somewhere in
+     * the middle.
+     */
+    const gammaCard = async (): Promise<number> => {
+      await track()
+      await MaterialProperties.waitForOpen()
+      return cardWithType('Stomatal Conductance')
+    }
+    const GAMMA = 'gamma_co2'
+
+    /** A Visualiser card — the colour channels are the catalog's ONLY integer
+     *  properties, so they are the only place the integer branch is reachable. */
+    const channelCard = async (): Promise<number> => {
+      await track()
+      await MaterialProperties.waitForOpen()
+      return cardWithType('Visualiser')
+    }
+
+    /**
+     * A colour channel's error text.
+     *
+     * A deliberate copy of the helper inside describe('visualiser') — that one is
+     * private to its block, and reaching into it would couple two describes that
+     * are otherwise independent. It cannot be replaced by fieldState(): the
+     * channels are NOT FormFields, so there is no `input-{cardId}-{property}` and
+     * no `formfield-` wrapper anywhere near them. ColorPicker renders its own
+     * `<input data-testid="color-channel-{ch}">` with the Tooltip trigger as the
+     * input's following sibling inside a `div.relative`, hence `~` (a GENERAL
+     * sibling combinator, so it steps over the opacity box's "%" span).
+     *
+     * ELEMENT commands only, never browser.execute — an invalid field leaves a
+     * pending page error that an execute would collect instead of reading the DOM.
+     */
+    const channelError = async (which: 'r' | 'g' | 'b' | 'opacity'): Promise<string | null> => {
+      const tip = $(`[data-testid="color-channel-${which}"] ~ [aria-label^="Validation error:"]`)
+      return (await tip.isExisting().catch(() => false))
+        ? await tip.getAttribute('data-tooltip-content').catch(() => null)
+        : null
+    }
+
+    it('"1e" in a FLOAT field is SILENT while typing, then reports "Invalid Input" on blur', async () => {
+      const cardId = await gammaCard()
+
+      // TYPED, not written. The guard tests the WHOLE incoming value, so a
+      // native-setter write of "1e" would prove nothing about the keystroke that
+      // carries the 'e' — which is the keystroke this test exists for.
+      await MaterialProperties.typeField(cardId, GAMMA, '1e')
+
+      // Nothing said yet. handleFieldChange sets `typingExponent` for a value
+      // isIncompleteExponent() recognises, and fieldError returns undefined while
+      // the flag AND the value agree one is mid-typing. Without that, "Invalid
+      // Input" would flash on the 'e' of a valid "1e3" and clear on the next
+      // digit — which is exactly why the guard has to admit "1e" in the first
+      // place, and therefore why this route to fieldInvalid exists at all.
+      const typing = await MaterialProperties.fieldState(cardId, GAMMA)
+      expect(`value=${typing.value} error=${typing.error} invalid=${typing.invalid}`).toBe(
+        'value=1e error=null invalid=false'
+      )
+
+      // The blur ENDS the typing run: typingExponent is cleared, expandForDisplay
+      // returns "1e" untouched (there is no complete number to expand), and the
+      // validator then sees a value Number() reads as NaN.
+      await MaterialProperties.commitField()
+      await browser.waitUntil(
+        async () =>
+          (await MaterialProperties.fieldState(cardId, GAMMA)).error ===
+          MATERIALS_MSG.fieldInvalid,
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the blur never surfaced "Invalid Input"' }
+      )
+      // Differential against describe('field validation') two blocks up: a
+      // GUARD rejection leaves the box holding the PREVIOUS value, because
+      // handleFieldChange returned without storing. This one leaves the offending
+      // text standing — it was stored first and judged after — so the value and
+      // the message together say WHICH layer refused it.
+      const blurred = await MaterialProperties.fieldState(cardId, GAMMA)
+      expect(`value=${blurred.value} error=${blurred.error} invalid=${blurred.invalid}`).toBe(
+        `value=1e error=${MATERIALS_MSG.fieldInvalid} invalid=true`
+      )
+    })
+
+    it('"1e" reaches the same message on an INTEGER colour channel', async () => {
+      // The integer branch of the guard refuses a '.' the keystroke ADDS and
+      // nothing else. "1e" carries no '.', so the branch never fires and an
+      // integer field stores it exactly as the float field above does.
+      //
+      // setColorChannel is enough here even though the guard is the point: its
+      // input dispatch runs React's onChange, which IS handleFieldChange — what a
+      // native-setter write skips is per-CHARACTER delivery, not the guard. The
+      // existing "a DECIMAL in an integer channel is refused by the keystroke
+      // GUARD" test rests on the same fact from the other side.
+      await channelCard()
+      await MaterialProperties.setColorChannel('r', '1e')
+
+      // ADMITTED AND STORED. This line is the differential, and without it the two
+      // below are satisfied by a write that never landed: "no error, aria-invalid
+      // false" is the exact state of an EMPTY channel. That is not a hypothetical
+      // — MaterialVisualisationEditor.commit() is
+      // `const field = fieldByProp.get(property); if (field) onFieldChange(...)`,
+      // and control() pairs it with `error: field ? fieldError(field) : undefined`.
+      // So a channel whose catalog property went missing keeps accepting
+      // keystrokes, stores none of them, and reports no error at all. The FLOAT
+      // twin above pins value+error+invalid together; this one has to as well.
+      expect(await MaterialProperties.colorChannel('r').getValue()).toBe('1e')
+
+      // Suppressed while the exponent is unfinished — which is also what makes
+      // the blur below safe to drive with an execute: nothing is invalid yet, so
+      // there is no pending page error for commitField to collect.
+      expect(await channelError('r')).toBe(null)
+      expect(await MaterialProperties.colorChannelInvalid('r')).toBe(false)
+
+      await MaterialProperties.commitField()
+      await browser.waitUntil(async () => MaterialProperties.colorChannelInvalid('r'), {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: 'blurring an unfinished exponent did not flag the channel'
+      })
+      // "Invalid Input", NOT the 0-255 range copy: Number('1e') never became a
+      // number for the bounds to be compared against.
+      expect(await channelError('r')).toBe(MATERIALS_MSG.fieldInvalid)
+      expect(await MaterialProperties.colorChannel('r').getValue()).toBe('1e')
+    })
+
+    it('"1e3" blur-EXPANDS to 1000 and is accepted — the field TEXT is rewritten', async () => {
+      // THE TRAP: a test asserting the box still reads "1e3" after the blur fails.
+      // handleFieldBlur runs expandForDisplay so the field shows the number in the
+      // decimal form it will be STORED as — otherwise toNativeProperties' Number()
+      // would rewrite the text under the user on the next load instead.
+      //
+      // 1e3 is exactly gamma_co2's catalog maximum, so this is the expansion AND
+      // the inclusive upper bound in one write. Read from the catalog rather than
+      // trusted: move the bound and this line goes red, instead of 1000 quietly
+      // demoting itself to an ordinary mid-range value with everything still green.
+      expect(propDef('Stomatal Conductance', GAMMA).max).toBe(1000)
+      const cardId = await gammaCard()
+
+      await MaterialProperties.typeField(cardId, GAMMA, '1e3')
+      // Before the blur the box holds what was typed — the expansion is a BLUR
+      // behaviour, not a keystroke one.
+      expect((await MaterialProperties.fieldState(cardId, GAMMA)).value).toBe('1e3')
+
+      await MaterialProperties.commitField()
+      await browser.waitUntil(
+        async () => (await MaterialProperties.fieldState(cardId, GAMMA)).value === '1000',
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: '"1e3" was never expanded on blur' }
+      )
+      const after = await MaterialProperties.fieldState(cardId, GAMMA)
+      expect(`value=${after.value} invalid=${after.invalid} error=${after.error}`).toBe(
+        'value=1000 invalid=false error=null'
+      )
+    })
+
+    it('"1e-3" expands the other way, to 0.001, and is accepted too', async () => {
+      // The negative exponent grows a FRACTION rather than a whole number. On a
+      // float whose range is 0-1000 that is simply valid — and it is the same
+      // expansion the INTEGER channel below turns into an "Invalid Input", which
+      // is what makes the pair worth having: identical text, identical
+      // expansion, opposite verdicts, decided by the datatype alone.
+      //
+      // Note what does NOT happen: expandForDisplay deliberately does not
+      // truncate, so the expansion cannot silently zero a small value the way
+      // truncateToMaxDecimals would ("1e-9" -> "0.0000000"). Three decimal places
+      // is well under the 7-place limit; the value that IS at that edge is "1e-9",
+      // in the last test of this block.
+      const cardId = await gammaCard()
+      await MaterialProperties.typeField(cardId, GAMMA, '1e-3')
+      expect((await MaterialProperties.fieldState(cardId, GAMMA)).value).toBe('1e-3')
+
+      await MaterialProperties.commitField()
+      await browser.waitUntil(
+        async () => (await MaterialProperties.fieldState(cardId, GAMMA)).value === '0.001',
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: '"1e-3" was never expanded on blur' }
+      )
+      const after = await MaterialProperties.fieldState(cardId, GAMMA)
+      expect(`value=${after.value} invalid=${after.invalid} error=${after.error}`).toBe(
+        'value=0.001 invalid=false error=null'
+      )
+    })
+
+    it('"1e-3" in an INTEGER channel expands to 0.001 — IN RANGE, not whole, so "Invalid Input"', async () => {
+      /**
+       * THE SECOND ROUTE to fieldInvalid, and the subtle one. It needs three
+       * separate parts of the form to line up, and each of them is a place a
+       * reasonable change would close the route:
+       *
+       *  1. THE KEYSTROKE GUARD LETS IT THROUGH. The integer branch refuses a '.'
+       *     the keystroke ADDS to the field — and "1e-3" contains no '.' at all,
+       *     so the branch never fires. isPartialNumericInput accepts the exponent,
+       *     and exceedsMaxDecimals derives THREE decimal places from the `-3`,
+       *     under the 7-place limit. Nothing stops the value being stored.
+       *  2. THE BLUR REWRITES IT to "0.001" — and does so by calling onChangeValue
+       *     DIRECTLY, deliberately bypassing handleFieldChange ("Bypasses
+       *     handleFieldChange, which would re-enter the guard chain on text that
+       *     is already known-numeric"). That bypass is the ONLY reason an integer
+       *     field can end up holding a decimal string: re-entering the guard would
+       *     refuse the very '.' the expansion had just produced.
+       *  3. validateMaterialFieldValue CHECKS RANGE BEFORE DATATYPE. 0.001 sits
+       *     inside 0-255, so the range message is not what comes back; it falls
+       *     through to the integer check, and 0.001 is not a whole number.
+       *
+       * So the channel ends up showing "Invalid Input" over a value that is inside
+       * the range the field advertises — the DATATYPE error, not the range one.
+       * That distinction is the assertion: a form that reported valuesBetween(0,
+       * 255) here would look equally "flagged" to any existence check.
+       */
+      await channelCard()
+      await MaterialProperties.setColorChannel('r', '1e-3')
+
+      // Invalid ALREADY, before any blur: "1e-3" is a COMPLETE number, so
+      // typingExponent is false and the validator runs on the raw text. (Contrast
+      // "1e" two tests up, which is silent until the typing run ends.)
+      await browser.waitUntil(async () => MaterialProperties.colorChannelInvalid('r'), {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: 'a complete negative exponent was not validated in an integer channel'
+      })
+      expect(await channelError('r')).toBe(MATERIALS_MSG.fieldInvalid)
+      expect(await MaterialProperties.colorChannel('r').getValue()).toBe('1e-3')
+
+      // ── Absorb the pending page error, deliberately ─────────────────────────
+      // An invalid field raises a global error in this app, and WebdriverIO hands
+      // it to the NEXT execute-class command — which here would be commitField,
+      // failing with the app's own validation copy against a command that only
+      // blurs. Same absorb, and the same reason, as "a range error and its
+      // aria-invalid CLEAR when the value is corrected".
+      await browser.execute(() => true).catch(() => {})
+
+      await MaterialProperties.commitField()
+      await browser.waitUntil(
+        async () => (await MaterialProperties.colorChannel('r').getValue()) === '0.001',
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the blur never expanded "1e-3" in the channel' }
+      )
+      // THE POINT: the TEXT changed, the VERDICT did not. An integer channel is
+      // now displaying a decimal and is refused for being one — not for being out
+      // of range, which it is not. Asserted as a labelled string so a regression
+      // that swapped the two verdicts fails with both messages in the diff rather
+      // than with a bare "expected true".
+      expect(`0.001 -> ${await channelError('r')}`).toBe(`0.001 -> ${MATERIALS_MSG.fieldInvalid}`)
+      expect(await MaterialProperties.colorChannelInvalid('r')).toBe(true)
+    })
+
+    it('"1e-9" is refused at the KEYSTROKE — nine decimal places never reach the field', async () => {
+      // The contrast pair, in one test so the two halves cannot drift apart. Both
+      // values have the same SHAPE and differ only in the exponent, and
+      // exceedsMaxDecimals reads the decimal count out of the exponent ARITHMETIC
+      // rather than by expanding the string — so "1e-3" is three places and is
+      // stored, "1e-9" is nine and is refused.
+      //
+      // This is the GUARD, not the validator: handleFieldChange returns WITHOUT
+      // STORING, so the copy is decimalLimit and the box keeps what it held before
+      // the refused keystroke. Here that "before" is "1e-" — the typing run had
+      // got as far as the exponent's sign. That is what makes this a refusal at
+      // the keystroke rather than a rejected value, and why it must be TYPED: a
+      // whole-value write would leave the field on its PREVIOUS content and the
+      // "1e-" — the thing that shows exactly which character was turned away —
+      // would never exist.
+      const cardId = await gammaCard()
+
+      // ADMITTED: three decimal places.
+      await MaterialProperties.typeField(cardId, GAMMA, '1e-3')
+      const ok = await MaterialProperties.fieldState(cardId, GAMMA)
+      expect(`value=${ok.value} error=${ok.error}`).toBe('value=1e-3 error=null')
+
+      // REFUSED: the ninth place, on the last keystroke of the run.
+      await MaterialProperties.typeField(cardId, GAMMA, '1e-9')
+      await browser.waitUntil(
+        async () =>
+          (await MaterialProperties.fieldState(cardId, GAMMA)).error ===
+          MATERIALS_MSG.decimalLimit,
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the ninth decimal place was not refused' }
+      )
+      // The '9' never landed — React restores the controlled input to the value
+      // the guard left standing — and the message is the GUARD's. "Invalid Input"
+      // would be the wrong copy here even though Number('1e-') is just as NaN as
+      // Number('1e'): the validator never saw this value at all.
+      const refused = await MaterialProperties.fieldState(cardId, GAMMA)
+      expect(`value=${refused.value} error=${refused.error} invalid=${refused.invalid}`).toBe(
+        `value=1e- error=${MATERIALS_MSG.decimalLimit} invalid=true`
+      )
     })
   })
 

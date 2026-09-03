@@ -29,6 +29,35 @@ features, driven by a supplied set of ~260 manual test cases.
 
 ## 2. Environment — the two things that will waste your day
 
+### 2.0 WHICH PLATFORM ARE YOU ON? Most of this section is Windows-only
+
+Sections 2.2-2.4 below were written on Windows and several are inert elsewhere.
+On the **native Linux** checkout (verified 2026-09-02):
+
+| Windows note | Linux reality |
+|---|---|
+| `libhelios.dll` staleness (§2.2) | the artifact is `pyhelios/pyhelios_build/build/lib/**libhelios.so**`. Same staleness risk, same check with `-newer …libhelios.so` |
+| `resources/backend/win` | `resources/backend/**linux**/heliosgui_backend/heliosgui_backend` |
+| PowerShell build/prune scripts | not used; the packaged backend was already built |
+| "reaping is POSIX-only, so on Windows every run leaves orphans" | `reapOrphans` **does** run here, and no orphan accumulation was observed across six full spec runs |
+
+**Do NOT `pkill -f electron` on Linux.** The pattern matches the editor and the
+agent harness themselves. `reapOrphans` already handles it; if you must sweep by
+hand, match `heliosgui_backend` and nothing broader.
+
+The backend can also be driven **directly over HTTP** without Electron, which is
+by far the cheapest way to answer "what does the engine actually do?":
+
+```bash
+resources/backend/linux/heliosgui_backend/heliosgui_backend --port=PORT
+# HELIOS_DATA_DIR / HELIOS_LOG_DIR point it at a scratch dir
+```
+Two gotchas: health is **`/health`**, not `/api/health`; and
+`GET /api/project/{p}/scenarios/{s}/init` is the ONE route taking `session_id`
+as a **query param** (EventSource cannot set headers) — everything else uses the
+`session-id` header. Object creation requires the FULL property set (`texture_y`
+included) or it 400s `MISSING_REQUIRED_PROPERTY`.
+
 ### 2.1 The backend submodule must match M2's pin
 
 `M2` records backend **`91b4099`**, which is the only revision with the
@@ -186,8 +215,29 @@ snapshot with **added attributes and zero deletions**.
 7. **Row action icons are `opacity-0`** until hover/focus/selection but always
    in the DOM. Click them in-page rather than via WebDriver.
 8. **`Ground.NNN` is GAP-FILLING** — never hardcode the next name; derive it.
-9. **Never save a ground above ~100 resolution cells.** The 3D window is always
-   mounted and fetches the mesh with no timeout; a big save wedges the runner.
+9. **Never save a ground above ~100 resolution cells** — outside
+   `large-ground.test.ts`, which does it deliberately and pays for it in its own
+   spec file. The rule stands, but the reasoning it used to carry was wrong in
+   both directions. MEASURED 2026-09-02 against the packaged backend:
+   - A **soil ground physically cannot exceed 511 per axis.** Every unstyled
+     ground has `dirt.jpg` (512×512) baked into it, and the engine refuses
+     `subdiv >= repeat × texture_px` (`Context_object.cpp`). 1000×1000 comes back
+     **422 `RESOLUTION_TOO_HIGH`**. So the old advice "a max-boundary 25000×25000
+     save would wedge the runner" describes a save that cannot happen at all.
+   - **A colour-mode Visualiser material UNLOCKS it.** No texture, no cap, and
+     the identical PATCH returns 200. The material is what permits the
+     resolution — the inverse of the obvious expectation.
+   - Costs at 1000×1000: build **10.9s**, assign another material **16.1s**,
+     delete **15.7s**, mesh **70,000,004 bytes** (66.8 MB — the "228 MB" figure
+     repeated in eight files is the TEXTURED case). All inside the 120s budget.
+   - **The real hazard is memory, not time.** Backend RSS goes 0.11 GB → 2.55 GB
+     on the build and **stays at 2.56 GB after the ground is deleted**. 2.45 GB
+     is retained for the life of the process. That is why a big ground gets its
+     own spec FILE: wdio gives each spec file its own session and backend, so the
+     retention dies with it instead of following the other ~40 tests.
+   - Always **close the eye before the big save.** `onGeometryUpdated` and
+     `onMaterialAssigned` both bail on `!visibleInViewport`, so a hidden ground is
+     never fetched or parsed. Never re-open it — unhiding triggers a fresh fetch.
 10. **Portalled surfaces** (`Select` listbox, per-model menu, popups) attach to
     `document.body` — query from the root, never scoped to a panel.
 11. **An out-of-range field raises a global error in the app.** WebdriverIO
@@ -243,6 +293,31 @@ snapshot with **added attributes and zero deletions**.
     Save goes through `updateObjectWorker`, whose only toast is `changesSaved`.
 20. **This file has no `beforeEach(reloadToHome)`** (shared provisioning), so
     anything needing the Home sidebar must return there itself.
+21. **A SELECTOR ENUM READS BACK DIFFERENTLY ON THE GROUND THAN IN THE FORM.**
+    Trap 16 says the form shows the GROUP NAME (`Ball-woodrow-berry`, not `BWB`).
+    The ground's read-only popup does the OPPOSITE: `buildMaterialSections`
+    renders the **humanized stored code** — `farquhar_model` → `Farquhar Model`,
+    `BWB` → `BWB`. So a user picks one string and reads back another, and a test
+    that reuses `enumLabel()` for the popup fails, as does one that reuses the
+    raw value. Go through **`readOnlyEnumValue(type, property, value)`** in
+    `e2e/constants/materials.ts`. An ORDINARY enum
+    (`two_sided_heat_transfer`) drives no group, so both surfaces agree and the
+    helper is the identity. Pinned as a DEVIATION by `material-submodels.test.ts`.
+22. **The read-only popup's `<dt>` labels are NOT in the e2e catalog mirror.**
+    `MATERIAL_CATALOG` carries shape (datatype, bounds, groups) but not the
+    catalog's `label` column. Use **`materialLabel(property)`**, which mirrors
+    `LABEL_OVERRIDES[p] ?? catalog.label ?? humanizeProperty(p)`. Two entries are
+    not the catalog's own text and cannot be found by grepping the database:
+    `stomatal_model` ships as "Stomatal Conductance" and is OVERRIDDEN to
+    "Stomatal Model", and the four Visualiser channels have no catalog label at
+    all (the app supplies `R`/`G`/`B`/`Opacity (%)`). Note `gs, o` and `a1` repeat
+    across stomatal sub-models — safe to assert on only because the sub-models are
+    mutually exclusive, so one rendered popup never shows both.
+23. **`ObjectProperties.detailRows(name)` / `.valueIn(rows, section, label)`** are
+    the only way to read a VALUE off a ground. `detailSections()` returns headings
+    only. `valueIn` returns `<no "X" row in Y>` on a miss rather than `''`,
+    because the popup lists every catalog property of an active group INCLUDING
+    the unset ones, and "blank" and "absent" must not look alike in a diff.
 
 ---
 
@@ -307,9 +382,19 @@ prove it was painted correctly — nothing available to WebDriver can. It does
 catch the failure that cost a day: a stale `libhelios.dll` makes the create 500
 with `BUILD_FAILED` and no mesh is ever requested.
 
-### `e2e/tests/materials.test.ts` — 151 tests, ~5m 15s
+### `e2e/tests/materials.test.ts` — 252 tests, ~13m 12s
 
-Measured 2026-08-28: **149 passing, 2 skipped, 0 failing**. Was 55.
+Measured 2026-09-02: **252 passing, 0 failing** (178 literal `it(`, expanded by
+the generated sweeps). **The "151 tests, ~5m 15s / 149 passing, 2 skipped" this
+header used to carry was stale** — do not restore it, and do not "correct" 252
+down to the literal 178.
+
+**252 passing, 1 skipped, 0 failing.** The single skip is the empty-library
+self-skip (`an empty library shows "No saved materials yet."`) — the library is
+GLOBAL, so it is essentially never empty. The OTHER historically-skipped test,
+the texture library, now **runs and passes on Linux**: this build does bundle the
+assets, and `GET /api/textures/defaults` returns `dirt.jpg`, `dirt2.jpg` and
+`grass.jpg` (verified 2026-09-02). See the corrected product finding in §7.
 
 **It had never run green, and it was ONE assertion away.**
 `it('a new material opens with NO type cards')` asserted zero cards while
@@ -339,18 +424,63 @@ The 2 skips are honest self-skips, not hidden failures: the empty-library test
 (the library is GLOBAL, so it is essentially never empty) and the texture-library
 test — which skips because **the library genuinely ships empty**, see below.
 
-### `e2e/tests/material-assignment.test.ts` — 23 tests, ~2m
+### `e2e/tests/material-assignment.test.ts` — 48 tests, ~4m 27s
 
-New file. **22 passing, 1 skipped, 0 failing** first run. Covers the largest
-previously-untested surface: the Select Materials picker (both shapes, its
-search, the single-select radio rule), picking as a draft change, the Replace
-confirmation, the CONDITIONAL unassign, the read-only detail popup, a failed
-save, and the amber `stale` sync dot.
+Measured 2026-09-02: **47 passing, 1 self-skipped, 0 failing** (48 literal
+`it(`). **The "23 tests, ~2m / 22 passing" this header used to carry was stale.**
+The skip is the empty-library case at `:485`.
 
-Not covered, deliberately: **drag-and-drop assign** (the helper now exists —
-`dnd.ts` `dragMaterialOnto` / `readMaterialDragPayload` — but no test uses it
-yet), and the **`drift`** sync dot, which is UNREACHABLE from the GUI because
-every client write hardcodes `sync: true`.
+Covers the Select Materials picker (both shapes, its search, the single-select
+radio rule), picking as a draft change, the Replace confirmation, the CONDITIONAL
+unassign, the read-only detail popup, a failed save, the amber `stale` sync dot,
+**drag-and-drop assign** (`dragMaterialOnto` — the old "no test uses it yet" note
+is also stale; it now has six callers) including the collapsed-group fan-out, and
+the panel hand-off ground → material → ground.
+
+Added 2026-09-02 (+9):
+
+| Group | n | Covers |
+|---|---:|---|
+| **renaming a material that is ON a ground** | 5 | a library-list rename relabels the OPEN ground form in place (no reselect, no refetch); the detail popup's `aria-label` follows; the picker follows; the rename survives a RESELECT — which is the oracle for `nameFor()`, because `DraftMaterialGroup.name` is a denormalized copy the geometry slice never repairs; and the form path commits on BLUR only (**Enter does nothing** — there is no `onKeyDown` on that input) |
+| **the two duplicate-name paths** | 1 | the LIST row refuses client-side with `nameExists`; the FORM has no client check (`NO_NAME_CONFLICTS` is empty) so it takes the BACKEND 409 `nameExistsBackend` — pinned against each other in ONE test so the two strings cannot drift together |
+| **one material on SEVERAL grounds** | 3 | two INDEPENDENT grounds (not the group fan-out) wearing one material; deleting it from the library empties BOTH grounds and BOTH pickers live; UNASSIGNING from one leaves the other wearing it — the differential that proves the delete test was about the delete |
+
+Still not covered, deliberately: the **`drift`** sync dot, UNREACHABLE from the
+GUI because every client write hardcodes `sync: true`.
+
+### `e2e/tests/material-submodels.test.ts` — 30 tests, ~2m 13s
+
+New file, 2026-09-02. **30 passing, 0 failing** first run (24 literal `it(`,
+expanded by a per-sub-model loop).
+
+**It is a JOIN, and that is the whole point.** `materials.test.ts` drives the
+sub-models inside the FORM (reveal / hide / switch-blanks / survives a reload),
+and `material-assignment.test.ts` drives ASSIGNMENT. Nothing carried a
+sub-model's coefficients from the form, over an assignment, to the ground's
+read-only view and compared them value by value — which is what the feature is
+actually for.
+
+| Group | n | Covers |
+|---|---:|---|
+| **Photosynthesis — Farquhar on a ground** | 8 | the group's EXACT membership (a 15th coefficient added by a migration would otherwise ship green); **ALL 14 coefficients filled, assigned and read back one for one** with spread values so a shifted mapping cannot coincidentally agree; the selector's form-vs-ground disagreement; `topt_*` accepting 273 and rejecting 272.9; top-level fields listed alongside the group; an ORDINARY enum read back RAW while the SELECTOR is humanized; survival of a reselect; a post-assignment edit reaching the ground with no reload |
+| **Stomatal Conductance — all four sub-models** | 12 | generated per sub-model from `SUBMODELS`: each one's own parameters and ONLY its own reach the ground, and each reads back as its stored CODE (`BWB`/`BBL`/`Medlyn`/`BMF`), not the `Ball-woodrow-berry` the user clicked |
+| **the widest bounds, SAVED** | 3 | `gamma_co2` staying top-level across sub-models; `bbl_d0` at 5000000 and `bmf_k` at 10000000 accepted, `+0.1` refused, both saved onto a ground; switching the sub-model after assignment swaps what the ground shows |
+| **read-only fidelity** | 6 | numbers NOT reformatted (character for character); a value typed `1e3` stored EXPANDED and read back `1000`; an unset field still gets a row with an EMPTY value; two type cards → two sections with a shared label disambiguated by section; sections collapsible and open by default; the popup carries THIS material, not another |
+| **the DROP path** | 4 | a drop assigns immediately with its toast and no Save, coefficients readable at once; a REPLACING drop swaps the reported sub-model; a FAILED card save leaves the PREVIOUS values on the ground; the coefficients survive REOPENING the project |
+
+### `e2e/tests/large-ground.test.ts` — 4 tests, ~1m 44s
+
+New file, 2026-09-02. **4 passing, 0 failing.** Deliberately its own spec file —
+see trap 9: a 1000×1000 build retains **2.45 GB** in the backend that DELETE does
+not reclaim, and wdio gives each spec FILE its own session and backend, so the
+retention dies with this file instead of following the other ~40 tests.
+
+| n | Covers |
+|---:|---|
+| 1 | a 100 × 100 m ground SAVES at a safe resolution — **extent is not what costs**, cell count is |
+| 1 | a SOIL ground REFUSES 1000 × 1000; the engine's own message reaches the form's inline error, unattached to any field |
+| 1 | with a COLOUR-mode Visualiser assigned the SAME save is ACCEPTED — **the material is what unlocks the resolution** — the row hidden throughout, asserted by proving no mesh was fetched |
+| 1 | **the colour surface is a ONE-WAY DOOR** — see the product finding in §7 |
 
 ### `e2e/tests/ground.test.ts` — 22 tests, ~1m 25s
 
@@ -391,11 +521,54 @@ behave differently from the tree — was unreached code.
 | loading a ground | 1 | an unsaved edit is discarded on switching rows |
 | a failed per-object load | 1 | it is SILENT (deviation + product finding) |
 
+### `e2e/tests/material-uploads.test.ts` — 6 tests, ~40s
+
+**6 passing, 0 failing**, measured 2026-09-01. The only spec that drives a file
+picker with a REAL file. Everything else in the suite builds its uploads inline
+as strings, which can only ever express a file the app REFUSES — so before this
+file, nothing had uploaded anything the app accepts, and the accept path is the
+only one that POSTs, stores a file on disk and reads it back.
+
+| Group | n | Covers |
+|---|---:|---|
+| spectral data | 2 | a valid Helios library — the BACKEND parses the stored file and reports its five spectra; a genuine ANSI N42 XML refused at the root check |
+| texture | 4 | a PNG **at** the 10 MB cap accepted; one megabyte past it refused; a real PNG named `.jpeg` refused as a format MISMATCH; an uploaded texture reaching a ground through drag-assign |
+
+**The fixtures are load-bearing — do not swap them for "some other image".**
+
+| fixture | bytes | why that number |
+|---|---:|---|
+| `test_image_10MB.png` (`TEXTURE_PNG`) | 10,485,760 | EXACTLY `MAX_TEXTURE_BYTES`. `validation.ts:114` rejects on a strict `>`, so this is the happy path AND the inclusive boundary in one file |
+| `test_image_11MB.png` (`TEXTURE_OVERSIZE_PNG`) | 11,534,336 | the same image re-encoded past the cap — a genuine PNG in every other respect, so it can only fail on size |
+| `test_image.png` (`TEXTURE_SMALL_PNG`) | ~25 KB | for rejections that need REAL image bytes but fail early. Shipping 10 MB of base64 over the WebDriver wire to be refused at byte 8 is pure cost |
+
+Two traps this file already paid for:
+
+1. **`10485760` is not decoration.** On its own, "10 MB is accepted" is also
+   satisfied by an app with no size rule at all; only the pair pins `>` against
+   `>=`. That property lives in a byte count that nothing enforces, so the accept
+   test asserts `statSync(...).size` itself — otherwise re-encoding the fixture
+   turns the boundary case into an ordinary one with every assertion still green.
+2. **No fixture may lie about its own format.** The mismatch case overrides the
+   name at the `File` constructor (`uploadImage(cardId, file, asName, mime)`)
+   rather than committing a mis-labelled image. One such file did land here — a
+   JPEG named `.png` — and was indistinguishable from an accident; it has been
+   re-encoded to a real PNG. A `.png` fixture that is secretly a JPEG will
+   silently redirect the happy path into `textureFileFormatMismatch`.
+
+**The e2e tree is NOT under `npm run format`** (that script is `src/**` only) and
+several files there already fail `prettier --check` — `e2e/constants/materials.ts`
+keeps its catalog as one compact line per property on purpose. Do not run
+prettier over `e2e/`; it explodes that table into 8-line blocks and buries the
+real diff.
+
 ### Supporting files
 ```
 e2e/pages/Geometry.page.ts          rows, groups, tree states, one-execute snapshot
 e2e/pages/LeftPanel.page.ts         panel + accordion chrome, titles, chevrons
-e2e/pages/ObjectProperties.page.ts  ground form: fields, tooltip errors, save, NAME row
+e2e/pages/ObjectProperties.page.ts  ground form: fields, tooltip errors, save, NAME row,
+                                    the material picker, and detailRows()/valueIn() —
+                                    the ONLY way to read a VALUE off a ground (trap 23)
 e2e/pages/RightPanel.page.ts        the collapse chevron (display:none, never unmount)
 e2e/pages/Materials.page.ts         library rows, search, delete
 e2e/pages/MaterialProperties.page.ts type cards, portalled Select, card fields
@@ -405,8 +578,12 @@ e2e/support/faults.ts               XHR fault injection
 e2e/support/toasts.ts               snackbar reads (auto-dismiss ~2.5s)
 e2e/support/viewport3d.ts           3D mesh-fetch verification
 e2e/constants/geometry.ts           copy, live-catalog bounds, safety ceiling
-e2e/constants/materials.ts          materials copy, limits, live catalog types
+e2e/constants/materials.ts          materials copy, limits, live catalog types, the
+                                    LABEL table + materialLabel(), readOnlyEnumValue()
+                                    (trap 21), SUBMODELS, midRangeValue(), propDef()
 e2e/support/harness.ts              enterGeometry(), enterMaterials()
+e2e/config/fixtures.ts              fixture paths + the byte counts that matter
+e2e/fixtures/materials/             real upload files (see material-uploads.test.ts)
 ```
 
 `dialogs.ts` is the one that unblocked a whole class of assertion. Both page
@@ -462,14 +639,17 @@ space up if you like; do not treat it as a defect.
 
 ### PRODUCT FINDINGS from the materials work (not test bugs)
 
-- **The texture library ships EMPTY.** `GET /api/textures/defaults` returns
-  `{"textures": []}` in a packaged build: `list_default_textures()` resolves
-  `Path(__file__).parents[2]/assets` = `_internal/assets`, and
+- **The texture library ships empty ON WINDOWS ONLY — it is fine on Linux.**
+  CORRECTED 2026-09-02. `list_default_textures()` resolves
+  `Path(__file__).parents[2]/assets` = `_internal/assets`. The Windows
   `scripts/build_binary.ps1` has no `--add-data` for
-  `helios-desktop-backend/assets` — which DOES hold `dirt.jpg`, `dirt2.jpg`,
-  `grass.jpg`. So the story's "select a texture from a set of predefined Helios
-  textures" cannot be satisfied by any current build. The e2e test for it
-  self-skips and will start passing the day the assets are bundled.
+  `helios-desktop-backend/assets`, so that build serves `{"textures": []}`. The
+  **Linux** package DOES bundle them: `_internal/assets/` holds `dirt.jpg`,
+  `dirt2.jpg` and `grass.jpg`, and `GET /api/textures/defaults` returns all
+  three (verified against the packaged binary). So the story's "select a texture
+  from a set of predefined Helios textures" IS satisfiable here, the e2e test no
+  longer self-skips, and the remaining defect is a **packaging gap on Windows**,
+  not a missing feature. Do not re-file this as "the feature does not work".
 - **`GEOMETRY_MSG.invalidInput` is reachable after all — via an incomplete
   exponent.** Earlier notes here called it dead. Type `1e` and blur: the guard
   admits it, `expandForDisplay` cannot expand it, and `Number('1e')` is NaN. It
@@ -491,6 +671,39 @@ space up if you like; do not treat it as a defect.
   `ground.test.ts`; worth a product decision before Geometry sign-off.
 - **`drift` on the material sync dot is unreachable from the GUI.** Every client
   write hardcodes `sync: true`, so only `stale` can be produced.
+- **A COLOUR MATERIAL ON A HIGH-RESOLUTION GROUND IS A ONE-WAY DOOR, AND THE
+  FAILURE IS NOT CLEAN.** The sharpest finding from the 2026-09-02 work; pinned
+  by `large-ground.test.ts`. A colour-mode Visualiser is what lets a ground
+  exceed the 511/axis soil-texture cap (trap 9). But it can then never be
+  swapped or removed at that resolution: replacing a material is
+  *delete-then-add* (`updateObjectWorker` DELETEs the displaced assignment before
+  the add-only PATCH, "so the ground is never momentarily double-assigned"), and
+  with the last material gone the backend's desired surface reverts to `soil`, so
+  `_apply_assignment_change` tries to rebuild the tile with `dirt.jpg` at
+  1000×1000 — the very thing the engine refuses. The intermediate state is
+  unbuildable.
+  **The worse half:** `unassign_material_group` does `db.delete(...)` then
+  `db.commit()` and only THEN calls `_apply_assignment_change`. So when the
+  repaint raises, the assignment is ALREADY COMMITTED AWAY and the 422 is
+  returned on top of it. `update_object` compensates for exactly this on the
+  intrinsic path (it re-upserts `prev_canonical` before re-raising); the unassign
+  path has no such rollback. The user is told the save failed while the backend
+  has genuinely dropped the material, and the client's `materialBaseline` still
+  lists it — so a second Save tries to DELETE an assignment that no longer exists
+  and fails differently. The user's only route back is to lower the resolution
+  first, and nothing in the UI says so. **Product decision needed.**
+- **The two surfaces disagree about a selector enum.** The Materials form shows
+  the GROUP NAME a value unlocks (`Ball-woodrow-berry`); the ground's read-only
+  popup shows the humanized STORED CODE (`BWB`). Both are deliberate and both
+  carry comments saying so, but together they mean a user picks one string and
+  reads back another. See trap 21; pinned by `material-submodels.test.ts`.
+- **A 422 `RESOLUTION_TOO_HIGH` has no specific handling in the frontend**, but
+  it is NOT swallowed: `api.ts` surfaces the backend's `detail.error` verbatim,
+  `UPDATE_OBJECT_FAILED` writes it to `draft.createDraft.saveError`, and the form
+  renders it on its inline `.form-error-text` line. So the engine's own sentence
+  ("Ground resolution is too high for the ground texture. Lower the resolution
+  and try again.") does reach the user — just unattached to the field that caused
+  it, with both resolution inputs left looking valid.
 - **`topt_tpu` is 273-373 in the catalog; Story 10 states 272.** Every other
   numeric bound in that story matches the live catalog exactly.
 - **Both `031` migrations DID land** on this machine's database (schema v31
@@ -519,28 +732,51 @@ the team for now; revisit before Geometry sign-off.
 | `texture_x/y` | integer | 1 | — (must divide the resolution) |
 | name | — | 1 | 20 |
 
+**`resolution_x/y`'s catalog max of 25000 is NOT the reachable maximum.** The
+engine caps a TEXTURED tile at `texture_px × repeat`, and every unstyled ground
+carries the 512px `dirt.jpg` — so the real ceiling on a default ground is **511
+per axis**, and 25000 is only approachable on an UNTEXTURED (colour-material)
+ground. See trap 9.
+
 ---
 
 ## 8. Still to do
 
 Geometry is ~60% of its action surface. What is left, roughly in value order:
 
-- **Material assignment** to a geometry — the Select popup, assign, the Replace
-  confirmation, unassign, and the backend-computed `stale`/`drift` sync dot.
+- ~~**Material assignment** to a geometry~~ **DONE** — the Select popup, assign
+  (both the picker+Save path and drag-and-drop), the Replace confirmation,
+  unassign, the read-only detail popup, cross-panel rename, one material on
+  several grounds, and `stale` are all in `material-assignment.test.ts`;
+  sub-model values through to the ground's read-only view are in
+  `material-submodels.test.ts`. `drift` remains UNREACHABLE from the GUI.
 - **Per-model visibility dropdown** — right-click the render icon. Only the
   all-models master switch is covered.
 - **Delete from the Properties form** — its own trash and the
   `This geometry was deleted. Close the panel.` notice.
 - **Multi-select** (Ctrl/Cmd-click) — needs a synthetic click carrying modifiers.
 - **Reorder** — the before/after drag bands. Client-only, never persisted.
-- Smaller: scientific-notation expansion on blur, the `-0` signed-zero rule,
+- Smaller: the `-0` signed-zero rule,
   `position_*` / `length` upper bounds, search matching a GROUP name, name
   namespaces (a geometry may take a group's name), row keyboard access,
   `+ Ground` disabled during an in-flight write, the row busy spinner, and the
   1s created-row highlight.
-- `materials.test.ts` — the whole Materials surface: library CRUD, type dropdown
-  against the live catalog, visualiser tabs, texture upload (a real hidden
-  `<input type=file>`; `setValue` works, no IPC stub needed).
+- ~~`materials.test.ts` — the whole Materials surface~~ **DONE**: library CRUD,
+  the type dropdown against the live catalog and the visualiser tabs are in
+  `materials.test.ts`; texture and spectral upload are in
+  `material-uploads.test.ts`. The **From Library** tab is now testable on Linux
+  (the assets ARE bundled here — see the corrected §7 finding), so its test no
+  longer self-skips; what remains are the two `validateTextureFile` branches:
+  `textureFileCorruptError` (bytes with a valid 8-byte header behind which
+  nothing decodes) and `textureFileTooLargeDimensions` (a flat-colour image over
+  8192px, which compresses small enough that the byte cap never sees it).
+- ~~Scientific-notation expansion on blur~~ **DONE for materials** — the `1e`
+  incomplete exponent, `1e3`/`1e-3` blur expansion, the integer-field second
+  route to `Invalid Input`, and the `1e-9` keystroke refusal are in
+  `materials.test.ts`. The GROUND-side analogue was already in `ground.test.ts`.
+- **A high-resolution ground cannot have its material swapped** — the one-way
+  door in §7. Pinned by `large-ground.test.ts`, but it needs a PRODUCT DECISION,
+  not more tests.
 - The full ~260-case triage table (automate / unit-covered / manual-only /
   spec-conflict), and the remaining testid hooks (dialogs, portalled `Select`
   listbox, `TextureSelector`, radiation spectral toggle).
