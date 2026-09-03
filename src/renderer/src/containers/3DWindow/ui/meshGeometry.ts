@@ -1,12 +1,12 @@
 import * as THREE from 'three'
+import type { GpuGeometry, GpuGroup } from '../api/geometryV2'
 import type { PrimitiveInfo } from '../models/types'
+import { startTimer } from '../perf/metrics'
 
 export interface GeometryGroup {
   geometry: THREE.BufferGeometry
   textureFile: string | null // null = vertex-colored (untextured) group
   textureMaskMode: boolean
-  // faceIndex → primitive UUID (for click-to-select later).
-  faceToUuid: Map<number, number>
 }
 
 /**
@@ -16,6 +16,19 @@ export interface GeometryGroup {
  * two triangles; n-gons are fan-triangulated.
  */
 export function buildTexturedGeometries(primitives: PrimitiveInfo[]): GeometryGroup[] | null {
+  // Measured HERE rather than at the call site so the count covers every caller.
+  // The count is the number that matters: SceneContent rebuilds the whole merged
+  // scene once per object that lands, so a 12-object load reports `build x12`
+  // where it should report `build x1`.
+  const endBuild = startTimer('build')
+  try {
+    return buildGroups(primitives)
+  } finally {
+    endBuild()
+  }
+}
+
+function buildGroups(primitives: PrimitiveInfo[]): GeometryGroup[] | null {
   // Key "" = untextured; mask-mode primitives get a separate "mask:" key.
   const groups = new Map<string, PrimitiveInfo[]>()
   for (const prim of primitives) {
@@ -38,7 +51,6 @@ export function buildTexturedGeometries(primitives: PrimitiveInfo[]): GeometryGr
     const colors: number[] = []
     const uvArray: number[] = []
     const indices: number[] = []
-    const faceToUuid = new Map<number, number>()
     let vertexOffset = 0
 
     for (const prim of groupPrims) {
@@ -51,22 +63,14 @@ export function buildTexturedGeometries(primitives: PrimitiveInfo[]): GeometryGr
         if (hasUVs && prim.uvs) uvArray.push(prim.uvs[vi].u, prim.uvs[vi].v)
       }
 
-      if (verts.length === 3) {
-        const faceIdx = indices.length / 3
-        indices.push(vertexOffset, vertexOffset + 1, vertexOffset + 2)
-        faceToUuid.set(faceIdx, prim.uuid)
-      } else if (verts.length === 4) {
-        const faceIdx = indices.length / 3
-        indices.push(vertexOffset, vertexOffset + 1, vertexOffset + 2)
-        indices.push(vertexOffset, vertexOffset + 2, vertexOffset + 3)
-        faceToUuid.set(faceIdx, prim.uuid)
-        faceToUuid.set(faceIdx + 1, prim.uuid)
-      } else if (verts.length > 4) {
-        for (let i = 1; i < verts.length - 1; i++) {
-          const faceIdx = indices.length / 3
-          indices.push(vertexOffset, vertexOffset + i, vertexOffset + i + 1)
-          faceToUuid.set(faceIdx, prim.uuid)
-        }
+      // Fan from vertex 0. This is the whole triangulation: a triangle is a
+      // one-step fan and a quad a two-step one, so the separate 3- and 4-vertex
+      // branches that used to sit here emitted exactly these indices. They only
+      // existed to compute a face index per primitive, and that went with the
+      // map below. A count under 3 runs zero iterations, which is the right
+      // answer for a degenerate primitive.
+      for (let i = 1; i < verts.length - 1; i++) {
+        indices.push(vertexOffset, vertexOffset + i, vertexOffset + i + 1)
       }
       vertexOffset += verts.length
     }
@@ -88,10 +92,62 @@ export function buildTexturedGeometries(primitives: PrimitiveInfo[]): GeometryGr
     result.push({
       geometry: geo,
       textureFile: actualTexFile,
-      textureMaskMode: isMaskMode,
-      faceToUuid
+      textureMaskMode: isMaskMode
     })
   }
 
   return result.length > 0 ? result : null
+}
+
+
+// ── Wire format v2 ───────────────────────────────────────────────────────────
+
+export interface GpuMesh {
+  /** ONE geometry for the whole object. Draw groups mark the material spans. */
+  geometry: THREE.BufferGeometry
+  /** Parallel to the geometry's draw groups: groups[i] uses material i. */
+  groups: GpuGroup[]
+}
+
+/**
+ * Build a single BufferGeometry from a v2 payload, with one draw group per
+ * material span.
+ *
+ * No per-vertex work happens here at all. The attributes wrap the response
+ * buffer's memory directly, and the index buffer is used exactly as the engine
+ * wrote it — v2's indices are GLOBAL vertex indices, which is what makes
+ * addGroup() viable. Splitting this into one geometry per group would instead
+ * mean subtracting vertexStart from every index: 24 million subtractions on an
+ * 8M-triangle scene, to end up with the same number of draw calls.
+ *
+ * `withNormals` is false for unlit (flat) shading, where computeVertexNormals is
+ * pure waste — it is an O(vertices) pass that also allocates a third position-
+ * sized attribute, 192 MB on a 2000x2000 ground, for data no shader reads.
+ */
+export function buildGpuGeometry(gpu: GpuGeometry, withNormals = true): GpuMesh | null {
+  if (gpu.totalVerts === 0 || gpu.totalTris === 0) return null
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(gpu.positions, 3))
+
+  // Both arrays are always present in the payload, but a group only reads the
+  // one its flags claim. Attaching an attribute nothing samples would upload it
+  // to the GPU for nothing.
+  if (gpu.groups.some((g) => g.hasUVs)) {
+    geo.setAttribute('uv', new THREE.BufferAttribute(gpu.uvs, 2))
+  }
+  if (gpu.groups.some((g) => g.hasColors)) {
+    geo.setAttribute('color', new THREE.BufferAttribute(gpu.colors, 3))
+  }
+
+  geo.setIndex(new THREE.BufferAttribute(gpu.indices, 1))
+
+  for (let i = 0; i < gpu.groups.length; i++) {
+    const g = gpu.groups[i]
+    geo.addGroup(g.triangleStart * 3, g.triangleCount * 3, i)
+  }
+
+  if (withNormals) geo.computeVertexNormals()
+
+  return { geometry: geo, groups: gpu.groups }
 }

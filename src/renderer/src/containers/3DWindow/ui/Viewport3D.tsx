@@ -10,6 +10,10 @@ import {
   selectSceneObjects
 } from '../store/selectors'
 import { getAllCachedPrimitives } from '../store/sceneCache'
+import { installPerfBridge } from '../perf/console'
+import type { StageName } from '../perf/metrics'
+import { formatBytes, formatCount, isPerfEnabled, setPerfEnabled } from '../perf/metrics'
+import { usePerfReport } from '../perf/usePerfReport'
 import type { LightingMode } from './materials'
 import type { LightingSettings } from './SceneLighting'
 import { defaultLightingSettings } from './SceneLighting'
@@ -295,6 +299,9 @@ function computeStats(primitives: PrimitiveInfo[], objectCount: number): SceneSt
   }
 }
 
+/** Stages shown in the overlay, in pipeline order. */
+const PERF_STAGES: StageName[] = ['fetch', 'parse', 'build']
+
 // ── Lighting mode config ─────────────────────────────────────────────────────
 
 const LIGHTING_MODES: Array<{ mode: LightingMode; Icon: () => React.JSX.Element; title: string }> =
@@ -337,6 +344,35 @@ export function Viewport3D(): React.JSX.Element {
     if (!showStats) return null
     return computeStats(getAllCachedPrimitives(), objects.length)
   }, [showStats, objects.length, sceneLoad])
+
+  // ── Render-path harness ────────────────────────────────────────────────────
+  //
+  // The overlay is the on-switch: collection costs nothing while it is closed,
+  // so a session that never opens it pays nothing. To measure a scene LOAD, open
+  // the overlay before switching scenario — the numbers start when the load does.
+  useEffect(() => {
+    installPerfBridge()
+  }, [])
+
+  // Only ever gives back what it took. A session driven from the console
+  // (__heliosPerf.on()) must not be switched off by opening and closing this
+  // overlay, so the overlay tracks whether it was the one that enabled it.
+  const perfOwned = useRef(false)
+  useEffect(() => {
+    if (showStats) {
+      if (!isPerfEnabled()) {
+        setPerfEnabled(true)
+        perfOwned.current = true
+      }
+      return
+    }
+    if (perfOwned.current) {
+      setPerfEnabled(false)
+      perfOwned.current = false
+    }
+  }, [showStats])
+
+  const perf = usePerfReport(showStats)
 
   return (
     <div className="relative h-full w-full">
@@ -451,6 +487,80 @@ export function Viewport3D(): React.JSX.Element {
               )}
             </div>
           </div>
+
+          {perf && (
+            <div className="mt-2 border-t border-neutral-700 pt-2">
+              <div className="mb-1 text-[11px] uppercase tracking-wider text-neutral-500">
+                Render path
+              </div>
+              <div className="flex gap-6">
+                <div className="flex flex-col">
+                  <span>
+                    Load:{' '}
+                    <span className="text-neutral-200">
+                      {perf.sceneLoadMs === null
+                        ? '— reload to measure'
+                        : `${perf.sceneLoadMs.toFixed(0)} ms`}
+                    </span>
+                  </span>
+                  {PERF_STAGES.map((name) => {
+                    const st = perf.stages[name]
+                    if (st.count === 0) return null
+                    return (
+                      <span key={name}>
+                        {name}:{' '}
+                        <span className="text-neutral-200">{st.totalMs.toFixed(0)} ms</span>{' '}
+                        <span className={st.count > 1 ? 'text-amber-400' : 'text-neutral-500'}>
+                          ×{st.count}
+                        </span>
+                      </span>
+                    )
+                  })}
+                  <span>
+                    Wire:{' '}
+                    <span className="text-neutral-200">{formatBytes(perf.bytesFetched)}</span>
+                  </span>
+                </div>
+
+                <div className="flex flex-col">
+                  <span>
+                    Frame:{' '}
+                    <span className="text-neutral-200">
+                      {perf.frame.p50.toFixed(1)}/{perf.frame.p95.toFixed(1)} ms
+                    </span>{' '}
+                    <span className="text-neutral-500">p50/p95</span>
+                  </span>
+                  {perf.render && (
+                    <>
+                      <span>
+                        Draws:{' '}
+                        <span className="text-neutral-200">{perf.render.calls}</span>{' '}
+                        <span className="text-neutral-500">
+                          {formatCount(perf.render.triangles)} tris
+                        </span>
+                      </span>
+                      <span>
+                        GPU:{' '}
+                        <span className="text-neutral-200">{perf.render.geometries}</span> geo{' '}
+                        <span className="text-neutral-200">{perf.render.textures}</span> tex
+                      </span>
+                    </>
+                  )}
+                  {perf.heap && (
+                    <span>
+                      Heap:{' '}
+                      <span className="text-neutral-200">
+                        {perf.heap.currentMB.toFixed(0)} MB
+                      </span>{' '}
+                      <span className="text-neutral-500">
+                        peak {perf.heap.peakMB.toFixed(0)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
