@@ -20,9 +20,22 @@
  * Not appended to materials.test.ts: that file is 6,460 lines and carries a
  * recorded pre-existing flake (245/245/244/245/245/244 across six runs, a
  * different victim each time), so adding to it puts new work behind an existing
- * intermittent failure. These four tests also share two fixture helpers that
+ * intermittent failure. These six tests also share the fixture helpers, which
  * belong together. Same precedent as material-assignment.test.ts being split
  * out of materials.test.ts.
+ *
+ * ── The fixtures are load-bearing, not interchangeable ────────────────────
+ *
+ * TEXTURE_PNG is EXACTLY MAX_TEXTURE_BYTES and TEXTURE_OVERSIZE_PNG is one
+ * megabyte past it, so between them they pin `>` rather than `>=` on the size
+ * rule. Swapping either for "some other image of about the right size" quietly
+ * removes the boundary while every assertion stays green, which is why the
+ * accept test asserts the byte count itself.
+ *
+ * Nothing here relies on a MIS-LABELLED file on disk: the format-mismatch case
+ * overrides the name at the File constructor instead. A fixture that lies about
+ * its own format is indistinguishable from a mistake once it is committed — one
+ * did land here (a JPEG named .png) and read as exactly that.
  *
  * ── What is NOT asserted ──────────────────────────────────────────────────
  *
@@ -33,12 +46,13 @@
  * result stays manual, exactly as it does for the Visualiser's colour.
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import Geometry from '../pages/Geometry.page'
 import MaterialProperties from '../pages/MaterialProperties.page'
 import Materials from '../pages/Materials.page'
 import ObjectProperties from '../pages/ObjectProperties.page'
 import { GEOMETRY_TOAST } from '../constants/geometry'
+import { MATERIALS_MSG, MATERIAL_LIMITS } from '../constants/materials'
 import {
   MATERIAL_FIXTURE_FILES,
   VINEYARD_SPECTRUM_LABELS,
@@ -120,23 +134,42 @@ describe('Material uploads — real files', () => {
     await MaterialProperties.pickTextFile(cardId, file, readFileSync(materialFixture(file), 'utf-8'))
   }
 
-  /** Read a fixture as bytes and hand it to the card's file input. */
-  const uploadImage = async (cardId: number, file: string): Promise<void> => {
+  /**
+   * Read a fixture as bytes and hand it to the card's file input.
+   *
+   * `asName` / `mime` override the labels the page sees WITHOUT touching the
+   * file on disk. That is the only clean way to reach validateTextureFile's
+   * format-mismatch branch, which compares the extension against the real
+   * signature: the alternative is committing a deliberately mis-labelled copy
+   * of an image, which puts a lie in the repo to express something the File
+   * constructor expresses for free — and which the last such fixture
+   * (`test_image.png`, a JPEG named .png) proved is indistinguishable from an
+   * honest mistake once it is sitting on disk.
+   */
+  const uploadImage = async (
+    cardId: number,
+    file: string,
+    asName = file,
+    mime = 'image/png'
+  ): Promise<void> => {
     await MaterialProperties.pickBinaryFile(
       cardId,
-      file,
-      readFileSync(materialFixture(file)).toString('base64')
+      asName,
+      readFileSync(materialFixture(file)).toString('base64'),
+      mime
     )
   }
 
   /**
-   * A new material carrying a SAVED Visualiser texture, from a real PNG.
+   * A new material with a Visualiser card parked on the texture Upload File
+   * sub-tab, its hidden file input rendered, and NOTHING uploaded.
    *
-   * Shared by the upload test and the assignment test so the assignment test's
-   * setup is the thing the upload test already proved, rather than a second
-   * copy of it.
+   * Split out of materialWithTexture so the rejection tests below start from a
+   * precondition identical to the accept test's. A rejection observed on a card
+   * built a different way proves less than it looks like it does — the error
+   * could be coming from the setup rather than from the file.
    */
-  const materialWithTexture = async (): Promise<{ id: string; name: string; cardId: number }> => {
+  const openTextureUpload = async (): Promise<{ id: string; cardId: number }> => {
     const id = await trackMaterial()
     await MaterialProperties.waitForOpen()
     const cardId = await cardWithType('Visualiser')
@@ -153,9 +186,38 @@ describe('Material uploads — real files', () => {
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'the hidden texture file input never rendered'
     })
+    return { id, cardId }
+  }
 
+  /**
+   * A new material carrying a SAVED Visualiser texture, from a real PNG.
+   *
+   * Shared by the upload test and the assignment test so the assignment test's
+   * setup is the thing the upload test already proved, rather than a second
+   * copy of it.
+   */
+  const materialWithTexture = async (): Promise<{ id: string; name: string; cardId: number }> => {
+    const { id, cardId } = await openTextureUpload()
     await uploadImage(cardId, MATERIAL_FIXTURE_FILES.TEXTURE_PNG)
     return { id, name: await materialNameOf(id), cardId }
+  }
+
+  /**
+   * Assert a picked file was refused CLIENT-SIDE, with the given message.
+   *
+   * Three assertions rather than one, because "an error appeared" is the
+   * weakest of the three: an error can appear while the file is nonetheless
+   * stored, and a texture that reached the card would still be there to save.
+   * The preview being absent and Save staying shut are what say the refusal was
+   * total.
+   */
+  const expectRefused = async (cardId: number, message: string): Promise<void> => {
+    await browser.waitUntil(async () => (await MaterialProperties.cardError(cardId)) === message, {
+      timeout: TIMEOUTS.MUTATION,
+      timeoutMsg: `expected the card error to be "${message}" (got: ${await MaterialProperties.cardError(cardId)})`
+    })
+    expect(await MaterialProperties.texturePreviewSrc(cardId)).toBe(null)
+    expect(await staysFalse(async () => MaterialProperties.saveEnabled(cardId))).toBe(true)
   }
 
   before(async () => {
@@ -347,13 +409,25 @@ describe('Material uploads — real files', () => {
   // ══ Texture ══════════════════════════════════════════════════════════════
 
   describe('texture — a real image', () => {
-    it('a real PNG uploads, previews, and unlocks Save', async () => {
+    it('a real PNG AT the 10 MB cap uploads, previews, and unlocks Save', async () => {
       // The library tab cannot be tested at all in this build: the texture
       // library ships EMPTY because scripts/build_binary.ps1 carries no
       // --add-data for helios-desktop-backend/assets, so
       // GET /api/textures/defaults answers {"textures": []}. Upload is the only
       // reachable path to a texture, which is what makes this test the whole of
       // that surface rather than half of it.
+      //
+      // TEXTURE_PNG is EXACTLY MAX_TEXTURE_BYTES, so this doubles as the
+      // inclusive upper boundary of the size rule — validation.ts:114 rejects on
+      // a strict `>`, and a fixture one byte either side would be testing a
+      // different thing. That property lives in the file's byte count, where
+      // nothing enforces it, so assert it here: re-encoding the fixture (or
+      // swapping it for another image) would otherwise turn the boundary case
+      // into an ordinary one with every assertion still green.
+      expect(statSync(materialFixture(MATERIAL_FIXTURE_FILES.TEXTURE_PNG)).size).toBe(
+        MATERIAL_LIMITS.TEXTURE_MAX_BYTES
+      )
+
       const { cardId } = await materialWithTexture()
 
       expect(await MaterialProperties.cardError(cardId)).toBe(null)
@@ -377,6 +451,49 @@ describe('Material uploads — real files', () => {
       // of the picked File: after saving, the src is derived from the STORED
       // texture, not the object URL of the file that was picked.
       expect(await MaterialProperties.texturePreviewSrc(cardId)).not.toBe(null)
+    })
+
+    it('an image ONE MEGABYTE past the cap is refused before the backend sees it', async () => {
+      // The other half of the boundary, and the pair is the point: on its own,
+      // "10 MB is accepted" is also satisfied by an app with no size rule at
+      // all. Only the two together pin `>` rather than `>=` — the difference
+      // between a cap that admits its own limit and one that rejects it.
+      //
+      // A genuine PNG in every other respect (same image, re-encoded larger),
+      // so it clears the extension, MIME, signature and format checks and can
+      // only fail on size. A file built to be oversize by being junk would pass
+      // this test for the wrong reason.
+      expect(
+        statSync(materialFixture(MATERIAL_FIXTURE_FILES.TEXTURE_OVERSIZE_PNG)).size
+      ).toBeGreaterThan(MATERIAL_LIMITS.TEXTURE_MAX_BYTES)
+
+      const { cardId } = await openTextureUpload()
+      await uploadImage(cardId, MATERIAL_FIXTURE_FILES.TEXTURE_OVERSIZE_PNG)
+
+      await expectRefused(cardId, MATERIALS_MSG.textureFileSizeError)
+    })
+
+    it('a real PNG named .jpeg is refused as a format MISMATCH, not as a bad image', async () => {
+      // The branch that had never been reached from the UI. It matters because
+      // it is the one rejection where NOTHING is wrong with the picture: the
+      // bytes decode, the size is fine, and validation.ts:141 is explicit that a
+      // vague "invalid image" here "would send the user hunting for a problem
+      // with a picture that is perfectly fine". So the assertion is the specific
+      // message, never merely that an error appeared.
+      //
+      // Sent under an overridden NAME rather than from a mis-labelled fixture —
+      // see uploadImage. The MIME is the one an OS would report for a .jpeg, so
+      // the only thing left disagreeing is the extension against the signature,
+      // which is exactly the branch under test.
+      const { cardId } = await openTextureUpload()
+      await uploadImage(
+        cardId,
+        MATERIAL_FIXTURE_FILES.TEXTURE_SMALL_PNG,
+        'texture.jpeg',
+        'image/jpeg'
+      )
+
+      await expectRefused(cardId, MATERIALS_MSG.textureFileFormatMismatch('PNG', 'texture.jpeg'))
     })
 
     it('an uploaded texture reaches a ground through assignment', async () => {

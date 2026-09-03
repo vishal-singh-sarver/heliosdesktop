@@ -24,6 +24,24 @@ import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
 
+/**
+ * One label/value pair out of the read-only material detail popup.
+ *
+ * Rows carry their SECTION because a material may hold several material TYPES
+ * and each renders its own <dl>: a label like "R" or "gs, o" means nothing
+ * without saying which type's it is. Two properties can also share a label
+ * across types (`two_sided_heat_transfer` is "Heat Transfer Flag" on four of
+ * them), so section+label is the only stable key.
+ */
+export interface DetailRow {
+  /** The material TYPE heading this row sits under. */
+  section: string
+  /** The catalog label rendered in the <dt>. */
+  label: string
+  /** The stored value in the <dd> — '' when the material never set it. */
+  value: string
+}
+
 /** Catalog property names on the Ground object type. */
 export type GroundField =
   | 'length'
@@ -423,6 +441,58 @@ class ObjectPropertiesPage {
         .map((b) => (b.textContent || '').trim())
         .filter((t) => t.length > 0)
     }, name) as Promise<string[]>
+  }
+
+  /**
+   * Every VALUE row in the read-only detail popup, tagged with its section.
+   *
+   * MaterialPropertiesPopup renders each property as a <dt> (the catalog label)
+   * over a <dd> (the stored value), inside one <dl> per parameter group, inside
+   * one collapsible card per material TYPE. detailSections() reads only the
+   * headings, so this is the only way to read a VALUE off a ground.
+   *
+   * The section header button is a direct child of its card, so the card is its
+   * parentElement — there is no testid on either.
+   *
+   * Two things to know before asserting on the result:
+   *  - The popup lists EVERY catalog property of an active group, including the
+   *    ones the material never set; those come back with value ''. So assert per
+   *    row, never on the whole popup's text.
+   *  - A SELECTOR enum shows the stored code HUMANIZED ('farquhar_model' →
+   *    'Farquhar Model', 'BWB' → 'BWB'), which is NOT the label the editable
+   *    Materials form shows for the same value (there it is the group name,
+   *    'Farquhar model' / 'Ball-woodrow-berry'). Map through the catalog, not
+   *    through what you typed.
+   */
+  async detailRows(name: string): Promise<DetailRow[]> {
+    return browser.execute((want: string) => {
+      const out: { section: string; label: string; value: string }[] = []
+      const popup = document.querySelector(`[role="dialog"][aria-label="${want} properties"]`)
+      Array.from(popup?.querySelectorAll('[aria-expanded]') ?? []).forEach((btn) => {
+        const section = (btn.textContent || '').trim()
+        Array.from(btn.parentElement?.querySelectorAll('dl > div') ?? []).forEach((pair) => {
+          out.push({
+            section,
+            label: (pair.querySelector('dt')?.textContent || '').trim(),
+            value: (pair.querySelector('dd')?.textContent || '').trim()
+          })
+        })
+      })
+      return out
+    }, name) as Promise<DetailRow[]>
+  }
+
+  /**
+   * One row's value, by section and label.
+   *
+   * Returns a self-describing miss rather than throwing or returning '', so a
+   * failed expectation reads `<no "Vcmax_25" row in Photosynthesis>` instead of
+   * the empty string a genuinely-blank field also produces. Those two cases mean
+   * very different things and must not look alike in a diff.
+   */
+  valueIn(rows: DetailRow[], section: string, label: string): string {
+    const row = rows.find((r) => r.section === section && r.label === label)
+    return row ? row.value : `<no "${label}" row in ${section}>`
   }
 
   /**
