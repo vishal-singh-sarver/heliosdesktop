@@ -14,6 +14,13 @@ import {
   removeObjectPrimitives,
   setObjectPrimitives
 } from '../store/sceneCache'
+import { resetGeometryFormat, setGeometryFormat } from '../store/featureFlags'
+
+// These races are asserted against the v1 effect sequence, so the format is
+// pinned rather than taken from the build default. The races themselves are
+// format-independent — the staleness token guards both paths.
+beforeEach(() => setGeometryFormat('v1'))
+afterEach(() => resetGeometryFormat())
 
 // Two races the app hit for real, both rooted in the same thing: a binary
 // geometry fetch is slow, nothing cancels it, and it used to write its result
