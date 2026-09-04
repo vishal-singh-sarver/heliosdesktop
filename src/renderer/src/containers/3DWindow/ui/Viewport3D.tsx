@@ -302,6 +302,20 @@ function computeStats(primitives: PrimitiveInfo[], objectCount: number): SceneSt
 /** Stages shown in the overlay, in pipeline order. */
 const PERF_STAGES: StageName[] = ['fetch', 'parse', 'build']
 
+/**
+ * Hides the scene-statistics toolbar button and its overlay from users.
+ *
+ * A guard rather than a commented-out block: JSX children can only be commented
+ * with {/* *\/}, which terminates at the first `}` — and both blocks are full of
+ * them. Escaping around that leaves invisible characters in code someone will
+ * eventually uncomment. This keeps the markup type-checked so it cannot rot
+ * while hidden, and restoring it is one word.
+ *
+ * The perf harness itself is unaffected: __heliosPerf.on() still works from
+ * DevTools, since installPerfBridge() runs regardless.
+ */
+const SHOW_STATS_UI = false
+
 // ── Lighting mode config ─────────────────────────────────────────────────────
 
 const LIGHTING_MODES: Array<{ mode: LightingMode; Icon: () => React.JSX.Element; title: string }> =
@@ -445,7 +459,8 @@ export function Viewport3D(): React.JSX.Element {
           <SettingsIcon />
         </button>
 
-        {/* Stats toggle */}
+        {/* Stats toggle — hidden from users, see SHOW_STATS_UI */}
+        {SHOW_STATS_UI && (
         <button
           onClick={() => setShowStats((v) => !v)}
           className={`rounded p-1.5 transition-colors ${
@@ -457,10 +472,11 @@ export function Viewport3D(): React.JSX.Element {
         >
           <BarChartIcon />
         </button>
+        )}
       </div>
 
-      {/* Scene statistics overlay */}
-      {showStats && stats && (
+      {/* Scene statistics overlay — hidden from users, see SHOW_STATS_UI */}
+      {SHOW_STATS_UI && showStats && stats && (
         <div className="absolute left-3 top-10 z-10 select-text rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 font-mono text-[13px] leading-relaxed text-neutral-400 backdrop-blur-sm">
           <div className="flex gap-6">
             <div className="flex flex-col">

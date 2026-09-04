@@ -933,8 +933,8 @@ describe('geometryReducer', () => {
     })
 
     it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) REPLACES the material already on the object', () => {
-      // Single-material rule holds for drops too: the saga has already DELETEd the
-      // displaced assignment, so every list here is overwritten, not appended to.
+      // Single-material rule holds for drops too: the backend displaced the older
+      // assignment, so every list here is overwritten, not appended to.
       let r = created()
       r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
       r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '56', 'Sand'))
