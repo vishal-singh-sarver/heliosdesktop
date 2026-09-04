@@ -11,3 +11,7 @@ export const STORAGE_KEYS = {
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
+
+// Which geometry wire format the 3D viewport requests — 'v1' (per-primitive) or
+// 'v2' (GPU-ready typed arrays). See containers/3DWindow/store/featureFlags.ts.
+export const GEOMETRY_FORMAT_KEY = 'helios.geometryFormat'

@@ -11,13 +11,14 @@ import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors
 import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { call, delay, put, race, select, take, takeLatest, takeLeading } from 'redux-saga/effects'
-import { fetchObjectGeometryBinary } from '../api/geometry'
+import { fetchObjectGeometryBinary, fetchObjectGeometryGpu } from '../api/geometry'
 import type { PrimitiveInfo, SceneObject } from '../models/types'
 import * as actions from '../store/actions'
 import { LOAD_OBJECT_GEOMETRY_REQUESTED, LOAD_SCENE_REQUESTED } from '../store/constants'
 import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
+  onMeshReady,
   onMaterialAssigned,
   onMaterialDeleted,
   onMaterialSaved,
@@ -27,8 +28,22 @@ import threeDWindowSaga, {
   onVisibilitySyncFailed
 } from '../store/saga'
 import { selectSceneObjects } from '../store/selectors'
-import { clearSceneCache, removeObjectPrimitives, setObjectPrimitives } from '../store/sceneCache'
+import {
+  clearSceneCache,
+  removeObjectPrimitives,
+  setObjectGpu,
+  setObjectPrimitives
+} from '../store/sceneCache'
+import { beginSceneLoad, endSceneLoad } from '../perf/metrics'
+import { resetGeometryFormat, setGeometryFormat } from '../store/featureFlags'
 import { clearTextureCache } from '../ui/textureCache'
+
+// Pinned rather than inherited. The saga picks its fetch and its cache from the
+// active wire format, and the default is a BUILD setting — so a v2 build flipped
+// every expectation below without a line of test code changing. Each suite now
+// states the format it is exercising.
+beforeEach(() => setGeometryFormat('v1'))
+afterEach(() => resetGeometryFormat())
 
 const testObject: SceneObject = { id: 28, name: 'Ground.001', object_type_id: 1 }
 
@@ -75,6 +90,9 @@ describe('loadSceneWorker', () => {
   it('settles an empty success when no active project/scenario is selected', () => {
     const gen = loadSceneWorker()
 
+    // The perf harness opens the measurement window before any work starts, so
+    // a slow clear is inside the number rather than hidden before it.
+    expect(gen.next().value).toEqual(call(beginSceneLoad))
     expect(gen.next().value).toEqual(call(clearSceneCache))
     expect(gen.next().value).toEqual(call(clearTextureCache))
     expect(gen.next().value).toEqual(select(selectActiveProjectId))
@@ -88,6 +106,7 @@ describe('loadSceneWorker', () => {
   it('settles an empty scene without waiting when the node tree is already loaded', () => {
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -106,6 +125,7 @@ describe('loadSceneWorker', () => {
   it('waits for the node tree while a list is genuinely in flight', () => {
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -129,6 +149,7 @@ describe('loadSceneWorker', () => {
     const second: SceneObject = { id: 29, name: 'Ground.002', object_type_id: 1 }
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -394,6 +415,59 @@ describe('onMaterialUnassigned', () => {
     gen.next() // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
     expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+})
+
+describe('wire format v2', () => {
+  // The format the packaged app ships with, so it needs the same coverage as v1
+  // rather than only being exercised by the reader's own unit tests.
+  beforeEach(() => setGeometryFormat('v2'))
+
+  const gpu = { totalVerts: 4, totalTris: 2, primitiveCount: 1, groups: [] } as never
+
+  it('fetches the GPU buffer and caches it, not the v1 primitives', () => {
+    const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryGpu, 'proj-1', 'scen-1', 28))
+    expect(gen.next(gpu).value).toEqual(call(setObjectGpu, 28, gpu))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryLoaded(28)))
+  })
+
+  it('caches nothing when the object has no primitives', () => {
+    // The backend serves an empty body for an object with no geometry, which the
+    // reader turns into null. Writing that to the cache would put an entry there
+    // claiming the object is loaded and empty.
+    const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
+    gen.next()
+    gen.next('proj-1')
+    gen.next('scen-1')
+    gen.next()
+    expect(gen.next(null).value).toEqual(put(actions.objectGeometryLoaded(28)))
+  })
+
+  it('still drops a result whose staleness token moved while it downloaded', () => {
+    // The guard has to hold on BOTH paths. It briefly did not: folding the cache
+    // write into the fetch helper put it before this check.
+    const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
+    gen.next()
+    gen.next('proj-1')
+    gen.next('scen-1')
+    gen.next()
+    removeObjectPrimitives(28) // bumps the generation, as a hide does
+    expect(gen.next(gpu).done).toBe(true)
+  })
+})
+
+describe('onMeshReady', () => {
+  it('closes the perf harness measurement window', () => {
+    // MESH_READY is the first moment the geometry is actually on screen, which
+    // is two steps past loadSceneSucceeded. endSceneLoad is a no-op unless a
+    // load is outstanding, so the selection-change MESH_READYs cost nothing.
+    const gen = onMeshReady()
+    expect(gen.next().value).toEqual(call(endSceneLoad))
+    expect(gen.next().done).toBe(true)
   })
 })
 

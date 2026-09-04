@@ -2,7 +2,13 @@ import { CameraControls, GizmoHelper, GizmoViewport } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import React, { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
-import { getAllCachedPrimitives, getObjectPrimitives } from '../store/sceneCache'
+import {
+  getAllCachedPrimitives,
+  getGpuSceneBounds,
+  getObjectGpuBounds,
+  getObjectPrimitives
+} from '../store/sceneCache'
+import { getGeometryFormat } from '../store/featureFlags'
 import type { PrimitiveInfo } from '../models/types'
 import { cameraRangeFor, clippingForView } from './cameraRange'
 import { createGridMaterial, updateGridMaterial } from './gridMaterial'
@@ -18,6 +24,25 @@ function primitivesInView(selectedObjectId: number | null): PrimitiveInfo[] {
   return selectedObjectId !== null
     ? (getObjectPrimitives(selectedObjectId) ?? [])
     : getAllCachedPrimitives()
+}
+
+/**
+ * Bounds of whatever the camera is looking at.
+ *
+ * Under v2 these are read straight out of the cache, where each object's box was
+ * computed once as its geometry landed. The v1 path below has to walk every
+ * vertex of every primitive, and it is called from three components that each
+ * react to geometryVersion — which bumps once per object — so a twelve-object
+ * load pays for roughly thirteen full scene scans. v2 pays for twelve boxes.
+ */
+function boundsInView(selectedObjectId: number | null): THREE.Box3 {
+  if (getGeometryFormat() === 'v2') {
+    if (selectedObjectId !== null) {
+      return getObjectGpuBounds(selectedObjectId) ?? new THREE.Box3()
+    }
+    return getGpuSceneBounds()
+  }
+  return boundsOf(primitivesInView(selectedObjectId))
 }
 
 /** Axis-aligned bounds of a set of primitives. Empty if there are none. */
@@ -61,7 +86,7 @@ function FitToScene({
     lastKey.current = key
 
     const handle = requestAnimationFrame(() => {
-      const box = boundsOf(primitivesInView(selectedObjectId))
+      const box = boundsInView(selectedObjectId)
       if (box.isEmpty()) return
 
       const center = new THREE.Vector3()
@@ -157,7 +182,7 @@ function DollyLimitForGeometry({
     // Same deferral as FitToScene: geometryVersion bumps as each object lands in
     // the cache, so read it a frame later rather than mid-commit.
     const handle = requestAnimationFrame(() => {
-      const box = boundsOf(primitivesInView(selectedObjectId))
+      const box = boundsInView(selectedObjectId)
       if (box.isEmpty()) return
 
       const sphere = new THREE.Sphere()
@@ -221,7 +246,7 @@ function AdaptiveClipping({
   const boxRef = useRef<THREE.Box3 | null>(null)
 
   useEffect(() => {
-    const box = boundsOf(primitivesInView(selectedObjectId))
+    const box = boundsInView(selectedObjectId)
     boxRef.current = box.isEmpty() ? null : box
     // geometryVersion is not read here — it is the only signal React gets that
     // the module-level cache changed.
