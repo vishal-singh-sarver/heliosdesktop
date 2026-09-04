@@ -12,9 +12,9 @@ permissions:
   contents: write
 
 jobs:
-  # ================================================================================
+  # ==============================================================================
   # WINDOWS - ek hi .exe banta hai jo Windows 10 AUR 11 dono par chalta hai.
-  # ================================================================================
+  # ==============================================================================
   build-windows:
     runs-on: windows-2022
     name: Build Windows Installer (10 + 11)
@@ -32,7 +32,27 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          npm ci || npm install
+          set -e
+
+          echo "Cleaning npm cache..."
+          npm cache clean --force
+
+          echo "Attempt 1: npm ci (if lockfile exists)"
+          if [ -f package-lock.json ]; then
+            npm ci && exit 0 || echo "npm ci failed, moving on..."
+          fi
+
+          echo "Attempt 2: npm install"
+          rm -rf node_modules package-lock.json
+          npm install && exit 0 || echo "npm install failed, moving on..."
+
+          echo "Attempt 3: npm install --legacy-peer-deps"
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps && exit 0 || echo "legacy-peer-deps failed, moving on..."
+
+          echo "Attempt 4: npm install --force"
+          rm -rf node_modules package-lock.json
+          npm install --force
 
       - name: Create .env file
         shell: bash
@@ -92,8 +112,29 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
+        shell: bash
         run: |
-          npm ci || npm install
+          set -e
+
+          echo "Cleaning npm cache..."
+          npm cache clean --force
+
+          echo "Attempt 1: npm ci (if lockfile exists)"
+          if [ -f package-lock.json ]; then
+            npm ci && exit 0 || echo "npm ci failed, moving on..."
+          fi
+
+          echo "Attempt 2: npm install"
+          rm -rf node_modules package-lock.json
+          npm install && exit 0 || echo "npm install failed, moving on..."
+
+          echo "Attempt 3: npm install --legacy-peer-deps"
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps && exit 0 || echo "legacy-peer-deps failed, moving on..."
+
+          echo "Attempt 4: npm install --force"
+          rm -rf node_modules package-lock.json
+          npm install --force
 
       - name: Create .env file
         run: |
@@ -232,7 +273,27 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm ci || npm install
+          set -e
+
+          echo "Cleaning npm cache..."
+          npm cache clean --force
+
+          echo "Attempt 1: npm ci (if lockfile exists)"
+          if [ -f package-lock.json ]; then
+            npm ci && exit 0 || echo "npm ci failed, moving on..."
+          fi
+
+          echo "Attempt 2: npm install"
+          rm -rf node_modules package-lock.json
+          npm install && exit 0 || echo "npm install failed, moving on..."
+
+          echo "Attempt 3: npm install --legacy-peer-deps"
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps && exit 0 || echo "legacy-peer-deps failed, moving on..."
+
+          echo "Attempt 4: npm install --force"
+          rm -rf node_modules package-lock.json
+          npm install --force
 
       - name: Create .env file
         run: |
