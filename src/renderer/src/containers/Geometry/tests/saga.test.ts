@@ -1,9 +1,9 @@
-import { selectMaterialsById } from 'containers/Materials/selectors'
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import toastMessages from '@renderer/store/toastMessages'
+import { ApiError } from 'utils/api'
 import geometrySaga, {
   assignMaterialWorker,
   createObjectWorker,
@@ -383,10 +383,11 @@ describe('updateObjectWorker', () => {
     expect(gen.next().done).toBe(true)
   })
 
-  it('replacing the saved material → DELETEs the displaced group, then PATCHes the new one', () => {
-    // Single-select: the form swapped group 41 for 42. The PATCH is add-only, so
-    // Save has to unassign 41 itself — and it must do that BEFORE the PATCH so the
-    // ground is never momentarily carrying both.
+  it('replacing the saved material → PATCHes the new group with NO DELETE', () => {
+    // Single-select: the form swapped group 41 for 42. Save no longer unassigns 41
+    // itself — the PATCH carries the addition and the backend displaces 41 in the
+    // same transaction, so a PATCH refused for RESOLUTION_TOO_HIGH leaves the
+    // ground with the material it already had instead of stranding it bare.
     const replaced: CreateDraft = {
       ...draft,
       materials: [{ groupId: '42', name: 'Cotton' }],
@@ -402,10 +403,8 @@ describe('updateObjectWorker', () => {
     gen.next() // select draft
     gen.next(replaced) // select nodesById
     gen.next({ '27': groundNode('27') }) // select detailsById
+    // Straight to the PATCH — no unassign in between.
     expect(gen.next({ '27': original }).value).toEqual(
-      all([call(service.unassignMaterial, P, S, '27', '41')])
-    )
-    expect(gen.next().value).toEqual(
       call(service.updateObject, P, S, '27', {
         properties: { length: 20, breadth: 10 },
         visibility: { viewport: true, render: true },
@@ -418,6 +417,36 @@ describe('updateObjectWorker', () => {
     )
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.changesSaved, 'success')))
     expect(gen.next().done).toBe(true)
+  })
+
+  it('replacing the material AND editing props is still a replace → no DELETE', () => {
+    // The replace test is keyed on newMaterials alone. Guards against anyone tying
+    // the condition to propsChanged, which would put the DELETE back for any Save
+    // that resized the ground while swapping its material.
+    const replaced: CreateDraft = {
+      ...draft,
+      values: { ...draft.values, length: '99' },
+      materials: [{ groupId: '42', name: 'Cotton' }],
+      materialBaseline: ['41']
+    }
+    const original = {
+      values: { length: '20', breadth: '10' },
+      objectTypeId: 1,
+      objectName: 'Ground',
+      materialGroups: []
+    }
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
+    gen.next() // select draft
+    gen.next(replaced) // select nodesById
+    gen.next({ '27': groundNode('27') }) // select detailsById
+    expect(gen.next({ '27': original }).value).toEqual(
+      call(service.updateObject, P, S, '27', {
+        properties: { length: 99, breadth: 10 },
+        visibility: { viewport: true, render: true },
+        groupId: null,
+        materials: [{ group_id: 42, sync: true }]
+      })
+    )
   })
 
   it('clearing the material → DELETEs it and reports the restyle, with no PATCH', () => {
@@ -457,6 +486,27 @@ describe('updateObjectWorker', () => {
     gen.next({ '27': groundNode('27') }) // select detailsById
     gen.next({}) // no cache → props changed → advance to the updateObject call
     expect(gen.throw(new Error('boom')).value).toEqual(put(actions.updateObjectFailed('boom')))
+    // A bare Error carries no backend code, so the toast stays unqualified.
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.changesSaveFailed, 'error'))
+    )
+  })
+
+  it('a refused save names the backend’s reason in the toast', () => {
+    const gen = updateObjectWorker(actions.updateObjectRequested(P, S))
+    gen.next()
+    gen.next(draft)
+    gen.next({ '27': groundNode('27') })
+    gen.next({})
+    const reason = "This texture is 512x512 pixels, too small for 'Ground.001' at 900 x 2."
+    // updateObjectFailed still carries it too — the form renders it inline under
+    // the fields, independently of the toast.
+    expect(gen.throw(new ApiError(422, reason, {}, 'RESOLUTION_TOO_HIGH')).value).toEqual(
+      put(actions.updateObjectFailed(reason))
+    )
+    expect(gen.next().value).toEqual(
+      put(showSnackbar(toastMessages.changesSaveFailedBecause(reason), 'error'))
+    )
   })
 })
 
@@ -717,12 +767,10 @@ describe('assignMaterialWorker', () => {
   it('POSTs one assign per object then raises a success toast naming material + target', () => {
     const action = actions.assignMaterialRequested('p', 's', ['1', '2'], '7', 'Grass', 'Group.001')
     const gen = assignMaterialWorker(action)
-    // Neither target carries a material yet, so nothing is displaced.
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(
       gen.next({ '1': { materialGroupIds: [] }, '2': { materialGroupIds: [] } }).value
-    ).toEqual(select(selectMaterialsById))
-    expect(gen.next({ '7': {} }).value).toEqual(
+    ).toEqual(
       all([
         call(service.assignMaterialGroup, 'p', 's', '1', '7'),
         call(service.assignMaterialGroup, 'p', 's', '2', '7')
@@ -736,73 +784,113 @@ describe('assignMaterialWorker', () => {
     expect(gen.next().done).toBe(true)
   })
 
-  it('unassigns the material each target already carries before assigning the new one', () => {
-    // Single-material rule: a drop REPLACES. Object 1 holds group 4, object 2
-    // holds group 5 — both are DELETEd first, so neither ends up with two.
+  it('a drop onto targets that already carry a material POSTs only — no DELETE', () => {
+    // Single-material rule still holds, but the POST is what enforces it now:
+    // object 1 holds group 4 and object 2 holds group 5, and the backend displaces
+    // each in the same transaction as the assign. Unassigning here first made a
+    // replace two commits, so an assign refused for RESOLUTION_TOO_HIGH stranded
+    // the ground with no material at all.
     const action = actions.assignMaterialRequested('p', 's', ['1', '2'], '7', 'Grass', 'Group.001')
     const gen = assignMaterialWorker(action)
     expect(gen.next().value).toEqual(select(selectNodesById))
     expect(
       gen.next({ '1': { materialGroupIds: ['4'] }, '2': { materialGroupIds: ['5'] } }).value
-    ).toEqual(select(selectMaterialsById))
-    expect(gen.next({ '4': {}, '5': {}, '7': {} }).value).toEqual(
-      all([
-        call(service.unassignMaterial, 'p', 's', '1', '4'),
-        call(service.unassignMaterial, 'p', 's', '2', '5')
-      ])
-    )
-    expect(gen.next().value).toEqual(
+    ).toEqual(
       all([
         call(service.assignMaterialGroup, 'p', 's', '1', '7'),
         call(service.assignMaterialGroup, 'p', 's', '2', '7')
       ])
     )
-  })
-
-  it('skips both calls for an object already carrying the dropped material', () => {
-    // Re-dropping the same material is a no-op: no DELETE (it is not displaced by
-    // itself) and no POST (the backend would 409 on the duplicate).
-    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
-    const gen = assignMaterialWorker(action)
-    expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next({ '1': { materialGroupIds: ['7'] } }).value).toEqual(
-      select(selectMaterialsById)
-    )
-    expect(gen.next({ '7': {} }).value).toEqual(all([]))
-    expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded('p', 's', ['1'], '7', 'Grass')))
-  })
-
-  it('does not unassign a group the library no longer has', () => {
-    // The ground's material was DELETED from the library: the backend's eager
-    // reconcile already unassigned it, but the node keeps the dangling id for the
-    // viewport's refetch gate. DELETEing it would 404 and abort the whole drop, so
-    // group 4 is skipped and the newly dropped material is still POSTed.
-    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
-    const gen = assignMaterialWorker(action)
-    expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next({ '1': { materialGroupIds: ['4'] } }).value).toEqual(
-      select(selectMaterialsById)
-    )
-    expect(gen.next({ '7': {} }).value).toEqual(
-      all([call(service.assignMaterialGroup, 'p', 's', '1', '7')])
-    )
-    expect(gen.next().value).toEqual(put(actions.assignMaterialSucceeded('p', 's', ['1'], '7', 'Grass')))
     expect(gen.next().value).toEqual(
-      put(showSnackbar(toastMessages.materialAssigned('Grass', 'Ground.001'), 'success'))
+      put(actions.assignMaterialSucceeded('p', 's', ['1', '2'], '7', 'Grass'))
     )
-    expect(gen.next().done).toBe(true)
+  })
+
+  it('never yields an unassign, even for a target carrying a dangling group id', () => {
+    // Guards against the DELETE coming back. A node keeps the group id of a material
+    // DELETED from the library (the viewport's refetch gate reads it), which used to
+    // need filtering out: unassigning it 404s and `all` fails fast, aborting the drop
+    // before a single POST. With no DELETE at all, a dangling id is simply irrelevant.
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    const effects: unknown[] = []
+    let step = gen.next()
+    // The nodes select is the only effect needing a reply; the rest drain on a bare
+    // next(). Group 4 is on the node but NOT in any library the worker consults.
+    let reply: unknown = { '1': { materialGroupIds: ['4'] } }
+    while (!step.done) {
+      effects.push(step.value)
+      step = gen.next(reply)
+      reply = undefined
+    }
+    expect(effects).not.toContainEqual(all([call(service.unassignMaterial, 'p', 's', '1', '4')]))
+    expect(effects).toContainEqual(all([call(service.assignMaterialGroup, 'p', 's', '1', '7')]))
+  })
+
+  it('skips the POST for an object already carrying the dropped material', () => {
+    // Re-dropping the same material is a no-op — the backend would 409 on the
+    // duplicate, so the object is filtered out and the batch goes out empty.
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next({ '1': { materialGroupIds: ['7'] } }).value).toEqual(all([]))
+    expect(gen.next().value).toEqual(
+      put(actions.assignMaterialSucceeded('p', 's', ['1'], '7', 'Grass'))
+    )
   })
 
   it('raises a failure toast naming the material when a call throws', () => {
     const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
     const gen = assignMaterialWorker(action)
     gen.next() // select(selectNodesById)
-    gen.next({ '1': { materialGroupIds: [] } }) // select(selectMaterialsById)
-    gen.next({ '7': {} }) // all(...)
+    gen.next({ '1': { materialGroupIds: [] } }) // all(...)
     expect(gen.throw(new Error('boom')).value).toEqual(
       put(showSnackbar(toastMessages.materialAssignFailed('Grass', 'Ground.001'), 'error'))
     )
     expect(gen.next().done).toBe(true)
+  })
+
+  it('a refused assign reports the backend’s reason and does NOT report success', () => {
+    // The whole point of dropping the client-side DELETE: nothing was written, so
+    // the ground still carries the material it had and redux is still accurate.
+    // assignMaterialSucceeded must not fire — it is what tells the viewport to
+    // re-fetch and the reducer to overwrite the object's material list.
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    gen.next() // select(selectNodesById)
+    gen.next({ '1': { materialGroupIds: ['4'] } }) // all(...)
+    const refused = new ApiError(
+      422,
+      "This texture is 512x512 pixels, too small for 'Ground.001' at 900 x 2.",
+      {},
+      'RESOLUTION_TOO_HIGH'
+    )
+    expect(gen.throw(refused).value).toEqual(
+      put(
+        showSnackbar(
+          toastMessages.materialAssignFailedBecause(
+            'Grass',
+            'Ground.001',
+            "This texture is 512x512 pixels, too small for 'Ground.001' at 900 x 2."
+          ),
+          'error'
+        )
+      )
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('falls back to the generic toast for an ApiError carrying no code', () => {
+    // A bare 500 or a network drop yields text like "Internal Server Error", which
+    // reads as nonsense appended to a sentence. Only the house {error, code} shape
+    // marks a message as copy meant for a user.
+    const action = actions.assignMaterialRequested('p', 's', ['1'], '7', 'Grass', 'Ground.001')
+    const gen = assignMaterialWorker(action)
+    gen.next()
+    gen.next({ '1': { materialGroupIds: [] } })
+    expect(gen.throw(new ApiError(500, 'Internal Server Error')).value).toEqual(
+      put(showSnackbar(toastMessages.materialAssignFailed('Grass', 'Ground.001'), 'error'))
+    )
   })
 
   it('does nothing when there are no target objects', () => {
