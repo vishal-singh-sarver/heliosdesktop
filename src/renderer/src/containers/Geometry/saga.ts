@@ -1,9 +1,9 @@
-import { selectMaterialsById } from 'containers/Materials/selectors'
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
 import { showSnackbar } from '@renderer/store/snackbarReducer'
 import toastMessages from '@renderer/store/toastMessages'
+import { ApiError } from 'utils/api'
 import * as actions from './actions'
 import type {
   AssignMaterialRequestedAction,
@@ -39,6 +39,15 @@ import { defaultValuesForObject } from './propertyBlueprint'
 import { selectCreateDraft, selectDetailsById, selectNodesById } from './selectors'
 import * as service from './service'
 import type { CreateDraft, GeoNode, ObjectDetail } from './types'
+
+// The backend's own words for a failure, when it sent any. `code` is non-null
+// exactly when the response carried the house {detail: {error, code}} shape (see
+// utils/api), which is what makes `.message` safe to show verbatim — a network
+// drop or a bare 500 lands generic text like "Internal Server Error" that reads
+// as nonsense appended to a sentence. Null means "use the generic toast".
+function serverReason(err: unknown): string | null {
+  return err instanceof ApiError && err.code ? err.message : null
+}
 
 // Raw string form values → numeric properties for the backend (blank fields are
 // dropped). Shared by create (defaults) and update (edited values).
@@ -202,16 +211,24 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
       .filter((m) => !draft.materialBaseline.includes(m.groupId))
       .map((m) => ({ group_id: Number(m.groupId), sync: true }))
 
-    // Single-select: anything in the baseline the draft no longer lists was
-    // REPLACED in the form. The PATCH is add-only, so the displaced assignment
-    // has to be DELETEd here — otherwise the ground would end up carrying both.
-    // This runs BEFORE the PATCH so the ground is never momentarily double-
-    // assigned, and only on Save, which is what lets an abandoned form leave the
-    // previously saved material intact.
+    // Anything in the baseline the draft no longer lists is either half of a
+    // REPLACE or a standalone UNASSIGN, and the two need opposite handling.
     const removedMaterialIds = draft.materialBaseline.filter(
       (id) => !draft.materials.some((m) => m.groupId === id)
     )
-    if (removedMaterialIds.length) {
+    // REPLACE — a baseline group left AND a new one arrived in the same Save,
+    // exactly the pair the form's `saveReplacesMaterial` confirms on. The PATCH
+    // carries the addition and the backend displaces the incumbent in the same
+    // transaction, so DELETEing here would be a pre-commit: a PATCH refused for
+    // RESOLUTION_TOO_HIGH would leave the ground with NO material at all. Keyed
+    // on newMaterials alone, never propsChanged — a Save that resizes the ground
+    // AND swaps its material is still a replace.
+    const isReplace = removedMaterialIds.length > 0 && newMaterials.length > 0
+    // PURE UNASSIGN — a material left and nothing is arriving to displace it. The
+    // add-only PATCH body is empty, so with no other edit no PATCH is sent at all
+    // and this DELETE is the only write that can remove it. It has to stay, or
+    // removing a material silently does nothing.
+    if (removedMaterialIds.length && !isReplace) {
       yield all(
         removedMaterialIds.map((id) =>
           call(service.unassignMaterial, projectId, scenarioId, draft.objectId, id)
@@ -249,7 +266,13 @@ export function* updateObjectWorker(action: UpdateObjectRequestedAction): Genera
     yield put(showSnackbar(toastMessages.changesSaved, 'success'))
   } catch (err) {
     yield put(actions.updateObjectFailed((err as Error).message))
-    yield put(showSnackbar(toastMessages.changesSaveFailed, 'error'))
+    const reason = serverReason(err)
+    yield put(
+      showSnackbar(
+        reason ? toastMessages.changesSaveFailedBecause(reason) : toastMessages.changesSaveFailed,
+        'error'
+      )
+    )
   }
 }
 
@@ -409,31 +432,18 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
   if (!objectIds.length) return
   try {
     // Single-material rule: an object carries ONE material, so a drop REPLACES
-    // what's already there. Collect every other group currently on the targets
-    // and DELETE those assignments first, so the object is never briefly holding
-    // two. Unlike the right-panel form this commits immediately — a drop has no
-    // Save step to defer to.
+    // what's already there — but the POST is the ONLY call that makes it happen.
+    // Displacing here first (DELETE, then POST) made a replace two commits: a
+    // POST refused for RESOLUTION_TOO_HIGH left the ground with NO material at
+    // all, redux still showing the old one, and the retry re-DELETEd — 404 — so
+    // `all` failed fast before the POST and the drop could never recover without
+    // a refresh. The backend displaces the incumbent in the same transaction.
+    //
+    // This is also why nothing filters the node's group ids against the material
+    // library any more: a node keeps the (dangling) id of a material DELETED from
+    // the library for the viewport's refetch gate, and DELETEing that assignment
+    // 404s. With no DELETE, a dangling id can no longer abort a drop.
     const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
-    // A material DELETED from the library was already unassigned server-side by
-    // the eager reconcile, but the node keeps its (now dangling) group id — the
-    // viewport's refetch gate reads it to find the objects the delete restyled,
-    // so the reducer deliberately leaves it. DELETEing that assignment 404s, and
-    // `all` fails fast: the drop aborted before a single POST, so a ground whose
-    // material had been deleted could never take a new one. Displace only groups
-    // the library still has.
-    const libraryById = (yield select(selectMaterialsById)) as Record<string, unknown>
-    const displaced = objectIds.flatMap((objectId) =>
-      (nodesById[objectId]?.materialGroupIds ?? [])
-        .filter((id) => id !== groupId && libraryById[id])
-        .map((oldGroupId) => ({ objectId, oldGroupId }))
-    )
-    if (displaced.length) {
-      yield all(
-        displaced.map((d) =>
-          call(service.unassignMaterial, projectId, scenarioId, d.objectId, d.oldGroupId)
-        )
-      )
-    }
     // Objects already carrying this exact group need no POST — re-dropping the
     // same material is a no-op, and the backend would 409 on the duplicate.
     const toAssign = objectIds.filter(
@@ -449,8 +459,18 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
     // without this the material only shows after a refresh.
     yield put(actions.assignMaterialSucceeded(projectId, scenarioId, objectIds, groupId, materialName))
     yield put(showSnackbar(toastMessages.materialAssigned(materialName, targetName), 'success'))
-  } catch {
-    yield put(showSnackbar(toastMessages.materialAssignFailed(materialName, targetName), 'error'))
+  } catch (err) {
+    // Name the reason when the backend gave one — "too small for 'Ground.001' at
+    // 900 x 2" is what tells the user what to change; the generic line does not.
+    const reason = serverReason(err)
+    yield put(
+      showSnackbar(
+        reason
+          ? toastMessages.materialAssignFailedBecause(materialName, targetName, reason)
+          : toastMessages.materialAssignFailed(materialName, targetName),
+        'error'
+      )
+    )
   }
 }
 

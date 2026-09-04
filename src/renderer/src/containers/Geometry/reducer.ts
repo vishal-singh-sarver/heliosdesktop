@@ -622,8 +622,11 @@ const geometryReducer = (
         // The group goes into the baseline too: it's already persisted, so the
         // add-only Save must not re-PATCH it (that would 409).
         // Single-material rule: a drop REPLACES whatever each target carried, and
-        // the saga has already DELETEd those older assignments — so every list
-        // here is overwritten with the incoming group rather than appended to.
+        // the backend displaced those older assignments in the same transaction as
+        // the assign — so every list here is overwritten with the incoming group
+        // rather than appended to. (The saga used to DELETE them itself, which is
+        // what left a ground bare when the assign was then refused; don't put it
+        // back — this action only fires once the assign has actually landed.)
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const { objectIds, groupId, name } = action
         const cd = draft.createDraft
