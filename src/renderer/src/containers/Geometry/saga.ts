@@ -460,6 +460,10 @@ export function* assignMaterialWorker(action: AssignMaterialRequestedAction): Ge
     yield put(actions.assignMaterialSucceeded(projectId, scenarioId, objectIds, groupId, materialName))
     yield put(showSnackbar(toastMessages.materialAssigned(materialName, targetName), 'success'))
   } catch (err) {
+    // Nothing was assigned — release the targets so the drop can be retried. The
+    // toast below is still the whole failure report; this only unlocks the rows,
+    // which would otherwise stay disabled for the rest of the session.
+    yield put(actions.assignMaterialFailed(projectId, scenarioId, objectIds))
     // Name the reason when the backend gave one — "too small for 'Ground.001' at
     // 900 x 2" is what tells the user what to change; the generic line does not.
     const reason = serverReason(err)

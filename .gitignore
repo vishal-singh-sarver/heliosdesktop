@@ -76,6 +76,12 @@ temp/
 *.swo
 *~
 
+# Docs tooling (local only). `site/` is the generated static site built from
+# docs/, and `.venv-docs/` is the Python virtualenv used to build it — a 127 MB
+# tree of platform-specific binaries that no other clone could use anyway.
+site/
+.venv-docs/
+
 # Test output
 coverage/
 .nyc_output/

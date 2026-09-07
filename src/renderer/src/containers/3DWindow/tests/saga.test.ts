@@ -196,10 +196,20 @@ describe('onMaterialAssigned', () => {
 
   it('re-fetches and re-caches the binary geometry of each restyled object', () => {
     const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
-    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(select(selectNodesById))
 
-    // Enter the loop with a visible node → fetch + cache its geometry.
-    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
+    // Every target is marked pending BEFORE the first fetch — the tree row reads
+    // that mark to refuse a second material, and the fetches below run one at a
+    // time, so marking each at its own turn would leave the ones still queued
+    // looking idle and open to a drop.
+    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(
+      put(actions.objectGeometryPending(28))
+    )
+
+    // Then the fetch itself (which marks pending again — the reducer dedupes).
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -210,12 +220,39 @@ describe('onMaterialAssigned', () => {
     expect(gen.next().done).toBe(true)
   })
 
+  it('marks every target pending up front, before any of them is fetched', () => {
+    // A group assign fans out over its members. They download one at a time, so
+    // without this the members still in the queue would carry no busy mark at
+    // all — their rows would look finished and accept another material while the
+    // restyle they already have is still waiting its turn.
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28', '29'], '7', 'Grass'))
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select nodesById
+    expect(gen.next({ '28': visibleNode('28'), '29': visibleNode('29') }).value).toEqual(
+      put(actions.objectGeometryPending(28))
+    )
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(29)))
+  })
+
   it('skips a hidden object so an assignment never un-hides it', () => {
     const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
-    gen.next() // select nodesById
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
-    // Node is hidden → no fetch, generator completes.
+    // Node is hidden → not even marked pending (nothing would ever settle the
+    // mark, since no fetch runs), and the generator completes.
     expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+
+  it('does nothing without an active project/scenario', () => {
+    // Bails before marking anything pending — a mark nothing will settle would
+    // leave the row locked against materials for the rest of the session.
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
+    gen.next() // select project id
+    expect(gen.next(null).value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next(null).done).toBe(true)
   })
 })
 

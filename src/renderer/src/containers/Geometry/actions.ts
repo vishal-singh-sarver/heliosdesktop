@@ -1,6 +1,7 @@
 import {
   ASSIGN_MATERIAL_REQUESTED,
   ASSIGN_MATERIAL_SUCCEEDED,
+  ASSIGN_MATERIAL_FAILED,
   CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
@@ -228,6 +229,14 @@ export type AssignMaterialSucceededAction = {
   groupId: string
   name: string
 }
+// The assign was refused. Carries only what the reducer needs to release the
+// targets' assigning mark — the saga's toast has already reported the reason.
+export type AssignMaterialFailedAction = {
+  type: typeof ASSIGN_MATERIAL_FAILED
+  projectId: string
+  scenarioId: string
+  objectIds: string[]
+}
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
   projectId: string
@@ -411,6 +420,7 @@ export type GeometryAction =
   | ReorderNodesAction
   | AssignMaterialRequestedAction
   | AssignMaterialSucceededAction
+  | AssignMaterialFailedAction
   | MoveNodesSucceededAction
   | MoveNodesFailedAction
   | DeleteNodeRequestedAction
@@ -619,6 +629,17 @@ export const assignMaterialSucceeded = (
   objectIds,
   groupId,
   name
+})
+
+export const assignMaterialFailed = (
+  projectId: string,
+  scenarioId: string,
+  objectIds: string[]
+): AssignMaterialFailedAction => ({
+  type: ASSIGN_MATERIAL_FAILED,
+  projectId,
+  scenarioId,
+  objectIds
 })
 
 export const moveNodesSucceeded = (

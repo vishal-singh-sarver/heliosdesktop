@@ -56,6 +56,15 @@ export const selectNameErrors = createSelector(selectActiveGeometry, (g) => g.na
 // Nodes whose DELETE is in flight — the row and the right-panel form disable their
 // trash while an id is here, so a pessimistic delete can't be fired twice.
 export const selectDeletingIds = createSelector(selectActiveGeometry, (g) => g.deletingIds)
+// Objects whose material-assign POST is in flight, as a Set: every tree row asks
+// about itself (and a group about each of its members) on every render, which is
+// what a linear scan per row would cost. Pair with the 3D slice's
+// selectPendingObjectIds — together they cover the whole assign → repaint window
+// during which a geometry must not take another material.
+export const selectAssigningIds = createSelector(
+  selectActiveGeometry,
+  (g) => new Set(g.assigningIds)
+)
 // The object whose Properties-form save is in flight — its tree row shows busy
 // while the PATCH is out, so the left panel reflects work started in the right.
 export const selectSavingObjectId = (state: RootState): string | null =>

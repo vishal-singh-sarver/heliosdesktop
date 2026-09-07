@@ -4,6 +4,8 @@ import { produce } from 'immer'
 import type { GeometryAction } from './actions'
 import {
   ADD_DRAFT_MATERIAL,
+  ASSIGN_MATERIAL_FAILED,
+  ASSIGN_MATERIAL_REQUESTED,
   ASSIGN_MATERIAL_SUCCEEDED,
   CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
@@ -57,6 +59,7 @@ export const emptyScenarioGeometry = (): ScenarioGeometry => ({
   nameErrors: {},
   detailsById: {},
   deletingIds: [],
+  assigningIds: [],
   lastCreatedId: null,
   loadStatus: 'idle',
   loadError: null
@@ -460,6 +463,10 @@ const geometryReducer = (
         // is gone with the group — drop its mark too, or it would sit in the list
         // forever (nothing will ever report on a node that no longer exists).
         s.deletingIds = s.deletingIds.filter((i) => !toRemove.includes(i))
+        // Same for an assign that was still out against a node this delete took:
+        // its SUCCEEDED/FAILED lands on an object that no longer has a row, so
+        // the mark would never be released.
+        s.assigningIds = s.assigningIds.filter((i) => !toRemove.includes(i))
         // The right-panel form was showing one of the removed objects (the ground
         // itself, or a ground inside a deleted group) — close it rather than leave
         // it in the read-only "deleted" state the user then has to dismiss by hand.
@@ -613,6 +620,27 @@ const geometryReducer = (
         break
       }
 
+      case ASSIGN_MATERIAL_REQUESTED: {
+        // The POST is out. Lock every target so it can't take a second material
+        // before this one lands: a geometry carries ONE material, so the second
+        // drop is never an addition — it races the first, and both then re-fetch
+        // the same object's (big) binary. A group drop locks its member objects,
+        // which is what the row reads to lock the group row itself.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        for (const id of action.objectIds) {
+          if (!s.assigningIds.includes(id)) s.assigningIds.push(id)
+        }
+        break
+      }
+
+      case ASSIGN_MATERIAL_FAILED: {
+        // Refused — nothing was assigned, so release the targets and let the user
+        // retry. The saga's toast is what says why.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        s.assigningIds = s.assigningIds.filter((i) => !action.objectIds.includes(i))
+        break
+      }
+
       case ASSIGN_MATERIAL_SUCCEEDED: {
         // A drag-drop assign that landed on the backend. Reflect it in BOTH:
         //  - the open form (if the dropped-on object is the one open), and
@@ -629,6 +657,11 @@ const geometryReducer = (
         // back — this action only fires once the assign has actually landed.)
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const { objectIds, groupId, name } = action
+        // The POST is done. The row stays locked past this point — the 3D slice
+        // marks each object's binary pending in the same dispatch (see
+        // onMaterialAssigned) and that is what carries the lock through the
+        // repaint — but the assign itself is no longer in flight.
+        s.assigningIds = s.assigningIds.filter((i) => !objectIds.includes(i))
         const cd = draft.createDraft
         if (cd && objectIds.includes(cd.objectId)) {
           const existing = cd.materials.find((m) => m.groupId === groupId)
