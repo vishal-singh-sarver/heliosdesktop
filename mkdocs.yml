@@ -1,0 +1,97 @@
+site_name: Helios Desktop
+site_description: Technical documentation for the Helios desktop application
+# TODO: set once the publish target is decided (GitLab Pages vs GitHub Pages mirror).
+# site_url: https://example.org/helios-desktop/
+
+# TODO: point at the repo once there is a web-facing remote. The current origin is
+# an internal host (git@192.168.3.185), which would not resolve for readers.
+# repo_url: https://.../helios/heliosdesktop
+# edit_uri: -/edit/develop/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: green
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: green
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      type: date
+      enable_creation_date: false
+      fallback_to_build_date: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Installing Helios: user-guide/install.md
+      - Your first project: user-guide/first-project.md
+      - Tour of the interface: user-guide/interface.md
+      - Reporting bugs: user-guide/support.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Projects & storage: concepts/projects.md
+      - The Helios context: concepts/context.md
+      - Geometry & primitives: concepts/primitives.md
+      - Materials & textures: concepts/materials.md
+  - Reference:
+      - Environment variables: reference/env.md
+      - Keyboard shortcuts: reference/shortcuts.md
+  - For Developers:
+      - Getting started: dev/getting-started.md
+      - Architecture:
+          - Process model & IPC: dev/arch/processes.md
+          - Backend sidecar: dev/arch/backend.md
+          - State management: dev/arch/state.md
+          - Database & migrations: dev/arch/database.md
+          - Backend submodule: git-submodule-setup.md
+      - Development:
+          - Dev loop: dev/dev-loop.md
+          - Testing: dev/testing.md
+          - Building installers: dev/build.md
+          - CI/CD workflow: ci-cd-workflow.md
+      - Backend API: dev/api/http.md
+      - Troubleshooting: dev/troubleshooting.md
