@@ -25,24 +25,32 @@ describe('navigate() action creator', () => {
 
 describe('navigationReducer', () => {
   it('sets screen to the payload on NAVIGATE (home → project)', () => {
-    const next = navigationReducer({ screen: 'home' }, navigate('project'))
-    expect(next).toEqual({ screen: 'project' })
+    const next = navigationReducer({ screen: 'home', restored: false }, navigate('project'))
+    expect(next).toEqual({ screen: 'project', restored: false })
   })
 
   it('sets screen to the payload on NAVIGATE (project → home)', () => {
-    const next = navigationReducer({ screen: 'project' }, navigate('home'))
-    expect(next).toEqual({ screen: 'home' })
+    const next = navigationReducer({ screen: 'project', restored: false }, navigate('home'))
+    expect(next).toEqual({ screen: 'home', restored: false })
+  })
+
+  it('clears `restored` on NAVIGATE, so a restored project stops being one', () => {
+    // What opens App's gate on the restart path. The boot ends by dispatching
+    // navigate('project') even though the screen is already 'project' — that is
+    // the signal that /init has finished and ProjectScreen is safe to mount.
+    const next = navigationReducer({ screen: 'project', restored: true }, navigate('project'))
+    expect(next.restored).toBe(false)
   })
 
   it('produces a new state object without mutating the previous one', () => {
-    const prev: NavigationState = { screen: 'home' }
+    const prev: NavigationState = { screen: 'home', restored: false }
     const next = navigationReducer(prev, navigate('project'))
     expect(next).not.toBe(prev)
     expect(prev.screen).toBe('home') // untouched
   })
 
   it('returns the identical state reference for an unrecognized action (default branch)', () => {
-    const prev: NavigationState = { screen: 'project' }
+    const prev: NavigationState = { screen: 'project', restored: false }
     const next = navigationReducer(prev, {
       type: 'app/other/UNKNOWN',
       payload: 'home'
@@ -79,6 +87,18 @@ describe('pickInitialScreen (via initialState on a fresh import)', () => {
     localStorage.setItem(STORAGE_KEYS.activeProjectId, 'proj-1')
     localStorage.setItem(STORAGE_KEYS.activeScenarioId, 'scen-1')
     expect(await freshInitialScreen()).toBe('project')
+  })
+
+  it("marks that 'project' screen as restored, so App holds it back until /init", async () => {
+    localStorage.setItem(STORAGE_KEYS.activeProjectId, 'proj-1')
+    localStorage.setItem(STORAGE_KEYS.activeScenarioId, 'scen-1')
+    const mod = await import('../store/navigationReducer')
+    expect(mod.initialState.restored).toBe(true)
+  })
+
+  it("leaves `restored` false when starting on 'home'", async () => {
+    const mod = await import('../store/navigationReducer')
+    expect(mod.initialState.restored).toBe(false)
   })
 
   it("falls back to 'home' when only the project id is present", async () => {

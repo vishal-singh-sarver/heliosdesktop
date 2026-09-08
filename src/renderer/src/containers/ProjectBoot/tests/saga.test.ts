@@ -2,6 +2,7 @@ import { TASK } from '@redux-saga/symbols'
 import { call, cancel, fork, join, put, race, select, take } from 'redux-saga/effects'
 import * as actions from '../actions'
 import { CANCEL_BOOT, OPEN_PROJECT } from '../constants'
+import messages from '../messages'
 import { atPercent } from '../progress'
 import { openInitChannel } from '../service'
 import { navigate } from 'store/navigationReducer'
@@ -34,13 +35,11 @@ describe('runInit', () => {
     // only the reader.
     const gen = runInit(1, 'p-1', 's-1')
 
-    expect(gen.next().value).toEqual(
-      put(actions.bootProgress(1, atPercent('init', 0)))
-    )
+    expect(gen.next().value).toEqual(put(actions.bootProgress(1, atPercent('init', 0))))
     expect(gen.next().value).toEqual(fork(streamInit, 1, 'p-1', 's-1'))
   })
 
-  it('joins the forked reader so a stream that merely ended lets the boot continue', () => {
+  it('joins the forked reader so the stream can report back to the boot', () => {
     // Minimal stand-in for a Task — `join` rejects anything without the marker.
     const task = { [TASK]: true } as never
 
@@ -57,6 +56,34 @@ describe('streamInit', () => {
   it('opens the SSE channel for the scenario', () => {
     const gen = streamInit(1, 'p-1', 's-1')
     expect(gen.next().value).toEqual(call(openInitChannel, 'p-1', 's-1'))
+  })
+
+  it('fails the boot when the stream closes without reporting done', () => {
+    // The regression this pins: `take` returns undefined when utils/sse emits
+    // END, which it does for a dropped connection as readily as for a clean
+    // close. Returning quietly there let reveal() show the screen over a
+    // context that was never confirmed hydrated, and the panels then failed one
+    // at a time with no route back to a retry.
+    const channel = { take: vi.fn(), close: vi.fn() }
+
+    const gen = streamInit(1, 'p-1', 's-1')
+    gen.next() // openInitChannel
+    gen.next(channel as never) // take(channel)
+
+    expect(() => gen.next(undefined)).toThrow(messages.error.initIncomplete)
+    // The channel is released on the way out — the throw goes through `finally`.
+    expect(channel.close).toHaveBeenCalled()
+  })
+
+  it('ends the stream on done without failing', () => {
+    const channel = { take: vi.fn(), close: vi.fn() }
+
+    const gen = streamInit(1, 'p-1', 's-1')
+    gen.next() // openInitChannel
+    gen.next(channel as never) // take(channel)
+
+    expect(gen.next({ data: { stage: 'done' } }).done).toBe(true)
+    expect(channel.close).toHaveBeenCalled()
   })
 })
 
@@ -130,7 +157,6 @@ describe('openProjectWorker', () => {
     expect(gen.next(999).done).toBe(true)
   })
 })
-
 
 describe('watchOpenProject', () => {
   // Minimal stand-ins for a Task — `cancel` rejects anything without the marker.
