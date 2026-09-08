@@ -622,6 +622,36 @@ describe('geometryReducer', () => {
       r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'a'))
       expect(r.byScope[KEY].assigningIds).toEqual([])
     })
+
+    // An unassign is a material change like any other: it takes the same mark, so
+    // the row spins for the DELETE and refuses a drop that would race it. Before
+    // this the row sat idle for the whole request and only began spinning
+    // afterwards, once the restyled binary came back.
+    it('UNASSIGN_MATERIAL_REQUESTED marks the object', () => {
+      const r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      expect(r.byScope[KEY].assigningIds).toEqual(['a'])
+    })
+
+    it('UNASSIGN_MATERIAL_SUCCEEDED releases it', () => {
+      let r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      r = geometryReducer(r, actions.unassignMaterialSucceeded(P, S, 'a', '7'))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+    })
+
+    it('UNASSIGN_MATERIAL_FAILED releases it too, so the row is not stranded', () => {
+      // Nothing follows a failure to take the mark over — no binary refetch — so
+      // leaving it set would spin the row for the rest of the session.
+      let r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      r = geometryReducer(r, actions.unassignMaterialFailed(P, S, 'a', '7', 'nope'))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+    })
+
+    it('an unassign on one object leaves another object marked', () => {
+      let r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      r = geometryReducer(r, actions.unassignMaterialRequested(P, S, 'b', '7'))
+      r = geometryReducer(r, actions.unassignMaterialSucceeded(P, S, 'a', '7'))
+      expect(r.byScope[KEY].assigningIds).toEqual(['b'])
+    })
   })
 
   describe('edit-object draft', () => {

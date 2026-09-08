@@ -392,8 +392,14 @@ export type UnassignMaterialSucceededAction = {
   objectId: string
   groupId: string
 }
+// Carries the scope and object as well as the group: the reducer has to release
+// the object's material lock on failure, and it cannot find the right scope —
+// or the right id inside it — from a group id alone.
 export type UnassignMaterialFailedAction = {
   type: typeof UNASSIGN_MATERIAL_FAILED
+  projectId: string
+  scenarioId: string
+  objectId: string
   groupId: string
   payload: string
 }
@@ -826,10 +832,16 @@ export const unassignMaterialSucceeded = (
 })
 
 export const unassignMaterialFailed = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
   groupId: string,
   error: string
 ): UnassignMaterialFailedAction => ({
   type: UNASSIGN_MATERIAL_FAILED,
+  projectId,
+  scenarioId,
+  objectId,
   groupId,
   payload: error
 })

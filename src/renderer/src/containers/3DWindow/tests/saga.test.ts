@@ -281,7 +281,10 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
   it('onMaterialSaved re-fetches only the shown objects using the saved group', () => {
     const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1)) // materialId = group id
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    // Marked busy up front, before any fetch starts — then again by the fetch
+    // itself when its turn comes.
+    expect(gen.next(mixedNodes).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -298,13 +301,36 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     expect(gen.next({ '29': withGroups('29', ['9']) }).done).toBe(true)
   })
 
+  it('marks EVERY affected object busy before fetching any of them', () => {
+    // The fetches run one at a time, so members 2..N used to sit with nothing
+    // said about them while a restyle they were already committed to was queued:
+    // their rows looked idle and stayed open to a material drop. Deleting a
+    // material assigned to three grounds now spins all three at once.
+    const threeUsers = {
+      '28': withGroups('28', ['7']),
+      '29': withGroups('29', ['7']),
+      '30': withGroups('30', ['7'])
+    }
+
+    const gen = onMaterialDeleted(removeMaterial('7'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(threeUsers).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(29)))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(30)))
+    // Only now does the first fetch begin.
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+  })
+
   // Deleting ONE material type (e.g. the Visualiser) changes how every object
   // using that material looks — the ground loses the texture. Before this, nothing
   // told the scene, so it kept rendering a texture the material no longer had.
   it('onMaterialTypeDeleted re-fetches the shown objects using that material', () => {
     const gen = onMaterialTypeDeleted(deleteParameterGroupSucceeded('7', 1))
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    // Marked busy up front, before any fetch starts — then again by the fetch
+    // itself when its turn comes.
+    expect(gen.next(mixedNodes).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -318,7 +344,10 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
   it('onMaterialDeleted re-fetches only the shown objects that used the deleted group', () => {
     const gen = onMaterialDeleted(removeMaterial('7')) // id = group id
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    // Marked busy up front, before any fetch starts — then again by the fetch
+    // itself when its turn comes.
+    expect(gen.next(mixedNodes).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))

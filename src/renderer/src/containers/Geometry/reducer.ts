@@ -35,6 +35,7 @@ import {
   TOGGLE_RENDER,
   TOGGLE_VIEWPORT,
   UNASSIGN_MATERIAL_FAILED,
+  UNASSIGN_MATERIAL_REQUESTED,
   UNASSIGN_MATERIAL_SUCCEEDED,
   UPDATE_OBJECT_FAILED,
   UPDATE_OBJECT_REQUESTED,
@@ -846,12 +847,29 @@ const geometryReducer = (
         break
       }
 
+      case UNASSIGN_MATERIAL_REQUESTED: {
+        // The DELETE is out. Same lock an assign takes, and for the same reason:
+        // a material change is running against this object, so it must not take
+        // another one until this settles — the two would race over a geometry
+        // that carries only ONE material. It is also what makes the tree row
+        // spin for the request itself; until now the row sat idle for the whole
+        // DELETE and only started spinning afterwards, when the restyled binary
+        // came back.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        if (!s.assigningIds.includes(action.objectId)) s.assigningIds.push(action.objectId)
+        break
+      }
+
       case UNASSIGN_MATERIAL_SUCCEEDED: {
         // A saved material was unassigned on the backend. Drop it from the open
         // draft (both the displayed list and the baseline) and from the detail
         // cache, so it stays gone if the form is closed and reopened.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
         const { groupId, objectId } = action
+        // The DELETE is done. The row stays busy past this point — the 3D slice
+        // marks the object's binary pending in the same dispatch (see
+        // onMaterialUnassigned) and that carries it through the repaint.
+        s.assigningIds = s.assigningIds.filter((i) => i !== objectId)
         if (draft.createDraft) {
           draft.createDraft.materials = draft.createDraft.materials.filter(
             (m) => m.groupId !== groupId
@@ -874,6 +892,12 @@ const geometryReducer = (
       case UNASSIGN_MATERIAL_FAILED: {
         // Pessimistic: the material was NOT removed. Surface the error on the form
         // (the material stays in the list so the user can retry).
+        //
+        // Release the lock too — nothing is in flight any more, and no binary
+        // refetch follows a failure to take it over. Leaving it set would strand
+        // the row spinning and closed to drops for the rest of the session.
+        const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
+        s.assigningIds = s.assigningIds.filter((i) => i !== action.objectId)
         if (draft.createDraft) draft.createDraft.saveError = action.payload
         break
       }

@@ -488,7 +488,15 @@ export function* unassignMaterialWorker(action: UnassignMaterialRequestedAction)
     yield call(service.unassignMaterial, projectId, scenarioId, objectId, groupId)
     yield put(actions.unassignMaterialSucceeded(projectId, scenarioId, objectId, groupId))
   } catch (err) {
-    yield put(actions.unassignMaterialFailed(groupId, (err as Error).message))
+    yield put(
+      actions.unassignMaterialFailed(
+        projectId,
+        scenarioId,
+        objectId,
+        groupId,
+        (err as Error).message
+      )
+    )
   }
 }
 

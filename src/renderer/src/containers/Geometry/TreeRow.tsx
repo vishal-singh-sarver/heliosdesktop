@@ -236,11 +236,17 @@ function TreeRow({
   )
 
   // The same question for THIS row. A group has no material of its own — a drop
-  // on it fans out to its members — so it is locked while any member is, rather
+  // on it fans out to its members — so it is busy while any member is, rather
   // than accepting a drop that could only be applied to part of the group.
-  const materialLocked = isGroup
+  const rowBusy = isGroup
     ? deleting || node.childIds.some(objectLocked)
     : objectLocked(node.id)
+
+  // A row with work in flight against it cannot take a material — see
+  // objectLocked above for why a second assign inside that window is a race
+  // rather than an edit. Deliberately the SAME predicate as the spinner below:
+  // what a row refuses and what it says about itself must not disagree.
+  const materialLocked = rowBusy
 
   const childCount = isGroup ? node.childIds.length : 0
   const confirmMessage = isGroup
@@ -479,14 +485,23 @@ function TreeRow({
   // null for a group (the chevron occupies that slot instead).
   const kindIcon = KIND_ICON[node.kind]
 
-  // The row is busy when something is actually in flight against this geometry:
-  // its binary is downloading, its Properties-form save is out, or its DELETE
-  // is. Deliberately NOT the eye, render or per-model toggles — those apply
+  // The row spins while ANYTHING is in flight against this geometry — the
+  // material-assign POST, the restyled binary that follows it, a Properties-form
+  // save, or its DELETE — which is exactly the window in which it refuses a
+  // material drop (see rowBusy above).
+  //
+  // The assign POST was the gap. The spinner used to start only once the binary
+  // came back, so a row that had just been given a material sat looking idle for
+  // the whole request while silently turning away every drop — the one state
+  // where the row was working and said nothing about it.
+  //
+  // Still deliberately NOT the eye, render or per-model toggles: those apply
   // optimistically, so the row already shows the new state and a spinner would
-  // flash over an answer the user has been given. Groups have no binary of their
-  // own; their members each report for themselves.
-  const busy = (!isGroup && pendingBinaryIds.has(Number(node.id))) || savingObjectId === node.id
-  const showBusy = busy || deleting
+  // flash over an answer the user has been given.
+  //
+  // A group has no binary of its own, so it reports for its members: it spins
+  // while any of them is busy, which is the same moment it stops taking drops.
+  const showBusy = rowBusy
 
   // Any error on the row (live rename validation while editing, or a backend
   // rename failure) turns the box border red — the same #D92D20 the right-panel
@@ -565,8 +580,8 @@ function TreeRow({
               room — widening the row's gap would push the action cluster out
               too.
 
-              The spinner stands in the SAME slot at the same size while this
-              geometry's binary is downloading, so the row doesn't reflow when it
+              The spinner stands in the SAME slot at the same size while work is
+              in flight against this geometry, so the row doesn't reflow when it
               lands. A ground at 1000×1000 is 228 MB — long enough that a row
               with nothing to say about itself reads as finished. */}
           {showBusy ? (

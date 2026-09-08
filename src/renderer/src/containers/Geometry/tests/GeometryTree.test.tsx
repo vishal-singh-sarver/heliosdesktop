@@ -175,7 +175,18 @@ describe('the downloading indicator', () => {
     expect(within(rowOf('Ground.001')).queryByRole('img', { name: 'Loading' })).toBeNull()
   })
 
-  it('never spins a group — its members each report their own', () => {
+  it('spins the row whose material-assign POST is in flight', () => {
+    // The gap this closes. The row refuses every material drop for the whole
+    // assign → repaint window, but used to start spinning only at the halfway
+    // point, when the restyled binary came back — so for the length of the POST
+    // it was working, turning drops away, and saying nothing about either.
+    renderTree({ ...geometries, assigningIds: ['28'] })
+
+    expect(within(rowOf('Ground.001')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
+    expect(within(rowOf('Ground.002')).queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('does not spin a group for its OWN id — a group has no binary', () => {
     renderTree(
       {
         ...emptyScenarioGeometry(),
@@ -188,6 +199,27 @@ describe('the downloading indicator', () => {
     )
 
     expect(screen.queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('spins a group while one of its members is busy', () => {
+    // A group refuses a material drop while any member is busy, because the
+    // assignment would reach only part of it. It now says so instead of looking
+    // idle and rejecting the drop anyway.
+    renderTree(
+      {
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: {
+          '9': group('9', 'Group.001', ['28']),
+          '28': ground('28', 'Ground.001')
+        },
+        rootOrder: ['9']
+      },
+      undefined,
+      [28]
+    )
+
+    expect(within(rowOf('Group.001')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
   })
 })
 
