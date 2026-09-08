@@ -5,11 +5,13 @@ import Tooltip from '@renderer/components/Tooltip'
 import CenterWorkspace from '@renderer/containers/CenterWorkspace'
 import LeftPanel from '@renderer/containers/LeftPanel'
 import RightPanel from '@renderer/containers/RightPanel'
+import { selectBootActive } from 'containers/ProjectBoot/selectors'
 import { useFormik } from 'formik'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
 import { navigate } from 'store/navigationReducer'
+import type { RootState } from 'store/reducers'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import { STORAGE_KEYS } from 'utils/storageKeys'
@@ -102,6 +104,39 @@ export function ProjectScreen(): React.JSX.Element {
   const activeProjectId = useSelector(selectActiveProjectId)
   const activeProject = useSelector(selectActiveProject)
 
+  // ── The hydration gate ─────────────────────────────────────────────────────
+  //
+  // True while a boot is still hydrating the scenario, i.e. /init has not
+  // finished. Nothing in this subtree may call the backend until it clears:
+  // /init is what puts the scene in the backend's memory, and requests sent
+  // ahead of it only queue behind the very hydration they were meant to follow
+  // (see App's restore block and navigationReducer's `restored`).
+  //
+  // The SHELL below renders regardless. That is the whole point of gating here
+  // rather than in App: the header and the empty panel frame make no requests,
+  // and mounting them is what lets the appReady effect fire — so the window is
+  // revealed and the boot loader becomes visible instead of the user sitting on
+  // an always-on-top splash for the whole of /init. A splash cannot show
+  // progress and has no Cancel button; the loader has both.
+  //
+  // Both flags are needed, and neither alone is enough:
+  //
+  //   restored   — true from the FIRST render on a restart, before App's effect
+  //                has dispatched openProject. bootActive is still false in that
+  //                frame, so gating on it alone would let the panels mount and
+  //                fire their requests before the boot even started.
+  //   bootActive — true from BOOT_STARTED onward, which covers the rest of the
+  //                run and also a boot begun while this screen is already
+  //                mounted (a project switch), which `restored` never sees.
+  //
+  // BOOT_FAILED deliberately leaves `active` true so the dialog can show its
+  // error, so a failed /init also holds the panels back — correct, since there
+  // is no hydrated context for them to load against. Retry or Go to Home is the
+  // way out, not a half-loaded screen.
+  const restored = useSelector((state: RootState) => state.navigation.restored)
+  const bootActive = useSelector(selectBootActive)
+  const hydrating = restored || bootActive
+
   // Load the full catalog once per mount: data-types-with-units plus the
   // object / material / model type catalogs, all in parallel.
   //
@@ -110,15 +145,20 @@ export function ProjectScreen(): React.JSX.Element {
   // four of these twice on every project open. A ref survives that simulated
   // remount; a real navigation away destroys the component, so returning to the
   // screen still refreshes each slice as before.
+  //
+  // The `hydrating` check comes BEFORE the ref check on purpose: returning
+  // early must not consume the ref, or the run that fires once /init lands
+  // would find it already spent and skip the catalogs for good.
   const catalogsRequestedRef = React.useRef(false)
   React.useEffect(() => {
+    if (hydrating) return
     if (catalogsRequestedRef.current) return
     catalogsRequestedRef.current = true
     dispatch(loadDataTypesRequested())
     dispatch(loadObjectTypesRequested())
     dispatch(loadMaterialTypesRequested())
     dispatch(loadModelTypesRequested())
-  }, [dispatch])
+  }, [dispatch, hydrating])
 
   React.useEffect(() => {
     if (activeProjectId == null) {
@@ -135,17 +175,29 @@ export function ProjectScreen(): React.JSX.Element {
   // while StrictMode's second run is ignored. Note this call is also what sets
   // the active scenario, and that is what starts the scene load — so it cannot
   // simply be skipped when scenarios are already in the store.
+  //
+  // Gated on `hydrating` for the same reason as the catalogs above, and this
+  // one matters most: it is what sets the active scenario, which chains the
+  // scene load. Sending it mid-hydration would put the heaviest request in the
+  // app in front of the /init it depends on.
   const scenariosRequestedRef = React.useRef<string | null>(null)
   React.useEffect(() => {
+    if (hydrating) return
     if (activeProjectId == null) return
     if (scenariosRequestedRef.current === activeProjectId) return
     scenariosRequestedRef.current = activeProjectId
     dispatch(listScenariosRequested(activeProjectId))
-  }, [activeProjectId, dispatch])
+  }, [activeProjectId, dispatch, hydrating])
 
   // Mirrors the appReady signal in HomePage — whichever screen mounts first
   // dismisses the splash. ipcMain registers `app:ready` as a once-listener so
   // a second send (e.g. after navigation) is a harmless no-op.
+  //
+  // Deliberately NOT gated on `hydrating`: this is the signal that reveals the
+  // window, and on the restart path it has to fire while /init is still running
+  // — that is the case the gate exists for. It runs on shell mount, so the user
+  // sees the app frame and the boot loader within a frame or two of launch
+  // however long /init then takes.
   React.useEffect(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -311,10 +363,20 @@ export function ProjectScreen(): React.JSX.Element {
         </div>
       </Header>
 
+      {/* Held back until /init has hydrated the scenario. Geometry (under
+          LeftPanel) fetches the node tree on mount and Materials (under
+          RightPanel) fetches the material list, and React runs CHILD effects
+          before the parent's — so mounting these is what used to put the whole
+          data load ahead of the hydration it depends on. The empty frame is
+          covered by the boot loader while it waits. */}
       <main className="flex min-h-0 flex-1 gap-[10px] overflow-hidden p-[10px]">
-        <LeftPanel />
-        <CenterWorkspace />
-        <RightPanel />
+        {!hydrating && (
+          <>
+            <LeftPanel />
+            <CenterWorkspace />
+            <RightPanel />
+          </>
+        )}
       </main>
     </div>
   )

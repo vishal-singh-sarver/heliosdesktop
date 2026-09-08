@@ -58,21 +58,20 @@ function App(): React.JSX.Element {
   // same as not making it, and it defeated the point of running /init first and
   // alone (see ProjectBoot/saga's streamInit).
   //
-  // So on this path the screen is held back until the boot settles, which is
-  // what already happens on the Home path — there ProjectScreen does not exist
-  // until reveal() navigates to it, after /init is done.
+  // So on this path those requests are held back until the boot settles, which
+  // is what already happens on the Home path — there ProjectScreen does not
+  // exist until reveal() navigates to it, after /init is done.
   //
-  // The gate itself needs no state of its own. `restored` (navigationReducer)
-  // is true only for the 'project' screen pickInitialScreen() restored from
-  // localStorage, and every NAVIGATE clears it — including the
-  // navigate('project') the boot's own reveal() dispatches once /init is done.
-  // So "restored and not yet navigated to" IS "the boot has not finished", with
-  // no latch to keep in sync and nothing to reset on the way back to Home.
+  // What is held back is the point. This used to unmount the whole SCREEN, and
+  // that overshot: the shell — header, project name, the empty panel frame —
+  // fetches nothing, and unmounting it meant that on this path nothing at all
+  // was mounted while /init ran. The splash comes down only when a screen
+  // signals `app:ready`, so a slow /init (a large context.xml is legitimately
+  // slow) left the user on an always-on-top splash with no progress bar and no
+  // Cancel — with the boot loader rendering, unseen, underneath it.
   //
-  // A boot that FAILS never reaches reveal(), so the gate stays shut while the
-  // loader shows its error dialog — correct, since there is no hydrated context
-  // for the screen to load against. Retry re-runs the boot; Go to Home leaves.
-  const restored = useSelector((state: RootState) => state.navigation.restored)
+  // The gate now lives in ProjectScreen and covers exactly the fetching parts.
+  // See the hydration gate there for why it reads `restored || bootActive`.
 
   // The ref keeps StrictMode's deliberate double-mount in dev from starting a
   // second load.
@@ -104,9 +103,15 @@ function App(): React.JSX.Element {
   return (
     <div className="flex flex-col h-screen bg-dark text-neutral-200 overflow-hidden">
       {screen === 'home' && <HomePage />}
-      {/* `restored` only ever gates the restart path — it is false from the
-          first render in every other case. See the restore block above. */}
-      {screen === 'project' && !restored && <ProjectScreen />}
+      {/* The gate moved INTO ProjectScreen, and narrowed: it holds back the
+          panels and the fetch effects, not the screen itself. Keeping the whole
+          screen unmounted meant that on the restart path NOTHING was mounted
+          while /init ran — and since the splash comes down only when a screen
+          signals `app:ready`, a slow or stalled /init left the user staring at
+          an always-on-top splash with no progress and no way out. The shell
+          makes no requests, so mounting it costs nothing and is what lets the
+          window reveal. See the hydration gate in ProjectScreen. */}
+      {screen === 'project' && <ProjectScreen />}
       {/* App-global toast outlet (material-assignment feedback, etc.). */}
       <SnackbarHost />
       {/* App-global outlet for the full text of any label `truncate` has cut off. */}
