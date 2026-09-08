@@ -96,6 +96,14 @@ const messages = {
   // nothing to POST, so it's an info toast rather than a success one — no change
   // was made.
   materialAlreadyAssigned: (target: string) => `This material is already assigned to ${target}`,
+  // A material dropped on a geometry whose previous assignment hasn't finished:
+  // the POST is still out, or the restyled binary is still downloading. The drop
+  // is refused rather than queued — a geometry carries ONE material, so the
+  // second drop would race the first and both would repaint the same object.
+  // Says what to do about it, since the row's spinner alone doesn't explain a
+  // drop that appears to do nothing.
+  materialAssignInProgress: (target: string) =>
+    `${target} is still applying a material. Wait for it to finish.`,
   // Unassign-material confirmation — shown by the per-material trash icon ONLY for
   // a material already saved on the ground (unassigning it deletes backend
   // progress). A draft-only pick is removed silently.

@@ -175,7 +175,18 @@ describe('the downloading indicator', () => {
     expect(within(rowOf('Ground.001')).queryByRole('img', { name: 'Loading' })).toBeNull()
   })
 
-  it('never spins a group — its members each report their own', () => {
+  it('spins the row whose material-assign POST is in flight', () => {
+    // The gap this closes. The row refuses every material drop for the whole
+    // assign → repaint window, but used to start spinning only at the halfway
+    // point, when the restyled binary came back — so for the length of the POST
+    // it was working, turning drops away, and saying nothing about either.
+    renderTree({ ...geometries, assigningIds: ['28'] })
+
+    expect(within(rowOf('Ground.001')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
+    expect(within(rowOf('Ground.002')).queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('does not spin a group for its OWN id — a group has no binary', () => {
     renderTree(
       {
         ...emptyScenarioGeometry(),
@@ -188,6 +199,27 @@ describe('the downloading indicator', () => {
     )
 
     expect(screen.queryByRole('img', { name: 'Loading' })).toBeNull()
+  })
+
+  it('spins a group while one of its members is busy', () => {
+    // A group refuses a material drop while any member is busy, because the
+    // assignment would reach only part of it. It now says so instead of looking
+    // idle and rejecting the drop anyway.
+    renderTree(
+      {
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: {
+          '9': group('9', 'Group.001', ['28']),
+          '28': ground('28', 'Ground.001')
+        },
+        rootOrder: ['9']
+      },
+      undefined,
+      [28]
+    )
+
+    expect(within(rowOf('Group.001')).getByRole('img', { name: 'Loading' })).toBeInTheDocument()
   })
 })
 
@@ -638,6 +670,139 @@ describe('<GeometryTree />', () => {
         targetName: 'Group.001'
       })
     )
+  })
+
+  // A geometry carries ONE material, so a second drop while the first is still
+  // being applied never adds — it races the first, and both then re-fetch the
+  // same object's binary (a 1000×1000 ground is 228 MB). The row is closed to
+  // materials for the whole assign → repaint window: the POST (assigningIds) and
+  // the restyled binary that follows it (pendingObjectIds).
+  describe('a geometry still applying a material refuses another', () => {
+    const oneGround = (over: Partial<ScenarioGeometry> = {}): ScenarioGeometry => ({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      ...over
+    })
+
+    const assignsFired = (): boolean =>
+      dispatch.mock.calls.some(
+        ([action]) => action?.type === 'app/Geometry/ASSIGN_MATERIAL_REQUESTED'
+      )
+
+    it('refuses the drop while its assign POST is in flight', () => {
+      renderTree(oneGround({ assigningIds: ['a'] }))
+      const target = screen.getByText('Ground.001').closest('[role="button"]')!
+      fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+      expect(assignsFired()).toBe(false)
+    })
+
+    it('refuses the drop while the restyled binary is still downloading', () => {
+      // The long half of the wait, and the half the user actually sees — the row
+      // is spinning here. Numeric id: pendingObjectIds is keyed by the backend's
+      // object id, which the row matches by Number(node.id).
+      renderTree(
+        {
+          ...emptyScenarioGeometry(),
+          loadStatus: 'loaded',
+          nodesById: { '28': ground('28', 'Ground.001') },
+          rootOrder: ['28']
+        },
+        LIBRARY,
+        [28]
+      )
+      const target = screen.getByText('Ground.001').closest('[role="button"]')!
+      fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+      expect(assignsFired()).toBe(false)
+    })
+
+    it('says why nothing happened rather than swallowing the drop', () => {
+      renderTree(oneGround({ assigningIds: ['a'] }))
+      const target = screen.getByText('Ground.001').closest('[role="button"]')!
+      fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'app/snackbar/SHOW',
+          payload: expect.objectContaining({
+            message: 'Ground.001 is still applying a material. Wait for it to finish.'
+          })
+        })
+      )
+    })
+
+    it('shows the no-drop cursor before the user lets go', () => {
+      // dropEffect 'none' is what the pointer reads during the drag — the toast
+      // above only lands after a drop the row was never going to take.
+      renderTree(oneGround({ assigningIds: ['a'] }))
+      const target = screen.getByText('Ground.001').closest('[role="button"]')!
+      const transfer = materialDragOverTransfer()
+      fireEvent.dragOver(target, { dataTransfer: transfer })
+      expect(transfer.dropEffect).toBe('none')
+    })
+
+    it('a free geometry still takes the drop', () => {
+      // The lock is per object: another ground's assign must not close this one.
+      renderTree({
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: { a: ground('a', 'Ground.001'), b: ground('b', 'Ground.002') },
+        rootOrder: ['a', 'b'],
+        assigningIds: ['b']
+      })
+      const target = screen.getByText('Ground.001').closest('[role="button"]')!
+      fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'app/Geometry/ASSIGN_MATERIAL_REQUESTED',
+          objectIds: ['a']
+        })
+      )
+    })
+
+    it('a group refuses the drop while any one member is still applying', () => {
+      // A drop on a group fans out to its members. Taking it while one member is
+      // busy would assign the material to part of the group only.
+      renderTree({
+        ...emptyScenarioGeometry(),
+        loadStatus: 'loaded',
+        nodesById: {
+          g: group('g', 'Group.001', ['a', 'b']),
+          a: ground('a', 'Ground.001', 'g'),
+          b: ground('b', 'Ground.002', 'g')
+        },
+        rootOrder: ['g'],
+        assigningIds: ['b']
+      })
+      const target = screen.getByText('Group.001').closest('[role="button"]')!
+      fireEvent.drop(target, { dataTransfer: materialDataTransfer('7', 'Grass') })
+      expect(assignsFired()).toBe(false)
+    })
+
+    it('a locked collapsed group does not spring open for a material', () => {
+      vi.useFakeTimers()
+      try {
+        renderTree({
+          ...emptyScenarioGeometry(),
+          loadStatus: 'loaded',
+          nodesById: {
+            g: group('g', 'Group.001', ['a'], false),
+            a: ground('a', 'Ground.001', 'g')
+          },
+          rootOrder: ['g'],
+          assigningIds: ['a']
+        })
+        const target = screen.getByText('Group.001').closest('[role="button"]')!
+        fireEvent.dragOver(target, { dataTransfer: materialDragOverTransfer() })
+        act(() => void vi.advanceTimersByTime(SPRING_OPEN_MS))
+        // Expanding would only reveal members that can't take the drop either.
+        expect(dispatch).not.toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'app/Geometry/TOGGLE_EXPAND' })
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   describe('spring-loaded groups', () => {

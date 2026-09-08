@@ -24,7 +24,7 @@ import {
 import messages from './messages'
 import NameEditor from './NameEditor'
 import RowActions from './RowActions'
-import { selectDeletingIds, selectSavingObjectId } from './selectors'
+import { selectAssigningIds, selectDeletingIds, selectSavingObjectId } from './selectors'
 import type { GeoNode, GeoNodeKind } from './types'
 
 // Custom DnD mime so we only react to our own row drags, not arbitrary drops.
@@ -205,7 +205,8 @@ function TreeRow({
   // This node's DELETE is in flight — the delete is pessimistic, so the row is
   // still here; locking the trash stops a second confirm firing a duplicate DELETE
   // that would 404 and report a failure for a delete that actually worked.
-  const deleting = useSelector(selectDeletingIds).includes(node.id)
+  const deletingIds = useSelector(selectDeletingIds)
+  const deleting = deletingIds.includes(node.id)
   // The library, to tell a real assignment from a dangling one — a node keeps the
   // group id of a DELETED material (the viewport's refetch gate needs it), and the
   // drop handler must not read that ghost as "this ground already has a material".
@@ -213,8 +214,39 @@ function TreeRow({
   // Objects whose binary geometry is downloading right now — the row shows a
   // spinner in place of its kind icon while its own is among them.
   const pendingBinaryIds = useSelector(selectPendingObjectIds)
+  // Objects whose material-assign POST is still out.
+  const assigningIds = useSelector(selectAssigningIds)
   // The object whose Properties-form save is in flight, if any.
   const savingObjectId = useSelector(selectSavingObjectId)
+
+  // Can this OBJECT take a material right now? No, while anything that ends in a
+  // material change is still running against it: the assign POST, the restyled
+  // binary that follows it (a 1000×1000 ground is 228 MB, so that download is the
+  // long half), a Properties-form save (which can itself carry a material), or a
+  // delete. A geometry carries ONE material, so a second assign in that window
+  // never adds — it races the first and repaints the same object twice, and which
+  // material survives comes down to which request happens to land last.
+  const objectLocked = React.useCallback(
+    (id: string): boolean =>
+      assigningIds.has(id) ||
+      pendingBinaryIds.has(Number(id)) ||
+      savingObjectId === id ||
+      deletingIds.includes(id),
+    [assigningIds, pendingBinaryIds, savingObjectId, deletingIds]
+  )
+
+  // The same question for THIS row. A group has no material of its own — a drop
+  // on it fans out to its members — so it is busy while any member is, rather
+  // than accepting a drop that could only be applied to part of the group.
+  const rowBusy = isGroup
+    ? deleting || node.childIds.some(objectLocked)
+    : objectLocked(node.id)
+
+  // A row with work in flight against it cannot take a material — see
+  // objectLocked above for why a second assign inside that window is a race
+  // rather than an edit. Deliberately the SAME predicate as the spinner below:
+  // what a row refuses and what it says about itself must not disagree.
+  const materialLocked = rowBusy
 
   const childCount = isGroup ? node.childIds.length : 0
   const confirmMessage = isGroup
@@ -235,8 +267,19 @@ function TreeRow({
     dispatch(assignMaterialRequested(projectId, scenarioId, targetIds, groupId, name, node.name))
   }
 
+  // The dialog stands open while the user decides, and the row can lock in that
+  // time — a Save started from the right panel, or (for a group) a drop on one of
+  // its members. Re-check on the click that actually commits, not just on the
+  // drop that opened it.
   const confirmReplace = (): void => {
-    if (replaceDrop) assignMaterial(replaceDrop.groupId, replaceDrop.name, replaceDrop.targetIds)
+    if (replaceDrop) {
+      const free = replaceDrop.targetIds.filter((id) => !objectLocked(id))
+      if (!free.length) {
+        dispatch(showSnackbar(messages.materialAssignInProgress(node.name), 'info'))
+      } else {
+        assignMaterial(replaceDrop.groupId, replaceDrop.name, free)
+      }
+    }
     setReplaceDrop(null)
   }
 
@@ -257,6 +300,17 @@ function TreeRow({
     // A dragged material assigns to the whole row (leaf OR group) — no edge
     // bands. Light the whole row ('into' ring) and mark it a copy, not a move.
     if (isMaterialDrag(e)) {
+      // Its previous material hasn't finished applying. 'none' is what puts the
+      // no-drop cursor under the pointer, so the row reads as closed BEFORE the
+      // user lets go — the ring and the toast on drop would both be after the
+      // fact. The spring-open timer is cancelled with it: a group that can't take
+      // the drop has no reason to expand for it.
+      if (materialLocked) {
+        e.dataTransfer.dropEffect = 'none'
+        setDropZone(null)
+        cancelSpringOpen()
+        return
+      }
       e.dataTransfer.dropEffect = 'copy'
       setDropZone('into')
       // Hold the material over a collapsed group and it springs open, so its
@@ -311,6 +365,14 @@ function TreeRow({
     const material = readMaterialDrop(e)
     if (material) {
       if (!projectId || !scenarioId) return
+      // Still applying the last one. handleDragOver already refused this with a
+      // no-drop cursor, so reaching here means the drop got in another way (the
+      // row locked mid-drag, or a browser that dropped anyway); say why nothing
+      // happened rather than silently swallowing it.
+      if (materialLocked) {
+        dispatch(showSnackbar(messages.materialAssignInProgress(node.name), 'info'))
+        return
+      }
       const targetIds = isGroup
         ? node.childIds.filter((id) => nodesById[id]?.kind !== 'group')
         : [node.id]
@@ -423,14 +485,23 @@ function TreeRow({
   // null for a group (the chevron occupies that slot instead).
   const kindIcon = KIND_ICON[node.kind]
 
-  // The row is busy when something is actually in flight against this geometry:
-  // its binary is downloading, its Properties-form save is out, or its DELETE
-  // is. Deliberately NOT the eye, render or per-model toggles — those apply
+  // The row spins while ANYTHING is in flight against this geometry — the
+  // material-assign POST, the restyled binary that follows it, a Properties-form
+  // save, or its DELETE — which is exactly the window in which it refuses a
+  // material drop (see rowBusy above).
+  //
+  // The assign POST was the gap. The spinner used to start only once the binary
+  // came back, so a row that had just been given a material sat looking idle for
+  // the whole request while silently turning away every drop — the one state
+  // where the row was working and said nothing about it.
+  //
+  // Still deliberately NOT the eye, render or per-model toggles: those apply
   // optimistically, so the row already shows the new state and a spinner would
-  // flash over an answer the user has been given. Groups have no binary of their
-  // own; their members each report for themselves.
-  const busy = (!isGroup && pendingBinaryIds.has(Number(node.id))) || savingObjectId === node.id
-  const showBusy = busy || deleting
+  // flash over an answer the user has been given.
+  //
+  // A group has no binary of its own, so it reports for its members: it spins
+  // while any of them is busy, which is the same moment it stops taking drops.
+  const showBusy = rowBusy
 
   // Any error on the row (live rename validation while editing, or a backend
   // rename failure) turns the box border red — the same #D92D20 the right-panel
@@ -509,8 +580,8 @@ function TreeRow({
               room — widening the row's gap would push the action cluster out
               too.
 
-              The spinner stands in the SAME slot at the same size while this
-              geometry's binary is downloading, so the row doesn't reflow when it
+              The spinner stands in the SAME slot at the same size while work is
+              in flight against this geometry, so the row doesn't reflow when it
               lands. A ground at 1000×1000 is 228 MB — long enough that a row
               with nothing to say about itself reads as finished. */}
           {showBusy ? (

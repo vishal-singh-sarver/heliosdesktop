@@ -1,6 +1,7 @@
 import {
   ASSIGN_MATERIAL_REQUESTED,
   ASSIGN_MATERIAL_SUCCEEDED,
+  ASSIGN_MATERIAL_FAILED,
   CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
@@ -228,6 +229,14 @@ export type AssignMaterialSucceededAction = {
   groupId: string
   name: string
 }
+// The assign was refused. Carries only what the reducer needs to release the
+// targets' assigning mark — the saga's toast has already reported the reason.
+export type AssignMaterialFailedAction = {
+  type: typeof ASSIGN_MATERIAL_FAILED
+  projectId: string
+  scenarioId: string
+  objectIds: string[]
+}
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
   projectId: string
@@ -383,8 +392,14 @@ export type UnassignMaterialSucceededAction = {
   objectId: string
   groupId: string
 }
+// Carries the scope and object as well as the group: the reducer has to release
+// the object's material lock on failure, and it cannot find the right scope —
+// or the right id inside it — from a group id alone.
 export type UnassignMaterialFailedAction = {
   type: typeof UNASSIGN_MATERIAL_FAILED
+  projectId: string
+  scenarioId: string
+  objectId: string
   groupId: string
   payload: string
 }
@@ -411,6 +426,7 @@ export type GeometryAction =
   | ReorderNodesAction
   | AssignMaterialRequestedAction
   | AssignMaterialSucceededAction
+  | AssignMaterialFailedAction
   | MoveNodesSucceededAction
   | MoveNodesFailedAction
   | DeleteNodeRequestedAction
@@ -621,6 +637,17 @@ export const assignMaterialSucceeded = (
   name
 })
 
+export const assignMaterialFailed = (
+  projectId: string,
+  scenarioId: string,
+  objectIds: string[]
+): AssignMaterialFailedAction => ({
+  type: ASSIGN_MATERIAL_FAILED,
+  projectId,
+  scenarioId,
+  objectIds
+})
+
 export const moveNodesSucceeded = (
   projectId: string,
   scenarioId: string,
@@ -805,10 +832,16 @@ export const unassignMaterialSucceeded = (
 })
 
 export const unassignMaterialFailed = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
   groupId: string,
   error: string
 ): UnassignMaterialFailedAction => ({
   type: UNASSIGN_MATERIAL_FAILED,
+  projectId,
+  scenarioId,
+  objectId,
   groupId,
   payload: error
 })

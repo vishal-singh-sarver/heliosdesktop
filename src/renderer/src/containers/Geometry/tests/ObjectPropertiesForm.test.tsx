@@ -916,6 +916,102 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   })
 })
 
+// A ground carries ONE material. While one is still being applied to THIS object
+// — its assign POST out, or the restyled binary still downloading — staging
+// another here would race the first, so the picker closes for that window. The
+// same lock the tree row applies to a drop.
+describe('<ObjectPropertiesForm /> — picker locked while a material is applying', () => {
+  const startAssign = (store: InjectableStore): void =>
+    void act(() => {
+      store.dispatch(
+        actions.assignMaterialRequested(
+          PROJECT,
+          SCENARIO,
+          [OBJECT_ID],
+          '7',
+          'Grass',
+          'Ground.001'
+        )
+      )
+    })
+
+  it('disables Select while the assign is in flight', () => {
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled()
+
+    startAssign(store)
+
+    expect(screen.getByRole('button', { name: 'Select' })).toBeDisabled()
+  })
+
+  it('says why the button is dead, since the spinner is in the other panel', () => {
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    startAssign(store)
+
+    expect(screen.getByRole('button', { name: 'Select' })).toHaveAttribute(
+      'title',
+      messages.materialAssignInProgress('Ground.001')
+    )
+  })
+
+  it('closes a picker left standing open when the lock arrives', () => {
+    // The drop can happen in the tree while this list is up.
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+
+    startAssign(store)
+
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+  })
+
+  it('re-opens the picker once a refused assign settles', () => {
+    // Nothing was written, so there is nothing to wait for — locking the ground
+    // out of the picker for the rest of the session would be the worse bug.
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    startAssign(store)
+    act(() => void store.dispatch(actions.assignMaterialFailed(PROJECT, SCENARIO, [OBJECT_ID])))
+
+    expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled()
+  })
+
+  it('leaves the picker open when a DIFFERENT ground is the one assigning', () => {
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    act(() => {
+      store.dispatch(
+        actions.assignMaterialRequested(PROJECT, SCENARIO, ['99'], '7', 'Grass', 'Ground.002')
+      )
+    })
+
+    expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled()
+  })
+})
+
 describe('<ObjectPropertiesForm /> — numeric keystroke guard', () => {
   it('rejects a leading + in Ground Size instead of silently dropping it', () => {
     // "+5" used to pass every check: it saved as 5, so the field read back "5"

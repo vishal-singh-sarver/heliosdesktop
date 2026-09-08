@@ -265,12 +265,33 @@ export function* onGeometryUpdated(action: UpdateObjectSucceededAction): Generat
 // affected object to restyle it in place — mirroring onGeometryUpdated, and
 // skipping hidden objects so an assignment never un-hides one.
 export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Generator {
+  const projectId = (yield select(selectActiveProjectId)) as string | null
+  const scenarioId = (yield select(selectActiveScenarioId)) as string | null
+  if (!projectId || !scenarioId) return
+
   const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
-  for (const rawId of action.objectIds) {
-    const node = nodesById[rawId]
-    if (node && !node.visibleInViewport) continue
+  const targets = action.objectIds
+    .filter((rawId) => nodesById[rawId]?.visibleInViewport !== false)
+    .map(Number)
+
+  // Marked pending up front rather than one at a time, as loadSceneWorker does.
+  // The fetches below run sequentially, so a group assign leaves members 2..N
+  // waiting their turn — with nothing said about them, their rows look idle and
+  // stay open to a second material drop while the restyle they already have is
+  // still queued. This is also what carries the assign lock past
+  // ASSIGN_MATERIAL_SUCCEEDED: the reducer releases assigningIds on that same
+  // dispatch, and these marks take over in the same tick.
+  //
+  // Hidden objects are deliberately absent: nothing is fetched for them (an
+  // assign must not un-hide one), so nothing would ever settle their mark. They
+  // pick the new material up on un-hide, via onViewportToggled.
+  for (const objectId of targets) {
+    yield put(actions.objectGeometryPending(objectId))
+  }
+
+  for (const objectId of targets) {
     try {
-      yield* fetchAndCacheObjectGeometry(Number(rawId), false, true)
+      yield* fetchAndCacheObjectGeometry(objectId, false, true)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
@@ -284,11 +305,30 @@ export function* onMaterialAssigned(action: AssignMaterialSucceededAction): Gene
 // and one used by 1 ground costs 1 — instead of one per shown object.
 function* refetchObjectsUsingGroup(groupId: string): Generator {
   const nodesById = (yield select(selectNodesById)) as Record<string, GeoNode>
-  for (const node of Object.values(nodesById)) {
-    if (node.kind === 'group' || !node.visibleInViewport) continue
-    if (!(node.materialGroupIds ?? []).includes(groupId)) continue
+  const targets = Object.values(nodesById)
+    .filter(
+      (node) =>
+        node.kind !== 'group' &&
+        node.visibleInViewport !== false &&
+        (node.materialGroupIds ?? []).includes(groupId)
+    )
+    .map((node) => Number(node.id))
+
+  // Marked pending up front, for the same reason onMaterialAssigned does it: the
+  // fetches below run sequentially, so deleting a material used by several
+  // grounds left members 2..N waiting their turn with nothing said about them.
+  // Their rows looked idle — and stayed open to a material drop — while a
+  // restyle they had already been committed to was still queued.
+  //
+  // fetchAndCacheObjectGeometry marks each one again on its turn and settles it
+  // on every exit, so this only ever widens the window, never leaves one stuck.
+  for (const objectId of targets) {
+    yield put(actions.objectGeometryPending(objectId))
+  }
+
+  for (const objectId of targets) {
     try {
-      yield* fetchAndCacheObjectGeometry(Number(node.id), false, true)
+      yield* fetchAndCacheObjectGeometry(objectId, false, true)
     } catch {
       // Non-fatal — the object keeps its previous appearance until reloaded.
     }
