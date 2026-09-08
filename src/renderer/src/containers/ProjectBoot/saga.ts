@@ -107,9 +107,7 @@ function toBootError(err: unknown): BootError {
 // the dialog offers Retry. A separate health probe ahead of it would only be
 // one more request for the same answer.
 function* loadProjectMeta(runId: number, projectId: string): Generator {
-  yield put(
-    actions.bootProgress(runId, atPercent('project', 0))
-  )
+  yield put(actions.bootProgress(runId, atPercent('project', 0)))
 
   const res = (yield call(getProjectRequest, projectId)) as GetProjectResponse
   const project = res.project
@@ -157,12 +155,20 @@ export function* streamInit(runId: number, projectId: string, scenarioId: string
       // until the stream ends on its own. `take` returns undefined when the
       // channel closes on END, which utils/sse emits for BOTH a normal
       // server-side close and a dropped connection — indistinguishable from the
-      // client. Rather than failing, fall through and let the ordinary calls
-      // decide: hydration may well have completed, and if it did not they will
-      // say so with a real error. This goes away once the stream guarantees a
-      // terminal event (R3).
+      // client.
+      //
+      // Reaching here means no `done` and no error arrived, because both return
+      // below. That is an unfinished hydration, and it used to fall THROUGH to
+      // reveal() as if the boot had succeeded, on the theory that hydration may
+      // well have completed anyway. It may have — but the screen was then handed
+      // a context nobody confirmed, and when it had not, the failure surfaced
+      // later and one panel at a time, with no way back to a retry. Failing here
+      // puts the boot's own dialog up instead, and its Retry re-runs /init —
+      // which finds a warm context in seconds if hydration really did finish.
+      //
+      // status 0 keeps this retryable in toBootError, which is the point.
       const received = (yield take(channel)) as { data: InitEvent } | undefined
-      if (!received) return
+      if (!received) throw new ApiError(0, messages.error.initIncomplete, {}, null)
 
       const event = received.data
 
@@ -186,10 +192,11 @@ export function* streamInit(runId: number, projectId: string, scenarioId: string
 export function* runInit(runId: number, projectId: string, scenarioId: string): Generator {
   yield put(actions.bootProgress(runId, atPercent('init', 0)))
 
-  // join re-throws whatever the stream threw, so a real init error still fails
-  // the boot. A stream that merely ENDED resolves here instead, and the
-  // ordinary calls carry on — the right fallback, since hydration may well
-  // have finished and they will report a real error if it did not.
+  // join re-throws whatever the stream threw, which is how both ways of failing
+  // reach the boot: an error event from the backend, and a stream that closed
+  // without ever reporting `done`. The fork is still what keeps END from
+  // terminating the boot itself (see streamInit) — it just no longer means the
+  // boot quietly carries on.
   const task = (yield fork(streamInit, runId, projectId, scenarioId)) as Task
   yield join(task)
 }
