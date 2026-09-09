@@ -1308,7 +1308,9 @@ describe('Geometry', () => {
       const [g2] = await makeGroup()
       await renameAndSettle(g1, 'ZoneOne')
       await Geometry.renameRow(g2, 'ZONEONE', 'enter')
-      expect(await Geometry.renameError(g2)).toBe(GEOMETRY_MSG.nameExists)
+      // GROUP namespace -> groupNameExists, not the geometry string. Both exist
+      // and differ by one word, so asserting the wrong one still "looks" right.
+      expect(await Geometry.renameError(g2)).toBe(GEOMETRY_MSG.groupNameExists)
       await browser.keys(['Escape'])
     })
 

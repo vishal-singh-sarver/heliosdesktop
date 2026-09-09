@@ -80,11 +80,75 @@ class ProjectScreenPage {
    * material / model types) alongside the project fetch, so the seed lands later
    * than it did on develop. Gate on it rather than race it.
    */
-  async waitForCoordinatesSeeded(): Promise<void> {
+  async waitForCoordinatesSeeded(expectedLat?: string, expectedLon?: string): Promise<void> {
+    // With the expected pair known (enterProject creates the project, so it knows
+    // exactly what the header must end up showing), wait for THOSE values rather
+    // than for any settled pair. This is the only form that closes the race
+    // completely: "settled" can still be satisfied by the previous project's
+    // coordinates if the re-seed has not started yet, whereas the real values can
+    // only appear once the right activeProject has landed.
+    //
+    // Compared numerically with a tolerance because the backend stores float32 —
+    // 12.34 can come back as 12.340000152587891, and an exact string match would
+    // hang until the timeout on a project that is perfectly correct.
+    if (expectedLat !== undefined && expectedLon !== undefined) {
+      await browser.waitUntil(
+        async () => {
+          const lat = await this.latInput.getValue()
+          const lon = await this.lonInput.getValue()
+          if (lat === '' || lon === '') return false
+          return (
+            Math.abs(Number(lat) - Number(expectedLat)) < 0.01 &&
+            Math.abs(Number(lon) - Number(expectedLon)) < 0.01
+          )
+        },
+        {
+          timeout: 15000,
+          interval: 100,
+          timeoutMsg: `coordinate fields never showed the created project's ${expectedLat}, ${expectedLon}`
+        }
+      )
+      return
+    }
+
+    // Non-empty is NOT enough — it must also be SETTLED.
+    //
+    // ProjectScreen seeds the boxes from `activeProject` in an effect guarded by
+    // `seededProjectIdRef.current === activeProject.id`, so it re-seeds whenever
+    // the active project's ID changes — and it does that with `resetForm`, which
+    // rewrites BOTH boxes. Entering a project can therefore satisfy "both fields
+    // are non-empty" using the PREVIOUS project's coordinates, a moment before the
+    // real one lands.
+    //
+    // Returning on that first sample is what made the coordinate specs flaky: the
+    // test types its value into the stale render, the real activeProject arrives,
+    // resetForm wipes it, and `replaceValue` fails its own guard with
+    // `did not take the value "<x>"` — on a DIFFERENT loop case each run, since it
+    // depends purely on which test straddles the re-seed. Measured over three
+    // consecutive runs: exactly one failure each time, on lon-200, then
+    // lon->7-decimals, then lat-95.
+    //
+    // So require two consecutive IDENTICAL non-empty samples: a pending re-seed
+    // changes the pair and restarts the wait, and we only return once it settles.
+    let previous = ''
     await browser.waitUntil(
-      async () =>
-        (await this.latInput.getValue()) !== '' && (await this.lonInput.getValue()) !== '',
-      { timeout: 15000, timeoutMsg: 'coordinate fields were never seeded from the project record' }
+      async () => {
+        const lat = await this.latInput.getValue()
+        const lon = await this.lonInput.getValue()
+        if (lat === '' || lon === '') {
+          previous = ''
+          return false
+        }
+        const current = `${lat}|${lon}`
+        const settled = current === previous
+        previous = current
+        return settled
+      },
+      {
+        timeout: 15000,
+        interval: 250,
+        timeoutMsg: 'coordinate fields were never seeded from the project record'
+      }
     )
   }
 
@@ -128,15 +192,40 @@ class ProjectScreenPage {
   }
 
   /**
+   * Type a coordinate WITHOUT committing it — no blur, so nothing is sent and
+   * nothing is reverted.
+   *
+   * Needed because blur is DESTRUCTIVE for an invalid value: commitCoordinate
+   * early-returns through revertCoordinate, which puts the stored coordinate
+   * back ("Blur restores the saved value, so what the header shows is always
+   * what would be used"). That clears aria-invalid along with the text, so the
+   * rejected state only exists while the field still holds the rejected text.
+   *
+   * Anything asserting the INVALID state must therefore type and look, without
+   * blurring in between; use `blurCoordinate` afterwards to observe the revert.
+   */
+  async typeCoordinate(field: Field, value: string): Promise<void> {
+    await this.waitForCoordinatesSeeded()
+    await this.replaceValue(this.coordInput(field), value)
+  }
+
+  /**
+   * Blur a coordinate field by clicking the OTHER one, which is what fires
+   * commitCoordinate: a valid value is PATCHed, an invalid or empty one is
+   * discarded and the stored coordinate restored.
+   */
+  async blurCoordinate(field: Field): Promise<void> {
+    const sibling = field === 'latitude' ? this.lonInput : this.latInput
+    await sibling.click()
+  }
+
+  /**
    * Type a coordinate and commit it by blurring (commit fires on blur, not a
    * button). Blur by clicking the OTHER coordinate input.
    */
   async setCoordinate(field: Field, value: string): Promise<void> {
-    await this.waitForCoordinatesSeeded()
-    const target = this.coordInput(field)
-    await this.replaceValue(target, value)
-    const sibling = field === 'latitude' ? this.lonInput : this.latInput
-    await sibling.click() // blur target -> commitCoordinate
+    await this.typeCoordinate(field, value)
+    await this.blurCoordinate(field)
   }
 
   async getCoordValue(field: Field): Promise<string> {

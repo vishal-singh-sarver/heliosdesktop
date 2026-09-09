@@ -397,6 +397,14 @@ export async function enterProject(
   })
   const id = await getStorage(ACTIVE_PROJECT_KEY)
   if (!id) throw new Error('no activeProjectId after enterProject')
+  // Do not hand back a screen whose coordinate header is still showing the
+  // PREVIOUS project. ProjectScreen re-seeds both boxes with resetForm whenever
+  // activeProject's id changes, so a test that starts typing before that lands
+  // has its value wiped mid-edit — surfacing as `did not take the value "<x>"`,
+  // or as an assertion on a value that silently reverted, on a DIFFERENT
+  // coordinate test each run. We know exactly what the header must read, so wait
+  // for it rather than for a heuristic settle.
+  await ProjectScreen.waitForCoordinatesSeeded(lat, lon)
   return { id, name }
 }
 

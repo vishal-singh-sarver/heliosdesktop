@@ -1751,16 +1751,17 @@ describe('Material assignment', () => {
     })
 
     it('a duplicate name is refused CLIENT-side on the list row and by the BACKEND on the form', async () => {
-      // ONE test, both surfaces, because the point is the CONTRAST. The two
-      // messages are a word apart and each is only ever produced by one path:
+      // ONE test, both surfaces, because the point is the CONTRAST — but the
+      // contrast is the MECHANISM, not the wording:
       //   - the LEFT row hands validateMaterialName the names it already holds, so
-      //     it never sends the PATCH            -> MATERIALS_MSG.nameExists
+      //     it refuses locally and never sends the PATCH at all
       //   - the RIGHT form hands it an EMPTY set (MaterialPropertiesForm's
       //     NO_NAME_CONFLICTS: "uniqueness is the backend's to enforce on the
-      //     rename, so this form doesn't pre-empt it"), so the PATCH goes and comes
-      //     back 409                            -> MATERIALS_MSG.nameExistsBackend
-      // Pinning each against the other's string is what fails if the two paths are
-      // ever collapsed into one.
+      //     rename, so this form doesn't pre-empt it"), so the PATCH goes and the
+      //     rejection only arrives as a 409
+      // Both then render the SAME string (see the DEVIATION note below), so what
+      // fails if the paths are ever collapsed is the round trip and the routing —
+      // the row keeping its committed name while the form keeps the refused text.
       const keeperId = await trackMaterial()
       const keeperName = await materialNameOf(keeperId)
       const { materialId, name } = await groundWearing()
@@ -1793,12 +1794,23 @@ describe('Material assignment', () => {
       // MUTATION: unlike the list's check this one is a round trip, so the message
       // cannot appear until the backend has answered.
       const shown = await materialNameError(TIMEOUTS.MUTATION)
-      expect(shown).toBe(MATERIALS_MSG.nameExistsBackend)
-      // Spelled out because the DIFFERENCE is what is under test, not either
-      // message on its own — a form that had grown a client-side duplicate check
-      // would show the other string here and every other assertion would still
-      // hold.
-      expect(shown).not.toBe(MATERIALS_MSG.nameExists)
+      // DEVIATION: the two surfaces now read ALIKE, deliberately.
+      //
+      // This test used to assert MATERIALS_MSG.nameExistsBackend here and then
+      // `.not.toBe(nameExists)`, because the row and the form once reported the
+      // conflict in different words. They no longer do: the backend still sends
+      // "Material group name already exists", but reducer.ts's
+      // RENAME_MATERIAL_FAILED matches the backend CODE
+      // (MATERIAL_GROUP_NAME_EXISTS) and re-words it to the panel's own string —
+      // "Only the WORDING is ours … 'group' names an internal table". So the
+      // wording contrast is gone and asserting it is what made this test stale.
+      //
+      // What still differs — and is what this test now pins — is the MECHANISM:
+      // the row refuses locally and sends NOTHING, while the form has no client
+      // check (NO_NAME_CONFLICTS) and only learns of the clash from a real 409.
+      // The round trip above is that difference; the assertions below prove the
+      // rejection was routed to the FORM rather than the row.
+      expect(shown).toBe(MATERIALS_MSG.nameExists)
       // The rejection was ROUTED to the form, not to the row: RENAME_MATERIAL_FAILED
       // writes editDraft.nameError when the failing material is the one open in the
       // panel, deliberately, because "the left row shows the committed (still

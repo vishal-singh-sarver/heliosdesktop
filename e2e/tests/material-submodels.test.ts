@@ -703,7 +703,7 @@ describe('Material sub-models on a ground', () => {
   // ══ 1. Photosynthesis — the Farquhar sub-model on a ground ═══════════════
 
   describe('Photosynthesis — the Farquhar sub-model on a ground', () => {
-    it('picking "Farquhar model" reveals ALL 14 of its fields and NOTHING else', async () => {
+    it('the Farquhar sub-model renders ALL 14 of its fields and NOTHING else', async () => {
       // The precondition for every other test in this describe, and stated as an
       // EXACT SET rather than a handful of hasField() probes: the catalog is the
       // oracle for which controls a card renders, so a property added to (or
@@ -714,22 +714,36 @@ describe('Material sub-models on a ground', () => {
       // materials.test.ts already covers the reveal itself ('the Farquhar fields
       // appear ONLY once the submodel selector is set'). What it does not do is
       // pin the WHOLE set, which is what the read-back test below then walks.
+      // DEVIATION: there is no longer an UNSET state to observe.
+      //
+      // This used to open by asserting the card rendered ONLY the top-level
+      // properties, and that picking "Farquhar model" is what revealed the group.
+      // `submodel` is the catalog's ONLY sub-model value, and materialBlueprint
+      // pre-selects a selector that has exactly one enum value (and drops the
+      // "Select" clear row with it), so the group is revealed the moment the card
+      // mounts. Asserting the vanished "before" state is what made this stale —
+      // the EXACT-SET check below is the part that was always carrying the value.
       await trackMaterial()
       const cardId = await cardWithType(PHOTO)
 
-      const before = await MaterialProperties.renderedProps(cardId)
-      expect([...before].sort()).toEqual(topLevelProps(PHOTO).map((p) => p.property).sort())
+      const expected = [
+        ...topLevelProps(PHOTO).map((p) => p.property),
+        ...FARQUHAR_PROPS
+      ].sort()
 
+      // Revealed with NO interaction at all — the pre-selected selector shows it.
+      expect([...(await MaterialProperties.renderedProps(cardId))].sort()).toEqual(expected)
+
+      // Re-picking it is a no-op today, and deliberately kept: the moment a SECOND
+      // sub-model is added, `submodel` stops being auto-selected and this is the
+      // line that still proves picking Farquhar reveals exactly its own fields.
       await pickSubmodel(cardId, PHOTO, FARQUHAR)
       await browser.waitUntil(async () => MaterialProperties.hasField(cardId, 'vcmax25'), {
         timeout: TIMEOUTS.MEDIUM,
         timeoutMsg: 'choosing the Farquhar sub-model never revealed its fields'
       })
 
-      const after = await MaterialProperties.renderedProps(cardId)
-      expect([...after].sort()).toEqual(
-        [...topLevelProps(PHOTO).map((p) => p.property), ...FARQUHAR_PROPS].sort()
-      )
+      expect([...(await MaterialProperties.renderedProps(cardId))].sort()).toEqual(expected)
       expect(FARQUHAR_PROPS.length).toBe(14)
     })
 
