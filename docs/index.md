@@ -52,10 +52,12 @@ that will still be true in six months first, the parts that change with every UI
 | Section | State |
 |---|---|
 | **Concepts** | Written |
-| **Architecture** — processes, backend sidecar, state, database | Written |
-| **Development** — dev loop, testing, building, troubleshooting | Written |
-| **Reference** — environment variables, keyboard shortcuts | Written |
+| **Architecture** — processes, backend sidecar, state, database, properties, scene build | Written |
+| **Recipes** — six common tasks, step by step | Written |
+| **Development** — dev loop, testing, building, troubleshooting, repo map, first change | Written |
+| **Reference** — env vars, shortcuts, error & exit codes, dormant surface | Written |
 | **Backend API** | Router-level overview; per-endpoint reference to be generated from OpenAPI |
+| **Feature guides** — opening a project, geometry, materials, weather, packaging | Written |
 | **User guide** — install, reporting bugs | Draft |
 | **User guide** — first project, interface tour | **Not written** — deferred until the UI settles |
 

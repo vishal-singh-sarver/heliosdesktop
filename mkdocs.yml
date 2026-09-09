@@ -51,6 +51,12 @@ markdown_extensions:
   - md_in_html
   - tables
   - pymdownx.details
+  # Renders :material-xxx: / :fontawesome-xxx: icon shortcodes as inline SVG.
+  # Without it they render as literal text — the home page's card icons and the
+  # generated endpoint table's dormant markers both depend on this.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.inlinehilite
   - pymdownx.keys
   - pymdownx.snippets
@@ -80,18 +86,41 @@ nav:
   - Reference:
       - Environment variables: reference/env.md
       - Keyboard shortcuts: reference/shortcuts.md
+      - Error & exit codes: reference/errors.md
+      - Catalog reference: reference/catalog.md
+      - Dormant surface: reference/dormant.md
   - For Developers:
       - Getting started: dev/getting-started.md
+      - Repo map: dev/repo-map.md
+      - Your first change: dev/first-change.md
       - Architecture:
           - Process model & IPC: dev/arch/processes.md
           - Backend sidecar: dev/arch/backend.md
           - State management: dev/arch/state.md
           - Database & migrations: dev/arch/database.md
+          - The property system: dev/arch/properties.md
+          - Scene build & hydration: dev/arch/scene-build.md
           - Backend submodule: git-submodule-setup.md
+      - Feature guides:
+          - Opening a project: dev/features/opening-a-project.md
+          - Geometry & scene objects: dev/features/geometry.md
+          - Materials, assignment & sync: dev/features/materials.md
+          - Weather data: dev/features/weather.md
+          - Packaging & installers: dev/features/packaging.md
+      - Recipes:
+          - Overview: dev/recipes/index.md
+          - Add an object type: dev/recipes/add-object-type.md
+          - Add a property to a type: dev/recipes/add-property.md
+          - Add a material type: dev/recipes/add-material-type.md
+          - Add an API endpoint: dev/recipes/add-endpoint.md
+          - Add a screen: dev/recipes/add-screen.md
+          - Add a migration: dev/recipes/add-migration.md
       - Development:
           - Dev loop: dev/dev-loop.md
           - Testing: dev/testing.md
           - Building installers: dev/build.md
           - CI/CD workflow: ci-cd-workflow.md
-      - Backend API: dev/api/http.md
+      - Backend API:
+          - Conventions: dev/api/http.md
+          - HTTP endpoints: dev/api/endpoints.md
       - Troubleshooting: dev/troubleshooting.md

@@ -110,14 +110,17 @@ finished — which is why the boot saga runs it first and alone.
 The renderer sets **none**, deliberately — saving a high-resolution textured geometry legitimately
 runs for minutes. See [State management](../arch/state.md#http).
 
-## Making this page generated
+## The full endpoint list
 
-!!! note "Planned"
-    Hand-written endpoint documentation for 130 endpoints across 20 routers would go stale within
-    a sprint. The plan is to generate it at docs build time:
+[HTTP endpoints](endpoints.md) lists all 130 operations, grouped by tag, **generated from the
+FastAPI application's own OpenAPI schema** — so it cannot drift from the code. Endpoints on a
+router the renderer never calls are marked there too.
 
-    1. Boot the app and dump `openapi.json`.
-    2. Render it into this page (`neoteroi-mkdocs`, or an embedded Redoc/Swagger page).
-    3. Run the dump in CI so the page can never drift from the code.
+Regenerate it after adding or changing a route:
 
-    Until then, use `/docs` on a running backend.
+```bash
+npm run docs:generate
+```
+
+That also refreshes the [Catalog reference](../../reference/catalog.md). Both files carry a
+"generated — do not edit" banner; change the generator in `docs/gen/`, not the output.

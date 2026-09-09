@@ -48,6 +48,9 @@ loads from `file://` and must hit the backend directly. That difference is the r
 | Build | `npm run build` |
 | Package for this OS | `npm run package` |
 | E2E | `npm run e2e:build` |
+| Docs — serve locally | `npm run docs:serve` |
+| Docs — regenerate API + catalog reference | `npm run docs:generate` |
+| Docs — build (strict) | `npm run docs:build` |
 
 ## Scaffolding
 
