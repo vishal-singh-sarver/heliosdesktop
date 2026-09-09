@@ -65,11 +65,32 @@ function Dialog({
   // and then holds it: later growth extends downward only and no control moves.
   // A fixed offset can't do both — a `top-[25vh]` that suits a ~320px form
   // dialog leaves a ~150px delete confirmation sitting well above centre.
+  // HORIZONTAL centring is measured too, and must NOT go back to
+  // `left-1/2 -translate-x-1/2`, however tempting the one-liner is.
+  //
+  // A transform makes the element a CONTAINING BLOCK for every `position: fixed`
+  // descendant (CSS Transforms — `filter`, `perspective`, `will-change: transform`
+  // and `backdrop-filter` do it too). components/Select portals its listbox INTO
+  // this dialog — it has to, because showModal() puts us in the browser's top
+  // layer and a list left in the normal document paints behind us — and positions
+  // that list `fixed` from getBoundingClientRect(), i.e. in VIEWPORT coordinates.
+  //
+  // With a transform here those coordinates silently start resolving against the
+  // dialog instead of the window, so the list is displaced by the dialog's own
+  // offset (~300px down for a centred one) AND, no longer escaping this box, its
+  // geometry counts toward our scrollable overflow. Combined with `overflow-auto`
+  // below, opening a dropdown grew a scrollbar on the dialog and let the whole
+  // surface scroll into empty space — which reads as the window going blank.
+  // Select's own comment still promises the opposite ("Still `position: fixed`,
+  // so it escapes the dialog's own scrolling"); measuring `left` is what keeps
+  // that promise true.
   const centre = useCallback((): void => {
     const dialog = dialogRef.current
     if (!dialog?.open) return
     const top = (window.innerHeight - dialog.offsetHeight) / 2
     dialog.style.top = `${Math.max(MIN_TOP_PX, Math.round(top))}px`
+    const left = (window.innerWidth - dialog.offsetWidth) / 2
+    dialog.style.left = `${Math.max(0, Math.round(left))}px`
   }, [])
 
   // Layout, not passive: the measurement has to land before the browser paints,
@@ -154,10 +175,13 @@ function Dialog({
       // at all and used to fall back to the UA's centring, which has the same
       // mid-click flaw described on `centre` above.
       //
-      // Horizontal centring stays in CSS: a dialog's WIDTH doesn't change while
-      // someone is clicking it. Only `top` is measured, and the layout effect sets
-      // it as an inline style before the first paint; `top-1/2` is just the
-      // fallback for the frame that never renders.
+      // BOTH axes are measured, as inline styles set by the layout effect before
+      // the first paint; `top-1/2` is just the fallback for the frame that never
+      // renders. Horizontal centring used to be `left-1/2 -translate-x-1/2` in
+      // CSS, which was cheaper but made this element a containing block for every
+      // `position: fixed` descendant — breaking the portalled Select listbox and
+      // inflating our own scroll height. See the long note on `centre` above; do
+      // not reintroduce a transform here.
       //
       // app-no-drag: the app is frameless with a 45px `-webkit-app-region: drag`
       // title bar, and a drag region swallows pointer events from anything
@@ -169,7 +193,7 @@ function Dialog({
       // own inset-block-start of 0, which the measured top no longer matches. A
       // dialog taller than the window scrolls inside itself, clamped to MIN_TOP_PX
       // rather than centred off the top of the screen.
-      className={`app-no-drag fixed top-1/2 bottom-auto left-1/2 right-auto m-0 max-h-[calc(100vh-48px)] -translate-x-1/2 overflow-auto ${className} p-0 backdrop:bg-black/50`}
+      className={`app-no-drag fixed top-1/2 bottom-auto right-auto m-0 max-h-[calc(100vh-48px)] overflow-auto ${className} p-0 backdrop:bg-black/50`}
     >
       <header className={`flex items-center justify-between ${headerClassName}`}>
         <h2 className="text-md font-medium text-black">{title}</h2>

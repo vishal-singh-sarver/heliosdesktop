@@ -175,6 +175,30 @@ describe('<Dialog />', () => {
       expect(dialog.style.top).toBe('350px')
     })
 
+    // Horizontal placement is MEASURED, and the dialog carries NO transform.
+    //
+    // This is the regression guard, not a style preference. `left-1/2
+    // -translate-x-1/2` centres identically, but a transform makes the element a
+    // containing block for `position: fixed` descendants — and components/Select
+    // portals its listbox in here (it must: showModal() puts us in the top layer)
+    // and positions it `fixed` from viewport coordinates. Under a transform those
+    // coordinates resolve against the dialog instead, so the list was displaced by
+    // the dialog's own offset and, no longer escaping this box, inflated its
+    // scrollHeight — opening a dropdown grew a scrollbar and let the whole surface
+    // scroll into blank space.
+    //
+    // jsdom reports offsetWidth 0, so the assertion is on the MECHANISM (an inline
+    // left, and no transform class) rather than on a pixel value it cannot know.
+    it('centres horizontally by measurement, with NO transform', () => {
+      window.innerHeight = 1000
+      withHeight(200)
+      render(<Dialog {...defaultProps} />)
+      const dialog = screen.getByLabelText('Test Dialog')
+      expect(dialog.style.left).not.toBe('')
+      expect(dialog.className).not.toContain('translate-x')
+      expect(dialog.className).not.toContain('left-1/2')
+    })
+
     // A dialog too tall to centre would otherwise be placed at a negative top,
     // putting its header and × off the top of the screen.
     it('clamps a dialog taller than the window instead of centring it off-screen', () => {
@@ -200,14 +224,19 @@ describe('<Dialog />', () => {
     })
   })
 
-  // Horizontal centring stays in CSS — a dialog's WIDTH doesn't change mid-click.
+  // Horizontal centring is MEASURED, not CSS — see the transform note above. This
+  // used to assert `left-1/2 -translate-x-1/2`; those classes are now the thing
+  // being guarded AGAINST, because a transform re-homes every `position: fixed`
+  // descendant onto this element (breaking the portalled Select listbox).
   // app-no-drag keeps the header clickable where the dialog overlaps the frameless
   // window's `-webkit-app-region: drag` title bar, which swallows pointer events
   // from anything that doesn't opt out.
-  it('centres horizontally in CSS and opts out of the window drag region', () => {
+  it('centres horizontally by measurement and opts out of the window drag region', () => {
     render(<Dialog {...defaultProps} />)
     const dialog = screen.getByLabelText('Test Dialog')
-    expect(dialog).toHaveClass('left-1/2', '-translate-x-1/2', 'app-no-drag')
+    expect(dialog).toHaveClass('app-no-drag')
+    expect(dialog.style.left).not.toBe('')
+    expect(dialog.className).not.toMatch(/translate-x|\bleft-1\/2\b/)
     expect(dialog.className).not.toMatch(/\binset-0\b|\bm-auto\b/)
   })
 
@@ -216,8 +245,9 @@ describe('<Dialog />', () => {
   it('keeps its positioning when the caller overrides className', () => {
     render(<Dialog {...defaultProps} className="w-[352px] bg-[#202020]" />)
     const dialog = screen.getByLabelText('Test Dialog')
-    expect(dialog).toHaveClass('left-1/2', 'app-no-drag', 'w-[352px]')
+    expect(dialog).toHaveClass('app-no-drag', 'w-[352px]')
     expect(dialog.style.top).not.toBe('')
+    expect(dialog.style.left).not.toBe('')
   })
 
   // Buttons default to type="submit" — harmless today (nothing here is in a
