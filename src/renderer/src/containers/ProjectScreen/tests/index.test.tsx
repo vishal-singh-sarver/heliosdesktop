@@ -23,12 +23,25 @@ const sel = {
   } | null,
   // The coordinate PATCH's status, so a test can settle a save either way.
   updateLoading: false,
-  updateError: null as string | null
+  updateError: null as string | null,
+  // The hydration gate. Both are false in the steady state — the screen the
+  // user is actually looking at — so every test below that predates the gate
+  // exercises the same screen it always did.
+  restored: false,
+  bootActive: false
 }
 
+// `navigation` is a static root slice, not an injected one, so the real store
+// always has it — the stub state has to as well, or the gate's selector reads
+// through undefined.
 vi.mock('react-redux', () => ({
   useDispatch: () => mockDispatch,
-  useSelector: (s: (state: unknown) => unknown) => s({} as never)
+  useSelector: (s: (state: unknown) => unknown) =>
+    s({ navigation: { screen: 'project', restored: sel.restored } } as never)
+}))
+
+vi.mock('containers/ProjectBoot/selectors', () => ({
+  selectBootActive: () => sel.bootActive
 }))
 
 vi.mock('utils/injectReducer', () => ({ useInjectReducer: vi.fn() }))
@@ -106,6 +119,8 @@ function resetSel(): void {
   sel.activeProject = null
   sel.updateLoading = false
   sel.updateError = null
+  sel.restored = false
+  sel.bootActive = false
 }
 
 describe('<ProjectScreen />', () => {
@@ -172,6 +187,91 @@ describe('<ProjectScreen />', () => {
     unmount()
     expect(localStorage.getItem(STORAGE_KEYS.activeProjectId)).toBe('p-1')
     expect(localStorage.getItem(STORAGE_KEYS.activeScenarioId)).toBe('s-1')
+  })
+
+  // ── The hydration gate ─────────────────────────────────────────────────
+  //
+  // /init hydrates the scenario into the backend's memory, and everything this
+  // screen fetches depends on it being there. The gate holds those requests —
+  // and only those. The shell mounts regardless, because mounting it is what
+  // signals `app:ready` and takes the splash down; without that, a slow /init
+  // left the user on a static splash with no progress and no way out.
+
+  describe.each([
+    // Frame 0 of a restart: the screen is 'project' from the first render, but
+    // App's effect has not dispatched openProject yet, so no boot exists.
+    ['restored, before the boot has started', { restored: true, bootActive: false }],
+    // The rest of the run, and any boot begun while this screen is already
+    // mounted — which `restored` never sees.
+    ['a boot is active', { restored: false, bootActive: true }]
+  ])('while hydrating (%s)', (_label, flags) => {
+    beforeEach(() => {
+      sel.restored = flags.restored
+      sel.bootActive = flags.bootActive
+      sel.activeProjectId = 'p-1'
+    })
+
+    it('does not load the type catalog', () => {
+      render(<ProjectScreen />)
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadObjectTypesRequested())
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadMaterialTypesRequested())
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadModelTypesRequested())
+    })
+
+    it('does not list scenarios — it is what chains the scene load', () => {
+      render(<ProjectScreen />)
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.listScenariosRequested('p-1'))
+    })
+
+    it('does not mount the panels — their children fetch on mount', () => {
+      render(<ProjectScreen />)
+      expect(screen.queryByTestId('left')).toBeNull()
+      expect(screen.queryByTestId('center')).toBeNull()
+      expect(screen.queryByTestId('right')).toBeNull()
+    })
+
+    it('still mounts the shell, so the window can be revealed', () => {
+      render(<ProjectScreen />)
+      expect(screen.getByTestId('logo')).toBeInTheDocument()
+      expect(screen.getByTestId('menu')).toBeInTheDocument()
+    })
+  })
+
+  it('runs the full load once the gate clears', () => {
+    sel.activeProjectId = 'p-1'
+    sel.restored = true
+    const { rerender } = render(<ProjectScreen />)
+    expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+
+    // What reveal() does at the end of the boot: navigate('project') clears
+    // `restored`, and bootSucceeded clears `active`.
+    sel.restored = false
+    rerender(<ProjectScreen />)
+
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadObjectTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadMaterialTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadModelTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.listScenariosRequested('p-1'))
+    expect(screen.getByTestId('left')).toBeInTheDocument()
+    expect(screen.getByTestId('center')).toBeInTheDocument()
+    expect(screen.getByTestId('right')).toBeInTheDocument()
+  })
+
+  // The regression this whole gate reshuffle was for. The early return must not
+  // consume the ref that guards StrictMode's double-mount, or the catalogs
+  // would be skipped for good on the run that finally passes the gate.
+  it('does not spend the StrictMode guard on a gated run', () => {
+    sel.activeProjectId = 'p-1'
+    sel.restored = true
+    const { rerender } = render(<ProjectScreen />)
+    rerender(<ProjectScreen />)
+
+    sel.restored = false
+    rerender(<ProjectScreen />)
+
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
   })
 
   // ── Header navigation ──────────────────────────────────────────────────

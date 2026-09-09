@@ -844,7 +844,12 @@ describe('assignMaterialWorker', () => {
     const gen = assignMaterialWorker(action)
     gen.next() // select(selectNodesById)
     gen.next({ '1': { materialGroupIds: [] } }) // all(...)
+    // The targets are released first — without it the row stays locked against a
+    // material that was never assigned.
     expect(gen.throw(new Error('boom')).value).toEqual(
+      put(actions.assignMaterialFailed('p', 's', ['1']))
+    )
+    expect(gen.next().value).toEqual(
       put(showSnackbar(toastMessages.materialAssignFailed('Grass', 'Ground.001'), 'error'))
     )
     expect(gen.next().done).toBe(true)
@@ -865,7 +870,8 @@ describe('assignMaterialWorker', () => {
       {},
       'RESOLUTION_TOO_HIGH'
     )
-    expect(gen.throw(refused).value).toEqual(
+    expect(gen.throw(refused).value).toEqual(put(actions.assignMaterialFailed('p', 's', ['1'])))
+    expect(gen.next().value).toEqual(
       put(
         showSnackbar(
           toastMessages.materialAssignFailedBecause(
@@ -889,6 +895,9 @@ describe('assignMaterialWorker', () => {
     gen.next()
     gen.next({ '1': { materialGroupIds: [] } })
     expect(gen.throw(new ApiError(500, 'Internal Server Error')).value).toEqual(
+      put(actions.assignMaterialFailed('p', 's', ['1']))
+    )
+    expect(gen.next().value).toEqual(
       put(showSnackbar(toastMessages.materialAssignFailed('Grass', 'Ground.001'), 'error'))
     )
   })

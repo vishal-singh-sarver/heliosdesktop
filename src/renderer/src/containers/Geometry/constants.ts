@@ -51,10 +51,15 @@ export const REORDER_NODES = 'app/Geometry/REORDER_NODES' as const
 //    snackbar with the outcome. _SUCCEEDED carries the assigned object ids so
 //    the 3D viewport can re-fetch their binary geometry — the material's
 //    appearance is baked into that binary, so without a re-fetch it only shows
-//    after a full scene reload (refresh). There is no _FAILED (the toast is the
-//    only failure feedback).
+//    after a full scene reload (refresh).
+//    _REQUESTED marks every target object as assigning; _SUCCEEDED and _FAILED
+//    release it. That mark is what stops a second material landing on a geometry
+//    while the first one's POST is still out. _FAILED carries no message of its
+//    own — the saga's toast is still the whole failure report; this exists only
+//    to unlock the targets so the drop can be retried.
 export const ASSIGN_MATERIAL_REQUESTED = 'app/Geometry/ASSIGN_MATERIAL_REQUESTED' as const
 export const ASSIGN_MATERIAL_SUCCEEDED = 'app/Geometry/ASSIGN_MATERIAL_SUCCEEDED' as const
+export const ASSIGN_MATERIAL_FAILED = 'app/Geometry/ASSIGN_MATERIAL_FAILED' as const
 
 // ── Delete a node. A leaf deletes itself; a group also removes its children. ─
 export const DELETE_NODE_REQUESTED = 'app/Geometry/DELETE_NODE_REQUESTED' as const
