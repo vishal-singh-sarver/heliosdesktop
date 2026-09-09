@@ -31,6 +31,8 @@ import {
   MATERIAL_LIMITS,
   TYPE_WITH_NO_FIELDS,
   enumLabel,
+  freshCardProps,
+  isFixedSelector,
   isSelectorEnum,
   justAboveMax,
   justBelowMin,
@@ -1021,14 +1023,20 @@ describe('Materials', () => {
       expect(inputs.length).toBe(0)
     })
 
-    it('Photosynthesis reveals the Farquhar group once its selector is set', async () => {
+    it('Stomatal Conductance hides its sub-model groups until the selector is set', async () => {
       // Differential: selector-driven groups are hidden until their enum has
       // the matching value. If visibleParameterGroups stopped filtering, these
       // fields would render unconditionally.
+      //
+      // DEVIATION: this differential used to be driven through Photosynthesis.
+      // Its `submodel` is now a FIXED selector — one option, seeded on type-pick —
+      // so its group is revealed immediately and can no longer demonstrate a gate
+      // working at all. Stomatal Conductance's four sub-models are a genuine
+      // choice and still can, so the coverage moves here rather than being lost.
       await track()
       await MaterialProperties.waitForOpen()
-      const cardId = await cardWithType('Photosynthesis')
-      await expect(MaterialProperties.field(cardId, 'vcmax25')).not.toBeExisting()
+      const cardId = await cardWithType('Stomatal Conductance')
+      await expect(MaterialProperties.field(cardId, 'bwb_gs0')).not.toBeExisting()
     })
   })
 
@@ -1559,13 +1567,27 @@ describe('Materials', () => {
       await track()
       await MaterialProperties.waitForOpen()
 
+      // DEVIATION: the two selectors no longer behave alike, and that is the point.
+      //
+      // Photosynthesis's `submodel` has exactly ONE value, so it is a FIXED
+      // selector: seeded on type-pick, its dropdown stripped of the "Select" clear
+      // row, and its group revealed unprompted. It used to open on the placeholder
+      // like any other selector, which is what this test asserted.
       const photo = await cardWithType('Photosynthesis')
-      expect(await settledLabel(photo, 'submodel')).toBe(MATERIALS_MSG.selectPlaceholder)
-      // Nothing gated behind the selector is rendered while it is unset.
-      expect(await MaterialProperties.hasField(photo, 'vcmax25')).toBe(false)
+      expect(isFixedSelector('Photosynthesis', 'submodel')).toBe(true)
+      expect(await settledLabel(photo, 'submodel')).toBe(
+        enumLabel('Photosynthesis', 'submodel', 'farquhar_model')
+      )
+      expect(await MaterialProperties.hasField(photo, 'vcmax25')).toBe(true)
 
+      // Four sub-models IS a real choice, so this one still arrives unanswered —
+      // placeholder showing, and nothing gated behind it rendered. Asserted as the
+      // differential: if the fixed-selector rule ever leaked into every selector,
+      // this half turns red while the half above stays green.
       const stomatal = await cardWithType('Stomatal Conductance')
+      expect(isFixedSelector('Stomatal Conductance', 'stomatal_model')).toBe(false)
       expect(await settledLabel(stomatal, 'stomatal_model')).toBe(MATERIALS_MSG.selectPlaceholder)
+      expect(await MaterialProperties.hasField(stomatal, 'bwb_gs0')).toBe(false)
     })
 
     it('picking a sub-model changes the CONTROL, but the clear row STAYS in the list', async () => {
@@ -1640,12 +1662,21 @@ describe('Materials', () => {
   })
 
   describe('conditional parameter groups', () => {
-    it('the Farquhar fields appear ONLY once the submodel selector is set', async () => {
+    it('the Farquhar fields are revealed WITHOUT a pick — its selector is fixed', async () => {
       await track()
       await MaterialProperties.waitForOpen()
       const cardId = await cardWithType('Photosynthesis')
-      // Gated on submodel=farquhar_model, per the catalog's selector column.
-      expect(await MaterialProperties.hasField(cardId, 'vcmax25')).toBe(false)
+      // DEVIATION: this used to assert the Farquhar fields were ABSENT until the
+      // selector was set. `submodel` offers exactly ONE value, so materialBlueprint
+      // treats it as a FIXED selector: the card seeds it on type-pick and the group
+      // is active from the very first render. There is no unset state to observe.
+      //
+      // The GATE itself is still covered — by the stomatal sub-models in the next
+      // test, which are a real four-way choice and stay hidden until one is picked.
+      expect(isFixedSelector('Photosynthesis', 'submodel')).toBe(true)
+      expect(await MaterialProperties.hasField(cardId, 'vcmax25')).toBe(true)
+      // Choosing the one option explicitly is a no-op, not a toggle — the group
+      // stays put rather than clearing, which is what a clearable enum would do.
       await MaterialProperties.setEnum(
         cardId,
         'submodel',
@@ -2648,19 +2679,18 @@ describe('Materials', () => {
       Radiation: MATERIAL_CATALOG['Radiation']
         .map((p) => p.property)
         .filter((p) => p !== 'use_radiation_bands' && p !== 'spectral_data'),
-      'Energy Balance': MATERIAL_CATALOG['Energy Balance']
-        .filter((p) => p.selector === null)
-        .map((p) => p.property),
+      // freshCardProps, not `selector === null`: a gated group is ALSO rendered
+      // when its selector is FIXED (one option, seeded on type-pick), which is why
+      // a new Photosynthesis card shows all 14 Farquhar coefficients unprompted.
+      // Stomatal Conductance's four sub-models are a real choice, so it still
+      // renders none of theirs — the helper tells the two apart from the catalog.
+      'Energy Balance': freshCardProps('Energy Balance').map((p) => p.property),
       'Solar Position': [],
-      Photosynthesis: MATERIAL_CATALOG['Photosynthesis']
-        .filter((p) => p.selector === null)
-        .map((p) => p.property),
-      'Boundary Layer Conductance': MATERIAL_CATALOG['Boundary Layer Conductance']
-        .filter((p) => p.selector === null)
-        .map((p) => p.property),
-      'Stomatal Conductance': MATERIAL_CATALOG['Stomatal Conductance']
-        .filter((p) => p.selector === null)
-        .map((p) => p.property),
+      Photosynthesis: freshCardProps('Photosynthesis').map((p) => p.property),
+      'Boundary Layer Conductance': freshCardProps('Boundary Layer Conductance').map(
+        (p) => p.property
+      ),
+      'Stomatal Conductance': freshCardProps('Stomatal Conductance').map((p) => p.property),
       Visualiser: []
     }
 
@@ -4571,15 +4601,21 @@ describe('Materials', () => {
             )
             // A SELECTOR enum lists GROUP NAMES, not the values it stores, so the
             // expectation has to go through enumLabel too.
+            // A FIXED selector (one option, seeded on type-pick) has nothing to
+            // clear back to, so components/Select is not `clearable` for it and the
+            // leading "Select" row is absent. Every other enum keeps it.
+            const fixed = isFixedSelector(type, p.property)
             const want = [
-              MATERIALS_MSG.selectPlaceholder,
+              ...(fixed ? [] : [MATERIALS_MSG.selectPlaceholder]),
               ...(p.enumValues as string[]).map((v) => enumLabel(type, p.property, v))
             ]
             expect(`${p.property}: ${[...labels].sort().join(' | ')}`).toBe(
               `${p.property}: ${[...want].sort().join(' | ')}`
             )
             expect(`${p.property} row0=${labels[0]}`).toBe(
-              `${p.property} row0=${MATERIALS_MSG.selectPlaceholder}`
+              `${p.property} row0=${
+                fixed ? enumLabel(type, p.property, (p.enumValues as string[])[0]) : MATERIALS_MSG.selectPlaceholder
+              }`
             )
             // A leaked listbox is portalled to document.body and intercepts later
             // clicks exactly the way a leaked dialog does.
@@ -6055,23 +6091,29 @@ describe('Materials', () => {
     /**
      * Everything the form's name row is saying, in ONE read.
      *
-     * `errorText` and `errorTooltip` are the SAME message reached two ways, and
-     * both are asserted below because this field is not a FormField: it renders a
-     * visible `<p class="form-error-text">` under the icon row (line 493) AND an
-     * in-field Tooltip whose copy lives only in `data-tooltip-content` (lines
-     * 443-452, and components/Tooltip puts `text` there verbatim). Trap 6: error
-     * copy is not visible text wherever errorAsTooltip is involved.
+     * `errorTooltip` is the ONLY place the reason is shown. `errorText` is kept in
+     * the return shape but is now ALWAYS null — see below — so do not assert it.
      *
-     * Both are found by walking UP from the input rather than by class alone,
+     * DEVIATION / history: this form used to ALSO render a visible
+     * `<p class="form-error-text">` under the icon row, and the two were asserted
+     * as independent oracles. fdb9504 deleted that <p> deliberately — "the in-field
+     * error icon … the ONLY place the reason is shown. It used to be repeated as a
+     * line under the row as well, which said the same sentence twice on screen for
+     * one mistake" — matching the Geometry panel, whose name error is tooltip-only
+     * too. So the message now ships as Tooltip + aria-invalid + red border.
+     *
+     * The comment block that used to live here predicted exactly this: "a layout
+     * change in the header shows up as errorText null while errorTooltip is still
+     * set, which reads as a broken selector rather than a broken product." That is
+     * what happened, and it cost a run to re-diagnose — hence this note.
+     *
+     * Both are still found by walking UP from the input rather than by class alone,
      * because the same panel's card save/upload errors also carry
      * `.form-error-text`:
      *   input -> div.relative (the Tooltip's own parent — hence errorTooltip)
      *         -> div.flex items-center gap-1 (the icon row)
-     *         -> div.flex shrink-0 flex-col (the header column, whose DIRECT <p>
-     *            child is the message).
-     * The two are independent oracles: a layout change in the header shows up as
-     * errorText null while errorTooltip is still set, which reads as a broken
-     * selector rather than a broken product.
+     *         -> div.flex shrink-0 flex-col (the header column; its direct <p>
+     *            child is the one fdb9504 removed).
      */
     const formNameState = async (): Promise<{
       readOnly: boolean
@@ -6310,7 +6352,10 @@ describe('Materials', () => {
       // this window and no numeric write can leave a pending page error.
       await withApiFault('PATCH', '/library/groups', async () => {
         await blurFormName()
-        await browser.waitUntil(async () => (await formNameState()).errorText !== null, {
+        // The TOOLTIP is the oracle, not errorText: fdb9504 removed the visible
+        // <p>, so errorText is permanently null and waiting on it here timed out
+        // against a product that was reporting the failure correctly all along.
+        await browser.waitUntil(async () => (await formNameState()).errorTooltip !== null, {
           timeout: TIMEOUTS.MUTATION,
           timeoutMsg: 'a refused rename reported nothing under the form name field'
         })
@@ -6321,10 +6366,11 @@ describe('Materials', () => {
       // straight on the draft, and utils/api.ts guarantees it is non-empty), so its
       // LENGTH is asserted, not its copy — pinning a platform string here would be
       // pinning the wrong product.
-      expect((state.errorText as string).length).toBeGreaterThan(0)
-      // Same message, two ways out — the visible <p> and the in-field info icon,
-      // whose copy is only ever in data-tooltip-content.
-      expect(state.errorTooltip).toBe(state.errorText)
+      expect((state.errorTooltip as string).length).toBeGreaterThan(0)
+      // The <p> is GONE by design; assert that rather than leave a dead oracle
+      // silently passing as null. If it ever comes back, this turns red and the
+      // comment above gets revisited.
+      expect(state.errorText).toBe(null)
       expect(state.invalid).toBe(true)
       // The REFUSED text stays in the field while the field re-locks, so the user
       // can see what was rejected. (An invalid name never reaches the dispatch at
@@ -6334,8 +6380,8 @@ describe('Materials', () => {
 
       // The row is the other half of the split: committed old name, and nothing
       // red. renameError() reads the `.form-error-text` inside the LIST (the span
-      // MaterialRow renders as a sibling of the row box), so the form's own <p>
-      // in the <aside> can never satisfy it.
+      // MaterialRow renders as a sibling of the row box) — that one still exists;
+      // it is only the FORM's <p> that fdb9504 removed.
       expect(await nameOf(id)).toBe(before)
       expect(await Materials.renameError(id)).toBe(null)
     })

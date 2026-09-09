@@ -136,8 +136,15 @@ describe('Helios smoke journey', () => {
 
   it('2. coordinate validation on the header, then commit a valid longitude (UTC recomputes)', async () => {
     const utc0 = await ProjectScreen.getUtcValue()
+    // Every REJECTED value below is typed with typeCoordinate rather than
+    // setCoordinate, because setCoordinate blurs and blur is destructive here:
+    // commitCoordinate early-returns through revertCoordinate for anything
+    // uncommittable, restoring the stored coordinate and clearing aria-invalid
+    // with it. The flag only exists while the rejected text is still in the box.
+    // Valid values keep setCoordinate — they are meant to commit.
+
     // Out-of-range latitude → aria-invalid (latitude never drives UTC).
-    await ProjectScreen.setCoordinate('latitude', '95')
+    await ProjectScreen.typeCoordinate('latitude', '95')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
       timeout: 10000,
       timeoutMsg: 'out-of-range latitude was not flagged'
@@ -148,21 +155,24 @@ describe('Helios smoke journey', () => {
       timeoutMsg: 'valid latitude did not clear aria-invalid'
     })
     // Out-of-range longitude → aria-invalid AND UTC not recomputed (commit-gated).
-    await ProjectScreen.setCoordinate('longitude', '200')
+    await ProjectScreen.typeCoordinate('longitude', '200')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
       timeout: 10000,
       timeoutMsg: 'out-of-range longitude was not flagged'
     })
+    // Blur to actually exercise the gate: the PATCH must be suppressed, so the
+    // derived UTC offset is untouched.
+    await ProjectScreen.blurCoordinate('longitude')
     expect(await ProjectScreen.getUtcValue()).toBe(utc0)
     // > 7 decimals → aria-invalid.
-    await ProjectScreen.setCoordinate('latitude', '12.12345678')
+    await ProjectScreen.typeCoordinate('latitude', '12.12345678')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
       timeout: 10000,
       timeoutMsg: '>7-decimal latitude was not flagged'
     })
     await ProjectScreen.setCoordinate('latitude', '45.5')
     // Non-numeric → aria-invalid.
-    await ProjectScreen.setCoordinate('longitude', 'abc')
+    await ProjectScreen.typeCoordinate('longitude', 'abc')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
       timeout: 10000,
       timeoutMsg: 'non-numeric longitude was not flagged'

@@ -24,6 +24,14 @@ export const GEOMETRY_MSG = {
   nameRequired: 'Name is required',
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Geometry name already exists',
+  /**
+   * A GROUP-onto-GROUP clash reports its OWN string, not the geometry one.
+   * `validation.ts` routes the group namespace to `messages.groupNameExists`
+   * (added by fdb9504) precisely so a group conflict never names a geometry the
+   * user would then hunt for. Use this for group renames; `nameExists` above is
+   * for geometries.
+   */
+  groupNameExists: 'Group name already exists',
 
   // Field validation. The range message is built from the CATALOG's min/max,
   // so specs should compose it from values read at runtime rather than

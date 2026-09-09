@@ -86,16 +86,24 @@ export const MATERIALS_MSG = {
   deleteHeading: (name: string) => `Delete "${name}"?`,
 
   /**
-   * The DUPLICATE-NAME rejection from the BACKEND, which is a different string
-   * from the client's `nameExists` above — one word different, and easy to
-   * mistake for it.
+   * The duplicate-name rejection as the BACKEND words it on the wire.
    *
-   * Which one you get depends on WHICH rename you drove:
+   * DO NOT ASSERT THIS AGAINST THE UI — the user never sees it. Both rename
+   * paths now show `nameExists` above:
    *  - the LEFT PANEL row editor validates client-side and never sends a
-   *    duplicate, so it shows `nameExists`;
+   *    duplicate, so it shows `nameExists` without a round trip;
    *  - the RIGHT PANEL form passes an EMPTY conflict set to validateMaterialName
    *    (MaterialPropertiesForm's NO_NAME_CONFLICTS), so it has no client-side
-   *    duplicate check at all and the only rejection is this 409.
+   *    check and only learns of the clash from a 409 — but reducer.ts's
+   *    RENAME_MATERIAL_FAILED matches the backend CODE
+   *    (MATERIAL_GROUP_NAME_EXISTS) and RE-WORDS it to `nameExists`, because
+   *    "group" names an internal table rather than anything the user renamed.
+   *
+   * So the two surfaces differ only in MECHANISM (client refusal vs a real 409),
+   * not in wording. `material-assignment.test.ts` pins that mechanism. This
+   * string is kept for reference — it is what a backend/API-level test would
+   * still see. Asserting it against a rendered error is what made that test
+   * stale once before.
    * Source: material_library_service.py — 409 MATERIAL_GROUP_NAME_EXISTS.
    */
   nameExistsBackend: 'Material group name already exists'
@@ -321,6 +329,45 @@ export const numericProps = (type: string): MaterialPropertyDef[] =>
 /** Properties rendered unconditionally (no selector gate). */
 export const topLevelProps = (type: string): MaterialPropertyDef[] =>
   (MATERIAL_CATALOG[type] ?? []).filter((p) => p.selector === null)
+
+/**
+ * A SELECTOR enum offering exactly ONE option — today only Photosynthesis's
+ * `submodel`, whose single value is 'farquhar_model'.
+ *
+ * Mirrors `materialBlueprint.isFixedSelector`. There is nothing to choose
+ * between, so the form treats it as SETTLED rather than as a question: the card
+ * seeds the value the moment the type is picked (`defaultSelectorValues`) and
+ * the dropdown DROPS its "Select" clear row. The group it gates is therefore
+ * revealed with no interaction at all.
+ *
+ * Read off the CATALOG, never off a property name. Stomatal Conductance's four
+ * sub-models are a real choice: they keep the placeholder AND the gate. A
+ * selector that later grows a second option goes back to asking for one, and
+ * every expectation derived from this helper follows it automatically.
+ */
+export const isFixedSelector = (type: string, property: string): boolean => {
+  const def = (MATERIAL_CATALOG[type] ?? []).find((p) => p.property === property)
+  return isSelectorEnum(type, property) && (def?.enumValues?.length ?? 0) === 1
+}
+
+/**
+ * Whether a property is rendered on a FRESH (never-saved) card of `type`.
+ *
+ * Ungated properties always are. A GATED one is too when its gate is a fixed
+ * selector, because that selector arrives already answered — which is why a new
+ * Photosynthesis card shows all 14 Farquhar coefficients before the user touches
+ * anything, while Stomatal Conductance shows none of its sub-model fields.
+ */
+export const rendersOnFreshCard = (type: string, p: MaterialPropertyDef): boolean => {
+  const gate = p.selector
+  if (gate === null) return true
+  const sel = (MATERIAL_CATALOG[type] ?? []).find((x) => x.property === gate.property)
+  return isFixedSelector(type, gate.property) && sel?.enumValues?.[0] === gate.value
+}
+
+/** Every property a fresh card of `type` renders — top-level plus fixed-selector groups. */
+export const freshCardProps = (type: string): MaterialPropertyDef[] =>
+  (MATERIAL_CATALOG[type] ?? []).filter((p) => rendersOnFreshCard(type, p))
 
 /**
  * A value just outside a bound, chosen for the datatype.
