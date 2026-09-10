@@ -16,6 +16,17 @@ const messages = {
   nameExists: 'Geometry name already exists',
   groupNameExists: 'Group name already exists',
   renameFailed: 'Unable to rename group. Please try again',
+  // Hover copy for every name a double-click renames — the right panel's
+  // Properties header AND the left panel's tree rows — shown as a native `title`
+  // tooltip. Both look like plain text, and a double-click is the only way to
+  // unlock either, so the gesture needs saying. Only shown while the name is
+  // locked; once the editor is open the advice is already spent.
+  //
+  // Two strings because groups and geometries are separate kinds to the user
+  // (and to the backend — see nameExists / groupNameExists above), so a group
+  // row must not offer to rename "the geometry".
+  renameHint: 'Double-click to rename the geometry.',
+  renameGroupHint: 'Double-click to rename the group.',
   createFailed: 'Unable to create geometry. Please try again',
   // Field-value validation copy. A value that fails the catalog range shows the
   // range message; any other invalid input (non-numeric, or a decimal in an
@@ -56,6 +67,29 @@ const messages = {
   // list of valid values on the form to fall back on.
   repeatStepUp: (axis: string) => `Next valid ${axis} value`,
   repeatStepDown: (axis: string) => `Previous valid ${axis} value`,
+  // Hover copy for those same two chevrons, shown as the browser's native
+  // `title` tooltip. Separate strings from the accessible names above, because
+  // this one has room to state the RULE — the arrows don't step by one, they
+  // jump to the neighbouring value that divides the resolution, which is the
+  // part no one can guess from the glyph. A screen reader uses the aria-label
+  // and ignores `title`, so the two never both get announced.
+  repeatStepUpHint:
+    'Tap the arrows to increase or decrease the number of textures within the set resolution value.',
+  repeatStepDownHint:
+    'Tap the arrows to increase or decrease the number of textures within the set resolution value.',
+  // Hover copy for the tree row's render icon, shown as a native `title`
+  // tooltip. Mirrors the icon's own aria-label (left click is a master switch
+  // over every model) and then names the gesture nothing on screen advertises:
+  // right click opens the per-model menu. Without this the menu is effectively
+  // undiscoverable. Two strings because the icon's action flips with its state.
+  rowRenderHideHint: 'Tap to unselect from model run.',
+  rowRenderShowHint: 'Tap to select from model run.',
+  // Hover copy for the eye icon sitting next to that render icon. Says
+  // "3D viewport" in full because the two toggles are adjacent and their glyphs
+  // don't distinguish them — this one changes only what you SEE in the viewport,
+  // the render icon changes what the models actually include.
+  rowViewportHideHint: 'Tap to hide the geometry in the 3D viewport',
+  rowViewportShowHint: 'Tap to show the geometry in the 3D viewport',
   // Read-only material properties popup, opened from a picked material's name
   // under the Materials row. The heading is the material's own name — it says
   // what you're looking at; a generic "Material Properties" would not.
