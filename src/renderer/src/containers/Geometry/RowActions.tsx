@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { setModelOn, toggleRender, toggleViewport } from './actions'
+import messages from './messages'
 import { isModelOn } from './models'
 import { selectModelIds } from './selectors'
 import type { GeoNode } from './types'
@@ -21,6 +22,11 @@ import type { GeoNode } from './types'
 
 interface IconButtonProps {
   label: string
+  // Native hover tooltip. Optional and unset by default, so only the buttons
+  // that have something to add beyond their glyph carry one — a tooltip that
+  // just restates the aria-label is noise. Screen readers read `aria-label` and
+  // ignore `title`, so the two never collide.
+  title?: string
   children: React.ReactNode
   className?: string
   active?: boolean
@@ -41,6 +47,7 @@ interface IconButtonProps {
 
 function IconButton({
   label,
+  title,
   children,
   className = '',
   active = false,
@@ -57,6 +64,7 @@ function IconButton({
       ref={buttonRef}
       type="button"
       aria-label={label}
+      title={title}
       aria-pressed={active}
       aria-haspopup={hasMenu ? 'menu' : undefined}
       aria-expanded={hasMenu ? expanded : undefined}
@@ -221,6 +229,7 @@ export default function RowActions({
       <span className="relative shrink-0" ref={anchorRef}>
         <IconButton
           label={renderHidden ? 'Show in render' : 'Hide from render'}
+          title={renderHidden ? messages.rowRenderShowHint : messages.rowRenderHideHint}
           active={renderHidden}
           hasMenu
           expanded={menuOpen}
@@ -292,6 +301,9 @@ export default function RowActions({
       </span>
       <IconButton
         label={node.visibleInViewport ? 'Hide from viewport' : 'Show in viewport'}
+        title={
+          node.visibleInViewport ? messages.rowViewportHideHint : messages.rowViewportShowHint
+        }
         active={!node.visibleInViewport}
         noHoverBg
         onClick={onToggleViewport}

@@ -617,7 +617,13 @@ function TreeRow({
           ) : (
             <>
               <span
-                className="min-w-0 truncate"
+                // flex-1 so the name owns the empty strip between it and the
+                // action icons, matching the Materials rows. That strip is what
+                // carries the rename hint and the double-click target — without
+                // it both stop at the last letter, and the row reads as two
+                // different controls depending on where the pointer landed.
+                className="min-w-0 flex-1 truncate"
+                title={isGroup ? messages.renameGroupHint : messages.renameHint}
                 onDoubleClick={() => setEditing(true)}
                 onMouseEnter={showFullTextOnHover}
               >

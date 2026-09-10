@@ -1,6 +1,5 @@
 import deleteIcon from '@renderer/assets/delete.svg'
 import infoIcon from '@renderer/assets/info.svg'
-import pencilIcon from '@renderer/assets/pencil.svg'
 import AnchoredPopup from '@renderer/components/AnchoredPopup'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
@@ -566,7 +565,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // (on commit, on a resolution change, or on open). Cleared as soon as that
   // field is edited again, so it always describes the value on screen.
   const [repeatNotes, setRepeatNotes] = React.useState<Record<string, string | null>>({})
-  // The name is read-only until the pencil is tapped (spec: "edit icon which
+  // The name is read-only until it's double-clicked (spec: "edit icon which
   // should be tapped only to edit the name"); the trash icon's confirmation lives
   // here too (saved objects confirm before delete; brand-new ones discard).
   const [nameEditing, setNameEditing] = React.useState(false)
@@ -670,7 +669,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     }
   }, [detailPanel])
 
-  // Focus the name field the moment the pencil unlocks it (it's read-only until
+  // Focus the name field the moment a double-click unlocks it (read-only until
   // then, so we can't focus in the same click handler before the re-render).
   React.useEffect(() => {
     if (nameEditing) nameInputRef.current?.focus()
@@ -1042,8 +1041,8 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // the form never needs an inner scrollbar — even with every field showing an
     // error. Overflow on very short windows is absorbed by the RightPanel wrapper.
     <div className="flex flex-col gap-2.5">
-      {/* Header: object name with a pencil (unlock to rename) and a trash
-          (discard/delete). The name is read-only until the pencil is tapped. */}
+      {/* Header: object name with a trash (discard/delete). The name is
+          read-only until it's double-clicked. */}
       <div>
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
@@ -1051,6 +1050,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               ref={nameInputRef}
               aria-label="Object name"
               aria-invalid={nameError != null}
+              // Only while the field is actually double-clickable: mid-edit the
+              // advice is spent, and on a deleted object the gesture is a no-op
+              // (the handler below bails), so promising it would be a lie.
+              title={!nameEditing && !objectDeleted ? messages.renameHint : undefined}
               value={draft.name}
               readOnly={!nameEditing}
               disabled={objectDeleted}
@@ -1085,15 +1088,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               </Tooltip>
             )}
           </div>
-          <button
-            type="button"
-            aria-label="Edit name"
-            disabled={objectDeleted}
-            onClick={() => setNameEditing(true)}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
-          </button>
           <button
             type="button"
             aria-label="Delete geometry"
