@@ -1,11 +1,13 @@
 <!-- GENERATED FILE — do not edit by hand.
      Regenerate: helios-desktop-backend/venv/bin/python3 docs/gen/generate_reference.py -->
 
-# HTTP endpoints
+# All endpoints
 
-*Generated 2026-09-09.*
+*Generated 2026-09-10.*
 
-**130 operations** across **103 paths**, from the FastAPI application's own OpenAPI schema.
+**130 operations** across **103 paths**, generated from the FastAPI application's own OpenAPI schema.
+
+Request bodies and parameters come from the schema and cannot drift. Response bodies are derived from the service code — 130 of 130 are documented; see [Conventions](http.md#response-bodies).
 
 !!! tip "The live schema is always available"
     While the backend is running: **`/docs`** (Swagger UI) and **`/openapi.json`**.
@@ -14,225 +16,223 @@
     Rows marked :material-sleep: are on a router the renderer never calls. See
     [Dormant surface](../../reference/dormant.md).
 
-See [Backend API](http.md) for the conventions these all follow.
-
-## `catalog`
+## [`catalog`](ops/catalog.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-|  | `GET` | `/api/data-types/` | List Data Types |
-|  | `POST` | `/api/data-types/` | Create Data Type |
-|  | `DELETE` | `/api/data-types/{data_type_id}` | Delete Data Type |
-|  | `GET` | `/api/data-types/{data_type_id}` | Get Data Type |
-|  | `PATCH` | `/api/data-types/{data_type_id}` | Update Data Type |
-| :material-sleep: | `GET` | `/api/data-units/` | List Data Units |
-| :material-sleep: | `POST` | `/api/data-units/` | Create Data Unit |
-| :material-sleep: | `DELETE` | `/api/data-units/{data_unit_id}` | Delete Data Unit |
-| :material-sleep: | `GET` | `/api/data-units/{data_unit_id}` | Get Data Unit |
-| :material-sleep: | `PATCH` | `/api/data-units/{data_unit_id}` | Update Data Unit |
+|  | [`GET`](ops/catalog.md#op-get-api-data-types) | `/api/data-types/` | List Data Types |
+|  | [`POST`](ops/catalog.md#op-post-api-data-types) | `/api/data-types/` | Create Data Type |
+|  | [`DELETE`](ops/catalog.md#op-delete-api-data-types-data-type-id) | `/api/data-types/{data_type_id}` | Delete Data Type |
+|  | [`GET`](ops/catalog.md#op-get-api-data-types-data-type-id) | `/api/data-types/{data_type_id}` | Get Data Type |
+|  | [`PATCH`](ops/catalog.md#op-patch-api-data-types-data-type-id) | `/api/data-types/{data_type_id}` | Update Data Type |
+| :material-sleep: | [`GET`](ops/catalog.md#op-get-api-data-units) | `/api/data-units/` | List Data Units |
+| :material-sleep: | [`POST`](ops/catalog.md#op-post-api-data-units) | `/api/data-units/` | Create Data Unit |
+| :material-sleep: | [`DELETE`](ops/catalog.md#op-delete-api-data-units-data-unit-id) | `/api/data-units/{data_unit_id}` | Delete Data Unit |
+| :material-sleep: | [`GET`](ops/catalog.md#op-get-api-data-units-data-unit-id) | `/api/data-units/{data_unit_id}` | Get Data Unit |
+| :material-sleep: | [`PATCH`](ops/catalog.md#op-patch-api-data-units-data-unit-id) | `/api/data-units/{data_unit_id}` | Update Data Unit |
 
-## `geometry`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/api/geometry/all/binary` | Get All Geometry Binary |
-|  | `GET` | `/api/geometry/all/gpu` | Get All Geometry Gpu |
-|  | `POST` | `/api/geometry/binary` | Get Geometry Binary Subset |
-|  | `GET` | `/api/geometry/count` | Get Geometry Count |
-|  | `POST` | `/api/geometry/delete-batch` | Delete Primitives Batch |
-|  | `DELETE` | `/api/geometry/object/{object_id}` | Delete Object |
-|  | `GET` | `/api/geometry/objects` | Get Objects |
-|  | `POST` | `/api/geometry/patch` | Add Patch |
-|  | `POST` | `/api/geometry/tile` | Add Tile |
-|  | `POST` | `/api/geometry/tile/textured` | Add Textured Tile |
-|  | `POST` | `/api/geometry/triangle/textured` | Add Textured Triangle |
-|  | `DELETE` | `/api/geometry/{uuid}` | Delete Primitive |
-
-## `import`
+## [`geometry`](ops/geometry.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-| :material-sleep: | `POST` | `/api/import/obj` | Import Obj |
-| :material-sleep: | `POST` | `/api/import/ply` | Import Ply |
+|  | [`GET`](ops/geometry.md#op-get-api-geometry-all-binary) | `/api/geometry/all/binary` | Get All Geometry Binary |
+|  | [`GET`](ops/geometry.md#op-get-api-geometry-all-gpu) | `/api/geometry/all/gpu` | Get All Geometry Gpu |
+|  | [`POST`](ops/geometry.md#op-post-api-geometry-binary) | `/api/geometry/binary` | Get Geometry Binary Subset |
+|  | [`GET`](ops/geometry.md#op-get-api-geometry-count) | `/api/geometry/count` | Get Geometry Count |
+|  | [`POST`](ops/geometry.md#op-post-api-geometry-delete-batch) | `/api/geometry/delete-batch` | Delete Primitives Batch |
+|  | [`DELETE`](ops/geometry.md#op-delete-api-geometry-object-object-id) | `/api/geometry/object/{object_id}` | Delete Object |
+|  | [`GET`](ops/geometry.md#op-get-api-geometry-objects) | `/api/geometry/objects` | Get Objects |
+|  | [`POST`](ops/geometry.md#op-post-api-geometry-patch) | `/api/geometry/patch` | Add Patch |
+|  | [`POST`](ops/geometry.md#op-post-api-geometry-tile) | `/api/geometry/tile` | Add Tile |
+|  | [`POST`](ops/geometry.md#op-post-api-geometry-tile-textured) | `/api/geometry/tile/textured` | Add Textured Tile |
+|  | [`POST`](ops/geometry.md#op-post-api-geometry-triangle-textured) | `/api/geometry/triangle/textured` | Add Textured Triangle |
+|  | [`DELETE`](ops/geometry.md#op-delete-api-geometry-uuid) | `/api/geometry/{uuid}` | Delete Primitive |
 
-## `m2-catalog`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/api/catalog/datatypes` | List Datatypes |
-|  | `GET` | `/api/catalog/material-types` | List Material Types |
-|  | `GET` | `/api/catalog/model-types` | List Model Types |
-|  | `GET` | `/api/catalog/object-types` | List Object Types |
-
-## `m2-geometry`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/geometry/binary` | Get Scene Geometry Binary |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups` | List Groups |
-|  | `POST` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups` | Create Group |
-|  | `DELETE` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}` | Delete Group |
-|  | `DELETE` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/objects` | Delete Group Objects |
-|  | `PATCH` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/rename` | Rename Group |
-|  | `PATCH` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/visibility` | Update Group Visibility |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/material-sync` | Get Material Sync |
-|  | `PUT` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/material-sync` | Apply Material Sync |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/models` | Get Scenario Models |
-|  | `PATCH` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/models` | Update Scenario Models |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects` | List Objects |
-|  | `POST` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects` | Create Object |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/next-name` | Next Name |
-|  | `DELETE` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}` | Delete Object |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}` | Get Object |
-|  | `PATCH` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}` | Update Object |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/geometry/binary` | Get Object Geometry Binary |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/geometry/gpu` | Get Object Geometry Gpu |
-|  | `GET` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups` | List Assignments |
-|  | `POST` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups` | Assign Material Group |
-|  | `DELETE` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups/{group_id}` | Unassign Material Group |
-|  | `PATCH` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups/{group_id}` | Update Group Assignment |
-|  | `PATCH` | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/rename` | Rename Object |
-
-## `m2-materials`
+## [`import`](ops/import.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-|  | `GET` | `/api/materials/library/groups` | List Groups |
-|  | `POST` | `/api/materials/library/groups` | Create Group |
-|  | `GET` | `/api/materials/library/groups/next-name` | Next Name |
-|  | `DELETE` | `/api/materials/library/groups/{group_id}` | Delete Group |
-|  | `GET` | `/api/materials/library/groups/{group_id}` | Get Group |
-|  | `PUT` | `/api/materials/library/groups/{group_id}` | Update Group |
-|  | `DELETE` | `/api/materials/library/groups/{group_id}/files` | Delete File |
-|  | `POST` | `/api/materials/library/groups/{group_id}/files/{property_name}` | Upload File Property |
-|  | `POST` | `/api/materials/library/groups/{group_id}/materials` | Add Group Material |
-|  | `DELETE` | `/api/materials/library/groups/{group_id}/materials/{material_type_id}` | Remove Group Material |
-|  | `PUT` | `/api/materials/library/groups/{group_id}/materials/{material_type_id}` | Update Group Material |
-|  | `PATCH` | `/api/materials/library/groups/{group_id}/rename` | Rename Group |
-|  | `POST` | `/api/materials/library/groups/{group_id}/spectral` | Upload Spectral |
-|  | `DELETE` | `/api/materials/library/groups/{group_id}/spectral/labels` | Delete Spectral Labels |
-|  | `GET` | `/api/materials/library/groups/{group_id}/spectral/labels` | Spectral Labels |
+| :material-sleep: | [`POST`](ops/import.md#op-post-api-import-obj) | `/api/import/obj` | Import Obj |
+| :material-sleep: | [`POST`](ops/import.md#op-post-api-import-ply) | `/api/import/ply` | Import Ply |
 
-## `materials`
+## [`m2-catalog`](ops/m2-catalog.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-|  | `GET` | `/api/materials` | List Materials |
-|  | `POST` | `/api/materials` | Create Material |
-|  | `POST` | `/api/materials/assign` | Assign Material |
-|  | `GET` | `/api/materials/textures/library` | Get Texture Library |
-|  | `GET` | `/api/materials/textures/preview` | Get Texture Preview |
-|  | `DELETE` | `/api/materials/{label}` | Delete Material |
-|  | `PUT` | `/api/materials/{label}/color` | Set Material Color |
-|  | `GET` | `/api/materials/{label}/primitives` | Get Material Primitives |
-|  | `PUT` | `/api/materials/{label}/rename` | Rename Material |
-|  | `PUT` | `/api/materials/{label}/texture` | Set Material Texture |
-|  | `PUT` | `/api/materials/{label}/texture-override` | Set Material Texture Override |
-|  | `PUT` | `/api/materials/{label}/twosided` | Set Material Twosided |
+|  | [`GET`](ops/m2-catalog.md#op-get-api-catalog-datatypes) | `/api/catalog/datatypes` | List Datatypes |
+|  | [`GET`](ops/m2-catalog.md#op-get-api-catalog-material-types) | `/api/catalog/material-types` | List Material Types |
+|  | [`GET`](ops/m2-catalog.md#op-get-api-catalog-model-types) | `/api/catalog/model-types` | List Model Types |
+|  | [`GET`](ops/m2-catalog.md#op-get-api-catalog-object-types) | `/api/catalog/object-types` | List Object Types |
 
-## `objects`
+## [`m2-geometry`](ops/m2-geometry.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-| :material-sleep: | `GET` | `/api/objects/{object_id}/children/binary` | Get Object Children Binary |
-| :material-sleep: | `GET` | `/api/objects/{object_id}/children/gpu` | Get Object Children Gpu |
-| :material-sleep: | `GET` | `/api/objects/{object_id}/geometry/binary` | Get Object Geometry Binary |
-| :material-sleep: | `GET` | `/api/objects/{object_id}/geometry/gpu` | Get Object Geometry Gpu |
-| :material-sleep: | `GET` | `/api/objects/{object_id}/info` | Get Object Info |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-geometry-binary) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/geometry/binary` | Get Scene Geometry Binary |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-groups) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups` | List Groups |
+|  | [`POST`](ops/m2-geometry.md#op-post-api-geometry-project-project-id-scenario-scenario-id-groups) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups` | Create Group |
+|  | [`DELETE`](ops/m2-geometry.md#op-delete-api-geometry-project-project-id-scenario-scenario-id-groups-group-id) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}` | Delete Group |
+|  | [`DELETE`](ops/m2-geometry.md#op-delete-api-geometry-project-project-id-scenario-scenario-id-groups-group-id-objects) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/objects` | Delete Group Objects |
+|  | [`PATCH`](ops/m2-geometry.md#op-patch-api-geometry-project-project-id-scenario-scenario-id-groups-group-id-rename) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/rename` | Rename Group |
+|  | [`PATCH`](ops/m2-geometry.md#op-patch-api-geometry-project-project-id-scenario-scenario-id-groups-group-id-visibility) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/visibility` | Update Group Visibility |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-material-sync) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/material-sync` | Get Material Sync |
+|  | [`PUT`](ops/m2-geometry.md#op-put-api-geometry-project-project-id-scenario-scenario-id-material-sync) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/material-sync` | Apply Material Sync |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-models) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/models` | Get Scenario Models |
+|  | [`PATCH`](ops/m2-geometry.md#op-patch-api-geometry-project-project-id-scenario-scenario-id-models) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/models` | Update Scenario Models |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-objects) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects` | List Objects |
+|  | [`POST`](ops/m2-geometry.md#op-post-api-geometry-project-project-id-scenario-scenario-id-objects) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects` | Create Object |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-objects-next-name) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/next-name` | Next Name |
+|  | [`DELETE`](ops/m2-geometry.md#op-delete-api-geometry-project-project-id-scenario-scenario-id-objects-object-id) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}` | Delete Object |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-objects-object-id) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}` | Get Object |
+|  | [`PATCH`](ops/m2-geometry.md#op-patch-api-geometry-project-project-id-scenario-scenario-id-objects-object-id) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}` | Update Object |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-geometry-binary) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/geometry/binary` | Get Object Geometry Binary |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-geometry-gpu) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/geometry/gpu` | Get Object Geometry Gpu |
+|  | [`GET`](ops/m2-geometry.md#op-get-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-material-groups) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups` | List Assignments |
+|  | [`POST`](ops/m2-geometry.md#op-post-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-material-groups) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups` | Assign Material Group |
+|  | [`DELETE`](ops/m2-geometry.md#op-delete-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-material-groups-group-id) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups/{group_id}` | Unassign Material Group |
+|  | [`PATCH`](ops/m2-geometry.md#op-patch-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-material-groups-group-id) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups/{group_id}` | Update Group Assignment |
+|  | [`PATCH`](ops/m2-geometry.md#op-patch-api-geometry-project-project-id-scenario-scenario-id-objects-object-id-rename) | `/api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/rename` | Rename Object |
 
-## `plantarch`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-| :material-sleep: | `GET` | `/api/plantarch/canopy` | Build Canopy Get |
-| :material-sleep: | `POST` | `/api/plantarch/canopy` | Build Canopy |
-| :material-sleep: | `POST` | `/api/plantarch/canopy/stream` | Build Canopy Stream |
-| :material-sleep: | `GET` | `/api/plantarch/species` | Get Plant Species |
-
-## `project`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `POST` | `/api/project/create` | Create Project |
-|  | `GET` | `/api/project/recent` | List Recent Projects |
-|  | `DELETE` | `/api/project/{project_id}` | Delete Project |
-|  | `GET` | `/api/project/{project_id}` | Get Project |
-|  | `PATCH` | `/api/project/{project_id}` | Update Project |
-
-## `scenario`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/api/project/{project_id}/scenarios` | List Scenarios |
-|  | `POST` | `/api/project/{project_id}/scenarios/create` | Create Scenario |
-|  | `DELETE` | `/api/project/{project_id}/scenarios/{scenario_id}` | Delete Scenario |
-|  | `POST` | `/api/project/{project_id}/scenarios/{scenario_id}/discard` | Discard Scenario |
-|  | `GET` | `/api/project/{project_id}/scenarios/{scenario_id}/init` | Init Scenario |
-
-## `scripting`
+## [`m2-materials`](ops/m2-materials.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-| :material-sleep: | `POST` | `/api/script/execute` | Execute Script |
+|  | [`GET`](ops/m2-materials.md#op-get-api-materials-library-groups) | `/api/materials/library/groups` | List Groups |
+|  | [`POST`](ops/m2-materials.md#op-post-api-materials-library-groups) | `/api/materials/library/groups` | Create Group |
+|  | [`GET`](ops/m2-materials.md#op-get-api-materials-library-groups-next-name) | `/api/materials/library/groups/next-name` | Next Name |
+|  | [`DELETE`](ops/m2-materials.md#op-delete-api-materials-library-groups-group-id) | `/api/materials/library/groups/{group_id}` | Delete Group |
+|  | [`GET`](ops/m2-materials.md#op-get-api-materials-library-groups-group-id) | `/api/materials/library/groups/{group_id}` | Get Group |
+|  | [`PUT`](ops/m2-materials.md#op-put-api-materials-library-groups-group-id) | `/api/materials/library/groups/{group_id}` | Update Group |
+|  | [`DELETE`](ops/m2-materials.md#op-delete-api-materials-library-groups-group-id-files) | `/api/materials/library/groups/{group_id}/files` | Delete File |
+|  | [`POST`](ops/m2-materials.md#op-post-api-materials-library-groups-group-id-files-property-name) | `/api/materials/library/groups/{group_id}/files/{property_name}` | Upload File Property |
+|  | [`POST`](ops/m2-materials.md#op-post-api-materials-library-groups-group-id-materials) | `/api/materials/library/groups/{group_id}/materials` | Add Group Material |
+|  | [`DELETE`](ops/m2-materials.md#op-delete-api-materials-library-groups-group-id-materials-material-type-id) | `/api/materials/library/groups/{group_id}/materials/{material_type_id}` | Remove Group Material |
+|  | [`PUT`](ops/m2-materials.md#op-put-api-materials-library-groups-group-id-materials-material-type-id) | `/api/materials/library/groups/{group_id}/materials/{material_type_id}` | Update Group Material |
+|  | [`PATCH`](ops/m2-materials.md#op-patch-api-materials-library-groups-group-id-rename) | `/api/materials/library/groups/{group_id}/rename` | Rename Group |
+|  | [`POST`](ops/m2-materials.md#op-post-api-materials-library-groups-group-id-spectral) | `/api/materials/library/groups/{group_id}/spectral` | Upload Spectral |
+|  | [`DELETE`](ops/m2-materials.md#op-delete-api-materials-library-groups-group-id-spectral-labels) | `/api/materials/library/groups/{group_id}/spectral/labels` | Delete Spectral Labels |
+|  | [`GET`](ops/m2-materials.md#op-get-api-materials-library-groups-group-id-spectral-labels) | `/api/materials/library/groups/{group_id}/spectral/labels` | Spectral Labels |
 
-## `system`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/` | Root |
-|  | `GET` | `/api/pyhelios-info` | Pyhelios Info |
-|  | `GET` | `/health` | Health |
-|  | `GET` | `/version` | Version |
-
-## `textures`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/api/textures/defaults` | List Defaults |
-|  | `GET` | `/api/textures/serve` | Serve Texture |
-
-## `timeseries`
+## [`materials`](ops/materials.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-| :material-sleep: | `DELETE` | `/api/timeseries` | Delete Timeseries |
-| :material-sleep: | `GET` | `/api/timeseries` | Get Timeseries |
-| :material-sleep: | `POST` | `/api/timeseries/apply` | Apply Timeseries |
+|  | [`GET`](ops/materials.md#op-get-api-materials) | `/api/materials` | List Materials |
+|  | [`POST`](ops/materials.md#op-post-api-materials) | `/api/materials` | Create Material |
+|  | [`POST`](ops/materials.md#op-post-api-materials-assign) | `/api/materials/assign` | Assign Material |
+|  | [`GET`](ops/materials.md#op-get-api-materials-textures-library) | `/api/materials/textures/library` | Get Texture Library |
+|  | [`GET`](ops/materials.md#op-get-api-materials-textures-preview) | `/api/materials/textures/preview` | Get Texture Preview |
+|  | [`DELETE`](ops/materials.md#op-delete-api-materials-label) | `/api/materials/{label}` | Delete Material |
+|  | [`PUT`](ops/materials.md#op-put-api-materials-label-color) | `/api/materials/{label}/color` | Set Material Color |
+|  | [`GET`](ops/materials.md#op-get-api-materials-label-primitives) | `/api/materials/{label}/primitives` | Get Material Primitives |
+|  | [`PUT`](ops/materials.md#op-put-api-materials-label-rename) | `/api/materials/{label}/rename` | Rename Material |
+|  | [`PUT`](ops/materials.md#op-put-api-materials-label-texture) | `/api/materials/{label}/texture` | Set Material Texture |
+|  | [`PUT`](ops/materials.md#op-put-api-materials-label-texture-override) | `/api/materials/{label}/texture-override` | Set Material Texture Override |
+|  | [`PUT`](ops/materials.md#op-put-api-materials-label-twosided) | `/api/materials/{label}/twosided` | Set Material Twosided |
 
-## `transforms`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-|  | `GET` | `/api/geometry/object/{object_id}/centroid` | Get Object Centroid |
-|  | `POST` | `/api/geometry/rotate` | Rotate Object |
-|  | `POST` | `/api/geometry/scale` | Scale Object |
-|  | `POST` | `/api/geometry/translate` | Translate Object |
-
-## `tree`
-
-| | Method | Path | Summary |
-|---|---|---|---|
-| :material-sleep: | `POST` | `/api/tree/build` | Build Tree |
-| :material-sleep: | `GET` | `/api/tree/types` | Get Tree Types |
-| :material-sleep: | `GET` | `/api/tree/{tree_id}/parts` | Get Tree Parts |
-
-## `weather`
+## [`objects`](ops/objects.md)
 
 | | Method | Path | Summary |
 |---|---|---|---|
-|  | `POST` | `/api/weather/project/{project_id}/scenario/{scenario_id}/addCol` | Add Columns |
-|  | `POST` | `/api/weather/project/{project_id}/scenario/{scenario_id}/addRow` | Add Rows |
-|  | `DELETE` | `/api/weather/project/{project_id}/scenario/{scenario_id}/clear_data` | Clear Weather Data |
-|  | `POST` | `/api/weather/project/{project_id}/scenario/{scenario_id}/delete` | Delete Weather |
-|  | `POST` | `/api/weather/project/{project_id}/scenario/{scenario_id}/deleteRow` | Delete Weather Row |
-|  | `GET` | `/api/weather/project/{project_id}/scenario/{scenario_id}/getAllTimeSeriesData` | Get All Timeseries Data |
-|  | `GET` | `/api/weather/project/{project_id}/scenario/{scenario_id}/inspect` | Inspect |
-|  | `PATCH` | `/api/weather/project/{project_id}/scenario/{scenario_id}/update` | Update Weather |
-|  | `PATCH` | `/api/weather/project/{project_id}/scenario/{scenario_id}/updateCol/{column_id}` | Update Columns |
-|  | `POST` | `/api/weather/project/{project_id}/scenario/{scenario_id}/uploadfile` | Upload File |
-|  | `DELETE` | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header` | Clear Weather Data Header |
-|  | `GET` | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header` | Get Weather Data Header |
-|  | `PUT` | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header` | Replace Weather Data Header |
-|  | `DELETE` | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header/{header_id}` | Delete Weather Data Header |
-|  | `PATCH` | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header/{header_id}` | Update Weather Data Header |
+| :material-sleep: | [`GET`](ops/objects.md#op-get-api-objects-object-id-children-binary) | `/api/objects/{object_id}/children/binary` | Get Object Children Binary |
+| :material-sleep: | [`GET`](ops/objects.md#op-get-api-objects-object-id-children-gpu) | `/api/objects/{object_id}/children/gpu` | Get Object Children Gpu |
+| :material-sleep: | [`GET`](ops/objects.md#op-get-api-objects-object-id-geometry-binary) | `/api/objects/{object_id}/geometry/binary` | Get Object Geometry Binary |
+| :material-sleep: | [`GET`](ops/objects.md#op-get-api-objects-object-id-geometry-gpu) | `/api/objects/{object_id}/geometry/gpu` | Get Object Geometry Gpu |
+| :material-sleep: | [`GET`](ops/objects.md#op-get-api-objects-object-id-info) | `/api/objects/{object_id}/info` | Get Object Info |
+
+## [`plantarch`](ops/plantarch.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+| :material-sleep: | [`GET`](ops/plantarch.md#op-get-api-plantarch-canopy) | `/api/plantarch/canopy` | Build Canopy Get |
+| :material-sleep: | [`POST`](ops/plantarch.md#op-post-api-plantarch-canopy) | `/api/plantarch/canopy` | Build Canopy |
+| :material-sleep: | [`POST`](ops/plantarch.md#op-post-api-plantarch-canopy-stream) | `/api/plantarch/canopy/stream` | Build Canopy Stream |
+| :material-sleep: | [`GET`](ops/plantarch.md#op-get-api-plantarch-species) | `/api/plantarch/species` | Get Plant Species |
+
+## [`project`](ops/project.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+|  | [`POST`](ops/project.md#op-post-api-project-create) | `/api/project/create` | Create Project |
+|  | [`GET`](ops/project.md#op-get-api-project-recent) | `/api/project/recent` | List Recent Projects |
+|  | [`DELETE`](ops/project.md#op-delete-api-project-project-id) | `/api/project/{project_id}` | Delete Project |
+|  | [`GET`](ops/project.md#op-get-api-project-project-id) | `/api/project/{project_id}` | Get Project |
+|  | [`PATCH`](ops/project.md#op-patch-api-project-project-id) | `/api/project/{project_id}` | Update Project |
+
+## [`scenario`](ops/scenario.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+|  | [`GET`](ops/scenario.md#op-get-api-project-project-id-scenarios) | `/api/project/{project_id}/scenarios` | List Scenarios |
+|  | [`POST`](ops/scenario.md#op-post-api-project-project-id-scenarios-create) | `/api/project/{project_id}/scenarios/create` | Create Scenario |
+|  | [`DELETE`](ops/scenario.md#op-delete-api-project-project-id-scenarios-scenario-id) | `/api/project/{project_id}/scenarios/{scenario_id}` | Delete Scenario |
+|  | [`POST`](ops/scenario.md#op-post-api-project-project-id-scenarios-scenario-id-discard) | `/api/project/{project_id}/scenarios/{scenario_id}/discard` | Discard Scenario |
+|  | [`GET`](ops/scenario.md#op-get-api-project-project-id-scenarios-scenario-id-init) | `/api/project/{project_id}/scenarios/{scenario_id}/init` | Init Scenario |
+
+## [`scripting`](ops/scripting.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+| :material-sleep: | [`POST`](ops/scripting.md#op-post-api-script-execute) | `/api/script/execute` | Execute Script |
+
+## [`system`](ops/system.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+|  | [`GET`](ops/system.md#op-get) | `/` | Root |
+|  | [`GET`](ops/system.md#op-get-api-pyhelios-info) | `/api/pyhelios-info` | Pyhelios Info |
+|  | [`GET`](ops/system.md#op-get-health) | `/health` | Health |
+|  | [`GET`](ops/system.md#op-get-version) | `/version` | Version |
+
+## [`textures`](ops/textures.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+|  | [`GET`](ops/textures.md#op-get-api-textures-defaults) | `/api/textures/defaults` | List Defaults |
+|  | [`GET`](ops/textures.md#op-get-api-textures-serve) | `/api/textures/serve` | Serve Texture |
+
+## [`timeseries`](ops/timeseries.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+| :material-sleep: | [`DELETE`](ops/timeseries.md#op-delete-api-timeseries) | `/api/timeseries` | Delete Timeseries |
+| :material-sleep: | [`GET`](ops/timeseries.md#op-get-api-timeseries) | `/api/timeseries` | Get Timeseries |
+| :material-sleep: | [`POST`](ops/timeseries.md#op-post-api-timeseries-apply) | `/api/timeseries/apply` | Apply Timeseries |
+
+## [`transforms`](ops/transforms.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+|  | [`GET`](ops/transforms.md#op-get-api-geometry-object-object-id-centroid) | `/api/geometry/object/{object_id}/centroid` | Get Object Centroid |
+|  | [`POST`](ops/transforms.md#op-post-api-geometry-rotate) | `/api/geometry/rotate` | Rotate Object |
+|  | [`POST`](ops/transforms.md#op-post-api-geometry-scale) | `/api/geometry/scale` | Scale Object |
+|  | [`POST`](ops/transforms.md#op-post-api-geometry-translate) | `/api/geometry/translate` | Translate Object |
+
+## [`tree`](ops/tree.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+| :material-sleep: | [`POST`](ops/tree.md#op-post-api-tree-build) | `/api/tree/build` | Build Tree |
+| :material-sleep: | [`GET`](ops/tree.md#op-get-api-tree-types) | `/api/tree/types` | Get Tree Types |
+| :material-sleep: | [`GET`](ops/tree.md#op-get-api-tree-tree-id-parts) | `/api/tree/{tree_id}/parts` | Get Tree Parts |
+
+## [`weather`](ops/weather.md)
+
+| | Method | Path | Summary |
+|---|---|---|---|
+|  | [`POST`](ops/weather.md#op-post-api-weather-project-project-id-scenario-scenario-id-addcol) | `/api/weather/project/{project_id}/scenario/{scenario_id}/addCol` | Add Columns |
+|  | [`POST`](ops/weather.md#op-post-api-weather-project-project-id-scenario-scenario-id-addrow) | `/api/weather/project/{project_id}/scenario/{scenario_id}/addRow` | Add Rows |
+|  | [`DELETE`](ops/weather.md#op-delete-api-weather-project-project-id-scenario-scenario-id-clear-data) | `/api/weather/project/{project_id}/scenario/{scenario_id}/clear_data` | Clear Weather Data |
+|  | [`POST`](ops/weather.md#op-post-api-weather-project-project-id-scenario-scenario-id-delete) | `/api/weather/project/{project_id}/scenario/{scenario_id}/delete` | Delete Weather |
+|  | [`POST`](ops/weather.md#op-post-api-weather-project-project-id-scenario-scenario-id-deleterow) | `/api/weather/project/{project_id}/scenario/{scenario_id}/deleteRow` | Delete Weather Row |
+|  | [`GET`](ops/weather.md#op-get-api-weather-project-project-id-scenario-scenario-id-getalltimeseriesdata) | `/api/weather/project/{project_id}/scenario/{scenario_id}/getAllTimeSeriesData` | Get All Timeseries Data |
+|  | [`GET`](ops/weather.md#op-get-api-weather-project-project-id-scenario-scenario-id-inspect) | `/api/weather/project/{project_id}/scenario/{scenario_id}/inspect` | Inspect |
+|  | [`PATCH`](ops/weather.md#op-patch-api-weather-project-project-id-scenario-scenario-id-update) | `/api/weather/project/{project_id}/scenario/{scenario_id}/update` | Update Weather |
+|  | [`PATCH`](ops/weather.md#op-patch-api-weather-project-project-id-scenario-scenario-id-updatecol-column-id) | `/api/weather/project/{project_id}/scenario/{scenario_id}/updateCol/{column_id}` | Update Columns |
+|  | [`POST`](ops/weather.md#op-post-api-weather-project-project-id-scenario-scenario-id-uploadfile) | `/api/weather/project/{project_id}/scenario/{scenario_id}/uploadfile` | Upload File |
+|  | [`DELETE`](ops/weather.md#op-delete-api-weather-project-project-id-scenario-scenario-id-weather-data-header) | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header` | Clear Weather Data Header |
+|  | [`GET`](ops/weather.md#op-get-api-weather-project-project-id-scenario-scenario-id-weather-data-header) | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header` | Get Weather Data Header |
+|  | [`PUT`](ops/weather.md#op-put-api-weather-project-project-id-scenario-scenario-id-weather-data-header) | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header` | Replace Weather Data Header |
+|  | [`DELETE`](ops/weather.md#op-delete-api-weather-project-project-id-scenario-scenario-id-weather-data-header-header-id) | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header/{header_id}` | Delete Weather Data Header |
+|  | [`PATCH`](ops/weather.md#op-patch-api-weather-project-project-id-scenario-scenario-id-weather-data-header-header-id) | `/api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header/{header_id}` | Update Weather Data Header |
 

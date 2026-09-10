@@ -41,6 +41,49 @@ which is free to be reworded. FastAPI's own validation errors arrive as the stan
 **Every response carries `X-PyHelios-Stale: true`** when the native library is older than its
 sources and the automatic rebuild failed.
 
+## Request bodies
+
+Fully described by the OpenAPI schema — 57 of the 130 operations take one, backed by 65 Pydantic
+models. [All endpoints](endpoints.md) renders each one as a field table with types, requiredness
+and defaults, **generated from the schema**, so it cannot drift from the code.
+
+Two shapes worth knowing before reading them:
+
+**`Optional[X]` appears as `X | null`.** Pydantic emits `anyOf: [X, null]`, which is why nullable
+fields read that way in the tables.
+
+**`null` and *absent* are different.** For any nullable field where clearing is a real action, the
+service checks `model_fields_set` rather than `is None` — `group_id: null` means *ungroup*,
+omitting it means *do not touch the group*. See
+[Add an API endpoint](../recipes/add-endpoint.md).
+
+## Response bodies
+
+!!! warning "Not in the schema — no route declares a `response_model`"
+    FastAPI types **129 of 130** success responses as an empty `{}`. The OpenAPI document says
+    nothing about what comes back.
+
+So the response examples in [All endpoints](endpoints.md) are **derived by reading the service
+code**, not generated from the schema. They carry the function that builds each body, and a
+confidence marker where the shape was inferred through a serializer rather than read off a literal
+`return`.
+
+This is the one part of the API reference that can rot. Two consequences:
+
+- **Treat an example as documentation, not a contract.** The code is the contract.
+- **The durable fix is `response_model=` on the routes.** Declaring them would move responses into
+  the schema and make this section generated like the rest. Worth doing incrementally, starting
+  with the routes the renderer actually calls.
+
+Common shapes you will see repeatedly:
+
+| Shape | Meaning |
+|---|---|
+| `{"success": true, "object": {…}}` | A mutation that returns the affected row |
+| `{"<plural>": [...]}` | A list endpoint — `objects`, `groups`, `scenarios` |
+| Binary buffer | Geometry, wire format v1 or v2 |
+| `text/event-stream` | Scenario `init` progress |
+
 ## Routers
 
 | Prefix | Router | Endpoints | Covers |
