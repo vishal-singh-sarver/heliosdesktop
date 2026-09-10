@@ -501,6 +501,47 @@ describe('<GeometryTree />', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  // The full-screen overlay closes the menu on an outside CLICK, but it has no
+  // tabindex — so it never blocked focus reaching the controls painted under it.
+  // Tabbing out of an open menu landed on something else (the panel's collapse
+  // button), and Enter fired that button's own click, which never touched the
+  // overlay: the action ran with the menu still hanging open over the panel.
+  it('closes the per-model menu when focus leaves it', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    fireEvent.contextMenu(screen.getByLabelText('Hide from render'))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    // Focus anything outside the menu — as Tab would.
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    fireEvent.focusIn(outside)
+
+    expect(screen.queryByRole('menu')).toBeNull()
+    outside.remove()
+  })
+
+  // The trigger keeps focus while its own menu is open, so it has to count as
+  // inside — otherwise the menu closes on the same gesture that opened it.
+  it('keeps the per-model menu open while focus is on its trigger', () => {
+    renderTree({
+      ...emptyScenarioGeometry(),
+      loadStatus: 'loaded',
+      nodesById: { a: ground('a', 'Ground.001') },
+      rootOrder: ['a'],
+      selectedIds: ['a']
+    })
+    const trigger = screen.getByLabelText('Hide from render')
+    fireEvent.contextMenu(trigger)
+    fireEvent.focusIn(trigger)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
   it('double-clicking a group name opens an inline editor and commits a valid rename', () => {
     renderTree({
       ...emptyScenarioGeometry(),
