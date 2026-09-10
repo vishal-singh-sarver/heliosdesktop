@@ -3,7 +3,7 @@
 exports[`<Dialog /> > should match the snapshot (closed) 1`] = `
 <dialog
   aria-label="Test Dialog"
-  class="app-no-drag fixed top-1/2 bottom-auto left-1/2 right-auto m-0 max-h-[calc(100vh-48px)] -translate-x-1/2 overflow-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
+  class="app-no-drag fixed top-1/2 bottom-auto right-auto m-0 max-h-[calc(100vh-48px)] overflow-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
 >
   <header
     class="flex items-center justify-between min-h-[52px] bg-neutral-200 px-4 py-2"
@@ -35,9 +35,9 @@ exports[`<Dialog /> > should match the snapshot (closed) 1`] = `
 exports[`<Dialog /> > should match the snapshot (open) 1`] = `
 <dialog
   aria-label="Test Dialog"
-  class="app-no-drag fixed top-1/2 bottom-auto left-1/2 right-auto m-0 max-h-[calc(100vh-48px)] -translate-x-1/2 overflow-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
+  class="app-no-drag fixed top-1/2 bottom-auto right-auto m-0 max-h-[calc(100vh-48px)] overflow-auto w-[420px] rounded border border-app-border bg-[#1f2126] p-0 backdrop:bg-black/50"
   open=""
-  style="top: 384px;"
+  style="top: 384px; left: 512px;"
 >
   <header
     class="flex items-center justify-between min-h-[52px] bg-neutral-200 px-4 py-2"
