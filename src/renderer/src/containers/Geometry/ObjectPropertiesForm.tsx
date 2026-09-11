@@ -1113,15 +1113,14 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             {group.heading && (
               <p className="mb-1.5 text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">
                 {group.heading}
-                {/* The required marker sits on the HEADING, not the fields: the
-                    heading is the group's name ("Position"), and its fields are
-                    the axes of one value (X, Y, Z) whose own labels are sr-only.
-                    Starring each box would repeat the same claim three times for
-                    what the user reads as a single required entry. Shown when the
-                    group holds any required field. */}
-                {group.fields.some((field) => field.required) && (
-                  <span className="text-red-400">*</span>
-                )}
+                {/* NO required marker on this form, by request. The heading used
+                    to carry a red star whenever the group held a required field
+                    (it sits on the heading rather than on each box because the
+                    fields are the axes of one value — X, Y, Z — whose own labels
+                    are sr-only, so starring each would repeat the same claim
+                    three times). Requiredness is still enforced: Save stays
+                    disabled while a required field is empty, and the per-field
+                    `optional` flag below keeps the sr-only labels accurate. */}
               </p>
             )}
             <div
