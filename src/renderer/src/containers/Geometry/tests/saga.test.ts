@@ -1,3 +1,4 @@
+import { listMaterialsRequested } from 'containers/Materials/actions'
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -212,17 +213,28 @@ describe('createObjectWorker', () => {
     const input = { objectTypeId: 1, name: 'Ground.001', properties: {}, materials: [] }
     expect(gen.next(objectTypes).value).toEqual(call(service.createObject, P, S, input))
 
-    const created = { node: groundNode('27'), values: { length: '10', breadth: '10' } }
+    // The backend attaches a default `mtl.<name>` material group to every new
+    // ground and returns it — it has to reach the form's draft, not just the tree.
+    const created = {
+      node: groundNode('27'),
+      values: { length: '10', breadth: '10' },
+      materialGroups: [{ groupId: '8', name: 'mtl.Ground.001' }]
+    }
     expect(gen.next(created).value).toEqual(
       put(
         actions.createObjectSucceeded(P, S, {
           node: created.node,
           values: created.values,
           objectTypeId: 1,
-          objectName: 'Ground'
+          objectName: 'Ground',
+          materialGroups: created.materialGroups
         })
       )
     )
+    // The create also made the ground's default material group, so the global
+    // library list is refetched — both panels stay mounted and would otherwise
+    // never see it.
+    expect(gen.next().value).toEqual(put(listMaterialsRequested()))
     expect(gen.next().value).toEqual(put(showSnackbar(toastMessages.groundCreated('Ground.001'), 'success')))
     expect(gen.next().done).toBe(true)
   })

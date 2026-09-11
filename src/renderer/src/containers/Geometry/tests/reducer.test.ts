@@ -2,7 +2,7 @@ import { removeMaterial } from 'containers/Materials/actions'
 import { setActiveScenario } from 'containers/ProjectScreen/actions'
 import geometryReducer, { initialState, scopeKey } from '../reducer'
 import * as actions from '../actions'
-import type { GeoNode, ObjectDetail } from '../types'
+import type { DraftMaterialGroup, GeoNode, ObjectDetail } from '../types'
 
 const P = 'p1'
 const S = 's1'
@@ -657,14 +657,18 @@ describe('geometryReducer', () => {
   describe('edit-object draft', () => {
     // +Ground POSTs first; CREATE_OBJECT_SUCCEEDED inserts the node AND opens the
     // edit form populated from the persisted object's values.
-    const created = (values: Record<string, string> = { length: '10', breadth: '10' }) =>
+    const created = (
+      values: Record<string, string> = { length: '10', breadth: '10' },
+      materialGroups: DraftMaterialGroup[] = []
+    ) =>
       geometryReducer(
         initialState,
         actions.createObjectSucceeded(P, S, {
           node: ground('27', 'Ground.001'),
           values,
           objectTypeId: 1,
-          objectName: 'Ground'
+          objectName: 'Ground',
+          materialGroups
         })
       )
 
@@ -694,6 +698,19 @@ describe('geometryReducer', () => {
       expect(created().byScope[KEY].lastCreatedId).toBe('27')
     })
 
+    // The backend gives every new ground a default `mtl.<name>` material group
+    // and returns it on the POST, so the form must open already showing it.
+    it('CREATE_OBJECT_SUCCEEDED seeds the default material into the draft AND the baseline', () => {
+      const mtl: DraftMaterialGroup = { groupId: '8', name: 'mtl.Ground.001' }
+      const r = created({ length: '10' }, [mtl])
+      expect(r.createDraft?.materials).toEqual([mtl])
+      // The BASELINE half is what stops Save re-PATCHing a group the backend
+      // already assigned (an add-only PATCH would 409).
+      expect(r.createDraft?.materialBaseline).toEqual(['8'])
+      // Cached too, or clicking away and back would serve a material-less detail.
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([mtl])
+    })
+
     // +Ground has to lock while its own POST is in flight, and release on either
     // outcome — otherwise a failed create would leave the button dead.
     it('CREATE_OBJECT_REQUESTED marks the create in flight', () => {
@@ -711,7 +728,8 @@ describe('geometryReducer', () => {
             node: ground('27', 'Ground.001'),
             values: {},
             objectTypeId: 1,
-            objectName: 'Ground'
+            objectName: 'Ground',
+            materialGroups: []
           })
         ).creating
       ).toBe(false)

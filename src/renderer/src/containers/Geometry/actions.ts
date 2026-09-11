@@ -295,6 +295,8 @@ export type CreateObjectRequestedAction = {
 }
 // The POST resolved: the persisted node + its property values, plus the catalog
 // type the form needs to render. The reducer inserts the node and opens the draft.
+// `materialGroups` carries the default material the backend attached to the new
+// ground — same field the LOAD path supplies, so the draft opens the same way.
 export type CreateObjectSucceededAction = {
   type: typeof CREATE_OBJECT_SUCCEEDED
   projectId: string
@@ -304,6 +306,7 @@ export type CreateObjectSucceededAction = {
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 }
 export type CreateObjectFailedAction = {
@@ -749,6 +752,7 @@ export const createObjectSucceeded = (
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 ): CreateObjectSucceededAction => ({
   type: CREATE_OBJECT_SUCCEEDED,

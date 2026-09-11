@@ -712,18 +712,22 @@ const geometryReducer = (
         // select it, and open the edit form populated from the persisted object's
         // values.
         const s = ensureScope(draft, scopeKey(action.projectId, action.scenarioId))
-        const { node, values, objectTypeId, objectName } = action.payload
+        const { node, values, objectTypeId, objectName, materialGroups } = action.payload
         draft.creating = false
         s.nodesById[node.id] = node
         if (node.parentId === null) s.rootOrder.push(node.id)
         s.selectedIds = [node.id]
         s.lastCreatedId = node.id
-        // A brand-new object has no assignments yet.
+        // A new object is NOT bare: the backend gives every ground a default
+        // `mtl.<name>` material group, and the POST returns it. Seeded exactly
+        // like LOAD below — including the BASELINE, because these groups are
+        // already assigned on the backend and Save's add-only PATCH would 409
+        // if it re-sent them.
         s.detailsById[node.id] = {
           values: { ...values },
           objectTypeId,
           objectName,
-          materialGroups: []
+          materialGroups: [...materialGroups]
         }
         draft.createDraft = {
           objectId: node.id,
@@ -731,8 +735,8 @@ const geometryReducer = (
           objectName,
           name: node.name,
           values: { ...values },
-          materials: [],
-          materialBaseline: [],
+          materials: [...materialGroups],
+          materialBaseline: materialGroups.map((g) => g.groupId),
           isNew: true,
           saving: false,
           saveError: null,

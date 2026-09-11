@@ -1,3 +1,4 @@
+import { listMaterialsRequested } from 'containers/Materials/actions'
 import { selectAllObjectTypes } from 'containers/ProjectScreen/selectors'
 import type { ObjectTypeDef } from 'containers/ProjectScreen/types'
 import { all, call, put, select, takeEvery, takeLatest, takeLeading } from 'redux-saga/effects'
@@ -151,7 +152,10 @@ export function* deleteNodeWorker(action: DeleteNodeRequestedAction): Generator 
 // +Ground: POST a new object with the blueprint's default values (Ground Size
 // 10×10, Resolution 1×1, …), then open the right-panel form from the persisted
 // object the backend returns. Materials are deferred (sent empty) until the
-// materials-instance flow exists. takeLeading guards a double-click on +Ground.
+// materials-instance flow exists — but the CREATE itself makes one: the backend
+// gives every ground a default 'mtl.<name>' material group in the global
+// library, so the library list has to be refetched below. takeLeading guards a
+// double-click on +Ground.
 export function* createObjectWorker(action: CreateObjectRequestedAction): Generator {
   const { projectId, scenarioId, objectTypeId, objectName, name } = action
   try {
@@ -169,9 +173,15 @@ export function* createObjectWorker(action: CreateObjectRequestedAction): Genera
         node: created.node,
         values: created.values,
         objectTypeId,
-        objectName
+        objectName,
+        materialGroups: created.materialGroups
       })
     )
+    // The create also made a material. Geometry and Materials are accordions in
+    // the same panel and BOTH stay mounted for the life of the screen, so the
+    // library list only ever loads once — without this the new group is missing
+    // from the Materials section until the app is reopened.
+    yield put(listMaterialsRequested())
     yield put(showSnackbar(toastMessages.groundCreated(created.node.name), 'success'))
   } catch (err) {
     yield put(actions.createObjectFailed((err as Error).message))
