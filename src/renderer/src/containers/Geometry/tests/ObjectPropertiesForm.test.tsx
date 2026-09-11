@@ -1063,22 +1063,31 @@ describe('<ObjectPropertiesForm /> — numeric keystroke guard', () => {
 })
 
 describe('<ObjectPropertiesForm /> — required marker', () => {
-  it('stars the group heading, not each field, when the group holds a required field', () => {
+  it('shows NO star on a group heading, even when the group holds a required field', () => {
     const { container } = render(
       <Provider store={makeStore()}>
         <ObjectPropertiesForm />
       </Provider>
     )
-    // "Ground Size" (length + breadth, both required) carries the star; the
-    // individual boxes keep their bare names as placeholders.
-    expect(screen.getByText(/Ground Size/).textContent).toBe('Ground Size*')
+    // "Ground Size" holds length + breadth, both required — and still reads
+    // bare. The required marker was removed from this form by request; Save
+    // gating (below) is what enforces requiredness now, so assert the heading
+    // is clean rather than that the group has no required field.
+    expect(screen.getByText(/Ground Size/).textContent).toBe('Ground Size')
     expect(fieldInput(container, 'length')).toHaveAttribute('placeholder', 'Length')
     expect(fieldInput(container, 'breadth')).toHaveAttribute('placeholder', 'Breadth')
 
-    // A group of entirely optional fields shows no star. Position's x/y/z are
-    // required: false in this fixture, so its heading stays bare.
+    // The all-optional group is unchanged and still bare, so a regression that
+    // re-added the star would be caught by the required group above, not here.
     expect(screen.getByText('Position').textContent).toBe('Position')
     expect(fieldInput(container, 'position_x')).toHaveAttribute('placeholder', 'X')
+
+    // Nothing on the form PAINTS a star. Stars do survive inside the sr-only
+    // field labels (FormField's own `optional` marker), which is deliberate —
+    // the requirement is still announced, just not drawn. A star re-added to a
+    // heading would sit outside an sr-only label and fail here.
+    const stars = Array.from(container.querySelectorAll('.text-red-400'))
+    expect(stars.filter((s) => s.closest('label.sr-only') === null)).toHaveLength(0)
   })
 })
 
