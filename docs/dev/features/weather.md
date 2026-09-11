@@ -73,7 +73,10 @@ do the same.
 `parsers.ts` is entirely pure — no I/O, no React, no Redux. File opening, reading and POSTing all
 live in the saga. That is what makes the parsing directly unit-testable.
 
-It handles **CSV, TXT and XML**, detecting the delimiter and how many header lines to skip.
+It handles **CSV, TXT, TSV, TAB and XML** — the extension list the file dialog is opened with is
+`['csv', 'txt', 'tsv', 'tab', 'xml']` in `saga.ts`, pinned by a test so it cannot drift from the
+parser. For the delimited formats it detects the delimiter and how many header lines to skip; XML
+is read structurally, so neither control applies.
 
 Date and time mapping is the fiddly part, because source files disagree wildly:
 

@@ -19,31 +19,40 @@ exclude_docs: |
 
 theme:
   name: material
+  # The application icon, byte-identical to build/Helios_icon.png.
+  logo: assets/logo.png
+  favicon: assets/logo.png
   features:
     - navigation.tabs
     - navigation.sections
     - navigation.top
     - navigation.instant
+    - navigation.footer
     - toc.follow
     - search.suggest
     - search.highlight
     - content.code.copy
     - content.code.annotate
+  # No `primary`/`accent` here on purpose: the brand colours come from
+  # stylesheets/helios.css, which sets the Material CSS variables directly.
+  # Naming a built-in colour would fight with it.
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: green
-      accent: green
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: green
-      accent: green
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra_css:
+  - stylesheets/helios.css
 
 plugins:
   - search
