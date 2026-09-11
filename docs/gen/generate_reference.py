@@ -32,7 +32,10 @@ API_OUT = REPO / "docs" / "dev" / "api" / "endpoints.md"
 OPS_DIR = REPO / "docs" / "dev" / "api" / "ops"
 CATALOG_OUT = REPO / "docs" / "reference" / "catalog.md"
 
-# Router prefixes the renderer never calls — see docs/reference/dormant.md.
+# Router prefixes the renderer never calls. Operations on these are left OUT of
+# the generated reference entirely — documenting a route the UI cannot reach
+# invites work on it. They are recorded in docs/reference/dormant.md instead,
+# and remain visible in the live `/docs` schema.
 DORMANT_PREFIXES = (
     "/api/objects", "/api/tree", "/api/plantarch",
     "/api/timeseries", "/api/script", "/api/data-units",
@@ -308,12 +311,6 @@ def _load_response_shapes() -> dict:
 def _render_op(method: str, path: str, op: dict, root: dict,
                shapes: dict, used: set[str]) -> list[str]:
     out = [f"### `{method} {cell(path)}` {{#{_op_anchor(method, path)}}}\n\n"]
-    if path.startswith(DORMANT_PREFIXES):
-        out.append(
-            '!!! warning "Not reachable from the UI"\n'
-            "    Nothing in the renderer calls this router. See\n"
-            "    [Dormant surface](../../../reference/dormant.md).\n\n"
-        )
     desc = (op.get("description") or "").strip()
     if desc:
         out.append("\n".join(line.rstrip() for line in desc.splitlines()) + "\n\n")
@@ -388,6 +385,19 @@ def generate_api() -> int:
     components: dict = (schema.get("components") or {}).get("schemas") or {}
     shapes = _load_response_shapes()
 
+    # Drop the dormant routers before anything is counted or rendered, so the
+    # operation totals, the per-tag pages and the nav all describe the same
+    # (live) surface. A tag whose every path is dormant produces no page at all;
+    # the stale-file sweep below removes one left over from an earlier run.
+    dormant_ops = sum(
+        1
+        for path, ops in paths.items()
+        if path.startswith(DORMANT_PREFIXES)
+        for method in ops
+        if method in METHODS
+    )
+    paths = {p: ops for p, ops in paths.items() if not p.startswith(DORMANT_PREFIXES)}
+
     by_tag: dict[str, list[tuple[str, str, dict]]] = {}
     total = 0
     for path, ops in sorted(paths.items()):
@@ -457,23 +467,24 @@ def generate_api() -> int:
         "    While the backend is running: **`/docs`** (Swagger UI) and **`/openapi.json`**.\n\n"
     )
     out.append(
-        '!!! warning "Not every endpoint is reachable from the UI"\n'
-        "    Rows marked :material-sleep: are on a router the renderer never calls. See\n"
-        "    [Dormant surface](../../reference/dormant.md).\n\n"
+        '!!! note "Every endpoint here is one the UI actually calls"\n'
+        f"    {dormant_ops} further operations are mounted but unreachable from the renderer, "
+        "and are\n    deliberately left out of this reference. They are listed in\n"
+        "    [Dormant surface](../../reference/dormant.md) and still appear in the live "
+        "`/docs` schema.\n\n"
     )
     for tag in sorted(by_tag):
         rows = sorted(by_tag[tag], key=lambda r: (r[1], r[0]))
         out.append(f"## [`{tag}`](ops/{tag}.md)\n\n")
-        out.append("| | Method | Path | Summary |\n|---|---|---|---|\n")
+        out.append("| Method | Path | Summary |\n|---|---|---|\n")
         for method, path, op in rows:
-            dormant = ":material-sleep:" if path.startswith(DORMANT_PREFIXES) else ""
             summary = op.get("summary") or ""
             doc = (op.get("description") or "").strip().splitlines()
             if not summary and doc:
                 summary = doc[0]
             link = f"ops/{tag}.md#{_op_anchor(method, path)}"
             out.append(
-                f"| {dormant} | [`{method}`]({link}) | `{cell(path)}` | {cell(summary)} |\n"
+                f"| [`{method}`]({link}) | `{cell(path)}` | {cell(summary)} |\n"
             )
         out.append("\n")
 

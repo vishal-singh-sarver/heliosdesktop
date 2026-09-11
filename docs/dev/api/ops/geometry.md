@@ -3,7 +3,7 @@
 
 # `geometry` endpoints
 
-*Generated 2026-09-10.*
+*Generated 2026-09-11.*
 
 12 operations. See [Conventions](../http.md) for the headers, scoping and error shape they all share.
 

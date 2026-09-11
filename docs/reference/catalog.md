@@ -3,7 +3,7 @@
 
 # Catalog reference
 
-*Generated 2026-09-10.*
+*Generated 2026-09-11.*
 
 Every object type, material type, property and unit currently seeded by the migrations.
 

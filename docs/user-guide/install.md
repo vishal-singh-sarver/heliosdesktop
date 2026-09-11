@@ -11,7 +11,7 @@ inside — there is nothing else to install, no Python to set up, and no separat
 
 | | Minimum |
 |---|---|
-| **macOS** | 12.0 (Monterey) or later |
+| **macOS** | 15.0 (Sequoia) or later |
 | **Windows** | Windows 10 or 11, 64-bit |
 | **Linux** | A modern 64-bit distribution (AppImage or Debian-based) |
 | **Memory** | 8 GB works for small scenes. Large grounds are memory-hungry — a 1000×1000 ground needs roughly 2 GB on its own, so 16 GB+ is recommended for serious work |

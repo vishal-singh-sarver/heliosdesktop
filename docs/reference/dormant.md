@@ -15,7 +15,9 @@ route that has never run.
 
 ## Seven mounted routers the UI never calls
 
-All are registered in `app/main.py` and appear in `/docs`.
+All are registered in `app/main.py` and appear in the live `/docs` schema. They are deliberately
+**excluded from the [API reference](../dev/api/endpoints.md)** — this page is the only place they
+are written down, so that nothing in the reference describes a route the UI cannot reach.
 
 | Prefix | Router | Frontend references |
 |---|---|---|

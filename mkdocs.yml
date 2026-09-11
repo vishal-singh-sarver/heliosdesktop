@@ -134,21 +134,15 @@ nav:
               # BEGIN generated-api-nav
               - catalog: dev/api/ops/catalog.md
               - geometry: dev/api/ops/geometry.md
-              - import: dev/api/ops/import.md
               - m2-catalog: dev/api/ops/m2-catalog.md
               - m2-geometry: dev/api/ops/m2-geometry.md
               - m2-materials: dev/api/ops/m2-materials.md
               - materials: dev/api/ops/materials.md
-              - objects: dev/api/ops/objects.md
-              - plantarch: dev/api/ops/plantarch.md
               - project: dev/api/ops/project.md
               - scenario: dev/api/ops/scenario.md
-              - scripting: dev/api/ops/scripting.md
               - system: dev/api/ops/system.md
               - textures: dev/api/ops/textures.md
-              - timeseries: dev/api/ops/timeseries.md
               - transforms: dev/api/ops/transforms.md
-              - tree: dev/api/ops/tree.md
               - weather: dev/api/ops/weather.md
               # END generated-api-nav
       - Troubleshooting: dev/troubleshooting.md

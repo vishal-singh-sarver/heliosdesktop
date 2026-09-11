@@ -94,19 +94,15 @@ Common shapes you will see repeatedly:
 | `/api/geometry` | `geometry` | 12 | Live geometry in the context |
 | `/api/geometry` | `scene_objects` | 24 | Persisted objects, groups, visibility, material assignment |
 | `/api/geometry` | `transforms` | 4 | Translate / rotate / scale |
-| `/api/objects` | `objects` | 5 | Object primitives |
 | `/api/materials` | `materials` | 12 | Material types and applied materials |
 | `/api/materials` | `material_library` | 15 | Global material groups, members, file uploads |
 | `/api/textures` | `textures` | 2 | `serve`, `defaults` |
 | `/api/weather` | `weather` | 15 | Weather tables — rows, columns, upload, clear |
-| `/api/timeseries` | `timeseries` | 3 | Time-series data |
-| `/api/tree` | `tree` | 3 | Weber-Penn trees |
-| `/api/plantarch` | `plantarch` | 4 | Plant architecture models |
 | `/api/catalog` | `catalog` | 4 | Object / material / model type catalogs |
 | `/api/data-types` | `helios_data_type` | 5 | Data types with their units inline |
-| `/api/data-units` | `data_unit` | 5 | Unit definitions and conversion factors |
-| `/api` | `import_export` | 2 | Import and export |
-| `/api/script` | `scripting` | 1 | Scripting |
+
+Seven further routers are mounted and appear in the live `/docs`, but nothing in the renderer
+calls them, so they are not documented here — see [Dormant surface](../../reference/dormant.md).
 
 The complete list of paths the renderer calls is `API_ROUTES` in
 `src/renderer/src/utils/constants.ts` — a single source of truth, with scoped routes exposed as
