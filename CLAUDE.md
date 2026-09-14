@@ -39,7 +39,7 @@ On the **native Linux** checkout (verified 2026-09-02):
 | `libhelios.dll` staleness (§2.2) | the artifact is `pyhelios/pyhelios_build/build/lib/**libhelios.so**`. Same staleness risk, same check with `-newer …libhelios.so` |
 | `resources/backend/win` | `resources/backend/**linux**/heliosgui_backend/heliosgui_backend` |
 | PowerShell build/prune scripts | not used; the packaged backend was already built |
-| "reaping is POSIX-only, so on Windows every run leaves orphans" | `reapOrphans` **does** run here, and no orphan accumulation was observed across six full spec runs |
+| "reaping is POSIX-only, so on Windows every run leaves orphans" | `reapOrphans` runs here, but `afterSession` passes `includeElectron = false`, so every finished spec file leaves its Electron app running until `onComplete` — 11 were alive late in the 14 Sep 2026 run, and the final sweep killed 38 processes |
 
 **Do NOT `pkill -f electron` on Linux.** The pattern matches the editor and the
 agent harness themselves. `reapOrphans` already handles it; if you must sweep by
@@ -219,11 +219,11 @@ snapshot with **added attributes and zero deletions**.
    `large-ground.test.ts`, which does it deliberately and pays for it in its own
    spec file. The rule stands, but the reasoning it used to carry was wrong in
    both directions. MEASURED 2026-09-02 against the packaged backend:
-   - A **soil ground physically cannot exceed 511 per axis.** Every unstyled
-     ground has `dirt.jpg` (512×512) baked into it, and the engine refuses
-     `subdiv >= repeat × texture_px` (`Context_object.cpp`). 1000×1000 comes back
-     **422 `RESOLUTION_TOO_HIGH`**. So the old advice "a max-boundary 25000×25000
-     save would wedge the runner" describes a save that cannot happen at all.
+   - **A new ground wears its default `Mtl.<name>` material — a Visualiser on
+     `dirt.jpg` (512×512) — and that texture caps it at 511 per axis.** The engine
+     refuses `subdiv >= repeat × texture_px` (`Context_object.cpp`), so 1000×1000
+     comes back **422 `RESOLUTION_TOO_HIGH`**. A ground with **no** material is a
+     plain tile (6878eaf) with no cap at all.
    - **A colour-mode Visualiser material UNLOCKS it.** No texture, no cap, and
      the identical PATCH returns 200. The material is what permits the
      resolution — the inverse of the obvious expectation.
@@ -318,6 +318,31 @@ snapshot with **added attributes and zero deletions**.
     only. `valueIn` returns `<no "X" row in Y>` on a miss rather than `''`,
     because the popup lists every catalog property of an active group INCLUDING
     the unset ones, and "blank" and "absent" must not look alike in a diff.
+24. **EVERY NEW GROUND IS BORN WEARING `Mtl.<ground name>`** — a Visualiser on
+    `dirt.jpg` (429d57d / 701894c). Names are unique across the whole library
+    (case-insensitive); a clash takes `.1`, `.2`, …; at most 20 characters.
+    Deleting or renaming the ground leaves the material in the library
+    (intended). The form counts it as SAVED, so picking another material makes
+    Save raise **Replace**, and a drop on the ground asks to Replace first. Use
+    `e2e/support/defaultMaterial.ts`; the material specs unassign it in
+    `trackGround()` (option A) and track it for cleanup. A ground with the
+    default removed is a plain tile in the engine's green `(0, 0.75, 0)`.
+25. **THE 3D VIEW DOWNLOADS MESHES FROM `…/geometry/gpu`** (wire format v2), not
+    `…/geometry/binary`. `support/viewport3d.ts` records both and decodes a
+    per-part summary (texture path, vertex colour) — `waitForMeshSummary`,
+    `solidColour`, `isGreen/isRed/isBlue`. The **statistics overlay is hidden**
+    (`SHOW_STATS_UI = false`, d9b9d39): read the scene with
+    `Viewport3D.sceneObjectNames()` and the mesh summary instead of `readStats()`.
+26. **NAMES UNLOCK ON DOUBLE-CLICK; THE PENCIL IS GONE** (10a5a51). Both
+    Properties forms and both left-panel rows carry a `title` hint
+    (`GEOMETRY_MSG.renameHint`, `MATERIALS_MSG.renameHint`); the form's hint is
+    present only while the name is locked. `ObjectProperties.editName()`
+    double-clicks.
+27. **A SHARED material property holds ONE value per material.** Backend
+    `_propagate_shared` (d2dcc61) mirrors a save of `two_sided_heat_transfer` or
+    `stomatal_sidedness` onto every card of the same material that carries it —
+    last write wins. So two cards can never show different values for those two
+    labels; `material-submodels.test.ts` pins it as a DEVIATION.
 
 ---
 
@@ -372,15 +397,20 @@ Shared provisioning: one project for the file; each test creates rows via
 
 WebDriver cannot see inside a WebGL canvas, and `toDataURL()` returns blank (no
 `preserveDrawingBuffer`). But the app uses **axios/XHR for every REST call and
-`fetch` for exactly one thing — the 3D binary mesh**. So patching `window.fetch`
+`fetch` for exactly one thing — the 3D mesh**. So patching `window.fetch`
 captures the 3D pipeline and nothing else. `e2e/support/viewport3d.ts` records
-it; the test asserts a `200` with a non-empty body on
-`.../objects/{id}/geometry/binary` (269 bytes for a default ground).
+it: the viewport downloads `.../objects/{id}/geometry/gpu` (wire format v2 —
+`/geometry/binary` is still accepted), and the recorder DECODES each v2 response
+into a per-part summary — texture path, vertex colours, primitive and triangle
+counts. A default ground is 1 primitive, 2 triangles, 4 vertices; it is drawn
+with `dirt.jpg` while it wears its default material, and in `[0, 0.75, 0]` green
+once that material is removed (measured 14 Sep 2026).
 
-That proves the backend built the tile and the viewport received it. It does NOT
-prove it was painted correctly — nothing available to WebDriver can. It does
-catch the failure that cost a day: a stale `libhelios.dll` makes the create 500
-with `BUILD_FAILED` and no mesh is ever requested.
+That proves the backend built the tile, in that texture or colour, and the
+viewport received it. It still does NOT prove what was painted — nothing
+available to WebDriver can. It does catch the failure that cost a day: a stale
+`libhelios` makes the create 500 with `BUILD_FAILED` and no mesh is ever
+requested.
 
 ### `e2e/tests/materials.test.ts` — 252 tests, ~13m 12s
 
@@ -424,11 +454,13 @@ The 2 skips are honest self-skips, not hidden failures: the empty-library test
 (the library is GLOBAL, so it is essentially never empty) and the texture-library
 test — which skips because **the library genuinely ships empty**, see below.
 
-### `e2e/tests/material-assignment.test.ts` — 48 tests, ~4m 27s
+### `e2e/tests/material-assignment.test.ts` — 48 tests, ~4m
 
-Measured 2026-09-02: **47 passing, 1 self-skipped, 0 failing** (48 literal
-`it(`). **The "23 tests, ~2m / 22 passing" this header used to carry was stale.**
-The skip is the empty-library case at `:485`.
+Measured 14 Sep 2026: **48 passing, 0 failing** (48 literal `it(`). The
+empty-library case no longer self-skips: a spec session starts with an empty
+library, and the test deletes the ground's default material from the library
+before opening the picker (trap 24). Every ground here is created through
+`trackGround()`, which unassigns its default first (option A).
 
 Covers the Select Materials picker (both shapes, its search, the single-select
 radio rule), picking as a draft change, the Replace confirmation, the CONDITIONAL
@@ -448,10 +480,11 @@ Added 2026-09-02 (+9):
 Still not covered, deliberately: the **`drift`** sync dot, UNREACHABLE from the
 GUI because every client write hardcodes `sync: true`.
 
-### `e2e/tests/material-submodels.test.ts` — 30 tests, ~2m 13s
+### `e2e/tests/material-submodels.test.ts` — 30 tests, ~2m 17s
 
-New file, 2026-09-02. **30 passing, 0 failing** first run (24 literal `it(`,
-expanded by a per-sub-model loop).
+New file, 2026-09-02. **30 passing, 0 failing** — re-measured 14 Sep 2026 after
+the default-material and shared-property changes (24 literal `it(`, expanded by
+a per-sub-model loop).
 
 **It is a JOIN, and that is the whole point.** `materials.test.ts` drives the
 sub-models inside the FORM (reveal / hide / switch-blanks / survives a reload),
@@ -465,22 +498,23 @@ actually for.
 | **Photosynthesis — Farquhar on a ground** | 8 | the group's EXACT membership (a 15th coefficient added by a migration would otherwise ship green); **ALL 14 coefficients filled, assigned and read back one for one** with spread values so a shifted mapping cannot coincidentally agree; the selector's form-vs-ground disagreement; `topt_*` accepting 273 and rejecting 272.9; top-level fields listed alongside the group; an ORDINARY enum read back RAW while the SELECTOR is humanized; survival of a reselect; a post-assignment edit reaching the ground with no reload |
 | **Stomatal Conductance — all four sub-models** | 12 | generated per sub-model from `SUBMODELS`: each one's own parameters and ONLY its own reach the ground, and each reads back as its stored CODE (`BWB`/`BBL`/`Medlyn`/`BMF`), not the `Ball-woodrow-berry` the user clicked |
 | **the widest bounds, SAVED** | 3 | `gamma_co2` staying top-level across sub-models; `bbl_d0` at 5000000 and `bmf_k` at 10000000 accepted, `+0.1` refused, both saved onto a ground; switching the sub-model after assignment swaps what the ground shows |
-| **read-only fidelity** | 6 | numbers NOT reformatted (character for character); a value typed `1e3` stored EXPANDED and read back `1000`; an unset field still gets a row with an EMPTY value; two type cards → two sections with a shared label disambiguated by section; sections collapsible and open by default; the popup carries THIS material, not another |
+| **read-only fidelity** | 6 | numbers NOT reformatted (character for character); a value typed `1e3` stored EXPANDED and read back `1000`; an unset field still gets a row with an EMPTY value; two type cards → two sections, where a SHARED label reads the same in both (propagated, trap 27) and each keeps its own parameters; sections collapsible and open by default; the popup carries THIS material, not another |
 | **the DROP path** | 4 | a drop assigns immediately with its toast and no Save, coefficients readable at once; a REPLACING drop swaps the reported sub-model; a FAILED card save leaves the PREVIOUS values on the ground; the coefficients survive REOPENING the project |
 
-### `e2e/tests/large-ground.test.ts` — 4 tests, ~1m 44s
+### `e2e/tests/large-ground.test.ts` — 4 tests, ~1m
 
-New file, 2026-09-02. **4 passing, 0 failing.** Deliberately its own spec file —
-see trap 9: a 1000×1000 build retains **2.45 GB** in the backend that DELETE does
-not reclaim, and wdio gives each spec FILE its own session and backend, so the
-retention dies with this file instead of following the other ~40 tests.
+New file, 2026-09-02. **4 passing, 0 failing** (re-measured 14 Sep 2026: 56s).
+Deliberately its own spec file — see trap 9: a 1000×1000 build retains
+**2.45 GB** in the backend that DELETE does not reclaim, and wdio gives each spec
+FILE its own session and backend, so the retention dies with this file instead
+of following the other ~40 tests.
 
 | n | Covers |
 |---:|---|
 | 1 | a 100 × 100 m ground SAVES at a safe resolution — **extent is not what costs**, cell count is |
-| 1 | a SOIL ground REFUSES 1000 × 1000; the engine's own message reaches the form's inline error, unattached to any field |
-| 1 | with a COLOUR-mode Visualiser assigned the SAME save is ACCEPTED — **the material is what unlocks the resolution** — the row hidden throughout, asserted by proving no mesh was fetched |
-| 1 | **the colour surface is a ONE-WAY DOOR** — see the product finding in §7 |
+| 1 | a ground wearing its DEFAULT `dirt.jpg` material REFUSES 1000 × 1000; the engine's own message reaches the form's inline error, unattached to any field. The only test in the file that keeps the default — every other one unassigns it first (trap 24) |
+| 1 | with a COLOUR-mode Visualiser assigned the SAME save is ACCEPTED — the row hidden throughout, asserted by proving no mesh was fetched |
+| 1 | SWAPPING the material on a 1e6-cell ground now SUCCEEDS — **inverted 14 Sep 2026**: a ground with no material is a plain tile with no cap, so the §7 "one-way door" is closed |
 
 ### `e2e/tests/ground.test.ts` — 22 tests, ~1m 25s
 
@@ -504,13 +538,13 @@ them better and faster. The audit's whole point was that the e2e suite had been
 read in isolation and the same ground re-covered.
 
 The through-line of what was missing: **the right panel's NAME field.** Nothing
-at any layer had driven the pencil, so `handleNameBlur` — the only path to a
+at any layer had driven it, so `handleNameBlur` — the only path to a
 rename from this form, and the only place `NO_NAME_CONFLICTS` makes the form
 behave differently from the tree — was unreached code.
 
 | Group | n | Covers |
 |---|---:|---|
-| rename from the Properties form | 5 | read-only until the pencil, double-click, BLUR commits (Enter does not), delete closes the form |
+| rename from the Properties form | 5 | read-only until DOUBLE-CLICKED (the pencil was removed in 10a5a51), the hover hint with no pencil left, BLUR commits (Enter does not), delete closes the form |
 | duplicate name — the form path | 3 | no client-side check → the real 409, error survives a panel collapse, group/geometry namespaces |
 | save gating — the name | 1 | a name change alone never lights Save |
 | an incomplete exponent | 4 | the ONE reachable route to `Invalid Input` |
@@ -671,27 +705,11 @@ space up if you like; do not treat it as a defect.
   `ground.test.ts`; worth a product decision before Geometry sign-off.
 - **`drift` on the material sync dot is unreachable from the GUI.** Every client
   write hardcodes `sync: true`, so only `stale` can be produced.
-- **A COLOUR MATERIAL ON A HIGH-RESOLUTION GROUND IS A ONE-WAY DOOR, AND THE
-  FAILURE IS NOT CLEAN.** The sharpest finding from the 2026-09-02 work; pinned
-  by `large-ground.test.ts`. A colour-mode Visualiser is what lets a ground
-  exceed the 511/axis soil-texture cap (trap 9). But it can then never be
-  swapped or removed at that resolution: replacing a material is
-  *delete-then-add* (`updateObjectWorker` DELETEs the displaced assignment before
-  the add-only PATCH, "so the ground is never momentarily double-assigned"), and
-  with the last material gone the backend's desired surface reverts to `soil`, so
-  `_apply_assignment_change` tries to rebuild the tile with `dirt.jpg` at
-  1000×1000 — the very thing the engine refuses. The intermediate state is
-  unbuildable.
-  **The worse half:** `unassign_material_group` does `db.delete(...)` then
-  `db.commit()` and only THEN calls `_apply_assignment_change`. So when the
-  repaint raises, the assignment is ALREADY COMMITTED AWAY and the 422 is
-  returned on top of it. `update_object` compensates for exactly this on the
-  intrinsic path (it re-upserts `prev_canonical` before re-raising); the unassign
-  path has no such rollback. The user is told the save failed while the backend
-  has genuinely dropped the material, and the client's `materialBaseline` still
-  lists it — so a second Save tries to DELETE an assignment that no longer exists
-  and fails differently. The user's only route back is to lower the resolution
-  first, and nothing in the UI says so. **Product decision needed.**
+- **CLOSED 14 Sep 2026 — the colour-surface "one-way door".** Replacing the
+  material on a 1000×1000 ground used to fail, because the delete-then-add passed
+  through a soil (`dirt.jpg`) rebuild the engine refuses. Since 6878eaf a ground
+  with no material is a plain tile with no cap, so the swap succeeds;
+  `large-ground.test.ts` now pins the success.
 - **The two surfaces disagree about a selector enum.** The Materials form shows
   the GROUP NAME a value unlocks (`Ball-woodrow-berry`); the ground's read-only
   popup shows the humanized STORED CODE (`BWB`). Both are deliberate and both
@@ -774,9 +792,9 @@ Geometry is ~60% of its action surface. What is left, roughly in value order:
   incomplete exponent, `1e3`/`1e-3` blur expansion, the integer-field second
   route to `Invalid Input`, and the `1e-9` keystroke refusal are in
   `materials.test.ts`. The GROUND-side analogue was already in `ground.test.ts`.
-- **A high-resolution ground cannot have its material swapped** — the one-way
-  door in §7. Pinned by `large-ground.test.ts`, but it needs a PRODUCT DECISION,
-  not more tests.
+- ~~**A high-resolution ground cannot have its material swapped**~~ **CLOSED
+  14 Sep 2026** — the swap succeeds since 6878eaf; `large-ground.test.ts` pins it
+  (see §7).
 - The full ~260-case triage table (automate / unit-covered / manual-only /
   spec-conflict), and the remaining testid hooks (dialogs, portalled `Select`
   listbox, `TextureSelector`, radiation spectral toggle).

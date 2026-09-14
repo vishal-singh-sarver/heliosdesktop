@@ -46,12 +46,19 @@ import {
   waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
-import { recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
+import {
+  isRed,
+  recordMeshFetches,
+  solidColour,
+  waitForMeshFetch,
+  waitForMeshSummary
+} from '../support/viewport3d'
 import { dragMaterialOnto } from '../support/dnd'
+import { clickDialogButton, waitForNoOpenDialog, waitForOpenDialog } from '../support/dialogs'
 import { drainToasts, waitForToast } from '../support/toasts'
 import { TIMEOUTS } from '../config/timeouts'
 import { WEATHER_SELECTION } from '../constants/messages'
-import { GEOMETRY_TOAST } from '../constants/geometry'
+import { GEOMETRY_MATERIAL_MSG, GEOMETRY_TOAST } from '../constants/geometry'
 
 before(async () => {
   await waitForMainWindow()
@@ -552,8 +559,8 @@ describe('Helios smoke journey', () => {
     // Why this earns a place in the smoke run: before the viewport work,
     // creating and deleting geometry were asserted only against the TREE ROW,
     // so a viewport that kept a deleted object on screen passed the whole
-    // suite. The scene-statistics overlay is the only DOM-readable proxy for
-    // what the scene actually holds.
+    // suite. The scene selector and the downloaded mesh are the DOM-readable
+    // proxies for what the scene actually holds.
     const project = await enterGeometry('smoke3d')
     // The 3D Window is already the default workspace tab, so no selectTab here.
     await recordMeshFetches()
@@ -564,21 +571,17 @@ describe('Helios smoke journey', () => {
     await waitForMeshFetch(groundId)
     await Viewport.waitForIdle()
 
-    // readStats() re-toggles the overlay on every read, which is what forces
-    // the memo to recompute — its deps do not track the geometry cache, so a
-    // naive read reports Primitives: 0 for a ground that is visible.
-    const withGround = await Viewport.readStats()
-    expect(withGround.objects).toBe(1)
-    expect(withGround.primitives).toBeGreaterThan(0)
-    expect(withGround.triangles).toBeGreaterThan(0)
-
-    // Close it before phase 14 starts clicking: the overlay paints over the
-    // left toolbar and would intercept those clicks.
-    await Viewport.closeStats()
+    // The statistics overlay this step used to read is hidden (SHOW_STATS_UI =
+    // false, d9b9d39); read the scene selector and the downloaded mesh instead.
+    const groundName = (await Geometry.rowName(groundId).getText()).trim()
+    expect(await Viewport.sceneObjectNames()).toEqual([groundName])
+    const mesh = await waitForMeshSummary(groundId)
+    expect(mesh.primitiveCount).toBeGreaterThan(0)
+    expect(mesh.totalTris).toBeGreaterThan(0)
 
     G.projectId = project.id
     G.groundId = groundId
-    G.groundName = (await Geometry.rowName(groundId).getText()).trim()
+    G.groundName = groundName
   })
 
   it('14. give a material a RED Visualiser, then APPLY it to the ground', async function () {
@@ -643,6 +646,13 @@ describe('Helios smoke journey', () => {
 
     await dragMaterialOnto({ groupId: materialId, name: materialName }, G.groundId)
 
+    // The ground was born wearing its default Mtl. material, so the drop asks
+    // to REPLACE it before assigning.
+    const replace = await waitForOpenDialog()
+    expect(replace.ariaLabel).toBe(GEOMETRY_MATERIAL_MSG.replaceTitle)
+    await clickDialogButton(GEOMETRY_MATERIAL_MSG.replaceConfirm)
+    await waitForNoOpenDialog()
+
     await waitForToast(GEOMETRY_TOAST.materialAssigned(materialName, G.groundName))
     await browser.waitUntil(
       async () => (await ObjectProperties.assignedNames()).includes(materialName),
@@ -651,22 +661,19 @@ describe('Helios smoke journey', () => {
         timeoutMsg: `"${materialName}" never appeared on ${G.groundName} after the drop`
       }
     )
-    // The half that matters for the 3D window: an assignment that never
-    // refetched would leave the ground painted exactly as it was. That it is
-    // now visibly RED stays manual — nothing available to WebDriver reads
-    // pixels out of the WebGL canvas.
-    await waitForMeshFetch(G.groundId)
+    // The half that matters for the 3D window: the ground is rebuilt RED. The
+    // decoded mesh carries the colour per vertex, which is as close to "it is
+    // red on screen" as WebDriver can get.
+    await waitForMeshSummary(G.groundId, (s) => isRed(solidColour(s)))
   })
 
   it('15. deleting the ground removes it from the scene', async function () {
     this.timeout(90000)
     await Geometry.deleteRow(G.groundId)
-    await browser.waitUntil(async () => (await Viewport.readStats()).objects === 0, {
+    await browser.waitUntil(async () => (await Viewport.sceneObjectNames()).length === 0, {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'deleting the ground did not remove it from the 3D scene'
     })
-    expect((await Viewport.readStats()).primitives).toBe(0)
-    await Viewport.closeStats()
 
     // Clean up both, for the same reason phase 12 does: do not let the shared
     // backend session accumulate. The material needs its OWN delete — the

@@ -113,6 +113,11 @@ import { clickDialogButton, waitForNoOpenDialog, waitForOpenDialog } from '../su
 import { dragMaterialOnto } from '../support/dnd'
 import { clearApiFaults, withApiFault } from '../support/faults'
 import { drainToasts, waitForToast } from '../support/toasts'
+import {
+  unassignMaterial,
+  waitForDefaultMaterial,
+  waitForLibraryRow
+} from '../support/defaultMaterial'
 
 describe('Material sub-models on a ground', () => {
   /** The file's shared project — one test navigates away and must come back. */
@@ -154,9 +159,20 @@ describe('Material sub-models on a ground', () => {
 
   // ── Tracking + provisioning ───────────────────────────────────────────────
 
+  /**
+   * Create a ground and return its row id, WITHOUT its default material.
+   *
+   * Every new ground is born wearing `Mtl.<name>` (support/defaultMaterial.ts);
+   * this file assigns sub-model materials onto an empty ground, so the default is
+   * unassigned here and tracked for cleanup (option A, agreed 14 Sep 2026).
+   */
   const trackGround = async (): Promise<string> => {
     const id = await Geometry.addGround()
     grounds.push(id)
+    await ObjectProperties.waitForOpen()
+    const defaultName = await waitForDefaultMaterial()
+    materials.push(await waitForLibraryRow(defaultName))
+    await unassignMaterial(defaultName)
     return id
   }
 
@@ -1336,18 +1352,22 @@ describe('Material sub-models on a ground', () => {
       await closeDetail(name)
     })
 
-    it('TWO material types render TWO sections, and a shared label is read per SECTION', async () => {
-      // One material, two type cards, and the same label carrying DIFFERENT values
-      // in each — which is the only shape that can catch a section-blind reader.
+    it('TWO material types render TWO sections — a SHARED label reads the same in both, each keeps its own parameters', async () => {
+      // One material, two type cards. Photosynthesis and Energy Balance are the
+      // pair because they share labels at all: BOTH 'Heat Transfer Flag' and
+      // 'Stomatal Sidedness'.
       //
-      // Photosynthesis and Energy Balance are the pair, not the Photosynthesis +
-      // Stomatal Conductance one might reach for first: those two share no label
-      // at all, so a test built on them could not make this point. These two share
-      // BOTH 'Heat Transfer Flag' and 'Stomatal Sidedness'. The flag is
-      // MATERIAL-WIDE (materialBlueprint.MATERIAL_WIDE_PROPERTIES — a material is
-      // one- or two-sided as a whole, so setting it on one card sets it on all),
-      // but `stomatal_sidedness` is an ordinary per-type property and can differ,
-      // which is what makes the two rows genuinely distinguishable.
+      // DEVIATION (from what this test used to pin): neither shared label can
+      // carry DIFFERENT values per card. Since d2dcc61 the backend keeps every
+      // shared EDITABLE property at ONE value per material group —
+      // material_library_service._propagate_shared mirrors a save onto every
+      // sibling card that carries the property, last write wins, and
+      // _shared_editable_properties names exactly `two_sided_heat_transfer` and
+      // `stomatal_sidedness` ("a leaf is one-sided or two-sided, and two models in
+      // one group cannot disagree on that"). So the 0.25 saved on Photosynthesis is
+      // overwritten by the 0.75 saved on Energy Balance, and both sections read
+      // 0.75. What still proves the popup reads per SECTION is each type's own
+      // parameters below (vcmax25 vs heat_capacity).
       const { cardId, name } = await newMaterialWithCard(PHOTO)
       await MaterialProperties.setField(cardId, 'stomatal_sidedness', '0.25')
       await MaterialProperties.commitField()
@@ -1384,12 +1404,12 @@ describe('Material sub-models on a ground', () => {
         [ENERGY, PHOTO].sort()
       )
       const rows = await ObjectProperties.detailRows(name)
-      // THE POINT: one label, two sections, two answers. A reader that matched on
-      // the label alone would return the same value twice.
+      // The shared label reads the SAME in both sections: the last save (0.75,
+      // on Energy Balance) was propagated onto the Photosynthesis card.
       expect([
         ObjectProperties.valueIn(rows, PHOTO, materialLabel('stomatal_sidedness')),
         ObjectProperties.valueIn(rows, ENERGY, materialLabel('stomatal_sidedness'))
-      ]).toEqual(['0.25', '0.75'])
+      ]).toEqual(['0.75', '0.75'])
       // …and each section keeps its own type's parameters.
       expect([
         ObjectProperties.valueIn(rows, PHOTO, materialLabel('vcmax25')),

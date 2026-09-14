@@ -163,6 +163,8 @@ class Viewport3DPage {
   }
 
   /**
+   * UNUSABLE while Viewport3D.tsx ships SHOW_STATS_UI = false — use sceneObjectNames().
+   *
    * Read the scene statistics, forcing a recompute first.
    *
    * ALWAYS closes and reopens the overlay — see the staleness note in this
@@ -263,6 +265,29 @@ class Viewport3DPage {
   async selectSceneObject(idOrAll: string | number): Promise<void> {
     await this.openSelector()
     await $(`[data-testid="scene-selector-option-${idOrAll}"]`).click()
+  }
+
+  /**
+   * Names of the objects the 3D scene holds, read from the scene selector
+   * ("All" excluded).
+   *
+   * The replacement for readStats(): the statistics toggle and overlay are
+   * hidden (Viewport3D.tsx `SHOW_STATS_UI = false`, d9b9d39). The selector lists
+   * every VISIBLE object; it is closed again before this returns so it cannot
+   * cover a later click.
+   */
+  async sceneObjectNames(): Promise<string[]> {
+    if (!(await this.sceneSelectorTrigger.isExisting())) return []
+    await this.waitForIdle()
+    await this.openSelector()
+    const names = (await this.selectorOptions()).slice(1)
+    await this.sceneSelectorTrigger.click()
+    await $('[data-testid="scene-selector-option-all"]').waitForExist({
+      reverse: true,
+      timeout: TIMEOUTS.SHORT,
+      timeoutMsg: 'the scene selector did not close'
+    })
+    return names
   }
 
   // ----- Loading / error -----

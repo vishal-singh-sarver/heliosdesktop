@@ -555,15 +555,16 @@ class ObjectPropertiesPage {
     return this.nameInput.getValue()
   }
 
-  // ===== The name row: pencil, blur-commit, validation tooltip =====
+  // ===== The name row: double-click, blur-commit, validation tooltip =====
   //
   // THREE THINGS DECIDE HOW THESE ARE WRITTEN:
   //
-  // 1. THE NAME IS READ-ONLY UNTIL THE PENCIL IS TAPPED (spec: "edit icon which
-  //    should be tapped only to edit the name"). Writing into it without
-  //    editName() first still mutates the draft — React does not honour
-  //    `readOnly` against a native-setter write — so a test that skips the
-  //    pencil proves nothing about the lock.
+  // 1. THE NAME IS READ-ONLY UNTIL IT IS DOUBLE-CLICKED. The pencil that used to
+  //    unlock it was removed in 10a5a51; while locked the input carries
+  //    GEOMETRY_MSG.renameHint as its `title`. Writing into it without editName()
+  //    first still mutates the draft — React does not honour `readOnly` against a
+  //    native-setter write — so a test that skips the double-click proves nothing
+  //    about the lock.
   // 2. IT COMMITS ON BLUR, not on Enter and not via Save. `handleNameBlur`
   //    (ObjectPropertiesForm.tsx:899) is the only path to renameRequested, and
   //    Save is field-only — `dirty` never consults the name.
@@ -573,8 +574,7 @@ class ObjectPropertiesPage {
   //    `[aria-label^="Validation error:"]` query to the form would match every
   //    field's tooltip too, so it is read from the input's parentElement.
 
-  /** The pencil that unlocks the name. Scoped to THIS form — the Materials
-   *  properties form renders a button with the same aria-label. */
+  /** The REMOVED pencil (10a5a51). An absence oracle only — it must not exist. */
   get editNameButton(): El {
     return this.form.$('button[aria-label="Edit name"]')
   }
@@ -637,13 +637,27 @@ class ObjectPropertiesPage {
     return { value, readOnly, disabled, error }
   }
 
-  /** Tap the pencil and wait for the field to actually unlock. */
+  /** The name input's hover hint (`title`) — present only while it is locked. */
+  async nameHint(): Promise<string | null> {
+    return this.nameInput.getAttribute('title')
+  }
+
+  /**
+   * Double-click the name and wait for the field to actually unlock.
+   *
+   * Dispatched in-page on the input itself: the double-click is the only way in
+   * since the pencil was removed.
+   */
   async editName(): Promise<void> {
-    await this.editNameButton.waitForClickable({ timeout: TIMEOUTS.MEDIUM })
-    await this.editNameButton.click()
+    await this.nameInput.waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    await browser.execute(() => {
+      const el = document.querySelector('[data-testid="object-name"]')
+      if (!el) throw new Error('editName: the Properties form has no name input')
+      el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+    })
     await browser.waitUntil(async () => !(await this.nameState()).readOnly, {
       timeout: TIMEOUTS.SHORT,
-      timeoutMsg: 'the pencil never unlocked the name field'
+      timeoutMsg: 'double-clicking the name never unlocked it'
     })
   }
 

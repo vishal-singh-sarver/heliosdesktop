@@ -33,6 +33,12 @@ export const GEOMETRY_MSG = {
    */
   groupNameExists: 'Group name already exists',
 
+  // Hover hints (native `title`) on every name a double-click renames: the
+  // Properties form header while it is locked, and each tree row. 10a5a51
+  // removed the pencil and put the gesture here instead.
+  renameHint: 'Double-click to rename the geometry.',
+  renameGroupHint: 'Double-click to rename the group.',
+
   // Field validation. The range message is built from the CATALOG's min/max,
   // so specs should compose it from values read at runtime rather than
   // hardcoding bounds that a backend migration can move.

@@ -240,8 +240,8 @@ describe('viewport — loading and error states', () => {
   })
 
   it('a failed scene load shows the error banner, and no loader', async () => {
-    // The banner is reachable ONLY by failing the binary-mesh fetch.
-    // loadSceneWorker's catch is fed by fetchObjectGeometryBinary and nothing
+    // The banner is reachable ONLY by failing the mesh fetch.
+    // loadSceneWorker's catch is fed by the mesh fetch (fetchGeometry) and nothing
     // else, and that call travels by `fetch` — which support/faults.ts
     // deliberately does not patch (it is XHR-only, and says so). Hence
     // installMeshFault, which lives in support/viewport3d.ts alongside the
@@ -256,7 +256,7 @@ describe('viewport — loading and error states', () => {
     // Round-trip WITHOUT a refresh: reloadToHome() calls browser.refresh(),
     // which would drop the renderer-side patch before the scene reloaded.
     const openId = projectId as string
-    await installMeshFault('/geometry/binary')
+    await installMeshFault('/geometry/gpu')
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await HomePage.row(openId).doubleClick()
