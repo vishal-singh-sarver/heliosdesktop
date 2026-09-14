@@ -72,8 +72,13 @@ import {
   waitForMainWindow
 } from '../support/harness'
 import { clickDialogButton, waitForNoOpenDialog, waitForOpenDialog } from '../support/dialogs'
-import { meshFetches, recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
+import { isMeshUrlFor, meshFetches, recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
 import { drainToasts, waitForToast } from '../support/toasts'
+import {
+  unassignMaterial,
+  waitForDefaultMaterial,
+  waitForLibraryRow
+} from '../support/defaultMaterial'
 
 /**
  * The BACKEND's 422 body for a subdivision count above the ground texture's
@@ -110,9 +115,24 @@ describe('A large ground', () => {
   /** Materials created by the running test, oldest first. THE LIBRARY IS GLOBAL. */
   let materials: string[] = []
 
-  const trackGround = async (): Promise<string> => {
+  /**
+   * Create a ground and return its row id.
+   *
+   * Every new ground is born wearing `Mtl.<name>`, a Visualiser on the 512 px
+   * dirt.jpg (support/defaultMaterial.ts). That texture is what caps a ground at
+   * 511 cells per axis, so the ONE test about the cap keeps it (`keepDefault`);
+   * every other test starts from an empty ground — a plain tile with no cap
+   * (scene_object_service._winner_surface 'plain'). Tracked for cleanup either way.
+   */
+  const trackGround = async ({
+    keepDefault = false
+  }: { keepDefault?: boolean } = {}): Promise<string> => {
     const id = await Geometry.addGround()
     grounds.push(id)
+    await ObjectProperties.waitForOpen()
+    const defaultName = await waitForDefaultMaterial()
+    materials.push(await waitForLibraryRow(defaultName))
+    if (!keepDefault) await unassignMaterial(defaultName)
     return id
   }
 
@@ -226,7 +246,7 @@ describe('A large ground', () => {
    * asked for as a 200.
    */
   const meshCallsFor = async (id: string): Promise<number> =>
-    (await meshFetches()).filter((c) => c.url.includes(`/objects/${id}/geometry/binary`)).length
+    (await meshFetches()).filter((c) => isMeshUrlFor(c.url, id)).length
 
   /**
    * Mesh downloads that actually DELIVERED geometry — HTTP 200 with a body.
@@ -241,7 +261,7 @@ describe('A large ground', () => {
    */
   const builtMeshCallsFor = async (id: string): Promise<number> =>
     (await meshFetches()).filter(
-      (c) => c.url.includes(`/objects/${id}/geometry/binary`) && c.status === 200 && c.bytes !== 0
+      (c) => isMeshUrlFor(c.url, id) && c.status === 200 && c.bytes !== 0
     ).length
 
   /** Put a ground's resolution to `value` on BOTH axes and commit each field.
@@ -532,9 +552,9 @@ describe('A large ground', () => {
     expect((await ObjectProperties.fieldState('resolution_x')).value).toBe(SAFE_RESOLUTION)
   })
 
-  // ══ 2. A SOIL ground refuses 1e6 cells ═══════════════════════════════════
+  // ══ 2. A ground wearing its default texture refuses 1e6 cells ═══════════════════════════════════
 
-  it('a SOIL ground REFUSES 1000 x 1000 — the engine message reaches the form, unattached to a field', async () => {
+  it('a ground wearing its DEFAULT dirt texture REFUSES 1000 x 1000 — the engine message reaches the form, unattached to a field', async () => {
     // What the USER sees when the ground texture's pixel cap bites.
     //
     // TRACED, because "what does the frontend do with a 422 RESOLUTION_TOO_HIGH"
@@ -552,7 +572,11 @@ describe('A large ground', () => {
     // false` with no tooltip, so the user gets a banner naming "the resolution"
     // and two resolution fields that both look fine. A code the client already has
     // in hand (`RESOLUTION_TOO_HIGH`) is exactly what would let it flag them.
-    const id = await trackGround()
+    //
+    // The texture whose pixel cap bites is the DEFAULT material's dirt.jpg: every
+    // new ground is born wearing it. Without a material the ground is a plain tile
+    // with no cap at all, which is why this — alone in the file — keeps it.
+    const id = await trackGround({ keepDefault: true })
     await ObjectProperties.waitForOpen()
 
     // HIDE FIRST — and note this is not belt-and-braces here, it is the guard for
@@ -677,52 +701,18 @@ describe('A large ground', () => {
 
   // ══ 4. What that resolution costs you afterwards ═════════════════════════
 
-  it('SWAPPING the material on a 1e6-cell ground is REFUSED — the colour surface is a one-way door', async function () {
+  it('SWAPPING the material on a 1e6-cell ground now SUCCEEDS — a ground with no material has no texture cap', async function () {
     // The heaviest test in the file: two materials, the 10.9s build, and then the
     // replace. Same reasoning as the test above for the raised budget.
     this.timeout(180_000)
 
-    // The follow-on nobody expects, and the most useful thing in this file.
-    //
-    // Assigning a SECOND material to a ground that already has one is a REPLACE:
-    // the ground carries exactly one material (a client-side rule), so
-    // updateObjectWorker DELETEs the displaced assignment BEFORE the add-only
-    // PATCH — "so the ground is never momentarily double-assigned". On the backend
-    // that DELETE runs `_apply_assignment_change`, which compares the desired
-    // surface against the one baked into the live object; with the last material
-    // gone the desired surface is 'soil' again, so it REBUILDS the tile with
-    // dirt.jpg — at 1000x1000, which is the very thing the engine refuses.
-    //
-    // So the material that unlocked the resolution cannot afterwards be taken off
-    // or exchanged: the intermediate state the replace passes through is
-    // unbuildable. PRODUCT FINDING — the user's only route back is to lower the
-    // resolution first, and nothing in the UI says so.
-    //
-    // AND THE FAILURE IS NOT CLEAN, which is the sharper half of the finding.
-    // `unassign_material_group` does `db.delete(...)` then `db.commit()` and only
-    // THEN calls `_apply_assignment_change` — so when the repaint raises, the
-    // assignment is ALREADY GONE from the database and the 422 is returned on top
-    // of a committed delete. `update_object` compensates for exactly this on the
-    // intrinsic path (it re-upserts `prev_canonical` before re-raising); the
-    // unassign path has no such rollback. The user is therefore told the save
-    // failed while the backend has genuinely dropped the material, and the
-    // client's `materialBaseline` still lists it — so a second Save would try to
-    // DELETE an assignment that no longer exists and fail differently. This test
-    // asserts the CLIENT state, which is what a user can see; the divergence is
-    // recorded here rather than asserted because reading it would need a
-    // behind-the-app GET, and it is a product decision, not a test gap.
-    //
-    // (Cost note for whoever
-    // revisits this: assigning another material to a 1e6-cell ground was measured
-    // at 16.1s when it is an ADD rather than a replace, which the API allows for
-    // disjoint material types and this single-select UI cannot express.)
-    //
-    // If this test ever fails because the swap SUCCEEDED — the Materials section
-    // ends up showing `second` and no error appears — that is the good kind of
-    // failure and the mechanism above is what changed. Check
-    // `_apply_assignment_change`'s surface-signature comparison (does the
-    // material-less state still rebuild?) and `updateObjectWorker`'s
-    // delete-before-add, then invert this test rather than deleting it.
+    // INVERTED 2026-09-14. This used to pin a one-way door: replacing a material
+    // is delete-then-add (updateObjectWorker), and with the last material gone the
+    // desired surface was 'soil' — a dirt.jpg rebuild at 1000x1000, which the
+    // engine refuses. Since 6878eaf ("a new ground carries no texture and no
+    // colour of ours") a ground with no material is a PLAIN tile with no texture
+    // cap, so the intermediate state the replace passes through is buildable and
+    // the swap succeeds. The CLAUDE.md §7 finding is closed.
     const first = await colourMaterial('12', '34', '56')
     const second = await colourMaterial('200', '100', '50')
 
@@ -752,18 +742,8 @@ describe('A large ground', () => {
     await clickDialogButton(GEOMETRY_MATERIAL_MSG.replaceConfirm)
     await waitForNoOpenDialog()
 
-    // The unassign is what fails, so the message is the ground TEXTURE's cap
-    // coming back — the same string test 2 gets from the same engine check. Two
-    // very different user actions, one root cause: 1000 subdivisions over a
-    // 512-pixel soil texture.
-    expect(await waitForFormError()).toBe(RESOLUTION_TOO_HIGH_MSG)
-
-    // The PATCH never went — updateObjectWorker throws out of the unassign call
-    // before it — so the pick is still only a draft and Save is still offered.
-    // Nothing tells the user that the retry cannot succeed either. Do NOT read
-    // this as "the backend is untouched": the DELETE was committed before the
-    // repaint failed (see the note above).
-    expect(await ObjectProperties.saveEnabled()).toBe(true)
-    await waitForAssigned([second])
+    await waitForSaveSettled()
+    expect(await formError()).toBe(null)
+    await waitForAssigned([second], TIMEOUTS.MUTATION)
   })
 })

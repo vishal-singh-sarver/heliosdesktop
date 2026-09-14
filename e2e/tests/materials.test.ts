@@ -4094,21 +4094,22 @@ describe('Materials', () => {
 
   describe('renaming from the FORM', () => {
     // The left-panel row editor is covered eight ways above. The FORM's own name
-    // header — a read-only input plus a pencil that unlocks it — had no coverage at
-    // all, and neither did the direction the two panels have to agree in.
+    // header — a read-only input a double-click unlocks (its pencil was removed in
+    // 10a5a51) — had no coverage at all, and neither did the direction the two
+    // panels have to agree in.
 
-    /**
-     * The form header's pencil. Clicked in-page, the same doctrine the row icons
-     * use. `[aria-label="Edit name"]` is unambiguous here: ObjectPropertiesForm
-     * carries one too (those two are its only occurrences in src/), but RightPanel
-     * renders exactly ONE form at a time and this file never opens a geometry.
-     */
-    const clickPencil = async (): Promise<void> => {
+    /** Double-click the form's name header — the only way to unlock it. */
+    const unlockFormName = async (): Promise<void> => {
       await browser.execute(() => {
-        const btn = document.querySelector('[aria-label="Edit name"]') as HTMLElement | null
-        if (!btn) throw new Error('the Properties form has no Edit name control')
-        btn.click()
+        const el = document.querySelector('[data-testid="material-form-name"]')
+        if (!el) throw new Error('unlockFormName: the material Properties form is not open')
+        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
       })
+      await browser.waitUntil(
+        async () =>
+          (await $('[data-testid="material-form-name"]').getAttribute('readonly')) === null,
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'double-clicking never unlocked material-form-name' }
+      )
     }
 
     /**
@@ -4155,7 +4156,7 @@ describe('Materials', () => {
       })
     })
 
-    it('the PENCIL renames from the form, and the LEFT ROW follows', async () => {
+    it('a DOUBLE-CLICK renames from the form, and the LEFT ROW follows', async () => {
       const id = await track()
       await MaterialProperties.waitForOpen()
       const before = await nameOf(id)
@@ -4165,25 +4166,25 @@ describe('Materials', () => {
       // Material.NNN is 12 chars, so +1 stays inside the 20-char limit.
       const next = `${before}x`
 
-      await clickPencil()
+      await unlockFormName()
       await writeFormName(next)
       await blurFormName()
 
       await browser.waitUntil(async () => (await Materials.rowState(id))?.name === next, {
         timeout: TIMEOUTS.MUTATION,
-        timeoutMsg: 'the pencil rename never reached the left-panel row'
+        timeoutMsg: 'the form rename never reached the left-panel row'
       })
       expect(await MaterialProperties.nameValue()).toBe(next)
     })
 
-    it('blurring the READ-ONLY name fires NO rename — the PENCIL is the only way in', async () => {
+    it('blurring the READ-ONLY name fires NO rename — a double-click is the only way in', async () => {
       // handleNameBlur opens `if (!nameEditing) return`, and that guard is
       // load-bearing: the field stays FOCUSABLE while read-only, so it is blurred
       // just by tabbing through the panel — which used to fire a PATCH on every
       // pass. The ROW's name is the oracle, because it only changes when the rename
       // actually lands.
       //
-      // No pencil. The write still reaches React's onChange (readOnly blocks the
+      // No double-click. The write still reaches React's onChange (readOnly blocks the
       // USER, not a dispatched input event — React's change plugin consults its
       // value tracker, not readOnly), so the draft really does hold the new text
       // and a missing guard really would dispatch the rename.
@@ -6143,25 +6144,20 @@ describe('Materials', () => {
       })
 
     /**
-     * Click the pencil and wait for the field to actually unlock.
+     * Double-click the name and wait for the field to actually unlock.
      *
-     * In-page: the pencil is one of three 24px icons crowded against the name, and
-     * a WebDriver click there is the sort that gets intercepted. Scoped to
-     * `right-panel` because Geometry's ObjectPropertiesForm carries the SAME
-     * aria-label — the two forms are mutually exclusive today, and this keeps the
-     * helper honest if that ever changes.
+     * Dispatched in-page on material-form-name. The pencil this used to click was
+     * removed in 10a5a51; the input's own double-click is now the only way in.
      */
     const startFormNameEdit = async (): Promise<void> => {
       await browser.execute(() => {
-        const btn = document.querySelector(
-          '[data-testid="right-panel"] button[aria-label="Edit name"]'
-        ) as HTMLElement | null
-        if (!btn) throw new Error('the Material Properties form has no "Edit name" pencil')
-        btn.click()
+        const el = document.querySelector('[data-testid="material-form-name"]')
+        if (!el) throw new Error('the Material Properties form has no name input')
+        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
       })
       await browser.waitUntil(async () => !(await formNameState()).readOnly, {
         timeout: TIMEOUTS.MEDIUM,
-        timeoutMsg: 'the pencil never unlocked material-form-name'
+        timeoutMsg: 'double-clicking never unlocked material-form-name'
       })
     }
 
@@ -6189,43 +6185,42 @@ describe('Materials', () => {
       })
     }
 
-    it('the EDIT NAME pencil ships on the PROPERTIES FORM only — the library row has NONE', async () => {
-      // Pins the shipped split: pencil on the right, double-click on the left.
-      // Materials.page.ts already records "there is no pencil in the list" in a
-      // comment; nothing asserted it, in either direction.
+    it('NEITHER panel has a pencil — both names unlock on DOUBLE-CLICK and say so on hover', async () => {
+      // 10a5a51 removed the form's "Edit name" pencil and put the gesture in a
+      // `title` hint on both names: the form header (only while locked) and the
+      // library row (always). Pinned both ways, so a pencil coming back or a hint
+      // going missing turns this red.
       const id = await track()
       await MaterialProperties.waitForOpen()
 
-      // Exactly ONE such control in the whole document, and it is in the right
-      // panel — not merely "a pencil exists somewhere". Safe as an equality
-      // because RightPanel renders ONE of the two Properties forms, never both.
-      const pencils = await browser.execute(() =>
-        Array.from(document.querySelectorAll('[aria-label="Edit name"]')).map((b) => ({
-          tag: b.tagName,
-          inRightPanel: b.closest('[data-testid="right-panel"]') !== null,
-          inMaterialsPanel: b.closest('[data-testid="materials-panel"]') !== null
-        }))
-      )
-      expect(pencils).toEqual([{ tag: 'BUTTON', inRightPanel: true, inMaterialsPanel: false }])
-      await expect($('[data-testid="right-panel"] button[aria-label="Edit name"]')).toBeDisplayed()
+      expect(
+        await browser.execute(() => document.querySelectorAll('[aria-label="Edit name"]').length)
+      ).toBe(0)
+      expect(await MaterialProperties.nameInput.getAttribute('title')).toBe(MATERIALS_MSG.renameHint)
+      expect(await Materials.rowName(id).getAttribute('title')).toBe(MATERIALS_MSG.renameHint)
 
-      // The row is not simply barren — it carries its trash. So the absence below
-      // is the pencil's absence, not a row that failed to render. Scoped to the
+      // The row is not simply barren — it still carries its trash. Scoped to the
       // row BOX (MaterialRow puts material-row-{id} on the inner div, with its
       // error line and its confirmation Dialog as siblings outside it), so the
       // dialog's own buttons can never be counted here.
-      const row = await browser.execute((rowId: string) => {
-        const el = document.querySelector(`[data-testid="material-row-${rowId}"]`)
-        if (!el) return null
-        return {
-          pencils: el.querySelectorAll('[aria-label="Edit name"]').length,
-          trashes: el.querySelectorAll('[aria-label="Delete material"]').length
-        }
-      }, id)
-      expect(row).toEqual({ pencils: 0, trashes: 1 })
+      expect(
+        await browser.execute(
+          (rowId: string) =>
+            document.querySelectorAll(
+              `[data-testid="material-row-${rowId}"] [aria-label="Delete material"]`
+            ).length,
+          id
+        )
+      ).toBe(1)
+
+      // Once unlocked, the form's hint is gone — the advice is spent.
+      await startFormNameEdit()
+      expect(await MaterialProperties.nameInput.getAttribute('title')).toBe(null)
+      // Unchanged name: handleNameBlur re-locks without a PATCH.
+      await blurFormName()
     })
 
-    it('clicking the pencil UNLOCKS material-form-name, FOCUSES it, and lets keystrokes through', async () => {
+    it('double-clicking UNLOCKS material-form-name, FOCUSES it, and lets keystrokes through', async () => {
       const id = await track()
       await MaterialProperties.waitForOpen()
 
@@ -6245,7 +6240,7 @@ describe('Materials', () => {
       // ever focuses the field this times out saying so.
       await browser.waitUntil(async () => (await formNameState()).focused, {
         timeout: TIMEOUTS.SHORT,
-        timeoutMsg: 'the pencil unlocked the name field but never put the caret in it'
+        timeoutMsg: 'the double-click unlocked the name field but never put the caret in it'
       })
 
       // A REAL keystroke, not a native-setter write. This is the assertion the

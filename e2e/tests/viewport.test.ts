@@ -11,16 +11,11 @@
  *
  * ── The oracle, and the trap inside it ────────────────────────────────────
  *
- * The viewport renders its scene contents as plain DOM text behind the stats
- * toggle, which makes them readable without touching WebGL. But the overlay is
- * NOT self-refreshing: hide and delete evict synchronously (so the memo
- * recomputes), while create and un-hide re-fetch asynchronously and land via a
- * reducer that never touches any memo dependency. Read naively, the overlay
- * reports Primitives: 0 for a ground that is visible and rendered.
- *
- * Viewport3D.readStats() therefore closes and reopens the overlay on every
- * read, which forces a recompute against the live cache. Every assertion here
- * depends on that; see the header of e2e/pages/Viewport3D.page.ts.
+ * The statistics overlay this file used to read is hidden (Viewport3D.tsx
+ * SHOW_STATS_UI = false, d9b9d39 — pinned as a DEVIATION below). What the
+ * scene holds is read from the scene selector, which lists every visible
+ * object (Viewport3D.sceneObjectNames), and how big each object is from the
+ * mesh the viewport downloaded (support/viewport3d.ts waitForMeshSummary).
  *
  * ── Two DEVIATIONS worth knowing before editing this file ─────────────────
  *
@@ -53,10 +48,19 @@ import {
   waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
-import { meshFetches, recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
+import {
+  isMeshUrlFor,
+  meshFetches,
+  recordMeshFetches,
+  textureFiles,
+  waitForMeshFetch,
+  waitForMeshSummary
+} from '../support/viewport3d'
 import { dragMaterialOnto } from '../support/dnd'
+import { clickDialogButton, waitForNoOpenDialog, waitForOpenDialog } from '../support/dialogs'
 import { TIMEOUTS } from '../config/timeouts'
-import { DEFAULT_GROUND_STATS, SCENE_SELECTOR, expectedStatsForGrounds } from '../constants/viewport'
+import { GEOMETRY_MATERIAL_MSG } from '../constants/geometry'
+import { DEFAULT_GROUND_STATS, SCENE_SELECTOR } from '../constants/viewport'
 
 let projectId: string | null = null
 
@@ -93,78 +97,63 @@ async function addGroundWithMesh(): Promise<string> {
   return id
 }
 
-describe('3D viewport — the scene statistics oracle', () => {
-  it('the overlay toggles open and closed', async () => {
-    expect(await Viewport.statsOpen()).toBe(false)
+describe('3D viewport — what the scene holds', () => {
+  const nameOf = async (id: string): Promise<string> =>
+    (await Geometry.rowName(id).getText()).trim()
 
-    await Viewport.openStats()
-    expect(await Viewport.statsOpen()).toBe(true)
-
-    await Viewport.closeStats()
-    expect(await Viewport.statsOpen()).toBe(false)
+  it('the statistics toggle and overlay are NOT shipped', async () => {
+    // DEVIATION: d9b9d39 hid the statistics button and its overlay
+    // (SHOW_STATS_UI = false). Turning the flag back on fails this — restore the
+    // overlay tests then.
+    await addGroundWithMesh()
+    expect(await Viewport.statsToggle.isExisting()).toBe(false)
+    expect(await Viewport.statsOverlay.isExisting()).toBe(false)
   })
 
-  it('an empty scene reports all zeros, and NO Quads row', async () => {
-    // The overlay is not gated on objects.length, unlike the selector and the
-    // left toolbar — it renders with zeros. Quads is the one conditional row
-    // (rendered only when > 0), so its absence here is the assertion.
-    const stats = await Viewport.readStats()
-    expect(stats.objects).toBe(0)
-    expect(stats.primitives).toBe(0)
-    expect(stats.triangles).toBe(0)
-    expect(stats.vertices).toBe(0)
-    expect(stats.quads).toBe(null)
+  it('an empty scene holds no objects', async () => {
+    expect(await Viewport.sceneObjectNames()).toEqual([])
   })
 
   it('a new ground APPEARS in the scene, not just in the tree', async () => {
-    await addGroundWithMesh()
-
-    const stats = await Viewport.readStats()
-    const expected = expectedStatsForGrounds(1)
-    expect(stats.objects).toBe(expected.objects)
-    expect(stats.primitives).toBe(expected.primitives)
-    expect(stats.triangles).toBe(expected.triangles)
-    expect(stats.vertices).toBe(expected.vertices)
-    expect(stats.quads).toBe(expected.quads)
+    const id = await addGroundWithMesh()
+    expect(await Viewport.sceneObjectNames()).toEqual([await nameOf(id)])
+    const mesh = await waitForMeshSummary(id)
+    expect(mesh.primitiveCount).toBe(DEFAULT_GROUND_STATS.primitives)
+    expect(mesh.totalTris).toBe(DEFAULT_GROUND_STATS.triangles)
+    expect(mesh.totalVerts).toBe(DEFAULT_GROUND_STATS.vertices)
   })
 
   it('a second ground ADDS to the scene', async () => {
-    await addGroundWithMesh()
-    await addGroundWithMesh()
-
-    const stats = await Viewport.readStats()
-    const expected = expectedStatsForGrounds(2)
-    expect(stats.objects).toBe(expected.objects)
-    expect(stats.primitives).toBe(expected.primitives)
-    expect(stats.triangles).toBe(expected.triangles)
+    const first = await addGroundWithMesh()
+    const second = await addGroundWithMesh()
+    const objects = await Viewport.sceneObjectNames()
+    expect(objects).toHaveLength(2)
+    expect(objects).toContain(await nameOf(first))
+    expect(objects).toContain(await nameOf(second))
   })
 
   it('HIDING a ground removes it from the scene', async () => {
-    // The assertion the suite has never had: hiding was previously verified
-    // only against the tree row's icon, so a viewport that kept the mesh on
-    // screen passed.
     const first = await addGroundWithMesh()
-    await addGroundWithMesh()
-    expect((await Viewport.readStats()).objects).toBe(2)
+    const second = await addGroundWithMesh()
+    const secondName = await nameOf(second)
+    expect(await Viewport.sceneObjectNames()).toHaveLength(2)
 
     await Geometry.clickEye(first)
 
-    await browser.waitUntil(async () => (await Viewport.readStats()).objects === 1, {
-      timeout: TIMEOUTS.LONG,
-      timeoutMsg: 'hiding a ground did not remove it from the scene'
-    })
-    const stats = await Viewport.readStats()
-    expect(stats.primitives).toBe(DEFAULT_GROUND_STATS.primitives)
-    expect(stats.triangles).toBe(DEFAULT_GROUND_STATS.triangles)
+    await browser.waitUntil(
+      async () => {
+        const objects = await Viewport.sceneObjectNames()
+        return objects.length === 1 && objects[0] === secondName
+      },
+      { timeout: TIMEOUTS.LONG, timeoutMsg: 'hiding a ground did not remove it from the scene' }
+    )
   })
 
   it('UN-HIDING a ground restores it to the scene', async () => {
-    // The test that would silently fail without the re-toggle protocol: the
-    // re-fetch lands asynchronously through a reducer that touches no memo
-    // dependency, so a naive read reports Primitives: 0 forever.
     const id = await addGroundWithMesh()
+    const name = await nameOf(id)
     await Geometry.clickEye(id)
-    await browser.waitUntil(async () => (await Viewport.readStats()).objects === 0, {
+    await browser.waitUntil(async () => (await Viewport.sceneObjectNames()).length === 0, {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'the ground never left the scene'
     })
@@ -174,24 +163,30 @@ describe('3D viewport — the scene statistics oracle', () => {
     await waitForMeshFetch(id)
     await Viewport.waitForIdle()
 
-    const stats = await Viewport.readStats()
-    expect(stats.objects).toBe(1)
-    expect(stats.primitives).toBe(DEFAULT_GROUND_STATS.primitives)
-    expect(stats.triangles).toBe(DEFAULT_GROUND_STATS.triangles)
+    await browser.waitUntil(async () => (await Viewport.sceneObjectNames()).includes(name), {
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: 'un-hiding the ground did not bring it back into the scene'
+    })
+    const mesh = await waitForMeshSummary(id)
+    expect(mesh.primitiveCount).toBe(DEFAULT_GROUND_STATS.primitives)
+    expect(mesh.totalTris).toBe(DEFAULT_GROUND_STATS.triangles)
   })
 
   it('DELETING a ground removes it from the scene', async () => {
     const first = await addGroundWithMesh()
-    await addGroundWithMesh()
-    expect((await Viewport.readStats()).objects).toBe(2)
+    const second = await addGroundWithMesh()
+    const secondName = await nameOf(second)
+    expect(await Viewport.sceneObjectNames()).toHaveLength(2)
 
     await Geometry.deleteRow(first)
 
-    await browser.waitUntil(async () => (await Viewport.readStats()).objects === 1, {
-      timeout: TIMEOUTS.LONG,
-      timeoutMsg: 'deleting a ground did not remove it from the scene'
-    })
-    expect((await Viewport.readStats()).primitives).toBe(DEFAULT_GROUND_STATS.primitives)
+    await browser.waitUntil(
+      async () => {
+        const objects = await Viewport.sceneObjectNames()
+        return objects.length === 1 && objects[0] === secondName
+      },
+      { timeout: TIMEOUTS.LONG, timeoutMsg: 'deleting a ground did not remove it from the scene' }
+    )
   })
 })
 
@@ -239,7 +234,7 @@ describe('3D viewport — the scene selector', () => {
       async () => (await Viewport.selectorLabel()) === SCENE_SELECTOR.allOption,
       { timeout: TIMEOUTS.LONG, timeoutMsg: 'the selector never returned to All' }
     )
-    expect((await Viewport.readStats()).objects).toBe(2)
+    expect(await Viewport.sceneObjectNames()).toHaveLength(2)
   })
 })
 
@@ -321,10 +316,23 @@ describe('3D viewport — a material change restyles the objects using it', () =
 
     await Geometry.selectRow(assigned)
     await ObjectProperties.waitForOpen()
+
+    await recordMeshFetches()
     await dragMaterialOnto({ groupId: materialId, name: materialName }, assigned)
-    // The assignment itself refetches; wait it out before re-arming so its
-    // fetch cannot satisfy the assertion below.
-    await waitForMeshFetch(assigned)
+    // Every new ground is born wearing its default Mtl. material, so the drop
+    // asks to REPLACE it first (TreeRow's own Replace dialog).
+    const dialog = await waitForOpenDialog()
+    expect(dialog.ariaLabel).toBe(GEOMETRY_MATERIAL_MSG.replaceTitle)
+    await clickDialogButton(GEOMETRY_MATERIAL_MSG.replaceConfirm)
+    await waitForNoOpenDialog()
+    await browser.waitUntil(
+      async () => (await ObjectProperties.assignedNames()).includes(materialName),
+      { timeout: TIMEOUTS.MUTATION, timeoutMsg: `"${materialName}" never replaced the default` }
+    )
+    // The replace's own refetch: the blank material has no Visualiser, so the
+    // ground is rebuilt WITHOUT the default's texture. Wait for exactly that
+    // before re-arming, so it cannot satisfy the assertion below.
+    await waitForMeshSummary(assigned, (s) => textureFiles(s).length === 0)
     await Viewport.waitForIdle()
 
     await recordMeshFetches()
@@ -332,6 +340,6 @@ describe('3D viewport — a material change restyles the objects using it', () =
 
     await waitForMeshFetch(assigned)
     const urls = (await meshFetches()).map((c) => c.url)
-    expect(urls.some((u) => u.includes(`/objects/${untouched}/geometry/binary`))).toBe(false)
+    expect(urls.some((u) => isMeshUrlFor(u, untouched))).toBe(false)
   })
 })

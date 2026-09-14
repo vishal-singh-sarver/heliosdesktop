@@ -69,6 +69,11 @@ import { dragMaterialOnto } from '../support/dnd'
 import { recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
 import { clearApiFaults } from '../support/faults'
 import { drainToasts, waitForToast } from '../support/toasts'
+import {
+  unassignMaterial,
+  waitForDefaultMaterial,
+  waitForLibraryRow
+} from '../support/defaultMaterial'
 
 /**
  * Spectral-upload copy, mirrored from containers/Materials/messages.ts:113
@@ -84,9 +89,21 @@ describe('Material uploads — real files', () => {
   /** Materials created by the running test, oldest first. */
   let materials: string[] = []
 
+  /**
+   * Create a ground and return its row id, WITHOUT its default material.
+   *
+   * Every new ground is born wearing `Mtl.<name>` (support/defaultMaterial.ts);
+   * the texture test drops an uploaded texture onto an empty ground, so the
+   * default is unassigned here and tracked for cleanup (option A, agreed
+   * 14 Sep 2026).
+   */
   const trackGround = async (): Promise<string> => {
     const id = await Geometry.addGround()
     grounds.push(id)
+    await ObjectProperties.waitForOpen()
+    const defaultName = await waitForDefaultMaterial()
+    materials.push(await waitForLibraryRow(defaultName))
+    await unassignMaterial(defaultName)
     return id
   }
 

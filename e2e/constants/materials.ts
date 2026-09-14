@@ -25,6 +25,8 @@ export const MATERIALS_MSG = {
   nameRequired: 'Name is required',
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Material name already exists',
+  /** Hover hint on the form header (while locked) and on every library row. */
+  renameHint: 'Double-click to rename the material.',
 
   // Field validation
   fieldRequired: 'Required Field',

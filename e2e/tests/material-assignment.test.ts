@@ -43,6 +43,8 @@
  *    new one — select the row you mean before picking a material for it. The same
  *    goes for +Add Materials, which swaps this form for the MATERIAL form: every
  *    test below creates its materials FIRST and its ground last.
+ *  - EVERY NEW GROUND IS BORN WEARING `Mtl.<name>`. trackGround() unassigns it
+ *    before a test sees the ground, and tracks it so afterEach deletes it too.
  *
  * ── Two surfaces that behave unlike anything else in this app ─────────────
  * 1. BOTH POPUPS ARE PORTALLED to document.body, and AnchoredPopup returns null
@@ -94,6 +96,11 @@ import {
 import { recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
 import { clearApiFaults, withApiFault } from '../support/faults'
 import { drainToasts, waitForToast } from '../support/toasts'
+import {
+  unassignMaterial,
+  waitForDefaultMaterial,
+  waitForLibraryRow
+} from '../support/defaultMaterial'
 
 describe('Material assignment', () => {
   /** Grounds created by the running test, oldest first. */
@@ -101,9 +108,22 @@ describe('Material assignment', () => {
   /** Materials created by the running test, oldest first. */
   let materials: string[] = []
 
+  /**
+   * Create a ground and return its row id.
+   *
+   * Every new ground is born wearing its default `Mtl.<name>` material
+   * (support/defaultMaterial.ts). The tests in this file are about assigning
+   * onto an EMPTY ground, so the default is unassigned here — option A, agreed
+   * 14 Sep 2026. It is tracked for cleanup either way, because deleting the
+   * ground leaves the material in the library.
+   */
   const trackGround = async (): Promise<string> => {
     const id = await Geometry.addGround()
     grounds.push(id)
+    await ObjectProperties.waitForOpen()
+    const defaultName = await waitForDefaultMaterial()
+    materials.push(await waitForLibraryRow(defaultName))
+    await unassignMaterial(defaultName)
     return id
   }
 
@@ -487,6 +507,16 @@ describe('Material assignment', () => {
       }
       await trackGround()
       await ObjectProperties.waitForOpen()
+      // Creating a ground ADDS its default Mtl. material to the library, and
+      // trackGround() only unassigns it — so the library is empty again only once
+      // that default is deleted from the library too.
+      const [defaultRow] = await Materials.snapshot()
+      await Materials.deleteRow(defaultRow.id)
+      materials = materials.filter((x) => x !== defaultRow.id)
+      await browser.waitUntil(async () => (await Materials.rowCount()) === 0, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'the library never emptied after deleting the ground default'
+      })
       await openPicker()
 
       const state = await ObjectProperties.pickerState()
@@ -1455,28 +1485,21 @@ describe('Material assignment', () => {
       (await MaterialProperties.nameInput.getAttribute('readonly')) !== null
 
     /**
-     * Tap the pencil and wait for the field to actually unlock.
+     * Double-click the material name and wait for the field to actually unlock.
      *
-     * The pencil is reached by walking OUT of the name input rather than by a bare
-     * `button[aria-label="Edit name"]`: the GROUND form renders a pencil carrying
-     * exactly the same label. RightPanel only ever mounts one form at a time, so
-     * today the bare query would be unambiguous — but a selector that would
-     * silently address the other panel is not worth keeping. The input sits inside
-     * a `relative` wrapper, which sits in the header row beside the pencil, hence
-     * the two hops.
+     * The pencil this used to click was removed in 10a5a51; a double-click on
+     * material-form-name is now the only way in. Dispatched in-page, like every
+     * other control this file drives inside the right panel.
      */
     const editMaterialName = async (): Promise<void> => {
       await browser.execute(() => {
         const input = document.querySelector('[data-testid="material-form-name"]')
         if (!input) throw new Error('editMaterialName: the material form is not open')
-        const header = input.parentElement?.parentElement
-        const btn = header?.querySelector('[aria-label="Edit name"]') as HTMLElement | null
-        if (!btn) throw new Error('editMaterialName: the material form has no pencil')
-        btn.click()
+        input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
       })
       await browser.waitUntil(async () => !(await materialNameLocked()), {
         timeout: TIMEOUTS.SHORT,
-        timeoutMsg: 'the pencil never unlocked the material name field'
+        timeoutMsg: 'double-clicking never unlocked the material name field'
       })
     }
 

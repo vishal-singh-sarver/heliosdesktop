@@ -19,7 +19,7 @@
  *    persistence — e2e/tests/geometry.test.ts
  *
  * The through-line of what was missing: the right panel's NAME field. Nothing at
- * any layer had ever driven the pencil, so handleNameBlur — the only path to a
+ * any layer had ever driven the name field, so handleNameBlur — the only path to a
  * rename from this form, and the only place NO_NAME_CONFLICTS makes the form
  * behave differently from the tree — was unreached code.
  *
@@ -148,37 +148,40 @@ describe('Ground container', () => {
 
   // ══ The right panel's name field ═════════════════════════════════════════
   //
-  // Nothing at any layer had driven this before. The pencil is addressed by
-  // aria-label, which the MATERIALS properties form also carries — hence the
-  // page object scopes it to object-properties-form.
+  // Nothing at any layer had driven this before. The name unlocks on
+  // double-click — the pencil was removed in 10a5a51 — and ObjectProperties
+  // scopes every read to object-properties-form.
 
   describe('rename from the Properties form', () => {
-    it('the name is read-only until the pencil unlocks it, and then takes focus', async () => {
+    it('the name is read-only until DOUBLE-CLICKED, and then takes focus', async () => {
       await track()
       await ObjectProperties.waitForOpen()
 
-      // Read-only is the SHIPPED lock ("edit icon which should be tapped only to
-      // edit the name"), not merely a styling choice.
+      // Read-only is the SHIPPED lock, not merely a styling choice.
       expect((await ObjectProperties.nameState()).readOnly).toBe(true)
 
       await ObjectProperties.editName()
       expect((await ObjectProperties.nameState()).readOnly).toBe(false)
-      expect(await ObjectProperties.nameInput.isFocused()).toBe(true)
+      // Polled: the focus lives in an effect keyed on nameEditing, which commits
+      // after the render that flipped readOnly.
+      await browser.waitUntil(async () => ObjectProperties.nameInput.isFocused(), {
+        timeout: TIMEOUTS.SHORT,
+        timeoutMsg: 'the unlocked name field never took focus'
+      })
     })
 
-    it('double-clicking the name unlocks it too — the second route to the same state', async () => {
+    it('the locked name says how to rename it, and there is no pencil any more', async () => {
+      // 10a5a51 removed the "Edit name" pencil and put the gesture in a hover
+      // hint. The hint is there only while the field is locked.
       await track()
       await ObjectProperties.waitForOpen()
-      expect((await ObjectProperties.nameState()).readOnly).toBe(true)
+      expect(await ObjectProperties.nameHint()).toBe(GEOMETRY_MSG.renameHint)
+      expect(await ObjectProperties.editNameButton.isExisting()).toBe(false)
 
-      await browser.execute(() => {
-        const el = document.querySelector('[data-testid="object-name"]')
-        el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
-      })
-      await browser.waitUntil(async () => !(await ObjectProperties.nameState()).readOnly, {
-        timeout: TIMEOUTS.SHORT,
-        timeoutMsg: 'double-clicking the name did not unlock it'
-      })
+      await ObjectProperties.editName()
+      expect(await ObjectProperties.nameHint()).toBe(null)
+      // The blur commits the unchanged name, which handleNameBlur ignores.
+      await ObjectProperties.commitName()
     })
 
     it('BLUR commits the rename, and the left-panel row follows', async () => {
