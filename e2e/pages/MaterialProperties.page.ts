@@ -159,6 +159,22 @@ class MaterialPropertiesPage {
   /** Pick by label, clicking IN-PAGE (the list is parked off-screen at first). */
   async pickType(cardId: number, label: string): Promise<void> {
     await this.openTypeDropdown(cardId)
+    // The listbox EXISTING is not the same as its options being there: the list
+    // mounts parked off-screen and its options render a moment later. Picking on
+    // the first sample threw `pickType: no option "Visualiser"` once in a full
+    // run (15 Sep 2026) on a test that passes standalone. Wait for THIS label,
+    // and report what was offered if it never comes.
+    let offered: string[] = []
+    await browser.waitUntil(
+      async () => {
+        offered = (await this.typeOptions()).map((o) => o.label)
+        return offered.includes(label)
+      },
+      {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: `pickType: the type list never offered "${label}" (offered: ${JSON.stringify(offered)})`
+      }
+    )
     await browser.execute((want: string) => {
       const opt = Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).find(
         (o) => (o.textContent || '').trim() === want

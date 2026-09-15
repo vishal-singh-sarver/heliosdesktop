@@ -404,6 +404,19 @@ export async function enterProject(
   // or as an assertion on a value that silently reverted, on a DIFFERENT
   // coordinate test each run. We know exactly what the header must read, so wait
   // for it rather than for a heuristic settle.
+  //
+  // IDENTITY FIRST, values second. Every enterProject uses the same coordinates,
+  // so the PREVIOUS project's header already reads (lat, lon) and the value wait
+  // alone passes before the new project is active. A test then typed into the old
+  // render and either had it wiped by the late resetForm ("did not take the
+  // value") or blurred while activeProject was not yet the new one, so
+  // commitCoordinate returned early and never reverted ("blur did not revert the
+  // rejected coordinate") — both measured 15 Sep 2026 on rotating loop cases. The
+  // title renders activeProject.name, so matching it proves the switch landed.
+  await browser.waitUntil(async () => (await ProjectScreen.projectTitle.getText()).trim() === name, {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: `ProjectScreen never showed the created project "${name}" as active`
+  })
   await ProjectScreen.waitForCoordinatesSeeded(lat, lon)
   return { id, name }
 }
