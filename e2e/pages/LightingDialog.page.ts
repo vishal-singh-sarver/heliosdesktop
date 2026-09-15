@@ -133,16 +133,25 @@ class LightingDialogPage {
     // whether the input is clickable; it needs the caret in the field, which
     // .focus() gives deterministically. It still fires the component's onFocus.
     await el.waitForExist({ timeout: TIMEOUTS.SHORT })
-    await browser.execute((sel: string) => {
-      ;(document.querySelector(sel) as HTMLElement | null)?.focus()
-    }, selector)
     // Focus MUST be verified: the select-all chord below goes to the document
     // if it missed, the delete clears nothing, and the new text is appended to
     // the old instead of replacing it.
-    await browser.waitUntil(async () => el.isFocused(), {
-      timeout: TIMEOUTS.SHORT,
-      timeoutMsg: `${selector} never took focus`
-    })
+    //
+    // And it is RE-REQUESTED on every poll, not once. Committing the previous
+    // value re-renders the panel, and a focus() that lands on the node about to
+    // be replaced is lost with it — observed in a full run as "lighting-elevation
+    // never took focus" while the same test passed standalone. Re-querying the
+    // selector each time always targets the live input.
+    await browser.waitUntil(
+      async () => {
+        if (await el.isFocused()) return true
+        await browser.execute((sel: string) => {
+          ;(document.querySelector(sel) as HTMLElement | null)?.focus()
+        }, selector)
+        return el.isFocused()
+      },
+      { timeout: TIMEOUTS.SHORT, interval: 100, timeoutMsg: `${selector} never took focus` }
+    )
     await browser.keys([SELECT_ALL_KEY, 'a'])
     await browser.keys(['Delete'])
     // ONE addValue, not a keystroke per character.

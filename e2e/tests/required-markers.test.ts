@@ -9,8 +9,11 @@
  * why every assertion here is about VISIBLE markers: outside a `.sr-only`
  * ancestor, with a non-zero box.
  *
- * Material fields follow the live catalog: a field shows `*` exactly when
- * /api/catalog/material-types marks it `required` (Materials/materialBlueprint.ts).
+ * Material fields follow the live catalog: a field shows `*` when
+ * /api/catalog/material-types marks it `required` (Materials/materialBlueprint.ts)
+ * — with one override: the Radiation card's spectrum fields
+ * (reflectivity_spectrum, transmissivity_spectrum) are ALWAYS starred by
+ * MaterialRadiationEditor.tsx, whatever the catalog says.
  */
 
 import Geometry from '../pages/Geometry.page'
@@ -96,7 +99,9 @@ describe('Required-field asterisks', () => {
     })
 
     it('Rename Project: its name field carries a visible *', async () => {
-      const { id } = await createNamedReturnHome(uniqueName('req'))
+      const { id, name } = await createNamedReturnHome(uniqueName('req'))
+      // Rename lives in the row's kebab menu — open it first, as homepage.test.ts does.
+      await HomePage.openRowMenu(name)
       await HomePage.requestRename(id)
       await HomePage.renameDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       expect(visibleFields(await requiredMarkers('dialog[open]'))).toEqual(['projectName'])
@@ -154,7 +159,7 @@ describe('Required-field asterisks', () => {
       expect(markers.filter((m) => !m.visible).length).toBeGreaterThan(0)
     })
 
-    it('a material type card shows * on exactly the properties the catalog marks required', async () => {
+    it('a Radiation card shows * on the catalog-required properties AND the always-starred spectrum fields', async () => {
       await browser.waitUntil(async () => Materials.addButton.isEnabled().catch(() => false), {
         timeout: TIMEOUTS.LONG,
         timeoutMsg: '+ Add Materials never became enabled'
@@ -166,8 +171,12 @@ describe('Required-field asterisks', () => {
 
       const rendered = await MaterialProperties.renderedProps(cardId)
       const required = await requiredCatalogProps('Radiation')
+      // The catalog never marks these object-type properties required, but
+      // MaterialRadiationEditor.tsx passes `required: true` for the spectrum
+      // fields ALWAYS ("a standing property of the field"), overriding it.
+      const ALWAYS_STARRED = ['reflectivity_spectrum', 'transmissivity_spectrum']
       const expected = rendered
-        .filter((p) => required.includes(p))
+        .filter((p) => required.includes(p) || ALWAYS_STARRED.includes(p))
         .map((p) => `${cardId}-${p}`)
         .sort()
       expect(visibleFields(await requiredMarkers(`[data-testid="material-card-${cardId}"]`))).toEqual(
