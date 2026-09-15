@@ -49,8 +49,11 @@ export const config: Options.Testrunner = {
   services: ['electron'],
   framework: 'mocha',
   reporters: ['spec', allureReporter],
-  // Generous: a relaunch re-runs the backend health check.
-  mochaOpts: { ui: 'bdd', timeout: 120000 },
+  // Generous: a relaunch re-runs the backend health check, the weather specs wait
+  // out the backend's 30s save debounce before relaunching, and closing the app
+  // after that save has been measured at 70-75s. 120s was overrun, and a
+  // this.timeout() inside a test did not raise it.
+  mochaOpts: { ui: 'bdd', timeout: 300000 },
 
   // Start from a clean profile so the suite is deterministic; tolerate a busy DB
   // file on teardown (the backend may still hold the SQLite handle briefly).

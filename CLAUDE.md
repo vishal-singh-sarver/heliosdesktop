@@ -343,12 +343,32 @@ snapshot with **added attributes and zero deletions**.
     `stomatal_sidedness` onto every card of the same material that carries it —
     last write wins. So two cards can never show different values for those two
     labels; `material-submodels.test.ts` pins it as a DEVIATION.
+28. **A GROUP WHOSE ID EQUALS A GROUND'S ID FREEZES THE APP.** Backend groups
+    (`object_group`) and grounds (`scenario_object`) are separate tables with
+    independent autoincrement ids; the frontend keys both into ONE `nodesById`
+    map. In a fresh database Ground.001/.002 are ids 1 and 2 and the first group
+    is ALSO id 1, so `GROUP_NODES_SUCCEEDED` overwrites a member with the group —
+    a group containing itself. The renderer stops answering within ~3s, logs no
+    error, and aborts (`RENDERER GONE … exitCode=134`) about two minutes later;
+    the test only sees "dropping one ground onto another did not create a group"
+    followed by `invalid session id`. Measured 15 Sep 2026: grounds 1+2 hang;
+    grounds 4+5 give Group.001 (id 1) with children [4, 5].
+    **A full `geometry.test.ts` run never shows it** — a hundred earlier tests push
+    ground ids far past group ids — but grepping for the grouping tests, or any
+    fresh spec that groups early, always does. `geometry.test.ts` works around it
+    with `pushGroundIdsPastGroupIds()` (ground ids ≥ 50) in the `before` of the
+    grouping and persistence describes. A real user hits it on a fresh install
+    the first time they group two grounds — **product bug, not fixable under the
+    testid-only rule.**
 
 ---
 
 ## 6. Coverage today
 
-### `e2e/tests/geometry.test.ts` — 133 tests
+### `e2e/tests/geometry.test.ts` — 143 tests
+
++10 on 15 Sep 2026: 7 ungrouping tests and 3 ungroup persistence tests (see the
+ungroup section in §7). The runtime below predates them.
 
 Was 106 (92 literal `it(` + 3 parameterised loops expanding to 17). Do not
 "correct" the count down to the literal one. The 27 added are the three new
@@ -389,9 +409,10 @@ Shared provisioning: one project for the file; each test creates rows via
 | **panel chrome copy** | 5 | three sections by VISIBLE title, chevron rotation, all three headers round-trip, first tap hides the create actions, labels carry no "Add" prefix |
 | **delete confirmation** | 6 | heading + generic body, Cancel-then-Delete with no "Yes", focus on Delete so Enter deletes, Escape, header ×, rapid taps open one dialog |
 | **validation copy** | 8 | the catalog range message on 6 fields, "Invalid Input" for non-numeric and for an in-range non-integer |
-| **grouping** | 10 | drag creates a group, expanded with indented members, chevron, add third, sibling-not-nested, Group.NNN sequence, duplicate group name, drag payload, two scope-loss guards |
+| **grouping** | 10 | drag creates a group, expanded with indented members, chevron, add third, sibling-not-nested, Group.NNN sequence, duplicate group name, drag payload, two scope-loss guards. `before` pushes ground ids past group ids (trap 28) |
+| **ungrouping** | 7 | empty area exists; a full tree leaves none (finding); member of three out, group keeps two; lands right after its group; two-member group dissolves; a top-level ground moves to the bottom; an edge drop also ungroups (client-only) |
 | **backend failures** | 7 | failed create / delete / visibility-revert / rename / save, tree error + Retry, Retry recovers |
-| **persistence + isolation** | 6 | customised props survive reopen, several grounds independently, new project empty, switching keeps each project's own, hidden + renamed survive reopen |
+| **persistence + isolation** | 9 | customised props survive reopen, several grounds independently, new project empty, switching keeps each project's own, hidden + renamed survive reopen; an ungrouped ground stays out, a dissolved group stays gone, an edge-drop ungroup is NOT saved (finding) |
 
 ### How the 3D view is verified
 
@@ -705,6 +726,21 @@ space up if you like; do not treat it as a defect.
   `ground.test.ts`; worth a product decision before Geometry sign-off.
 - **`drift` on the material sync dot is unreachable from the GUI.** Every client
   write hardcodes `sync: true`, so only `stale` can be produced.
+- **Weather rows edited in the last 30s before the app closes are LOST.** Since
+  backend e156f31 (pinned by `fe0ec82`, 11 Sep 2026) weather rows live in
+  PyHelios memory and reach `context.xml` only when a 30s-debounced save runs
+  (`_DEBOUNCE_SECONDS`, `helios/persistence.py`). Nothing flushes it on the way
+  out: `lifespan` has no shutdown save, the frontend never calls `/discard`, and
+  Electron's quit sends SIGTERM then SIGKILL. Columns survive (SQLite, committed
+  at once), so the table comes back with its columns and no rows. Measured
+  15 Sep 2026: the save lands exactly 30s after the edit; relaunching sooner
+  loses the rows, after 40s they come back. This is why both weather specs in
+  `e2e/persist/` started failing after the 11 Sep bump. They now wait
+  `PERSIST_SAVE_DEBOUNCE_WAIT_MS` (40s) before relaunching — deliberately
+  stepping around the bug so they keep proving the save path. Closing the app
+  AFTER that save has run takes 70-75s under automation, and one such relaunch
+  came back on an EMPTY database (every migration re-applied); not reproduced
+  since, cause unknown — suspect if these specs flake.
 - **CLOSED 14 Sep 2026 — the colour-surface "one-way door".** Replacing the
   material on a 1000×1000 ground used to fail, because the delete-then-add passed
   through a soil (`dirt.jpg`) rebuild the engine refuses. Since 6878eaf a ground
@@ -730,14 +766,32 @@ space up if you like; do not treat it as a defect.
   a database stamped 31 by the first file before the second existed would skip
   the second permanently.
 
-### OPEN: ungroup by dropping on the tree background
+### ungroup by dropping on the tree background — WORKS, but the target vanishes
 
-Dragging a member onto the empty area below the tree does **not** ungroup it,
-despite `handleRootDrop` existing — so there is no test for it.
+Resolved 15 Sep 2026. Dragging a member onto the empty area below the last row
+**does** ungroup it: `handleRootDrop` PATCHes `group_id → null`, the ground lands
+right after its former group, a group left with one member dissolves, and all of
+it survives reopening the project. Covered by `geometry.test.ts` →
+`describe('ungrouping — drag a member onto the empty tree area')` plus three
+persistence tests, driven by `dragRowsToTreeBackground` (which refuses to drop
+anywhere that is not real tree background).
 
-**This is unresolved, not settled.** The acceptance criteria explicitly require
-the gesture, so it is either a missing feature or a stale requirement. Parked by
-the team for now; revisit before Geometry sign-off.
+Why it was reported as "not working" — three product findings:
+
+- **The drop target disappears.** The only ungroup target is the space BELOW the
+  last row, and the tree scrolls instead of growing. With all three sections
+  open, four rows leave 2px and five overflow — so with a handful of grounds a
+  user has nowhere to drop. The tests close Materials and Models first; one test
+  pins the unreachable case.
+- **An EDGE drop "ungroups" without saving.** Dropping a member on the top/bottom
+  band of a top-level row runs `REORDER_NODES`, which is client-only yet also
+  reparents the member to the top level. The tree shows it ungrouped; after
+  reopening it is back in its group. Worse, a later dissolve of that group leaves
+  a row that cannot be deleted ("still present after confirming delete").
+- **A top-level ground dropped on the background moves to the BOTTOM** — the same
+  ungroup path appends a row that had no group.
+
+Plus trap 28: grouping itself freezes the app when a group id equals a ground id.
 
 ### Ground bounds (live catalog, backend `91b4099`)
 
