@@ -18,6 +18,7 @@
  */
 
 import { selectAll } from '../support/harness'
+import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
@@ -172,6 +173,16 @@ class HomePagePage {
    */
   private async replaceInput(el: El, value: string): Promise<void> {
     await el.click()
+    // Under full-suite load the click can still be settling when Control+A
+    // arrives: the chord then goes to the document, Delete clears nothing, and
+    // the typed value APPENDS to the pre-filled default ("38.5412.34"), which
+    // enterProject reports as a create that "never left the dialog". The same
+    // race ObjectProperties.typeField documents and guards.
+    await browser.waitUntil(async () => el.isFocused(), {
+      timeout: 5_000,
+      interval: 100,
+      timeoutMsg: 'field never took focus, so select-all would miss it'
+    })
     await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await el.addValue(value)
@@ -237,6 +248,68 @@ class HomePagePage {
         .map((el) => (el.getAttribute('data-testid') || '').replace(/^row-/, ''))
         .filter(Boolean)
     )
+  }
+
+  /**
+   * Open a project from its Home row, addressed BY ID, in one in-page task.
+   *
+   * NOT `row(id).doubleClick()` for setup. That is a pointer action at the row's
+   * COORDINATES, and Home re-sorts underneath it: it paints the cached list, then
+   * re-sorts when /recent lands, ranked by last_updated — which the backend takes
+   * from the newest file mtime in a project folder, including ANOTHER project's
+   * debounced context.xml temp write. Measured 15 Sep 2026 in a backend log: the
+   * double-click landed on the row that had just moved into place and opened
+   * `e2e-nlr3-…` instead of `e2e-persistreal-…`, surfacing as "column humidity
+   * never appeared". The row's own onDoubleClick is on this <tr>, so dispatching
+   * on the element by id opens exactly that project whatever the order.
+   *
+   * Pass `expectedName` to also wait until the ProjectScreen shows THAT project,
+   * so a wrong-project open fails as itself. Tests of the double-click GESTURE
+   * keep the real pointer action.
+   */
+  async openProject(id: string, expectedName?: string): Promise<void> {
+    await this.row(id).waitForExist({
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: `openProject: Home row ${id} never rendered`
+    })
+    await browser.execute((rowId: string) => {
+      const row = document.querySelector(`[data-testid="row-${rowId}"]`)
+      if (!row) throw new Error(`openProject: row-${rowId} is not rendered`)
+      row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+    }, id)
+    if (expectedName === undefined) return
+    const title = $('[data-testid="project-title"]')
+    await title.waitForDisplayed({
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: `openProject: the ProjectScreen never mounted for "${expectedName}"`
+    })
+    // `shown` is written by EVERY poll and read only once the wait has given up,
+    // in the catch. It must not go in `timeoutMsg`: that template literal is
+    // built with the options object, BEFORE the first poll, so it always read
+    // the initial value and reported `opened ""` — a wrong-project open, the one
+    // failure this wait exists to name, looked like a blank title instead of the
+    // project that actually opened.
+    //
+    // waitUntil's own reason is appended rather than dropped. A condition that
+    // throws does not abort the wait — webdriverio records the error and keeps
+    // polling — but if the FINAL poll threw (e.g. getText on a title that
+    // re-mounted), the rejection carries that error instead of a timeout, and
+    // that must not be passed off as a plain title mismatch.
+    let shown = '<the title was never read>'
+    try {
+      await browser.waitUntil(
+        async () => {
+          shown = (await title.getText()).trim()
+          return shown === expectedName
+        },
+        { timeout: TIMEOUTS.LONG }
+      )
+    } catch (err) {
+      throw new Error(
+        `openProject: opened "${shown}", expected "${expectedName}" ` +
+          `(${err instanceof Error ? err.message : String(err)})`
+      )
+    }
   }
 
   /**

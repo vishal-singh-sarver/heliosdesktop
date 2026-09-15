@@ -39,7 +39,7 @@ On the **native Linux** checkout (verified 2026-09-02):
 | `libhelios.dll` staleness (§2.2) | the artifact is `pyhelios/pyhelios_build/build/lib/**libhelios.so**`. Same staleness risk, same check with `-newer …libhelios.so` |
 | `resources/backend/win` | `resources/backend/**linux**/heliosgui_backend/heliosgui_backend` |
 | PowerShell build/prune scripts | not used; the packaged backend was already built |
-| "reaping is POSIX-only, so on Windows every run leaves orphans" | `reapOrphans` runs here, but `afterSession` passes `includeElectron = false`, so every finished spec file leaves its Electron app running until `onComplete` — 11 were alive late in the 14 Sep 2026 run, and the final sweep killed 38 processes |
+| reaping (§2.4) — Windows now has its own implementation in `e2e/config/reap.ts` | `reapOrphans` runs here too, and `afterSession` passes `includeElectron = false`, so every finished spec file leaves its Electron app running until its worker exits (it waits for the inspector connection to drop); `onComplete` sweeps the rest — 11 were alive late in the 14 Sep 2026 run, and the final sweep killed 38 processes |
 
 **Do NOT `pkill -f electron` on Linux.** The pattern matches the editor and the
 agent harness themselves. `reapOrphans` already handles it; if you must sweep by
@@ -121,19 +121,47 @@ Acceptance: `GET /api/catalog/material-types` returns seven types, and
 
 ### 2.4 Other environment notes
 
-- **Kill orphans before every run.** `reapOrphans` in `wdio.config.ts` opens with
-  `if (process.platform === 'win32') return` — reaping is POSIX-only, so on
-  Windows every run leaves its Electron + backend processes behind. They
-  accumulate, collide with the next session, and the run then dies in `before`
-  after ~25s with every test skipped. It reads exactly like flakiness.
+- **Orphans are now reaped on Windows too** (15 Sep 2026, `e2e/config/reap.ts`,
+  shared by BOTH wdio configs). Until then `reapOrphans` opened with
+  `if (process.platform === 'win32') return`, so abnormal endings left Electron +
+  backend behind; they accumulate, collide with the next session, and the run
+  dies in `before` after ~25s with every test skipped — it reads exactly like
+  flakiness. Why the POSIX body could not just be un-gated: on Windows
+  chromedriver's child is `cmd.exe /c electron.CMD`, then `node cli.js`, then
+  `electron.exe`, then the backend, and TerminateProcess never propagates — so a
+  killed chromedriver leaves that whole tree alive (reproduced: 7 processes
+  survive). The reaper matches this checkout's paths plus `--test-type=webdriver`
+  and kills with `taskkill /T` from the tree root. `afterSession` reaps orphaned
+  BACKENDS only: at that moment a healthy app is still alive by design, printing
+  "Waiting for the debugger to disconnect…" until the worker (which holds the
+  service's inspector connection) exits — reaping Electron there killed a healthy
+  app after every spec, grace period or not. Electron trees are reaped in
+  `onComplete` (20s grace, after every worker has exited) and the next
+  `onPrepare`. Verified: orphaned tree 7 → 0 in 1.1s. Manual fallback if a run
+  was killed mid-hook:
   ```powershell
   Get-Process electron, heliosgui_backend, chromedriver -EA SilentlyContinue | Stop-Process -Force
   ```
 - Root `.env` is required and gitignored: `cp .env.example .env`.
-- chromedriver caches to `os.tmpdir()`; a temp cleaner can empty the folder but
-  leave it in place, after which wdio refuses to re-download. Fix: delete
-  `%TEMP%\chromedriver\win64-<version>` and re-run. Set `WEBDRIVER_CACHE_DIR` to
-  something stable to avoid recurrence.
+- chromedriver used to cache to `os.tmpdir()`, where a temp cleaner can empty the
+  folder but leave it in place, after which wdio refuses to re-download. Both
+  configs now default `WEBDRIVER_CACHE_DIR` to `.cache/wdio` (gitignored; `??=`,
+  so an explicit value still wins) — verified running from
+  `.cache\wdio\chromedriver\win64-130.0.6723.191\`. A fresh clone downloads it
+  once; offline, copy `%TEMP%\chromedriver` into `.cache\wdio\` instead.
+- Every Windows session still leaves `%TEMP%\wdio-chrome-<cid>-<ts>` behind
+  (@wdio/utils injects it on win32 only; it holds that session's SQLite DB and
+  `backend.log`). 70 had piled up by 15 Sep 2026, up to ~200 MB each. Not
+  automated yet; clear by hand when no run is active:
+  `Get-ChildItem $env:TEMP -Directory -Filter 'wdio-chrome-*' | Remove-Item -Recurse -Force`
+- **Headless is uniform now, and there is a way to check it.** Only
+  `shell.test.ts` ever went headful: on Windows `BrowserWindow.maximize()` and
+  leaving fullscreen SHOW a never-shown window, and nothing hid it again — a
+  watcher measured a 1536x816 window on the desktop for 34s. See trap 28. To
+  prove a change stays headless, log newly visible top-level windows during the
+  run (EnumWindows + IsWindowVisible); a healthy full run shows none.
+- `_probe-*.test.ts` files are EXCLUDED from `npm run e2e` (wdio.config.ts
+  `exclude`). Run one explicitly with `--spec`.
 
 ---
 
@@ -343,7 +371,93 @@ snapshot with **added attributes and zero deletions**.
     `stomatal_sidedness` onto every card of the same material that carries it —
     last write wins. So two cards can never show different values for those two
     labels; `material-submodels.test.ts` pins it as a DEVIATION.
-28. **A GROUP WHOSE ID EQUALS A GROUND'S ID FREEZES THE APP.** Backend groups
+28. **ON WINDOWS, MAXIMIZE AND FULLSCREEN SHOW THE HIDDEN WINDOW.** Electron's
+    `maximize()` "will also show … the window if it isn't being displayed", and
+    leaving fullscreen flips a hidden window visible. `shell.test.ts` is the only
+    spec that does either, so it now calls `Shell.keepOffDesktop()` in `before()`
+    (opacity 0 + ignore OS mouse — set BEFORE any fullscreen, which would
+    otherwise restore the old ex-style; its setSkipTaskbar is inert on a
+    never-shown window, so a taskbar button can still appear for the ~0.4s a
+    maximize keeps the window shown) and `Shell.rehide()` last in `afterEach` and
+    right after the title bar is back from fullscreen. WebDriver input is CDP, so none
+    of that touches it. Any new test that maximizes, fullscreens, minimizes or
+    `show()`s must follow the same pattern. Both helpers are no-ops under
+    `HELIOS_E2E_HEADED=1`.
+29. **`getAllWindows()[0]` CAN BE THE SPLASH.** It is created first (1000x600) and
+    destroyed only on the renderer's `app:ready`, which is later than
+    `waitForMainWindow()` returns. Pick the main window with
+    `!w.webContents.getURL().includes('helios-splash')`. `HELIOS_E2E_VIEWPORT`
+    used to resize the splash and silently do nothing.
+30. **THE UNGROUP DROP TARGET DEPENDS ON SCREEN HEIGHT.** The empty tree area
+    below the last row is the only ungroup target, and the tree scrolls rather
+    than grows. On a 1536x816 work area THREE rows already fill it (-24px), not
+    the "four" measured on a taller display. Any test that drops on the tree
+    background must first collapse Materials and Models, as the ungroup
+    `beforeEach` does. The persistence "DISSOLVED group" test missed this and
+    failed only on short screens.
+31. **A WebDriver CLICK FOLLOWED BY A KEY CHORD NEEDS A FOCUS WAIT.** Under
+    full-suite load Control+A can arrive before the click has focused the field;
+    it then goes to the document and the typed value APPENDS to the old one.
+    `ObjectProperties.typeField` had the guard; `HomePage.replaceInput` (the
+    setup path of every `enterProject`), `harness.setInputValue` and
+    `MaterialProperties.typeField` now have it too.
+33. **THE 3D CANVAS GRABS FOCUS ONCE, SOME TIME AFTER A PROJECT OPENS — AND
+    CLOSES WHATEVER INLINE EDITOR HAD IT.** SceneCanvas's r3f `onCreated` sets
+    `tabIndex = 0` and calls `focus()`. Every inline name editor (material list,
+    geometry tree) closes itself on ANY blur. Measured 15 Sep 2026 with a focus
+    probe: the materials rename editor opened at 3ms and lost focus to `<canvas>`
+    at 232ms; `a MID-NAME and a TRAILING fragment` failed 2/3 isolated runs on the
+    committed code. `enterProject` itself now waits for `canvas[tabindex="0"]`
+    (the grab has happened once it exists) — it was first scoped to
+    `enterGeometry`/`enterMaterials`, and on 16 Sep 2026 the same grab blurred a
+    freshly typed latitude in projectscreen.test.ts, reverting it before
+    aria-invalid could be read. A later tab switch cannot re-trigger it (the
+    hidden tab is `display:none`). Also
+    `Materials.openRename` re-sends the double-click until the editor stays.
+    PRODUCT FINDING: a user who double-clicks a name right after opening a
+    project loses the editor the same way.
+34. **HOME RE-SORTS UNDER A POINTER DOUBLE-CLICK — OPEN PROJECTS BY ID.** Home
+    paints the cached list, then re-sorts when `/recent` lands, by `last_updated`,
+    which the backend takes from the NEWEST FILE MTIME in a project folder —
+    including another project's in-flight `context.xml.tmp-*`. A backend log
+    proved `row(id).doubleClick()` (a coordinate-based pointer action) opened
+    `e2e-nlr3-…` instead of `e2e-persistreal-…`, reported as `column "humidity"
+    never appeared`. Use `HomePage.openProject(id, name)`: an in-page `dblclick`
+    on that `<tr>` plus a title check. Only tests OF the double-click gesture
+    (homepage.test.ts, projectscreen.test.ts:47) keep the pointer action.
+    PRODUCT FINDING: rows can jump under the user's cursor on returning Home.
+35. **AWAIT EVERY CLICK.** `MaterialProperties.openTypeDropdown` was
+    `;(await this.typeCombo(cardId)).click()` — a floating promise, so a failed
+    click vanished and the test reported "the material type listbox never
+    opened" 10s later. It now awaits, waits on its own combobox's
+    `aria-expanded`, and re-requests the idempotent open in-page.
+36. **"SAVE IS DISABLED" IS NOT "SAVED".** Both Save buttons are disabled while
+    the write is IN FLIGHT as well as once it has landed, so a settle on
+    `disabled` returned mid-request and callers refreshed or reselected under a
+    pending PATCH. `ObjectProperties.save()` and `MaterialProperties.saveCard()`
+    now wait for the label to return from `Saving…` to `Save` (plus Save
+    disabled, and for a card the type Select locked). Pass `'settled'` when a
+    test EXPECTS the save to fail and asserts the error itself.
+37. **A `timeoutMsg` TEMPLATE LITERAL IS EVALUATED BEFORE THE FIRST POLL.** The
+    options object is built when `waitUntil` is called, so
+    `` timeoutMsg: `got ${last}` `` always prints the initial value. Record the
+    last reading inside the condition and throw the diagnostic from a `catch`.
+    Also: a condition that throws does not abort the wait — webdriverio keeps
+    polling — but if the FINAL poll threw, the rejection carries that error
+    instead of the timeout message.
+38. **`timeout = TIMEOUTS.X` TYPES THE PARAMETER AS A LITERAL.** `TIMEOUTS` is
+    `as const`, so an inferred default makes `timeout: 10000`, and passing
+    `TIMEOUTS.LONG` fails to compile. Annotate `timeout: number = TIMEOUTS.X`.
+39. **DISABLE A TEST WITH `it.skip`, NEVER A `/* */` BLOCK.** Commented-out tests
+    vanish from the skip count, so a green run silently overstates coverage.
+    The nine "KNOWN APP BUG" click-lost-to-blur-reflow tests (8 in
+    weather.test.ts, 1 in homepage.test.ts) are `it.skip` for this reason.
+40. **`Geometry.deleteRow`'s failure cleanup closes ONLY the Delete
+    confirmation.** It used to force-close every open dialog, which hid the very
+    "Project unavailable" dialog a scope-loss test was waiting for. Any other
+    dialog is now left open and named in the thrown error.
+    `closeAnyOpenDialog()` still closes everything, for teardown.
+32. **A GROUP WHOSE ID EQUALS A GROUND'S ID FREEZES THE APP.** Backend groups
     (`object_group`) and grounds (`scenario_object`) are separate tables with
     independent autoincrement ids; the frontend keys both into ONE `nodesById`
     map. In a fresh database Ground.001/.002 are ids 1 and 2 and the first group
@@ -365,6 +479,23 @@ snapshot with **added attributes and zero deletions**.
 
 ## 6. Coverage today
 
+### Suite status — measured 15 Sep 2026, Windows 11, 1536x816 work area
+
+| Run | Result | Wall time | afterEach hooks >9s | Visible windows |
+|---|---|---|---|---|
+| Main, BEFORE the harness fixes | 918/920 passed (2 broken: the probe, the screen-height ungroup drop) | 54m 13s | 23 hooks, 292s | shell spec: 34s, opaque, 1536x816 |
+| Main, AFTER (21 spec files, probe excluded) | **917/918** passed — 1 intermittent `typeField` clear race, fixed afterwards | **48m 50s** | 1 hook, 10s | 1 transient event, `alpha=0`, click-through |
+| Persist (`npm run e2e:persist`) | **4/4 spec files, 5 tests** | 3m 41s | — | none |
+| Main, 16 Sep 2026, after the review fixes (save settle, no swallowed deletes, `it.skip`) | 916 passed, **9 skipped** (the former `/* */` tests, now counted), 2 intermittent — the canvas focus grab on the coordinate header and a lost Upload File click, both fixed afterwards | 47m 14s | 1 hook, 10s | none logged |
+| Persist, same day | 4/4 spec files, 5 tests | 3m 41s | — | none |
+
+No orphan processes were left after any run. Races found by repeat runs and
+fixed, each proven on the COMMITTED code first: the canvas focus grab (trap 33,
+2/3 isolated failures before, 10/10 passes after), Home re-sorting under a
+double-click (trap 34, proven from a backend log), the unawaited dropdown click
+(trap 35). A materials rename race looked like load at first and was not — run
+anything that fails once in isolation, several times, before calling it flaky.
+
 ### `e2e/tests/geometry.test.ts` — 143 tests
 
 +10 on 15 Sep 2026: 7 ungrouping tests and 3 ungroup persistence tests (see the
@@ -375,6 +506,12 @@ Was 106 (92 literal `it(` + 3 parameterised loops expanding to 17). Do not
 groups below plus 6 rows appended to the existing range/boundary loops
 (`length`/`breadth` above max, `position_*` at both bounds — neither had a
 case).
+
+Runtime: **4m 24s, 143 passing**, measured 15 Sep 2026 on Windows (isolated
+spec run). It was **8m 25s** in that day's full run before the teardown fixes:
+about 4 minutes went on 10s WebDriver retries in `afterEach` (a search-box
+click inside a collapsed section, and `deleteRow` waiting on rows already
+dissolved). The older figure below is kept as history.
 
 Runtime: **8m 3.8s**, measured 2026-08-28 on this machine (130 passing,
 1 skipped). Neither figure this file used to carry was right: the header's
@@ -409,7 +546,7 @@ Shared provisioning: one project for the file; each test creates rows via
 | **panel chrome copy** | 5 | three sections by VISIBLE title, chevron rotation, all three headers round-trip, first tap hides the create actions, labels carry no "Add" prefix |
 | **delete confirmation** | 6 | heading + generic body, Cancel-then-Delete with no "Yes", focus on Delete so Enter deletes, Escape, header ×, rapid taps open one dialog |
 | **validation copy** | 8 | the catalog range message on 6 fields, "Invalid Input" for non-numeric and for an in-range non-integer |
-| **grouping** | 10 | drag creates a group, expanded with indented members, chevron, add third, sibling-not-nested, Group.NNN sequence, duplicate group name, drag payload, two scope-loss guards. `before` pushes ground ids past group ids (trap 28) |
+| **grouping** | 10 | drag creates a group, expanded with indented members, chevron, add third, sibling-not-nested, Group.NNN sequence, duplicate group name, drag payload, two scope-loss guards. `before` pushes ground ids past group ids (trap 32) |
 | **ungrouping** | 7 | empty area exists; a full tree leaves none (finding); member of three out, group keeps two; lands right after its group; two-member group dissolves; a top-level ground moves to the bottom; an edge drop also ungroups (client-only) |
 | **backend failures** | 7 | failed create / delete / visibility-revert / rename / save, tree error + Retry, Retry recovers |
 | **persistence + isolation** | 9 | customised props survive reopen, several grounds independently, new project empty, switching keeps each project's own, hidden + renamed survive reopen; an ungrouped ground stays out, a dissolved group stays gone, an edge-drop ungroup is NOT saved (finding) |
@@ -791,7 +928,7 @@ Why it was reported as "not working" — three product findings:
 - **A top-level ground dropped on the background moves to the BOTTOM** — the same
   ungroup path appends a row that had no group.
 
-Plus trap 28: grouping itself freezes the app when a group id equals a ground id.
+Plus trap 32: grouping itself freezes the app when a group id equals a ground id.
 
 ### Ground bounds (live catalog, backend `91b4099`)
 

@@ -32,7 +32,7 @@ import {
   waitForBackendReady,
   waitForMainWindow
 } from '../support/harness'
-import { waitForNoOpenDialog } from '../support/dialogs'
+import { sweepBlockingOverlays, waitForNoOpenDialog } from '../support/dialogs'
 import { waitForDefaultMaterial, waitForLibraryRow } from '../support/defaultMaterial'
 
 type Marker = { field: string | null; label: string; visible: boolean }
@@ -116,6 +116,15 @@ describe('Required-field asterisks', () => {
     before(async () => {
       await reloadToHome()
       await enterWeather('req')
+    })
+
+    // The Add Rows / Add Column tests close their modal only at the END, so a
+    // failing expect skips the close and the <dialog> stays in the top layer —
+    // every later click in this block would then fail as "element click
+    // intercepted" against the wrong element (CLAUDE.md trap 1). Sweep always.
+    afterEach(async () => {
+      await Geometry.closeAnyOpenDialog().catch(() => {})
+      await sweepBlockingOverlays().catch(() => {})
     })
 
     after(async () => {

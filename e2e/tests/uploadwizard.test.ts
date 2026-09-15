@@ -1653,8 +1653,9 @@ describe('Weather import — cell-edit persistence on a real import', () => {
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
     const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    // By id, in-page, checked by title: a pointer double-click here once opened
+    // a DIFFERENT project after Home re-sorted (see HomePage.openProject).
+    await HomePage.openProject(homeId as string, name)
     // Reopening resets the workspace to the 3D Window tab; Weather mounts only
     // while its tab is active.
     await ProjectScreen.selectTab('weather')

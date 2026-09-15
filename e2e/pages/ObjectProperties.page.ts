@@ -55,6 +55,24 @@ export type GroundField =
   | 'texture_x'
   | 'texture_y'
 
+/**
+ * What a save helper waits FOR.
+ *
+ *  - 'saved'   (the default) the write LANDED: the in-flight window is over AND
+ *              Save is no longer offered, because UPDATE_OBJECT_SUCCEEDED folded
+ *              the saved values into the baseline and cleared `dirty`. A save that
+ *              fails, or that raises the Replace confirmation instead of saving,
+ *              throws straight away naming what happened rather than after 60s.
+ *  - 'settled' the in-flight window is over, WHATEVER the outcome. For a caller
+ *              that expects the save to fail (an injected API fault) and asserts
+ *              the error itself. Returns at once when Save opened a dialog
+ *              instead, since no request was ever made.
+ */
+export type SaveOutcome = 'saved' | 'settled'
+
+/** ObjectPropertiesForm renders `draft.saving ? 'Saving…' : 'Save'` — a literal, not in messages.ts. */
+const SAVE_IDLE_LABEL = 'Save'
+
 class ObjectPropertiesPage {
   get form(): El {
     return $('[data-testid="object-properties-form"]')
@@ -223,8 +241,24 @@ class ObjectPropertiesPage {
       timeout: TIMEOUTS.SHORT,
       timeoutMsg: `the ${name} field never took focus, so select-all would miss it`
     })
-    await browser.keys([process.platform === 'darwin' ? 'Meta' : 'Control', 'a'])
-    await browser.keys(['Delete'])
+    // Confirm the clear actually took before typing, and redo it if not. A focus
+    // wait alone was not enough: in a full run on 15 Sep 2026 the field was
+    // focused, yet `1e` still landed on top of the default — "101e" against an
+    // expected "1e" (ground.test.ts, the incomplete-exponent blur test; passed in
+    // the three runs before). Whatever left the default in place, typing into a
+    // field that does not read '' can only produce a wrong-but-plausible value.
+    await browser.waitUntil(
+      async () => {
+        await browser.keys([process.platform === 'darwin' ? 'Meta' : 'Control', 'a'])
+        await browser.keys(['Delete'])
+        return (await el.getValue()) === ''
+      },
+      {
+        timeout: TIMEOUTS.SHORT,
+        interval: 150,
+        timeoutMsg: `the ${name} field would not clear, so typed text would append to its old value`
+      }
+    )
     for (const ch of text) await browser.keys([ch])
   }
 
@@ -537,18 +571,124 @@ class ObjectPropertiesPage {
   }
 
   /**
-   * Press Save and wait for the write to settle.
+   * The Save button's label: 'Save' at rest, 'Saving…' for EXACTLY the window
+   * the PATCH is in flight. The reducer sets `draft.saving` on
+   * UPDATE_OBJECT_REQUESTED and clears it on SUCCEEDED and FAILED alike.
    *
-   * The label flips to "Saving…" while in flight, and `dirty` clears once the
-   * PATCH lands — waiting on the button being disabled again is a more reliable
-   * settle than the label, which flickers back first.
+   * textContent through an ELEMENT command, deliberately. Not getText: that
+   * returns '' for a control WebDriver considers hidden (clipped by the panel's
+   * own scroller), which would read as "never settled". Not browser.execute: a
+   * pending page error would surface there (see fieldState).
    */
-  async save(): Promise<void> {
-    await this.saveButton.click()
-    await browser.waitUntil(async () => !(await this.saveEnabled()), {
-      timeout: TIMEOUTS.MUTATION,
-      timeoutMsg: 'Save never completed (the PATCH may not have landed)'
+  async saveLabel(): Promise<string> {
+    return String((await this.saveButton.getProperty('textContent')) ?? '').trim()
+  }
+
+  /**
+   * The form-level save error (`draft.saveError`), or null.
+   *
+   * `.form-error-text` has exactly two render sites in this form and the other
+   * is gated on `objectDeleted`, so the selector is unambiguous. UPDATE_OBJECT_
+   * REQUESTED clears `saveError`, so anything here after a click belongs to THAT
+   * save. Element commands for the same reason as saveLabel.
+   */
+  async formError(): Promise<string | null> {
+    const el = $('[data-testid="object-properties-form"] .form-error-text')
+    if (!(await el.isExisting())) return null
+    return String((await el.getProperty('textContent')) ?? '').trim()
+  }
+
+  /**
+   * Press Save, having first proved it is actually available.
+   *
+   * Without the gate a disabled Save clicks nothing, and every "the save landed"
+   * oracle downstream is satisfied by the button that was disabled all along: a
+   * pass for the wrong reason. A caller asserting that Save is BLOCKED (invalid
+   * or clean form) must read saveEnabled() instead; this times out on purpose.
+   *
+   * Split from waitForSaveSettled so a caller can do something between the click
+   * and the settle: confirm the Replace dialog, or catch a ~2.66s toast.
+   */
+  async clickSave(): Promise<void> {
+    await browser.waitUntil(async () => this.saveEnabled(), {
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: 'Save never enabled: the form did not become dirty, or it is invalid'
     })
+    await this.saveButton.click()
+  }
+
+  /**
+   * Wait for a save to be OVER. `outcome` says what "over" must mean; see SaveOutcome.
+   *
+   * `disabled` alone is NOT a settle, and this used to trust it. The button is
+   * disabled both WHILE the PATCH is in flight (`draft.saving`) and once it has
+   * landed and cleared `dirty`, so the first poll after the click could pass
+   * while the request was still pending. A reselect or a refresh straight after
+   * then raced the write (geometry.test.ts save round-trip and persistence,
+   * ground.test.ts maxima). The LABEL is the discriminator: it cannot read
+   * 'Save' again until SUCCEEDED or FAILED has been reduced.
+   *
+   * No early-read hazard: the click dispatches UPDATE_OBJECT_REQUESTED
+   * synchronously and React commits a discrete-event update before the click
+   * command returns, so the first poll already sees 'Saving…'.
+   *
+   * For 'saved', idle + STILL ENABLED means the save did not land. It is ended
+   * early when the reason is on screen (a form error, or the Replace dialog
+   * that Save raises instead of saving). Otherwise it keeps polling, since a
+   * value typed mid-save legitimately re-enables Save.
+   *
+   * 100ms interval, not the default 500: both sagas raise the saved toast
+   * immediately after SUCCEEDED, and several callers wait for that ~2.66s toast
+   * right after this returns.
+   *
+   * MUTATION (60s) because a 1000x1000 build measured 10.9s (large-ground.test.ts).
+   * The diagnostic is built INSIDE the condition and thrown from the catch: a
+   * template literal in timeoutMsg is evaluated before the first poll.
+   */
+  async waitForSaveSettled(outcome: SaveOutcome = 'saved'): Promise<void> {
+    let last = 'no reading taken'
+    let failure = null as string | null
+    try {
+      await browser.waitUntil(
+        async () => {
+          const label = await this.saveLabel()
+          const enabled = await this.saveEnabled()
+          last = `label "${label}", Save ${enabled ? 'enabled' : 'disabled'}`
+          if (label !== SAVE_IDLE_LABEL) return false
+          if (outcome === 'settled' || !enabled) return true
+          const error = await this.formError()
+          if (error !== null) {
+            failure = `the save FAILED, and the form reports "${error}"`
+            return true
+          }
+          if (await this.replaceDialog.isExisting()) {
+            failure =
+              'Save raised the Replace Material confirmation instead of saving. Use clickSave(), ' +
+              'confirm the dialog, then waitForSaveSettled()'
+            return true
+          }
+          return false
+        },
+        { timeout: TIMEOUTS.MUTATION, interval: 100 }
+      )
+    } catch (err) {
+      throw new Error(
+        `ObjectProperties: the save never ${outcome === 'saved' ? 'landed' : 'settled'} ` +
+          `within ${TIMEOUTS.MUTATION}ms (last seen: ${last}). ` +
+          (err instanceof Error ? err.message : String(err))
+      )
+    }
+    if (failure !== null) throw new Error(`ObjectProperties.waitForSaveSettled: ${failure}`)
+  }
+
+  /**
+   * Press Save and wait for the write to LAND (default), or only for it to be
+   * over (`'settled'`). Not for the Replace path: that needs a dialog between the
+   * click and the settle, so drive clickSave() + waitForSaveSettled() instead.
+   */
+  async save(outcome: SaveOutcome = 'saved'): Promise<void> {
+    await this.clickSave()
+    await this.waitForSaveSettled(outcome)
   }
 
   async nameValue(): Promise<string> {

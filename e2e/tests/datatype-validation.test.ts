@@ -18,8 +18,10 @@
  * value exceeds the global +/-1e6 keystroke bound, so it would surface the global
  * message instead of the unit message.
  */
+import Geometry from '../pages/Geometry.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
+import { sweepBlockingOverlays } from '../support/dialogs'
 import { enterProject, waitForBackendReady, waitForMainWindow } from '../support/harness'
 import { TIMEOUTS } from '../config/timeouts'
 
@@ -302,10 +304,16 @@ describe('Weather data types — per-type range validation sweep', () => {
   })
 
   afterEach(async () => {
+    // Sweep UNCONDITIONALLY. currentColId is set only after addTypedColumn
+    // returns, so a failure inside it (unit auto-select, the close wait) used to
+    // skip cleanup and leave the Add Column <dialog> in the top layer, where it
+    // intercepts every later click in the sweep (CLAUDE.md trap 1).
+    await browser.keys(['Escape']).catch(() => {})
+    await Geometry.closeAnyOpenDialog().catch(() => {})
+    await sweepBlockingOverlays().catch(() => {})
     // Delete the column this test created so the table stays small and every
     // fresh column's picker/listbox renders in the clickable-left zone.
     if (currentColId) {
-      await browser.keys(['Escape']).catch(() => {})
       await Weather.deleteColumn(currentColId).catch(() => {})
       currentColId = null
     }

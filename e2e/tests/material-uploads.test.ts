@@ -220,6 +220,52 @@ describe('Material uploads — real files', () => {
   }
 
   /**
+   * Wait for the card's error line to read exactly `expected`; on a timeout,
+   * fail with what the line ACTUALLY said when the wait gave up.
+   *
+   * The observed value is captured inside the poll and reported from the catch.
+   * It used to be `${await MaterialProperties.cardError(cardId)}` inside
+   * `timeoutMsg`, which is evaluated when the options object is built —
+   * straight after the file pick, before the first poll, while the card still
+   * showed no error. So a COPY MISMATCH (a different message rendered) was
+   * reported as `got: null`, pointing at "nothing rendered" instead.
+   * material-assignment.test.ts's waitForAssigned carries the same warning.
+   *
+   * The last value is kept as a DESCRIPTION string rather than
+   * `string | null`: a `let` assigned only inside the callback is narrowed by
+   * TypeScript to its initializer at the catch, and "no error" and "never read"
+   * must not look alike in the message.
+   */
+  const waitForCardError = async (
+    cardId: number,
+    expected: string,
+    // Annotated `number`: TIMEOUTS is `as const`, and a literal type would
+    // reject passing MEDIUM at one site and MUTATION at the other.
+    timeout: number,
+    failure: string
+  ): Promise<void> => {
+    let got = 'no poll completed'
+    try {
+      await browser.waitUntil(
+        async () => {
+          const error = await MaterialProperties.cardError(cardId)
+          got = error === null ? 'no error rendered' : `"${error}"`
+          return error === expected
+        },
+        { timeout }
+      )
+    } catch (err) {
+      // waitUntil's own reason goes along too. A throwing poll does not abort the
+      // wait, but if the FINAL poll threw, the rejection carries that error rather
+      // than a timeout, and it must not read as a plain mismatch.
+      throw new Error(
+        `${failure}: expected "${expected}", got ${got} ` +
+          `(${err instanceof Error ? err.message : String(err)})`
+      )
+    }
+  }
+
+  /**
    * Assert a picked file was refused CLIENT-SIDE, with the given message.
    *
    * Three assertions rather than one, because "an error appeared" is the
@@ -229,10 +275,12 @@ describe('Material uploads — real files', () => {
    * total.
    */
   const expectRefused = async (cardId: number, message: string): Promise<void> => {
-    await browser.waitUntil(async () => (await MaterialProperties.cardError(cardId)) === message, {
-      timeout: TIMEOUTS.MUTATION,
-      timeoutMsg: `expected the card error to be "${message}" (got: ${await MaterialProperties.cardError(cardId)})`
-    })
+    await waitForCardError(
+      cardId,
+      message,
+      TIMEOUTS.MUTATION,
+      'the picked file was not refused with the expected card error'
+    )
     expect(await MaterialProperties.texturePreviewSrc(cardId)).toBe(null)
     expect(await staysFalse(async () => MaterialProperties.saveEnabled(cardId))).toBe(true)
   }
@@ -409,12 +457,11 @@ describe('Material uploads — real files', () => {
       const cardId = await openSpectralRadiation()
       await uploadXml(cardId, MATERIAL_FIXTURE_FILES.N42_SPECTRUM)
 
-      await browser.waitUntil(
-        async () => (await MaterialProperties.cardError(cardId)) === SPECTRAL_ROOT_ERROR,
-        {
-          timeout: TIMEOUTS.MEDIUM,
-          timeoutMsg: `the N42 file did not report the root error (got: ${await MaterialProperties.cardError(cardId)})`
-        }
+      await waitForCardError(
+        cardId,
+        SPECTRAL_ROOT_ERROR,
+        TIMEOUTS.MEDIUM,
+        'the N42 file did not report the root error'
       )
       // Client-side only — nothing was stored, so there is no file row and
       // nothing to save.

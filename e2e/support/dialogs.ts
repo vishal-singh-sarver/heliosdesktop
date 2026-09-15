@@ -112,7 +112,7 @@ export async function readOpenDialog(): Promise<OpenDialog | null> {
 }
 
 /** Wait for a dialog to open, then snapshot it. */
-export async function waitForOpenDialog(timeout = TIMEOUTS.MEDIUM): Promise<OpenDialog> {
+export async function waitForOpenDialog(timeout: number = TIMEOUTS.MEDIUM): Promise<OpenDialog> {
   await browser.waitUntil(async () => (await countOpenDialogs()) > 0, {
     timeout,
     timeoutMsg: 'no dialog opened'
@@ -193,7 +193,7 @@ export async function sweepBlockingOverlays(): Promise<boolean> {
 }
 
 /** Wait for every dialog to be closed. */
-export async function waitForNoOpenDialog(timeout = TIMEOUTS.MEDIUM): Promise<void> {
+export async function waitForNoOpenDialog(timeout: number = TIMEOUTS.MEDIUM): Promise<void> {
   await browser.waitUntil(async () => (await countOpenDialogs()) === 0, {
     timeout,
     timeoutMsg: 'a dialog was still open'

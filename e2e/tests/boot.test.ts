@@ -110,7 +110,7 @@ describe('project boot — failure and recovery', () => {
     // Match the project id, NOT '/api/project/', which would also fault
     // '/api/project/recent' and break the list this test has to click.
     await installApiFault('GET', `/api/project/${id}`)
-    await HomePage.row(id).doubleClick()
+    await HomePage.openProject(id)
 
     await BootDialogs.waitForError()
     // status 0 (a refused connection) is retryable: retryable = !(4xx).
@@ -127,7 +127,7 @@ describe('project boot — failure and recovery', () => {
     const { id } = await createNamedReturnHome(uniqueName('bootretry'))
 
     await installApiFault('GET', `/api/project/${id}`)
-    await HomePage.row(id).doubleClick()
+    await HomePage.openProject(id)
     await BootDialogs.waitForError()
 
     await clearApiFaults()
@@ -147,7 +147,7 @@ describe('project boot — failure and recovery', () => {
     const { id } = await createNamedReturnHome(uniqueName('boothome'))
 
     await installApiFault('GET', `/api/project/${id}`)
-    await HomePage.row(id).doubleClick()
+    await HomePage.openProject(id)
     await BootDialogs.waitForError()
 
     await BootDialogs.goHomeFromError()
@@ -169,7 +169,7 @@ describe('project boot — the Opening loader', () => {
     // BOOT_PROGRESS(project, 0) is dispatched BEFORE the GET, so holding the GET
     // holds the loader on screen at 0% with the caption still empty.
     await installApiLatency('GET', `/api/project/${id}`, 3000)
-    await HomePage.row(id).doubleClick()
+    await HomePage.openProject(id)
 
     await BootDialogs.waitForOpening()
     expect(await BootDialogs.progressBar.isExisting()).toBe(true)
@@ -187,7 +187,7 @@ describe('project boot — the Opening loader', () => {
     const { id } = await createNamedReturnHome(uniqueName('bootcancel'))
 
     await installApiLatency('GET', `/api/project/${id}`, 5000)
-    await HomePage.row(id).doubleClick()
+    await HomePage.openProject(id)
 
     await BootDialogs.waitForOpening()
     await BootDialogs.cancelBoot()
@@ -271,7 +271,7 @@ describe('scope loss — the project or scenario is deleted underneath you', () 
     const { id } = await createNamedReturnHome(uniqueName('stalerow'))
     await deleteProjectViaBackend(id)
 
-    await HomePage.row(id).doubleClick()
+    await HomePage.openProject(id)
 
     await BootDialogs.waitForScope()
     expect(await BootDialogs.bodyText(BOOT_MSG.scopeTitle)).toBe(BOOT_MSG.scopeProject)

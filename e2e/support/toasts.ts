@@ -26,7 +26,10 @@ export async function toastMessages(): Promise<string[]> {
 }
 
 /** Wait for a toast containing `text`. Poll fast — the window is ~2.5s. */
-export async function waitForToast(text: string, timeout = TIMEOUTS.MEDIUM): Promise<void> {
+// `timeout: number`, not an inferred default: TIMEOUTS is `as const`, so
+// `timeout = TIMEOUTS.MEDIUM` types the parameter as the literal 10000 and a
+// caller passing TIMEOUTS.LONG fails to compile.
+export async function waitForToast(text: string, timeout: number = TIMEOUTS.MEDIUM): Promise<void> {
   await browser.waitUntil(
     async () => (await toastMessages()).some((m) => m.includes(text)),
     {

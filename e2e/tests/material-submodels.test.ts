@@ -311,12 +311,11 @@ describe('Material sub-models on a ground', () => {
   /**
    * Save a card and wait for the write to actually LAND.
    *
-   * NOT MaterialProperties.saveCard, and not `typeLocked` either — both are
-   * unsound as a settle here, in opposite ways:
-   *  - saveCard() settles on the button going DISABLED, which is true both while
-   *    the write is in flight (`canSave` includes `!saving`) and once it has
-   *    landed. It can therefore return a millisecond after the click, before
-   *    anything left the renderer.
+   * Not `typeLocked` on its own, and historically not MaterialProperties.saveCard:
+   *  - saveCard() USED to settle on the button going DISABLED, which is true both
+   *    while the write is in flight (`canSave` includes `!saving`) and once it has
+   *    landed. Since 16 Sep 2026 it waits for the label as below too; this local
+   *    copy remains because it also scrolls Save into view first.
    *  - `typeLocked` flips false→true on a card's FIRST save only. Every re-save
    *    in this file (the edit-after-assignment tests) finds it ALREADY true, so
    *    it settles instantly and proves nothing.

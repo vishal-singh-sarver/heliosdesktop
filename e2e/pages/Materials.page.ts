@@ -143,19 +143,150 @@ class MaterialsPage {
 
   // ----- Rename (double-click the name; there is no pencil in the list) -----
 
+  /**
+   * ANY open rename editor in the panel, whichever row it belongs to. Prefer
+   * rowNameEditor(id) whenever the row is known — see openRename for why.
+   */
   get nameEditor(): El {
     return $('[data-testid="materials-panel"] [aria-label="Material name"]')
   }
 
+  /**
+   * THIS row's rename editor. MaterialRow renders MaterialNameEditor in place of
+   * the name span, INSIDE `material-row-{id}`, so the row scopes it exactly. The
+   * right-panel form's identically labelled name input lives under RightPanel,
+   * outside every row, and can never match.
+   */
+  rowNameEditor(id: string): El {
+    return $(`[data-testid="material-row-${id}"] [aria-label="Material name"]`)
+  }
+
+  /**
+   * The row's trash. `disabled` while this material's DELETE is in flight
+   * (reducer `deletingIds`), released again on DELETE_MATERIAL_FAILED so the
+   * delete can be retried. Element-command reads work on it even though the
+   * cluster is `opacity-0` until hover.
+   */
+  deleteControl(id: string): El {
+    return $(`[data-testid="material-row-${id}"] [aria-label="Delete material"]`)
+  }
+
+  /**
+   * Open THIS row's inline rename editor, and return only once it has STAYED open.
+   *
+   * Measured 15 Sep 2026 with a focus/DOM probe: the editor opened at 3ms and at
+   * 232ms focus jumped to the 3D viewport's <canvas> (SceneCanvas's one-shot
+   * `onCreated` focus), MaterialNameEditor closed itself on that blur, and a
+   * single dispatch then waited 10s for an editor that was gone — 2 failures in
+   * 3 isolated runs, on the committed code too. enterMaterials now waits out that
+   * grab; this retry is the second line. Re-opening is harmless: an editor closed
+   * with its name unchanged dispatches nothing.
+   *
+   * "Stayed" is CHECKED, not assumed. This used to return on the first sighting,
+   * so an editor seen and then closed by a later grab got past it and failed one
+   * step on, inside renameRow. Success now needs the editor present in the row AND
+   * holding focus on two CONSECUTIVE polls, 300ms apart — longer than the 232ms
+   * grab above, at the price of one extra poll per rename. Focus is the oracle
+   * because MaterialNameEditor closes on ANY blur: an editor that has lost focus is
+   * one render from gone. A poll that finds no editor re-sends the double-click; a
+   * poll that finds the editor unfocused only resets the streak, since the name
+   * span is not rendered while editing and there is nothing to double-click.
+   *
+   * Scoped to the ROW. A panel-wide query accepted an editor left open on ANOTHER
+   * row (one survives only an invalid Enter, MaterialNameEditor `commit`), and
+   * renameRow would then have typed into the wrong material.
+   *
+   * The condition never throws. webdriverio's waitUntil rejects with the LAST
+   * poll's error in place of `timeoutMsg`, so a name span briefly missing on the
+   * final poll (a row mid-rerender) used to replace the timeout message with that
+   * transient error. Each poll now records what it saw, and the failure names it
+   * once the budget is spent. (timeoutMsg is built before the first poll, so it
+   * could not have carried that diagnostic anyway.)
+   */
   async openRename(id: string): Promise<void> {
-    await browser.execute((rowId: string) => {
-      const el = document.querySelector(`[data-testid="material-row-name-${rowId}"]`)
-      if (!el) throw new Error(`openRename: no name span for ${rowId}`)
-      el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
-    }, id)
-    await this.nameEditor.waitForDisplayed({
-      timeout: TIMEOUTS.MEDIUM,
-      timeoutMsg: `the rename editor never opened for material ${id}`
+    type Seen =
+      | 'none'
+      | 'no-row'
+      | 'no-name-span'
+      | 'dispatched'
+      | 'editor-unfocused'
+      | 'editor-focused'
+      | 'execute-error'
+    // `as Seen`, not `: Seen` — the annotation would narrow this to 'none' at the
+    // catch below, because TS does not see assignments made inside the callback.
+    let last = 'none' as Seen
+    let focusedOn = ''
+    let lastError = ''
+    let polls = 0
+    let streak = 0
+
+    try {
+      await browser.waitUntil(
+        async () => {
+          polls += 1
+          let probe: { seen: Seen; focus: string }
+          try {
+            probe = (await browser.execute((rowId: string) => {
+              const describeFocus = (): string => {
+                const a = document.activeElement as HTMLElement | null
+                if (!a || a === document.body) return 'nothing (document.body)'
+                const tag = a.tagName.toLowerCase()
+                const hint = a.getAttribute('data-testid') ?? a.getAttribute('aria-label')
+                return hint ? `<${tag}> "${hint}"` : `<${tag}>`
+              }
+              const row = document.querySelector(`[data-testid="material-row-${rowId}"]`)
+              if (!row) return { seen: 'no-row', focus: describeFocus() }
+              const editor = row.querySelector('[aria-label="Material name"]')
+              if (editor) {
+                return {
+                  seen: document.activeElement === editor ? 'editor-focused' : 'editor-unfocused',
+                  focus: describeFocus()
+                }
+              }
+              const span = row.querySelector(`[data-testid="material-row-name-${rowId}"]`)
+              if (!span) return { seen: 'no-name-span', focus: describeFocus() }
+              span.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+              // React commits the editor after this task; the next poll sees it.
+              return { seen: 'dispatched', focus: describeFocus() }
+            }, id)) as { seen: Seen; focus: string }
+          } catch (err) {
+            // A pending page error (CLAUDE.md trap 11) arrives on the next execute.
+            last = 'execute-error'
+            lastError = err instanceof Error ? err.message : String(err)
+            streak = 0
+            return false
+          }
+          last = probe.seen
+          focusedOn = probe.focus
+          if (probe.seen !== 'editor-focused') {
+            streak = 0
+            return false
+          }
+          streak += 1
+          return streak >= 2
+        },
+        { timeout: TIMEOUTS.MEDIUM, interval: 300 }
+      )
+    } catch (err) {
+      const lastPoll: Record<Seen, string> = {
+        none: 'no poll completed',
+        'no-row': `no [data-testid="material-row-${id}"] — the row is gone, or a search is filtering it out`,
+        'no-name-span': `the row has no editor and no name span (material-row-name-${id})`,
+        dispatched: 'no editor in the row — the double-click was re-sent and nothing had opened by the next poll',
+        'editor-unfocused': `the editor was open but focus was on ${focusedOn}, so it was about to close`,
+        'editor-focused': 'the editor was open and focused, but only on ONE poll — never confirmed to stay',
+        'execute-error': `browser.execute threw: ${lastError}`
+      }
+      throw new Error(
+        `the rename editor for material ${id} never opened and STAYED open (${polls} poll(s)).\n` +
+          `  last poll: ${lastPoll[last]}\n` +
+          `  wait: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+
+    await this.rowNameEditor(id).waitForDisplayed({
+      timeout: TIMEOUTS.SHORT,
+      timeoutMsg: `the rename editor for material ${id} opened but is not displayed`
     })
   }
 
@@ -164,19 +295,26 @@ class MaterialsPage {
    * input, so setValue's click/clear/type sequence loses to React re-renders.
    * Enter/Escape must be real key events: the editor decides commit vs discard
    * in onKeyDown.
+   *
+   * The write is scoped to THIS row's editor, for the same reason openRename is:
+   * a panel-wide query would type into another row's editor if one were open.
    */
   async renameRow(id: string, next: string, commit: 'enter' | 'escape' | 'blur'): Promise<void> {
     await this.openRename(id)
-    await browser.execute((val: string) => {
-      const node = document.querySelector(
-        '[data-testid="materials-panel"] [aria-label="Material name"]'
-      ) as HTMLInputElement | null
-      if (!node) throw new Error('renameRow: the inline editor is not open')
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
-      setter?.call(node, val)
-      node.dispatchEvent(new Event('input', { bubbles: true }))
-      node.focus()
-    }, next)
+    await browser.execute(
+      (rowId: string, val: string) => {
+        const node = document.querySelector(
+          `[data-testid="material-row-${rowId}"] [aria-label="Material name"]`
+        ) as HTMLInputElement | null
+        if (!node) throw new Error(`renameRow: the inline editor is not open on material ${rowId}`)
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+        setter?.call(node, val)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        node.focus()
+      },
+      id,
+      next
+    )
     if (commit === 'enter') await browser.keys(['Enter'])
     else if (commit === 'escape') await browser.keys(['Escape'])
     else await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur())
@@ -275,12 +413,15 @@ class MaterialsPage {
   // ----- Search -----
 
   async search(text: string): Promise<void> {
-    await this.searchBox.click()
+    // In-page only — see Geometry.search: a WebDriver click on a box inside a
+    // collapsed section burns the full 10s waitforTimeout, and focus() keeps the
+    // click's side effect of blurring (closing) an open inline rename editor.
     await browser.execute((val: string) => {
       const node = document.querySelector(
         '[aria-label="Search saved materials"]'
       ) as HTMLInputElement | null
       if (!node) throw new Error('materials search box not found')
+      node.focus()
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
       setter?.call(node, val)
       node.dispatchEvent(new Event('input', { bubbles: true }))

@@ -44,11 +44,17 @@ let originalSize: { width: number; height: number } | null = null
 before(async () => {
   await waitForMainWindow()
   await waitForBackendReady()
-  originalSize = await Shell.windowSize()
+  // This is the one spec that maximizes / fullscreens, and on Windows both SHOW
+  // the never-shown window. Make it invisible and click-through first so the
+  // file stays as headless as every other one (see Shell.page.ts).
+  await Shell.keepOffDesktop()
 })
 
 beforeEach(async () => {
   await reloadToHome()
+  // The size every afterEach restores. windowSize() already skips the splash;
+  // capturing after the first reload is belt-and-braces on top of that.
+  if (!originalSize) originalSize = await Shell.windowSize()
 })
 
 afterEach(async () => {
@@ -59,6 +65,8 @@ afterEach(async () => {
   if (originalSize) {
     await Shell.setWindowSize(originalSize.width, originalSize.height).catch(() => {})
   }
+  // LAST: the restores above can re-show the window on Windows.
+  await Shell.rehide().catch(() => {})
 })
 
 describe('shell — window controls over the real IPC bridge', () => {
@@ -107,6 +115,11 @@ describe('shell — window controls over the real IPC bridge', () => {
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'the title bar did not come back on leaving fullscreen'
     })
+    // Leaving fullscreen flips a hidden window visible on Windows. Hide it only
+    // AFTER the title is back: that proves leave-full-screen has fired, which on
+    // macOS happens at the END of an asynchronous exit animation that a hide()
+    // must not interrupt.
+    await Shell.rehide()
 
     await reloadToHome()
     await deleteProjectViaBackend(id).catch(() => {})

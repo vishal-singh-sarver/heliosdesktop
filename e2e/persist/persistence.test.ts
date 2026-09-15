@@ -90,8 +90,7 @@ describe('Persistence across app close/reopen', () => {
     // 3) FULL relaunch on the SAME fixed profile, landing back on Home, then open
     //    the project.
     const homeId = await relaunchAndReopen(name)
-    await HomePage.row(homeId).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId, name)
     // The workspace lands on 3D Window; Weather mounts only while its tab is active.
     await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
