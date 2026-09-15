@@ -16,6 +16,18 @@ export const PERSIST_PROFILE = join(process.cwd(), '.wdio-persist-profile')
 export const PERSIST_DB = join(PERSIST_PROFILE, 'backend-data', 'heliosgui.db')
 
 /**
+ * How long a weather spec waits before relaunching: the backend's 30s save
+ * debounce (_DEBOUNCE_SECONDS, helios/persistence.py, backend e156f31) plus a
+ * margin. Weather rows live in PyHelios memory and reach context.xml only when
+ * that debounced save runs, and NOTHING flushes it on shutdown — so relaunching
+ * sooner loses them. That loss is a real product bug for a user who closes the
+ * app within 30s of an edit; waiting it out is a deliberate choice (15 Sep 2026)
+ * so these specs keep proving the save path. Measured: the save lands exactly
+ * 30s after the edit; with a 40s wait the rows come back.
+ */
+export const PERSIST_SAVE_DEBOUNCE_WAIT_MS = 40_000
+
+/**
  * The proven relaunch->reopen sequence: clear the active ids (so pickInitialScreen
  * lands on Home rather than booting into the project), capture the session-id,
  * hard-relaunch on the SAME fixed profile, re-inject the session-id (the killed

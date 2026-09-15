@@ -20,7 +20,7 @@ import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { selectAll, stubFileImport, waitForMainWindow } from '../support/harness'
-import { PERSIST_DB, relaunchAndReopen } from './persist-helpers'
+import { PERSIST_DB, PERSIST_SAVE_DEBOUNCE_WAIT_MS, relaunchAndReopen } from './persist-helpers'
 import { TIMEOUTS } from '../config/timeouts'
 import { DEFAULT_COORDS } from '../constants/test-data'
 
@@ -107,6 +107,12 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     expect(await Weather.cellError(impRow0, trColId)).toBe('Value should be between -50.15 and 76.85')
 
     expect(existsSync(PERSIST_DB)).toBe(true)
+
+    // Wait out the backend's 30s weather save debounce — see
+    // PERSIST_SAVE_DEBOUNCE_WAIT_MS in persist-helpers.ts. Relaunching sooner
+    // loses the imported rows (they reach context.xml only 30s after the last
+    // edit, and nothing flushes that save on shutdown).
+    await browser.pause(PERSIST_SAVE_DEBOUNCE_WAIT_MS)
 
     // 5) FULL relaunch on the SAME fixed profile, then reopen the project.
     const homeId = await relaunchAndReopen(name)

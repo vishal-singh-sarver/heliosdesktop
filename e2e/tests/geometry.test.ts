@@ -56,7 +56,12 @@ import {
   waitForNoOpenDialog,
   waitForOpenDialog
 } from '../support/dialogs'
-import { dragRowOnto, readDragPayload } from '../support/dnd'
+import {
+  dragRowOnto,
+  dragRowsToTreeBackground,
+  readDragPayload,
+  treeBackgroundGap
+} from '../support/dnd'
 import { clearApiFaults, installApiFault, withApiFault } from '../support/faults'
 import { drainToasts, waitForToast } from '../support/toasts'
 import { recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
@@ -82,6 +87,34 @@ describe('Geometry', () => {
 
   const nameOf = async (id: string): Promise<string> =>
     ((await Geometry.rowState(id))?.name ?? '') as string
+
+  /**
+   * PRODUCT BUG WORKAROUND — a group whose id equals a ground's id FREEZES the app.
+   *
+   * Backend groups (`object_group`) and grounds (`scenario_object`) are separate
+   * tables with independent autoincrement ids, but the frontend keys both into
+   * ONE `nodesById` map by that id. So in a fresh database Ground.001/.002 are
+   * ids 1 and 2, the first group is ALSO id 1, GROUP_NODES_SUCCEEDED overwrites
+   * a member with the group — a group containing itself — and the tree renders
+   * it forever: the renderer stops answering within ~3s and aborts (exit 134)
+   * about two minutes later. Measured 15 Sep 2026: grounds 1+2 → hang; grounds
+   * 4+5 → Group.001 (id 1) with children [4, 5], renderer fine.
+   *
+   * A full file run never showed it because a hundred earlier tests had pushed
+   * ground ids far past group ids; running the grouping tests on their own (a
+   * grep, or a fresh spec session) always hit it. A test that pinned the bug
+   * would kill the renderer and every later test with it, so instead ground ids
+   * are pushed past any group id this file creates. Cheap when already there: one
+   * create + delete.
+   */
+  const MIN_GROUND_ID = 50
+  const pushGroundIdsPastGroupIds = async (): Promise<void> => {
+    for (;;) {
+      const id = await Geometry.addGround()
+      await Geometry.deleteRow(id)
+      if (Number(id) >= MIN_GROUND_ID) return
+    }
+  }
 
   before(async () => {
     await waitForMainWindow()
@@ -1183,13 +1216,14 @@ describe('Geometry', () => {
      * bands. See e2e/support/dnd.ts for why the events are synthetic and why
      * dragover and drop are separate commands.
      *
-     * OPEN QUESTION — no coverage here on purpose. The acceptance criteria say
-     * "ungroup geometries by dragging them out of a group and dropping them
-     * anywhere in the saved geometries list", but the behaviour does not work
-     * and the team has parked the question. Until it is settled this is either
-     * a missing feature or a stale requirement, so writing a test either way
-     * would assert something nobody has agreed on. Revisit before sign-off.
+     * Ungrouping — dragging a member onto the empty tree area — is covered by the
+     * nested 'ungrouping' describe below, and its persistence at the end of the
+     * file.
      */
+
+    before(async () => {
+      await pushGroundIdsPastGroupIds()
+    })
 
     /**
      * Poll for a scope-loss ("go to Home") dialog. Returns its text if one
@@ -1360,6 +1394,153 @@ describe('Geometry', () => {
       expect(stray ?? 'no scope dialog').toBe('no scope dialog')
       await expect(Geometry.panel).toBeDisplayed()
     })
+
+    describe('ungrouping — drag a member onto the empty tree area', () => {
+      /**
+       * The persisted ungroup gesture: GeometryTree.handleRootDrop PATCHes the
+       * dropped ground's group_id to null. A group left with fewer than two
+       * members DISSOLVES (reducer dissolveUndersizedGroups, mirrored on the
+       * backend by saga cleanupDissolvedGroups) and its lone leftover is ejected
+       * to the top level. Group rows are not draggable (TreeRow
+       * draggable={!isGroup}), so there is no "drag a whole group out" case.
+       *
+       * dragRowsToTreeBackground drops at the real point below the last row and
+       * throws if that point is not tree background — it cannot ungroup through
+       * a gesture no user could make.
+       */
+
+      /** A group of three: makeGroup's two plus a third dropped into it. */
+      const makeGroupOfThree = async (): Promise<[string, string, string, string]> => {
+        const [groupId, a, b] = await makeGroup()
+        const c = await track()
+        await dragRowOnto([c], groupId, 'into')
+        await browser.waitUntil(async () => (await Geometry.childrenOf(groupId)).length === 3, {
+          timeout: TIMEOUTS.MUTATION,
+          timeoutMsg: 'the third ground never joined the group'
+        })
+        return [groupId, a, b, c]
+      }
+
+      const waitForTopLevel = async (id: string): Promise<void> => {
+        await browser.waitUntil(async () => (await Geometry.rowState(id))?.depth === 0, {
+          timeout: TIMEOUTS.MUTATION,
+          timeoutMsg: `ground ${id} never came back out to the top level`
+        })
+      }
+
+      // The empty area is SMALL. With all three sections open, four rows already
+      // fill the tree (measured 15 Sep 2026: 2px left at 4 rows, -32px at 5). So
+      // these tests do what a user would — close Materials and Models to give the
+      // tree room. The shared afterEach reopens them (LeftPanel.resetToDefault).
+      beforeEach(async () => {
+        await LeftPanel.setSection('materials', false)
+        await LeftPanel.setSection('models', false)
+      })
+
+      it('the tree leaves EMPTY space below its rows — somewhere to drop to ungroup', async () => {
+        // The precondition for the whole gesture. If the rows filled the tree
+        // box, a user would have no background to drop on however the handler
+        // is written.
+        await makeGroup()
+        expect(await treeBackgroundGap()).toBeGreaterThanOrEqual(8)
+      })
+
+      it('once the rows FILL the tree there is NO empty area left — the ungroup drop is unreachable', async () => {
+        // PRODUCT FINDING (15 Sep 2026), and the likeliest reason ungrouping was
+        // reported as "not working": the only ungroup target is the space BELOW
+        // the last row, and the tree scrolls rather than growing. With every
+        // section open a handful of grounds leaves none, so a user cannot drag a
+        // member out of its group at all.
+        await LeftPanel.setSection('materials', true)
+        await LeftPanel.setSection('models', true)
+        const [, a] = await makeGroup()
+        for (let i = 0; i < 12 && (await treeBackgroundGap()) >= 8; i++) await track()
+        expect(await treeBackgroundGap()).toBeLessThan(8)
+        await expect(dragRowsToTreeBackground([a])).rejects.toThrow(/no empty tree area/)
+      })
+
+      it('dropping a member of a THREE-ground group on the empty area takes it out; the group keeps the other two', async () => {
+        const [groupId, a, b, c] = await makeGroupOfThree()
+        await dragRowsToTreeBackground([a])
+        await browser.waitUntil(async () => (await Geometry.childrenOf(groupId)).length === 2, {
+          timeout: TIMEOUTS.MUTATION,
+          timeoutMsg: 'the dropped ground never left its group'
+        })
+        await waitForTopLevel(a)
+        expect((await Geometry.rowState(groupId))?.isGroup).toBe(true)
+        expect((await Geometry.childrenOf(groupId)).map((r) => r.id).sort()).toEqual([b, c].sort())
+      })
+
+      it('the ground taken out lands RIGHT AFTER its former group, not at the bottom of the tree', async () => {
+        // Differential: a ground created afterwards sits below the group, so an
+        // ungroup that merely appended to the root would land after IT instead.
+        const [groupId, a] = await makeGroupOfThree()
+        const tail = await track()
+        await dragRowsToTreeBackground([a])
+        await waitForTopLevel(a)
+        const order = (await Geometry.snapshot()).map((r) => r.id)
+        const members = (await Geometry.childrenOf(groupId)).map((r) => r.id)
+        const lastMember = members[members.length - 1]
+        expect(order.indexOf(a)).toBe(order.indexOf(lastMember) + 1)
+        expect(order.indexOf(tail)).toBe(order.indexOf(a) + 1)
+      })
+
+      it('taking one ground out of a TWO-ground group DISSOLVES the group — both come back to the top level', async () => {
+        const [groupId, a, b] = await makeGroup()
+        await dragRowsToTreeBackground([a])
+        await browser.waitUntil(async () => (await Geometry.rowState(groupId)) === undefined, {
+          timeout: TIMEOUTS.MUTATION,
+          timeoutMsg: 'a group left with one member was not dissolved'
+        })
+        created = created.filter((x) => x !== groupId)
+        expect(await Geometry.groups()).toEqual([])
+        expect((await Geometry.rowState(a))?.depth).toBe(0)
+        expect((await Geometry.rowState(b))?.depth).toBe(0)
+        // The dissolve issues a second PATCH and a group DELETE after the move;
+        // a wrong url in either raises the scope-loss dialog.
+        const stray = await scopeDialogWithin(TIMEOUTS.NEGATIVE_GATE)
+        expect(stray ?? 'no scope dialog').toBe('no scope dialog')
+      })
+
+      it('dropping a ground that is NOT in a group on the empty area moves it to the BOTTOM — and makes no group', async () => {
+        // Measured 15 Sep 2026. The drop still runs the ungroup path:
+        // MOVE_NODES_SUCCEEDED detaches the row from the top level and, having
+        // no former group to sit next to, appends it at the end. Order is
+        // client-only, so the only lasting effect is a no-op group_id PATCH.
+        const a = await track()
+        const b = await track()
+        const shape = async (): Promise<string[]> =>
+          (await Geometry.snapshot()).map((r) => `${r.id}:${r.depth}:${r.isGroup}`)
+        expect(await shape()).toEqual([`${a}:0:false`, `${b}:0:false`])
+        await dragRowsToTreeBackground([a])
+        await browser.waitUntil(async () => (await shape())[1] === `${a}:0:false`, {
+          timeout: TIMEOUTS.MUTATION,
+          timeoutMsg: 'the dropped ground never moved to the bottom of the tree'
+        })
+        expect(await shape()).toEqual([`${b}:0:false`, `${a}:0:false`])
+        const stray = await scopeDialogWithin(TIMEOUTS.NEGATIVE_GATE)
+        expect(stray ?? 'no scope dialog').toBe('no scope dialog')
+      })
+
+      it('an EDGE drop onto a top-level row also takes a member out of its group', async () => {
+        // The second route out: TreeRow's before/after bands dispatch
+        // REORDER_NODES, and a target at the top level reparents the dragged
+        // member there. Client-only — see the persistence test for what the
+        // backend keeps.
+        const [groupId, a] = await makeGroupOfThree()
+        const tail = await track()
+        await dragRowOnto([a], tail, 'after')
+        await waitForTopLevel(a)
+        // Cleanup runs newest-first, so move `a` to the END to delete it FIRST.
+        // The backend still has it in the group; deleted after its group
+        // dissolved, it cannot be removed (measured: "row still present after
+        // confirming delete") and the leak fails the shared afterEach.
+        created = [...created.filter((x) => x !== a), a]
+        expect((await Geometry.childrenOf(groupId)).map((r) => r.id)).not.toContain(a)
+        const order = (await Geometry.snapshot()).map((r) => r.id)
+        expect(order.indexOf(a)).toBe(order.indexOf(tail) + 1)
+      })
+    })
   })
 
   // ══ Failure paths ════════════════════════════════════════════════════════
@@ -1487,6 +1668,12 @@ describe('Geometry', () => {
      * fresh backend DB, and projects are cheap. They run LAST in the file so
      * they cannot leave an earlier test looking at the wrong project.
      */
+
+    // Ids are database-wide, so pushing them past the group ids here (still in
+    // the shared project) covers the grouping tests in every fresh project below.
+    before(async () => {
+      await pushGroundIdsPastGroupIds()
+    })
 
     /**
      * Create a project from a clean Home.
@@ -1654,6 +1841,118 @@ describe('Geometry', () => {
       await Geometry.waitForTree()
 
       expect(await Geometry.names()).toContain('PersistedName')
+    })
+
+    /** Group two top-level grounds by drag and return the new group's id. */
+    const groupByDrag = async (a: string, b: string): Promise<string> => {
+      const before = new Set((await Geometry.groups()).map((g) => g.id))
+      await dragRowOnto([a], b, 'into')
+      let groupId = ''
+      await browser.waitUntil(
+        async () => {
+          const fresh = (await Geometry.groups()).filter((g) => !before.has(g.id))
+          if (!fresh.length) return false
+          groupId = fresh[0].id
+          return true
+        },
+        { timeout: TIMEOUTS.MUTATION, timeoutMsg: 'dropping one ground onto another did not create a group' }
+      )
+      return groupId
+    }
+
+    /** A group of three grounds, plus their names and the group's name. */
+    const groupOfThree = async (): Promise<{ groupId: string; groupName: string; ids: string[]; names: string[] }> => {
+      const ids = [await Geometry.addGround(), await Geometry.addGround(), await Geometry.addGround()]
+      const names = await Promise.all(ids.map((id) => nameOf(id)))
+      const groupId = await groupByDrag(ids[0], ids[1])
+      await dragRowOnto([ids[2]], groupId, 'into')
+      await browser.waitUntil(async () => (await Geometry.childrenOf(groupId)).length === 3, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'the third ground never joined the group'
+      })
+      return { groupId, groupName: await nameOf(groupId), ids, names }
+    }
+
+    /** Member NAMES of the group called `groupName`, expanding it if it loaded collapsed. */
+    const memberNames = async (groupName: string): Promise<string[] | null> => {
+      const id = await Geometry.idForName(groupName)
+      if (!id) return null
+      if ((await Geometry.rowState(id))?.expanded === false) await Geometry.toggleGroup(id)
+      return (await Geometry.childrenOf(id)).map((r) => r.name).sort()
+    }
+
+    const depthOfName = async (name: string): Promise<number | null> => {
+      const id = await Geometry.idForName(name)
+      return id ? ((await Geometry.rowState(id))?.depth ?? null) : null
+    }
+
+    it('a ground dragged OUT of its group stays out after the project is reopened', async () => {
+      // Differential against the in-session ungroup tests: those read the tree
+      // the reducer drew. This proves the group_id PATCH reached the database.
+      const project = await freshProject('persungroup')
+      const { groupId, groupName, ids, names } = await groupOfThree()
+      // Four rows fill the tree with every section open — make room first.
+      await LeftPanel.setSection('materials', false)
+      await LeftPanel.setSection('models', false)
+      await dragRowsToTreeBackground([ids[0]])
+      await browser.waitUntil(async () => (await Geometry.childrenOf(groupId)).length === 2, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'the dropped ground never left its group'
+      })
+
+      await reopenByName(project.name)
+      await Geometry.waitForTree()
+
+      expect(await memberNames(groupName)).toEqual([names[1], names[2]].sort())
+      expect(await depthOfName(names[0])).toBe(0)
+    })
+
+    it('a DISSOLVED group stays dissolved after the project is reopened', async () => {
+      // The dissolve is two follow-up calls the saga makes AFTER the move (ungroup
+      // the leftover, DELETE the group). If either failed silently, the group
+      // would come back on reload with its one remaining member.
+      const project = await freshProject('persdissolve')
+      const a = await Geometry.addGround()
+      const b = await Geometry.addGround()
+      const [aName, bName] = [await nameOf(a), await nameOf(b)]
+      const groupId = await groupByDrag(a, b)
+      const groupName = await nameOf(groupId)
+      await dragRowsToTreeBackground([a])
+      await browser.waitUntil(async () => (await Geometry.rowState(groupId)) === undefined, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'a group left with one member was not dissolved'
+      })
+      // The cleanup calls run after the row has already gone — let them land.
+      await Geometry.addGroundButton.waitForEnabled({ timeout: TIMEOUTS.MUTATION })
+
+      await reopenByName(project.name)
+      await Geometry.waitForTree()
+
+      expect(await Geometry.idForName(groupName)).toBe(null)
+      expect(await Geometry.groups()).toEqual([])
+      expect(await depthOfName(aName)).toBe(0)
+      expect(await depthOfName(bName)).toBe(0)
+    })
+
+    it('an EDGE drop out of a group is NOT saved — after reopening, the ground is back in its group', async () => {
+      // DEVIATION / product finding. REORDER_NODES is client-only (reducer.ts:
+      // "order isn't persisted"), yet a top-level target also REPARENTS the
+      // dragged member out of its group — with no PATCH. The tree shows it
+      // ungrouped for the session and the database never hears of it.
+      const project = await freshProject('persedge')
+      const { groupId, groupName, ids, names } = await groupOfThree()
+      const tail = await Geometry.addGround()
+      await dragRowOnto([ids[0]], tail, 'after')
+      await browser.waitUntil(async () => (await Geometry.rowState(ids[0]))?.depth === 0, {
+        timeout: TIMEOUTS.MUTATION,
+        timeoutMsg: 'the edge drop did not take the ground out of its group'
+      })
+      expect((await Geometry.childrenOf(groupId)).length).toBe(2)
+
+      await reopenByName(project.name)
+      await Geometry.waitForTree()
+
+      expect(await memberNames(groupName)).toEqual([...names].sort())
     })
   })
 })

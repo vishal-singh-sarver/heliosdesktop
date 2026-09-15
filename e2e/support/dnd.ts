@@ -150,6 +150,68 @@ export async function dragRowOnto(
 }
 
 /**
+ * Pixels of EMPTY tree between the last row and the bottom of the tree box —
+ * the only place a user can drop to ungroup. Negative when the rows overflow.
+ */
+export async function treeBackgroundGap(): Promise<number> {
+  return (await browser.execute(() => {
+    const tree = document.querySelector('[data-testid="geometry-tree"]') as HTMLElement | null
+    if (!tree) throw new Error('dnd: the geometry tree is not rendered')
+    const rows = tree.querySelectorAll<HTMLElement>('[data-testid^="geo-row-"][role="button"]')
+    const box = tree.getBoundingClientRect()
+    const below = rows.length ? rows[rows.length - 1].getBoundingClientRect().bottom : box.top
+    return Math.round(box.bottom - below)
+  })) as number
+}
+
+/**
+ * Drag row(s) onto the EMPTY tree area below the last row — the UNGROUP gesture.
+ *
+ * GeometryTree.handleRootDrop moves the dragged ids back to the root; a drop on a
+ * row never reaches it, because TreeRow.handleDrop stops propagation.
+ *
+ * The events go to whatever element really sits at that point, not to the tree
+ * container by fiat. A tree with no free space below its rows would otherwise let
+ * a synthetic drop "ungroup" through a gesture no user can make — so if the point
+ * is not tree background, this throws instead. handleRootDrop reads no React
+ * state, so unlike dragRowOnto the dragover and drop can share one command.
+ */
+export async function dragRowsToTreeBackground(sourceIds: string[]): Promise<void> {
+  await browser.execute(
+    (mime: string, payload: string) => {
+      const tree = document.querySelector('[data-testid="geometry-tree"]') as HTMLElement | null
+      if (!tree) throw new Error('dnd: the geometry tree is not rendered')
+      const rows = tree.querySelectorAll<HTMLElement>('[data-testid^="geo-row-"][role="button"]')
+      const box = tree.getBoundingClientRect()
+      const below = rows.length ? rows[rows.length - 1].getBoundingClientRect().bottom : box.top
+      if (box.bottom - below < 8) {
+        throw new Error(
+          `dnd: no empty tree area below the last row (${Math.round(box.bottom - below)}px) — ` +
+            'a user has nowhere to drop to ungroup'
+        )
+      }
+      const x = box.left + box.width / 2
+      const y = (below + box.bottom) / 2
+      const hit = document.elementFromPoint(x, y) as HTMLElement | null
+      if (!hit || !tree.contains(hit) || hit.closest('[data-testid^="geo-row-"]')) {
+        throw new Error(
+          `dnd: the point below the last row is not tree background (hit ${hit?.outerHTML.slice(0, 80) ?? 'nothing'})`
+        )
+      }
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        const dt = new DataTransfer()
+        dt.setData(mime, payload)
+        hit.dispatchEvent(
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y })
+        )
+      }
+    },
+    GEO_MIME,
+    JSON.stringify(sourceIds)
+  )
+}
+
+/**
  * Drag a MATERIAL from the library onto a geometry or group row.
  *
  * MATERIAL_MIME has been exported since this file was written and never had a
