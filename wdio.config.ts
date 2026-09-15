@@ -1,12 +1,25 @@
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import type { Options } from '@wdio/types'
+import { reapOrphans } from './e2e/config/reap'
 import { allureReporter, writeAllureEnvironment } from './e2e/config/reporting'
 
 // VS Code and other Electron-based hosts set ELECTRON_RUN_AS_NODE=1 in their environment.
 // Child processes inherit this, causing the Electron binary to run as Node.js instead of
 // launching the app. Delete it here before wdio spawns ChromeDriver + Electron.
 delete process.env['ELECTRON_RUN_AS_NODE']
+
+// Keep chromedriver in the checkout instead of os.tmpdir().
+//
+// @wdio/utils resolves the driver from WEBDRIVER_CACHE_DIR before falling back
+// to the temp dir, and it only checks that the executable EXISTS before
+// deciding not to download. A temp cleaner that empties %TEMP%\chromedriver but
+// leaves the folder therefore made wdio refuse to re-download (CLAUDE.md §2.4),
+// and a shared temp cache also stops the reaper telling this checkout's
+// chromedriver from another project's. `.cache/` is gitignored. Workers inherit
+// the launcher's env and re-load this file, so every startWebDriver sees it.
+// `??=` keeps an explicit override (e.g. a CI cache path).
+process.env['WEBDRIVER_CACHE_DIR'] ??= join(process.cwd(), '.cache', 'wdio')
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const electronPath: string = require('electron')
@@ -71,77 +84,28 @@ function logDiskUsage(label: string): void {
   }
 }
 
-/**
- * Reap orphaned test child-processes. When wdio-electron-service hard-kills
- * Electron (session teardown / reloadSession) or the run is force-killed,
- * Electron's before-quit/will-quit backend cleanup never runs, so the spawned
- * heliosgui_backend — and sometimes the out/main Electron itself — is reparented
- * to init and keeps holding its port. These pile up across specs and break later
- * runs, so we sweep them here.
- *
- * We match ONLY this checkout's paths and kill BY PID (never `pkill -f`, which
- * could hit unrelated processes). Electron matches also require the WebDriver
- * automation flag so a separately-running `npm run dev` app is never touched.
- *
- * NOT Linux-only. This was originally gated to Linux on the assumption that the
- * leak was specific to the native Linux backend binary; a macOS CI run
- * (2026-07-29) disproved that, ending with EIGHT orphaned
- * Electron + heliosgui_backend groups that the runner had to terminate itself:
- *   Terminate orphan process: pid (39070) (Electron Helper)
- *   Terminate orphan process: pid (38755) (heliosgui_backe)
- *   ... x8 groups
- * The leak is a property of how the service kills Electron (no before-quit), so
- * it applies to any POSIX platform. Windows is excluded because `ps -eo` does
- * not exist there and the kill would need a different implementation.
- */
-function reapOrphans(label: string, includeElectron: boolean): void {
-  if (process.platform === 'win32') return
-  const backendScope = join(process.cwd(), 'resources', 'backend')
-  const electronScope = join(process.cwd(), 'out', 'main')
-  try {
-    const ps = execSync('ps -eo pid=,args=', { encoding: 'utf8' })
-    const lines = ps.split('\n')
-    // Concurrency guard: if a SECOND wdio run is active, do NOT reap. Our
-    // path-based match can't tell that run's LIVE Electron/backend from orphans,
-    // and killing them fails its tests ("disconnected: not connected to
-    // DevTools"). Each `wdio run` has exactly one node_modules/.bin/wdio process;
-    // >1 means another run overlaps. Whichever run is last standing cleans up.
-    const activeRuns = lines.filter((l) => /node_modules\/\.bin\/wdio\b/.test(l)).length
-    if (activeRuns > 1) {
-      console.log(`[reap:${label}] another wdio run is active — skipping to avoid cross-kill`)
-      return
-    }
-    const killed: number[] = []
-    for (const line of lines) {
-      const m = line.match(/^\s*(\d+)\s+(.*)$/)
-      if (!m) continue
-      const pid = Number(m[1])
-      const args = m[2]
-      if (pid === process.pid) continue
-      const isBackend = args.includes(backendScope)
-      const isElectron =
-        includeElectron && args.includes(electronScope) && args.includes('--test-type=webdriver')
-      if (!isBackend && !isElectron) continue
-      try {
-        process.kill(pid, 'SIGKILL')
-        killed.push(pid)
-      } catch {
-        /* already exited */
-      }
-    }
-    if (killed.length) {
-      console.log(`[reap:${label}] killed ${killed.length} orphaned process(es): ${killed.join(', ')}`)
-    }
-  } catch (err) {
-    console.warn(`[reap:${label}] sweep failed:`, (err as Error).message)
-  }
-}
+// Orphan reaping lives in e2e/config/reap.ts, shared with wdio.persist.config.ts.
+//
+// NOT Linux-only. It was originally gated to Linux on the assumption that the
+// leak was specific to the native Linux backend binary; a macOS CI run
+// (2026-07-29) disproved that, ending with EIGHT orphaned Electron +
+// heliosgui_backend groups that the runner had to terminate itself. The leak is a
+// property of how the service kills Electron (no before-quit), so it applies to
+// every platform. Until 15 Sep 2026 it was a silent no-op on Windows — see the
+// header of reap.ts for why the POSIX body could not simply be un-gated.
 
 export const config: Options.Testrunner = {
   runner: 'local',
 
   // E2E specs — separate from Vitest unit tests
-  specs: ['./e2e/tests/**/*.test.ts'],
+  //
+  // `[!_]` skips scratch probes (`_probe-*.test.ts`): they measure something once
+  // and assert nothing, and _probe-weather-cancel.test.ts broke in every full run
+  // because its second iteration started on the ProjectScreen the first one left.
+  // Done in the glob, NOT with `exclude`: @wdio/config applies `exclude` even to
+  // an explicit --spec, so an exclude made a probe impossible to run at all. An
+  // explicit `--spec ./e2e/tests/_probe-x.test.ts` bypasses this glob.
+  specs: ['./e2e/tests/**/[!_]*.test.ts'],
   exclude: [],
 
   // Electron only supports a single instance
@@ -339,6 +303,17 @@ export const config: Options.Testrunner = {
   // After each spec's session ends, kill any orphaned backend the app left behind.
   // maxInstances is 1, so no other session is active — a lingering backend is dead
   // weight. Prevents backends piling up across a full-suite run.
+  //
+  // Backends ONLY, on every platform. Do not reap Electron here: at this point a
+  // HEALTHY app is still alive by design — its Node main process has finished
+  // quitting and prints "Waiting for the debugger to disconnect...", because
+  // wdio-electron-service's inspector connection lives in THIS worker and closes
+  // only when the worker exits, after this hook. Measured 15 Sep 2026 on Windows:
+  // reaping Electron here killed a healthy app after every spec, even with a 20s
+  // grace (which only added 20s per spec file). A genuinely orphaned Electron
+  // tree is taken by onComplete (after every worker has exited) and by the next
+  // run's onPrepare. Note afterSession does NOT fire when session creation fails
+  // either.
   afterSession: function () {
     reapOrphans('afterSession', false)
     logDiskUsage('afterSession')
@@ -347,7 +322,7 @@ export const config: Options.Testrunner = {
   // Final safety net once the whole run finishes (or is interrupted): sweep both
   // orphaned backends AND any lingering wdio-launched Electron from out/main.
   onComplete: function () {
-    reapOrphans('onComplete', true)
+    reapOrphans('onComplete', true, 20_000)
     logDiskUsage('onComplete')
   },
 }
