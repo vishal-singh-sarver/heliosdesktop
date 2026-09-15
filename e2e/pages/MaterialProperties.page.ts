@@ -30,6 +30,23 @@ import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
 
+/**
+ * What saveCard / waitForCardSaveSettled wait FOR.
+ *
+ *  - 'saved'   (the default) the member write LANDED: the in-flight window is
+ *              over, Save is no longer offered (SAVE_PARAMETER_GROUP_SUCCEEDED
+ *              snapshots savedValues, so the card is clean) AND the type Select
+ *              is locked (`group.saved`, which only that action sets). A save
+ *              that fails throws at once with the card's own error text.
+ *  - 'settled' the in-flight window is over, WHATEVER the outcome. For a caller
+ *              that expects the save to fail and asserts the error itself.
+ */
+export type CardSaveOutcome = 'saved' | 'settled'
+
+/** messages.saveParameterGroup, the label a card's Save shows at rest. While the
+ *  write is in flight it reads messages.savingParameterGroup ('Saving…'). */
+const CARD_SAVE_IDLE_LABEL = 'Save'
+
 class MaterialPropertiesPage {
   get form(): El {
     return $('[data-testid="material-form"], [data-testid="right-panel"]')
@@ -137,12 +154,49 @@ class MaterialPropertiesPage {
   }
 
   async openTypeDropdown(cardId: number): Promise<void> {
-    ;(await this.typeCombo(cardId)).click()
-    // The listbox is portalled to document.body — query from the root.
-    await $('[role="listbox"]').waitForExist({
-      timeout: TIMEOUTS.MEDIUM,
-      timeoutMsg: 'the material type listbox never opened'
-    })
+    const title = await this.cardTitle(cardId)
+    const sel = `[role="combobox"][aria-label="${title}"]`
+    // AWAITED. This used to be `;(await this.typeCombo(cardId)).click()` — a
+    // floating promise, so a click that failed (not interactable, a stale node)
+    // was silently dropped and the only symptom was "the listbox never opened"
+    // 10s later. The real click stays the first attempt; its error is logged
+    // rather than thrown so the in-page fallback below still gets its turn.
+    await $(sel)
+      .click()
+      .catch((e: Error) => console.warn(`[openTypeDropdown] WebDriver click failed: ${e.message}`))
+    // Wait on THIS combobox's own aria-expanded, not on any listbox in the page.
+    // Both the input's onFocus and onClick call the idempotent openList
+    // (Select/index.tsx), so re-requesting them in-page can never close it.
+    //
+    // The diagnostic is thrown from the CATCH, not passed as timeoutMsg. A
+    // template literal in the options object is evaluated when waitUntil is
+    // CALLED, before the first poll, so `last` was always '' and every timeout
+    // read `(<sel>: )`, dropping exactly the state it exists to report.
+    let last = 'no reading taken'
+    try {
+      await browser.waitUntil(
+        async () => {
+          last = (await browser.execute((s: string) => {
+            const input = document.querySelector(s) as HTMLElement | null
+            if (!input) return 'combobox missing'
+            if (input.getAttribute('aria-expanded') === 'true') {
+              const list = document.getElementById(input.getAttribute('aria-controls') ?? '')
+              return list ? 'open' : 'expanded, but no listbox (no options?)'
+            }
+            input.focus()
+            input.click()
+            return 'closed — re-requested open in-page'
+          }, sel)) as string
+          return last === 'open'
+        },
+        { timeout: TIMEOUTS.MEDIUM, interval: 250 }
+      )
+    } catch (err) {
+      throw new Error(
+        `the material type listbox never opened (${sel}: ${last}). ` +
+          (err instanceof Error ? err.message : String(err))
+      )
+    }
   }
 
   /** Option labels currently offered, and whether each is disabled/taken. */
@@ -164,17 +218,23 @@ class MaterialPropertiesPage {
     // the first sample threw `pickType: no option "Visualiser"` once in a full
     // run (15 Sep 2026) on a test that passes standalone. Wait for THIS label,
     // and report what was offered if it never comes.
+    // Thrown from the catch for the same reason as openTypeDropdown: as a
+    // timeoutMsg, `offered` was captured before the first poll and always read [].
     let offered: string[] = []
-    await browser.waitUntil(
-      async () => {
-        offered = (await this.typeOptions()).map((o) => o.label)
-        return offered.includes(label)
-      },
-      {
-        timeout: TIMEOUTS.MEDIUM,
-        timeoutMsg: `pickType: the type list never offered "${label}" (offered: ${JSON.stringify(offered)})`
-      }
-    )
+    try {
+      await browser.waitUntil(
+        async () => {
+          offered = (await this.typeOptions()).map((o) => o.label)
+          return offered.includes(label)
+        },
+        { timeout: TIMEOUTS.MEDIUM }
+      )
+    } catch (err) {
+      throw new Error(
+        `pickType: the type list never offered "${label}" (offered: ${JSON.stringify(offered)}). ` +
+          (err instanceof Error ? err.message : String(err))
+      )
+    }
     await browser.execute((want: string) => {
       const opt = Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).find(
         (o) => (o.textContent || '').trim() === want
@@ -406,6 +466,21 @@ class MaterialPropertiesPage {
   async typeField(cardId: number, property: string, text: string): Promise<void> {
     const el = this.field(cardId, property)
     await el.click()
+    // Confirm focus before the select-all chord: a chord that lands on the
+    // document leaves the old value in place and the keystrokes APPEND to it
+    // (the flake ObjectProperties.typeField documents). Re-request focus in-page
+    // on a miss, as LightingDialog.type does.
+    const sel = `[data-testid="input-${cardId}-${property}"]`
+    await browser.waitUntil(
+      async () => {
+        if (await el.isFocused()) return true
+        await browser.execute((s: string) => {
+          ;(document.querySelector(s) as HTMLElement | null)?.focus()
+        }, sel)
+        return el.isFocused()
+      },
+      { timeout: 5_000, interval: 100, timeoutMsg: `${sel} never took focus, so select-all would miss it` }
+    )
     await browser.keys([process.platform === 'darwin' ? 'Meta' : 'Control', 'a'])
     await browser.keys(['Delete'])
     for (const ch of text) await browser.keys([ch])
@@ -631,12 +706,129 @@ class MaterialPropertiesPage {
     return this.cardSave(cardId).isEnabled()
   }
 
-  async saveCard(cardId: number): Promise<void> {
-    await this.cardSave(cardId).click()
-    await browser.waitUntil(async () => !(await this.saveEnabled(cardId)), {
-      timeout: TIMEOUTS.MUTATION,
-      timeoutMsg: `card ${cardId} Save never completed`
+  /**
+   * A card Save's label: 'Save' at rest, 'Saving…' for EXACTLY the window
+   * `saveStatus === 'saving'`. SAVE_PARAMETER_GROUP_REQUESTED sets it, and
+   * SUCCEEDED ('idle') and FAILED ('error') both end it.
+   *
+   * textContent through an ELEMENT command. Not getText: that returns '' for a
+   * Save clipped by the panel's scroller (a tall Photosynthesis card), which
+   * would read as "never settled". Not browser.execute: an out-of-range field
+   * leaves a pending page error that the next execute would surface (see fieldState).
+   */
+  async saveLabel(cardId: number): Promise<string> {
+    return String((await this.cardSave(cardId).getProperty('textContent')) ?? '').trim()
+  }
+
+  /**
+   * The type Select's lock, read with ELEMENT commands only. `input[role="combobox"]`
+   * is the type Select alone: enum fields take Select's BUTTON branch.
+   * typeLocked() resolves the title through browser.execute, so a settle poll
+   * must not use it.
+   */
+  private async typeLockedByElement(cardId: number): Promise<boolean> {
+    const combo = this.card(cardId).$('input[role="combobox"][aria-label^="Material Type."]')
+    return (await combo.isExisting()) && !(await combo.isEnabled())
+  }
+
+  /** cardError() without browser.execute, for use inside a settle poll. */
+  private async cardErrorByElement(cardId: number): Promise<string | null> {
+    const el = this.card(cardId).$('.form-error-text')
+    if (!(await el.isExisting())) return null
+    return String((await el.getProperty('textContent')) ?? '').trim()
+  }
+
+  /**
+   * Press a card's Save, having first proved it is actually available.
+   *
+   * A click on a disabled Save does nothing, and the old settle ("Save is
+   * disabled") then passed at once: a save that never happened reported as
+   * landed. A caller asserting that Save is BLOCKED must read saveEnabled()
+   * instead; this times out on purpose.
+   */
+  async clickCardSave(cardId: number): Promise<void> {
+    await browser.waitUntil(async () => this.saveEnabled(cardId), {
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: `Save never enabled for card ${cardId}: the card is not dirty, incomplete or invalid`
     })
+    await this.cardSave(cardId).click()
+  }
+
+  /**
+   * Wait for a card's save to be OVER. `outcome` says what "over" must mean; see CardSaveOutcome.
+   *
+   * `disabled` alone is NOT a settle, and saveCard used to trust it: `canSave`
+   * includes `!saving`, so Save is disabled both WHILE the write is in flight
+   * and once it has landed. The first poll after the click routinely passed
+   * with the POST still pending and `group.saved` still false. A removeCard
+   * straight after then dropped the card with NO confirmation (onDeleteClick
+   * skips the dialog for an unsaved card), and a typeLocked or cardOpen read
+   * raced the write. material-submodels.test.ts documented this and fixed it
+   * locally; this is that fix in the shared helper.
+   *
+   * The LABEL is the discriminator. It cannot read 'Save' again until SUCCEEDED
+   * or FAILED has been reduced, and the click commits 'Saving…' before the click
+   * command returns (a synchronous dispatch in a discrete event). For 'saved' the
+   * type lock is also required. It is written in the SAME reducer case, so it
+   * costs no extra wait, but it tells a landed write from a Save that went quiet
+   * for another reason (an upload in flight also disables it with the idle label).
+   *
+   * For 'saved', idle + STILL ENABLED + an error on the card means the save
+   * failed. That ends the wait at once with the card's own text instead of 60s
+   * later. REQUESTED clears `saveError`, so a message there belongs to this save.
+   *
+   * 100ms interval: the saga raises the saved toast right after SUCCEEDED, and
+   * several callers wait for that ~2.66s toast as soon as this returns.
+   */
+  async waitForCardSaveSettled(cardId: number, outcome: CardSaveOutcome = 'saved'): Promise<void> {
+    let last = 'no reading taken'
+    let failure = null as string | null
+    try {
+      await browser.waitUntil(
+        async () => {
+          const label = await this.saveLabel(cardId)
+          const enabled = await this.saveEnabled(cardId)
+          last = `label "${label}", Save ${enabled ? 'enabled' : 'disabled'}`
+          if (label !== CARD_SAVE_IDLE_LABEL) return false
+          if (outcome === 'settled') return true
+          if (!enabled) {
+            const locked = await this.typeLockedByElement(cardId)
+            last += `, type ${locked ? 'locked' : 'NOT locked'}`
+            return locked
+          }
+          const error = await this.cardErrorByElement(cardId)
+          if (error !== null) {
+            failure = `the save FAILED, and the card reports "${error}"`
+            return true
+          }
+          return false
+        },
+        { timeout: TIMEOUTS.MUTATION, interval: 100 }
+      )
+    } catch (err) {
+      // "Save never completed" is kept verbatim: materials.test.ts quotes it as
+      // the failure a rejected member write produces.
+      throw new Error(
+        `card ${cardId} Save never completed: the save never ` +
+          `${outcome === 'saved' ? 'landed' : 'settled'} within ${TIMEOUTS.MUTATION}ms ` +
+          `(last seen: ${last}). ` +
+          (err instanceof Error ? err.message : String(err))
+      )
+    }
+    if (failure !== null) throw new Error(`card ${cardId} Save never completed: ${failure}`)
+  }
+
+  /**
+   * Press a card's Save and wait for the write to LAND (default), or only for it
+   * to be over (`'settled'`).
+   *
+   * It does NOT scroll the Save into view first: that needs browser.execute,
+   * which would move where a pending page error surfaces. Callers with a card
+   * taller than the panel keep their own revealSave step before calling this.
+   */
+  async saveCard(cardId: number, outcome: CardSaveOutcome = 'saved'): Promise<void> {
+    await this.clickCardSave(cardId)
+    await this.waitForCardSaveSettled(cardId, outcome)
   }
 
   async nameValue(): Promise<string> {

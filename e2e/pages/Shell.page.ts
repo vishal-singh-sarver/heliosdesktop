@@ -15,13 +15,28 @@
  *    `maximize`/`unmaximize` and `setFullScreen` still mutate real state on a
  *    hidden window; `minimize` does not do so reliably and may not be
  *    recoverable, which is why there is no minimize helper here.
+ *  - BUT on Windows `maximize()` SHOWS a hidden window (Electron: "This will
+ *    also show (but not focus) the window if it isn't being displayed
+ *    already"), and leaving fullscreen flips it visible too. Measured
+ *    15 Sep 2026 with a window watcher: this was the ONLY spec in the whole
+ *    run that put anything on the desktop — a 1536x816 window at 0,0 that
+ *    stayed up for the rest of the file. `keepOffDesktop()` and `rehide()`
+ *    below are what make this spec as headless as every other one.
  *  - Menu dropdown items are `visibility: hidden` until the group is hovered,
  *    and are ALWAYS in the DOM. So `isDisplayed()` is the correct oracle for
  *    the hover reveal and `isExisting()` is meaningless.
+ *  - Every main-process helper picks the main window by EXCLUDING the splash
+ *    (it loads a temp `helios-splash.html`). The splash is created first and
+ *    lives until the renderer's `app:ready`, which is later than
+ *    waitForMainWindow() returns — so `getAllWindows()[0]` or the first
+ *    undestroyed window can be the 1000x600 splash.
  */
 import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
+
+/** True when the developer asked to WATCH the run (see src/main/index.ts). */
+const headed = (): boolean => process.env['HELIOS_E2E_HEADED'] === '1'
 
 class ShellPage {
   // ----- Window controls (aria-label only; no testids exist) -----
@@ -36,23 +51,21 @@ class ShellPage {
     return $('[aria-label="Close window"]')
   }
 
-  /**
-   * Maximized state read from the MAIN process, not the renderer.
-   *
-   * Filters destroyed windows rather than taking `getAllWindows()[0]`: index 0
-   * is the splash during startup, and although it is destroyed by the time
-   * tests run, the filter makes that independent of timing.
-   */
+  /** Maximized state read from the MAIN process, not the renderer. */
   async isMaximized(): Promise<boolean> {
     return browser.electron.execute((electron) => {
-      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
       return win ? win.isMaximized() : false
     })
   }
 
   async isFullScreen(): Promise<boolean> {
     return browser.electron.execute((electron) => {
-      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
       return win ? win.isFullScreen() : false
     })
   }
@@ -60,7 +73,9 @@ class ShellPage {
   /** Drive fullscreen from the main process so the REAL enter/leave events fire. */
   async setFullScreen(value: boolean): Promise<void> {
     await browser.electron.execute((electron, v: boolean) => {
-      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
       win?.setFullScreen(v)
     }, value)
   }
@@ -68,14 +83,18 @@ class ShellPage {
   /** Restore a maximized window. Used by afterEach so one test cannot leak geometry. */
   async unmaximize(): Promise<void> {
     await browser.electron.execute((electron) => {
-      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
       if (win?.isMaximized()) win.unmaximize()
     })
   }
 
   async windowSize(): Promise<{ width: number; height: number }> {
     return browser.electron.execute((electron) => {
-      const win = electron.BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
       const b = win ? win.getBounds() : { width: 0, height: 0 }
       return { width: b.width, height: b.height }
     })
@@ -92,12 +111,65 @@ class ShellPage {
   async setWindowSize(width: number, height: number): Promise<void> {
     await browser.electron.execute(
       (electron, w: number, h: number) => {
-        const win = electron.BrowserWindow.getAllWindows().find((x) => !x.isDestroyed())
+        const win = electron.BrowserWindow.getAllWindows().find(
+          (x) => !x.isDestroyed() && !x.webContents.getURL().includes('helios-splash')
+        )
         win?.setSize(w, h)
       },
       width,
       height
     )
+  }
+
+  /**
+   * Make the window invisible and click-through at the OS level BEFORE any test
+   * can show it. Call once, in before(): the BrowserWindow outlives renderer
+   * refreshes (reloadToHome), so it holds for the whole spec file.
+   *
+   *  - setOpacity(0): a maximize/fullscreen that shows the window paints nothing.
+   *    It must be set BEFORE fullscreen — Chromium restores the saved ex-style on
+   *    leaving fullscreen, so opacity applied during it would be lost.
+   *  - setSkipTaskbar(true): on Windows this is only ITaskbarList::DeleteTab, which
+   *    removes a button that already exists — on a never-shown window it is
+   *    inert, so a button CAN appear while a maximize keeps the window shown
+   *    (~0.4s measured). rehide() is what removes it. Kept for headed-style
+   *    windows that were shown before this call.
+   *  - setIgnoreMouseEvents(true): OS-level pass-through only. WebDriver input
+   *    arrives through CDP Input.* straight into the renderer, which this does
+   *    not touch — the suite already drives a never-shown window that way.
+   *
+   * Scoped to this spec on purpose. It is the only one that can show the window,
+   * and a layered (alpha) top-level window is an untested path for the WebGL
+   * canvas every other spec mounts.
+   */
+  async keepOffDesktop(): Promise<void> {
+    if (headed()) return
+    await browser.electron.execute((electron) => {
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
+      if (!win) throw new Error('keepOffDesktop: no main window')
+      win.setOpacity(0)
+      win.setSkipTaskbar(true)
+      win.setIgnoreMouseEvents(true)
+    })
+  }
+
+  /**
+   * Put the window back into the never-shown state isHeadlessTestRun() starts it
+   * in. Call AFTER unmaximize/setFullScreen(false): on Windows both restore
+   * through a path that re-shows the window, so hiding first would be undone.
+   * hide() is safe for the renderer: backgroundThrottling is off under e2e
+   * (src/main/index.ts), so a hidden-again window behaves like a never-shown one.
+   */
+  async rehide(): Promise<void> {
+    if (headed()) return
+    await browser.electron.execute((electron) => {
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
+      if (win?.isVisible()) win.hide()
+    })
   }
 
   /**

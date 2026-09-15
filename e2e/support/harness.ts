@@ -23,10 +23,21 @@ export const ACTIVE_SCENARIO_KEY = 'helios:activeScenarioId'
  * Wait for the main window (the one with #root) and switch wdio focus to it.
  * Helios shows a splash window first, so we poll handles and pick the latest.
  */
-let bridgeProbed = false
+/** Session the probe below last ran for (null: none yet in this worker). */
+let probedSessionId: string | null = null
+/** Session whose browser.electron bridge was PROVEN live. */
+let liveBridgeSessionId: string | null = null
 
 /**
  * Assert the Electron CDP bridge is live, once per spec-file session.
+ *
+ * Keyed to browser.sessionId, not to the worker module. wdio-electron-service
+ * 9.2.1 builds the bridge only in its `before` hook and has no onReload, so
+ * after browser.reloadSession() (the persist suite's relaunch) browser.electron
+ * still points at the killed process. The probe therefore does not re-run then
+ * — it would fail every relaunch — but liveBridgeSessionId stops matching, and
+ * callers that would otherwise touch that dead bridge (applyViewportOverride)
+ * can tell.
  *
  * When the bridge fails to connect, wdio-electron-service does NOT fail the
  * session: it logs at ERROR, returns undefined, and swaps browser.electron.*
@@ -42,12 +53,19 @@ let bridgeProbed = false
  * genuinely fails it.
  */
 async function assertElectronBridge(): Promise<void> {
-  if (bridgeProbed) return
-  bridgeProbed = true
+  if (probedSessionId === browser.sessionId) return
+  const firstSessionInWorker = probedSessionId === null
+  probedSessionId = browser.sessionId
+  // A relaunched session (reloadSession): the bridge is bound to the old process
+  // by design, so do not fail the relaunch — liveBridgeSessionId stays stale.
+  if (!firstSessionInWorker) return
   let underlying: string
   try {
     const ok = await browser.electron?.execute(() => true)
-    if (ok === true) return
+    if (ok === true) {
+      liveBridgeSessionId = browser.sessionId
+      return
+    }
     underlying = `probe returned ${JSON.stringify(ok)}`
   } catch (err) {
     underlying = (err as Error).message
@@ -87,9 +105,18 @@ async function applyViewportOverride(): Promise<void> {
   const m = /^(\d+)x(\d+)$/.exec(spec.trim())
   if (!m) throw new Error(`HELIOS_E2E_VIEWPORT must look like 1024x768, got "${spec}"`)
   const [w, h] = [Number(m[1]), Number(m[2])]
+  if (liveBridgeSessionId !== browser.sessionId) {
+    console.warn('[harness] HELIOS_E2E_VIEWPORT ignored after reloadSession — browser.electron is still bound to the previous process')
+    return
+  }
   await browser.electron.execute(
     (electron, width: number, height: number) => {
-      const win = electron.BrowserWindow.getAllWindows()[0]
+      // NOT getAllWindows()[0]: that is the 1000x600 splash, which is created
+      // first and lives until the renderer's app:ready — later than #root exists,
+      // so the override used to resize the splash and silently do nothing.
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (x) => !x.isDestroyed() && !x.webContents.getURL().includes('helios-splash')
+      )
       win?.setSize(width, height)
     },
     w,
@@ -97,7 +124,15 @@ async function applyViewportOverride(): Promise<void> {
   )
 }
 
-export async function waitForMainWindow(): Promise<void> {
+/**
+ * `timeout` defaults to 90s, not 30s. The app creates the main window only AFTER
+ * the backend passes its health check (src/main/index.ts), and under automation
+ * that check may legitimately take up to 120s — one CI session measured 32.4s,
+ * which a 30s budget fails with "Main window with #root never became available".
+ * The poll returns the moment #root exists, so a healthy run pays nothing, and
+ * 90s stays under the 120s mocha hook budget.
+ */
+export async function waitForMainWindow(timeout = 90_000): Promise<void> {
   await assertElectronBridge()
   // Track the last state each poll saw, so a timeout can say HOW FAR startup
   // got instead of just "never became available". On 2026-08-01 two ubuntu
@@ -131,11 +166,11 @@ export async function waitForMainWindow(): Promise<void> {
           return false
         }
       },
-      { timeout: 30000 }
+      { timeout, interval: 250 }
     )
   } catch {
     throw new Error(
-      `Main window with #root never became available after 30s. Last observed: ${last}. ` +
+      `Main window with #root never became available after ${timeout / 1000}s. Last observed: ${last}. ` +
         'If the app never opened a window, see the "Dump app startup + backend logs" step ' +
         'for app-startup.log.'
     )
@@ -202,6 +237,13 @@ export async function selectAll(): Promise<void> {
  */
 export async function setInputValue(el: ReturnType<typeof $>, value: string): Promise<void> {
   await el.click()
+  // Confirm focus before select-all — see HomePage.replaceInput for the append
+  // race. No read-back of the value here: callers deliberately type invalid text.
+  await browser.waitUntil(async () => el.isFocused(), {
+    timeout: TIMEOUTS.SHORT,
+    interval: 100,
+    timeoutMsg: 'field never took focus, so select-all would miss it'
+  })
   await selectAll()
   await browser.keys(['Delete'])
   if (value.length) await el.addValue(value)
@@ -418,6 +460,14 @@ export async function enterProject(
     timeoutMsg: `ProjectScreen never showed the created project "${name}" as active`
   })
   await ProjectScreen.waitForCoordinatesSeeded(lat, lon)
+  // Every spec lands here on the 3D Window tab, where the canvas grabs focus
+  // once, some time after mount — and a focused field loses its edit to it. It
+  // used to be waited out only in enterGeometry/enterMaterials; on 16 Sep 2026 it
+  // blurred a freshly typed latitude in projectscreen.test.ts, reverting the
+  // invalid value before aria-invalid could be read. Waiting HERE covers every
+  // caller, and a later tab switch cannot re-trigger it: the hidden tab is
+  // display:none, so the canvas cannot take focus there.
+  await waitForSceneCanvasFocusGrab()
   return { id, name }
 }
 
@@ -512,8 +562,9 @@ export async function reopenByName(name: string): Promise<void> {
   })
   const id = await HomePage.rowIdForName(name)
   if (id === null) throw new Error(`Could not resolve row id for ${name}`)
-  await HomePage.row(id).doubleClick()
-  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+  // By id, in-page, and checked by title — Home re-sorts under a pointer
+  // double-click (see HomePage.openProject).
+  await HomePage.openProject(id, name)
   await ProjectScreen.selectTab('weather')
 }
 
@@ -583,6 +634,33 @@ export async function staysFalse(
  * the wrong layer. Gating on the tree reaching a terminal state also covers the
  * initial listNodes GET.
  */
+/**
+ * Wait out the 3D viewport's ONE-SHOT focus grab after a project opens.
+ *
+ * SceneCanvas's react-three-fiber `onCreated` sets the canvas's tabIndex to 0
+ * and immediately calls `focus()` on it. The canvas is built asynchronously
+ * after ProjectScreen mounts, so that grab lands at an arbitrary moment — and
+ * any inline editor that has focus then closes on the blur. Measured 15 Sep
+ * 2026: a materials rename editor opened at 3ms and lost focus to <canvas> at
+ * 232ms, failing 2 of 3 isolated runs (committed code included). `tabIndex === 0`
+ * is set in the same synchronous block as the focus, so once it is observed the
+ * grab has already happened.
+ *
+ * Best-effort with a MEDIUM budget: a project whose viewport never builds a
+ * canvas must not fail setup. PRODUCT FINDING: a user who double-clicks a name
+ * right after opening a project loses the editor the same way.
+ */
+async function waitForSceneCanvasFocusGrab(): Promise<void> {
+  await browser
+    .waitUntil(async () => browser.execute(() => document.querySelector('canvas[tabindex="0"]') !== null), {
+      timeout: TIMEOUTS.MEDIUM,
+      interval: 100
+    })
+    .catch(() => {
+      /* best-effort — see above */
+    })
+}
+
 export async function enterGeometry(label = 'geo'): Promise<{ id: string; name: string }> {
   const project = await enterProject(label)
   await Geometry.panel.waitForDisplayed({

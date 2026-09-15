@@ -259,7 +259,7 @@ describe('viewport — loading and error states', () => {
     await installMeshFault('/geometry/gpu')
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
-    await HomePage.row(openId).doubleClick()
+    await HomePage.openProject(openId)
 
     await browser.waitUntil(async () => Viewport.errorBanner.isExisting(), {
       timeout: TIMEOUTS.LONG,
@@ -282,7 +282,7 @@ describe('viewport — loading and error states', () => {
     await installApiLatency('GET', '/objects', 3000)
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
-    await HomePage.row(openId).doubleClick()
+    await HomePage.openProject(openId)
 
     const text = await browser.waitUntil(
       async () => {

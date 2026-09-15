@@ -84,8 +84,7 @@ async function reopen(name: string): Promise<void> {
   await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
   const homeId = await HomePage.rowIdForName(name)
   if (!homeId) throw new Error(`project "${name}" not found on Home`)
-  await HomePage.row(homeId).doubleClick()
-  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+  await HomePage.openProject(homeId, name)
   // M2 wraps the workspace in tabs (default "3D Window"); activate Weather.
   await ProjectScreen.selectTab('weather')
   await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: 20000 })
@@ -428,8 +427,7 @@ describe('Helios smoke journey', () => {
 
     // Open B → it shows ITS OWN coordinates (not A's or C's stale data).
     const bId = await HomePage.rowIdForName(B.name)
-    await HomePage.row(bId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    await HomePage.openProject(bId as string, B.name)
     await browser.waitUntil(
       async () => Math.abs(Number(await ProjectScreen.getCoordValue('latitude')) - 10.5) < 0.01,
       { timeout: 15000, timeoutMsg: "project B did not show its own latitude (10.5)" }

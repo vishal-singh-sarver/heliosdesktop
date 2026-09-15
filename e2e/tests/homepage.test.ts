@@ -357,11 +357,11 @@ describe('HomePage', () => {
       expect((await HomePage.visibleRowIds()).length).toBe(rowsBefore)
     })
 
-    // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment and the
-    // /* */ around the test) once one click on Cancel closes the dialog with the
-    // name empty. Same defect as the weather Add Column / Add Rows tests.
-    /*
-    it('ONE ordinary click on Cancel closes the dialog with the Project Name EMPTY — FAILS today: it takes two', async () => {
+    // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment, the
+    // `.skip` and the title's [SKIPPED] suffix) once one click on Cancel closes the
+    // dialog with the name empty. Same defect as the weather Add Column / Add Rows
+    // tests.
+    it.skip('ONE ordinary click on Cancel closes the dialog with the Project Name EMPTY — FAILS today: it takes two [SKIPPED: known app bug — click lost to blur reflow, see comment]', async () => {
       // KNOWN APP BUG, deliberately left failing (15 Sep 2026). With the name
       // empty, the first click's press blurs the auto-focused field, the
       // "required" error pushes Cancel down before the release, and the click is
@@ -386,7 +386,6 @@ describe('HomePage', () => {
         }
       }
     })
-    */
 
     it('the × button closes the dialog and creates no project', async () => {
       await HomePage.openCreateDialogViaSidebar()

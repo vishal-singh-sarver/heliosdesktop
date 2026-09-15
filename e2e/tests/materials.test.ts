@@ -312,7 +312,9 @@ describe('Materials', () => {
       const id = await track()
       const before = await nameOf(id)
       await Materials.openRename(id)
-      await expect(Materials.nameEditor).toHaveValue(before)
+      // THIS row's editor: a panel-wide one could be another row's, seeded with
+      // another name.
+      await expect(Materials.rowNameEditor(id)).toHaveValue(before)
     })
 
     it('Enter commits a valid rename', async () => {
@@ -1888,13 +1890,56 @@ describe('Materials', () => {
 
     it('a failed delete KEEPS the material', async () => {
       // Differential: delete is pessimistic — the row must not move until the
-      // server confirms.
+      // server confirms (saga deleteMaterialWorker dispatches removeMaterial only
+      // after service.deleteGroup resolves).
+      //
+      // Driven step by step, NOT through Materials.deleteRow. deleteRow waits
+      // MUTATION (60s) for the row to VANISH, so with the DELETE faulted it could
+      // only ever time out — every run paid the full 60s — and the
+      // `.catch(() => {})` that absorbed that timeout absorbed everything else too.
+      // A trash that lost its aria-label, or a confirmation that never opened,
+      // deleted nothing and read exactly like "the row survived".
       const id = await track()
+      const name = await nameOf(id)
+
+      // store/toastMessages.ts `materialDeleteFailed`, mirrored here rather than
+      // imported: MATERIALS_TOAST in constants/materials.ts carries only the
+      // success toasts. Verified verbatim against toastMessages.ts:66.
+      const deleteFailedToast = `Material "${name}" could not be deleted.`
+
       await withApiFault('DELETE', '/materials/library/groups', async () => {
-        await Materials.deleteRow(id).catch(() => {})
+        await openRowDelete(id)
+        const dlg = await waitForOpenDialog()
+        // The confirmation about to be pressed really is THIS material's.
+        expect(dlg.heading).toBe(MATERIALS_MSG.deleteHeading(name))
+        await clickDialogButton('Delete')
+
+        // THE PROOF a DELETE was issued and failed. installApiFault records no
+        // hits, so without this nothing shows the request was ever made. The saga
+        // raises this toast ONLY from the catch around service.deleteGroup, and it
+        // is the whole report: the reducer's DELETE_MATERIAL_FAILED case sets no
+        // actionError banner (saga.ts: it "deliberately no longer banners the raw
+        // backend text").
+        // Next statement after the click, because the toast lives ~2.5s. No drain
+        // first: the only toast already up is this material's CREATE toast, which
+        // cannot contain "could not be deleted".
+        await waitForToast(deleteFailedToast)
+
+        // confirmDelete closes the dialog synchronously, success or not — so a
+        // failed delete leaves nothing in the top layer (trap 1).
+        await waitForNoOpenDialog()
+
+        // The row survives the failure. Observed with the fault still installed,
+        // matching the failed-rename test below.
+        expect(
+          await staysFalse(async () => (await Materials.rowState(id)) === undefined)
+        ).toBe(true)
       })
-      await Materials.closeAnyOpenDialog()
-      expect(await Materials.rowState(id)).toBeDefined()
+
+      // …and its trash is released for a retry. DELETE_MATERIAL_REQUESTED disables
+      // it (deletingIds) and only DELETE_MATERIAL_FAILED re-enables it; a trash left
+      // locked would also leave this row to afterEach as an undeletable leak.
+      await expect(Materials.deleteControl(id)).toBeEnabled()
     })
 
     it('a failed rename does not change the displayed name', async () => {
@@ -5700,9 +5745,10 @@ describe('Materials', () => {
         })
         await MaterialProperties.saveCard(cardId)
         // THE LOCK IS THE PROOF. Select is disabled only once `group.saved`, and
-        // only SAVE_PARAMETER_GROUP_SUCCEEDED sets it — saveCard's own
-        // "Save went disabled" wait is also satisfied by the in-flight 'saving'
-        // state, so on its own it cannot tell a landed write from a failed one.
+        // only SAVE_PARAMETER_GROUP_SUCCEEDED sets it. saveCard() now waits for
+        // exactly that itself (label back to 'Save', Save disabled AND the type
+        // locked), so this wait passes at once; it stays as the explicit,
+        // test-local statement of what "saved" means here.
         await browser.waitUntil(async () => MaterialProperties.typeLocked(cardId), {
           timeout: TIMEOUTS.MUTATION,
           timeoutMsg: `the ${type} card never locked its type — its save did not succeed`

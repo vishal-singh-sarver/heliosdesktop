@@ -62,7 +62,13 @@ import {
   readDragPayload,
   treeBackgroundGap
 } from '../support/dnd'
-import { clearApiFaults, installApiFault, withApiFault } from '../support/faults'
+import {
+  clearApiFaults,
+  clearApiLatency,
+  installApiFault,
+  withApiFault,
+  withApiLatency
+} from '../support/faults'
 import { drainToasts, waitForToast } from '../support/toasts'
 import { recordMeshFetches, waitForMeshFetch } from '../support/viewport3d'
 
@@ -149,13 +155,44 @@ describe('Geometry', () => {
     // click in the file fail with "element click intercepted" — pointing at the
     // wrong element entirely. Close dialogs before anything else tries to click.
     await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
+    // Panel/section state is component-local React state — no backend cost.
+    // Reset it BEFORE clearSearch: the search box lives inside the Geometry
+    // section body, and after a collapse test a WebDriver click on it retried
+    // "element not interactable" for the full 10s waitforTimeout (~5 tests x
+    // 11.8s per run, measured from allure hook durations).
+    await step('resetToDefault', () => LeftPanel.resetToDefault())
     // Clear the filter BEFORE deleting: a row filtered out of the tree is not
     // in the DOM, so its trash cannot be clicked and cleanup would silently
     // leak rows into the next test's naming expectations.
     await step('clearSearch', () => Geometry.clearSearch())
+    // The skip below reads the tree ONCE, and while a list reload is in flight the
+    // tree renders only its loading marker — a live row would look gone. Let it
+    // settle first (short, and a step, so a test that ended elsewhere costs 10s
+    // at most rather than failing teardown). BEFORE the expand: a reload rebuilds
+    // every group collapsed, so expanding a still-loading tree expands nothing.
+    await step('treeSettled', () =>
+      browser.waitUntil(
+        async () => browser.execute(() => !document.querySelector('[data-testid="geometry-tree-loading"]')),
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the geometry tree was still loading' }
+      )
+    )
+    // Members of a COLLAPSED group are not in the DOM, so expand every group
+    // before the skip check below could mistake a live hidden member for gone.
+    await step('expandCollapsedGroups', async () => {
+      for (let i = 0; i < 10; i++) {
+        const collapsed = (await Geometry.groups()).filter((g) => g.expanded === false)
+        if (!collapsed.length) return
+        for (const g of collapsed) await Geometry.toggleGroup(g.id)
+      }
+    })
 
     const tracked = [...created].reverse()
     for (const id of tracked) {
+      // A member already dissolved, or deleted together with its group, has no
+      // row: deleteRow's waitForExist would burn the full 10s on it (9 such
+      // hooks per run cost 10-21s each). rowState reads the rendered tree in one
+      // execute; if that read itself throws, try the delete anyway.
+      if (!(await Geometry.rowState(id).then((r) => r !== undefined, () => true))) continue
       await step(`deleteRow(${id})`, () => Geometry.deleteRow(id))
       // deleteRow self-cleans on failure, but cancelDelete-style leftovers and
       // any dialog opened by the test itself still need sweeping between rows.
@@ -163,8 +200,6 @@ describe('Geometry', () => {
     }
     created = []
     await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
-    // Panel/section state is component-local React state — no backend cost.
-    await step('resetToDefault', () => LeftPanel.resetToDefault())
 
     const leaked: string[] = []
     for (const id of tracked) {
@@ -1382,9 +1417,19 @@ describe('Geometry', () => {
       // Same guard for the direct path: TreeRow's trash on a GROUP row routes to
       // service.deleteGroup (saga.ts deleteNodeWorker branches on kind), which is
       // a different url from the leaf delete and therefore a separate risk.
-      const [groupId] = await makeGroup()
-      await Geometry.deleteRow(groupId).catch(() => {})
-      created = created.filter((x) => x !== groupId)
+      const [groupId, a, b] = await makeGroup()
+      // NO .catch. It used to swallow every failure here, and it was a false pass
+      // in the exact case this test exists for: a bad group url 404s, scopeError
+      // raises "Project unavailable", the row stays, deleteRow times out — and its
+      // old cleanup force-closed EVERY dialog, the scope-loss one included, before
+      // the poll below could see it. Nothing checked the group was gone either, so
+      // a delete that did nothing passed too.
+      //
+      // deleteRow now throws when the row never leaves, and its cleanup closes
+      // only the Delete confirmation, naming any other open dialog in the error.
+      await Geometry.deleteRow(groupId)
+      // Read the scope dialog FIRST, before anything in this test or afterEach can
+      // close dialogs.
       // NEGATIVE_GATE, not LONG. This was widened to 20s while chasing a
       // suspected scope-loss bug that turned out not to exist. The delete has
       // already completed by the time we look, so a dialog raised by it would
@@ -1392,6 +1437,15 @@ describe('Geometry', () => {
       // watching nothing happen.
       const stray = await scopeDialogWithin(TIMEOUTS.NEGATIVE_GATE)
       expect(stray ?? 'no scope dialog').toBe('no scope dialog')
+      created = created.filter((x) => x !== groupId)
+      // The group AND its members are gone. A group DELETE takes its members with
+      // it: saga.ts deleteNodeWorker routes a group to service.deleteGroup, and
+      // DELETE_NODE_SUCCEEDED removes `[id, ...childIds]`. The members stay in
+      // `created`, so if either survived, afterEach still deletes it — and the
+      // leak check there looks at them rather than past them.
+      expect(await Geometry.rowState(groupId)).toBeUndefined()
+      expect(await Geometry.rowState(a)).toBeUndefined()
+      expect(await Geometry.rowState(b)).toBeUndefined()
       await expect(Geometry.panel).toBeDisplayed()
     })
 
@@ -1556,7 +1610,21 @@ describe('Geometry', () => {
 
     afterEach(async () => {
       await clearApiFaults()
+      await clearApiLatency()
     })
+
+    /**
+     * Failure toasts, mirrored from store/toastMessages.ts (trap 18: never from
+     * Geometry/messages.ts). GEOMETRY_TOAST carries only createFailed of these.
+     *  - groundDeleteFailed — saga.ts deleteNodeWorker's catch, named from the
+     *    node read BEFORE the call.
+     *  - changesSaveFailed — updateObjectWorker's catch. The `Because` variant
+     *    appends a reason only when the error carries a backend `code`; an
+     *    injected fault is a status-0 connection failure with none, so the
+     *    unqualified string is the one shown.
+     */
+    const GROUND_DELETE_FAILED = (name: string): string => `Ground "${name}" could not be deleted.`
+    const CHANGES_SAVE_FAILED = 'Changes could not be saved'
 
     it('a failed create leaves NO row behind and raises the failure toast', async () => {
       const before = await Geometry.rowCount()
@@ -1572,12 +1640,43 @@ describe('Geometry', () => {
       // Differential: an optimistic delete would remove the row locally and only
       // put it back on failure — a flicker users notice and a state that can
       // desync. The row must never move until the server confirms.
+      //
+      // Driven step by step rather than through deleteRow, for two reasons.
+      // deleteRow waits for the row to LEAVE, so here it always burned the full
+      // 60s MUTATION budget and then threw — and the `.catch` that absorbed that
+      // throw absorbed every other one too. A renamed trash ("no control
+      // Delete") or a confirmation that never opened sent no DELETE at all, the
+      // row was trivially still there, and the test passed. Each step below
+      // throws on its own, so a missing trash or dialog now FAILS.
       const id = await track()
+      const name = await nameOf(id)
+      await drainToasts()
       await withApiFault('DELETE', '/objects/', async () => {
-        await Geometry.deleteRow(id).catch(() => {})
+        await Geometry.openDeleteConfirm(id)
+        await Geometry.deleteDialog.$('button=Delete').click()
+        // TreeRow.confirmDelete dispatches and closes the confirmation in the
+        // same handler — the dialog does not wait for the server.
+        await waitForNoOpenDialog()
+        // The failure is OBSERVED, not assumed: this toast is raised only in
+        // deleteNodeWorker's catch, after DELETE_NODE_FAILED. It is the whole
+        // report — the Geometry slice has no delete error field. Kept inside the
+        // fault so the fault cannot be lifted before the DELETE has failed.
+        await waitForToast(GROUND_DELETE_FAILED(name), TIMEOUTS.LONG)
       })
-      await Geometry.closeAnyOpenDialog()
+      // The failure has landed, so what follows is about the settled state, not
+      // a race with an in-flight request.
       expect(await Geometry.rowState(id)).toBeDefined()
+      expect(
+        await staysFalse(async () => (await Geometry.rowState(id)) === undefined)
+      ).toBe(true)
+      // DELETE_NODE_FAILED releases the in-flight mark, so the trash (disabled
+      // while `deleting`) comes back and the user can retry. A failure that left
+      // the mark set would strand a row nobody can delete.
+      await browser.waitUntil(async () => (await Geometry.deleteEnabled(id)) === true, {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: 'the row trash stayed disabled after the DELETE failed — the in-flight mark was never released'
+      })
+      expect(await countOpenDialogs()).toBe(0)
     })
 
     it('a failed visibility PATCH REVERTS the eye to its previous state', async () => {
@@ -1638,19 +1737,73 @@ describe('Geometry', () => {
     })
 
     it('a failed save surfaces an error and leaves Save available to retry', async () => {
+      // This used to assert NO error. Its only wait was "Save is enabled" — and
+      // Save is ALREADY enabled once the edit is dirty and valid
+      // (`disabled={draft.saving || !dirty || !valid}`), so the first poll could
+      // pass before React committed `saving`, or when the click did nothing.
+      const SAVE_LABEL = 'Save'
+      const SAVING_LABEL = 'Saving…'
+      // Element commands, not execute — trap 11, same reasoning as
+      // large-ground.test.ts formError(). `.form-error-text` has two render sites
+      // in this form and the other is gated on objectDeleted, so it is
+      // unambiguous.
+      const saveLabel = async (): Promise<string> =>
+        ((await ObjectProperties.saveButton.getText()) as string).trim()
+      const formError = async (): Promise<string | null> => {
+        const el = $('[data-testid="object-properties-form"] .form-error-text')
+        return (await el.isExisting()) ? ((await el.getText()) as string).trim() : null
+      }
+      // How long the PATCH is HELD before it is sent (and then fails). A refused
+      // connection can come back in milliseconds, which leaves "Saving…" on
+      // screen for less than one WebDriver poll. Holding the request is the only
+      // way to observe the in-flight state at all — see faults.ts on latency; the
+      // latency and fault patches compose. 2s is still far inside the budgets.
+      const SAVE_HOLD_MS = 2_000
+
       const id = await track()
       await Geometry.selectRow(id)
       await ObjectProperties.waitForOpen()
       await ObjectProperties.setField('length', '19')
-      await withApiFault('PATCH', '/objects/', async () => {
-        await ObjectProperties.saveButton.click()
-        // The edit is still dirty, so Save must come back enabled rather than
-        // latching disabled and stranding the user's change.
-        await browser.waitUntil(async () => ObjectProperties.saveEnabled(), {
-          timeout: TIMEOUTS.MUTATION,
-          timeoutMsg: 'Save never re-enabled after a failed PATCH'
+      // Preconditions, so the observations below are about THIS save.
+      expect(await ObjectProperties.saveEnabled()).toBe(true)
+      expect(await formError()).toBe(null)
+      await drainToasts()
+
+      await withApiLatency('PATCH', '/objects/', SAVE_HOLD_MS, () =>
+        withApiFault('PATCH', '/objects/', async () => {
+          await ObjectProperties.saveButton.click()
+          // 1. The save STARTED: label flips and the button locks. Proves the
+          //    click dispatched a save rather than doing nothing.
+          await browser.waitUntil(
+            async () =>
+              (await saveLabel()) === SAVING_LABEL && !(await ObjectProperties.saveEnabled()),
+            {
+              timeout: TIMEOUTS.MEDIUM,
+              interval: 100,
+              timeoutMsg: 'Save never showed "Saving…" — the click did not start a save'
+            }
+          )
+          // 2. The save ENDED. UPDATE_OBJECT_FAILED clears `saving` and sets
+          //    `saveError` in one reducer case.
+          await browser.waitUntil(async () => (await saveLabel()) === SAVE_LABEL, {
+            timeout: TIMEOUTS.MUTATION,
+            timeoutMsg: 'Save stayed "Saving…" — the failed PATCH never settled'
+          })
+          // The saga raises the toast straight after that put, so it is on
+          // screen now and must be the NEXT read (it lives ~2.5s).
+          await waitForToast(CHANGES_SAVE_FAILED)
         })
-      })
+      )
+
+      // 3. The error the user is shown on the form. updateObjectWorker passes
+      //    `err.message` to updateObjectFailed; for a request with no response
+      //    utils/api.ts toApiError keeps axios's message, and axios's XHR adapter
+      //    names a connection failure 'Network Error' (lib/adapters/xhr.js).
+      expect(await formError()).toBe('Network Error')
+      // The edit is still dirty, so Save must come back enabled rather than
+      // latching disabled and stranding the user's change.
+      expect(await ObjectProperties.saveEnabled()).toBe(true)
+      expect(await saveLabel()).toBe(SAVE_LABEL)
     })
   })
 
@@ -1917,6 +2070,10 @@ describe('Geometry', () => {
       const [aName, bName] = [await nameOf(a), await nameOf(b)]
       const groupId = await groupByDrag(a, b)
       const groupName = await nameOf(groupId)
+      // Make room like the test above. Three rows are enough to fill the tree on
+      // a short display: a 1536x816 work area measured -24px here (15 Sep 2026).
+      await LeftPanel.setSection('materials', false)
+      await LeftPanel.setSection('models', false)
       await dragRowsToTreeBackground([a])
       await browser.waitUntil(async () => (await Geometry.rowState(groupId)) === undefined, {
         timeout: TIMEOUTS.MUTATION,

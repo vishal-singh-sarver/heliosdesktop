@@ -714,9 +714,35 @@ class WeatherPage {
     }, name)
   }
 
+  /**
+   * Open the import wizard, re-requesting the open until it is on screen.
+   *
+   * This was one WebDriver coordinate click on Upload File followed by a 10s
+   * wait. On 16 Sep 2026 that click was lost right after enterWeather (the table
+   * was still mounting under the toolbar) and the wizard never opened, in a test
+   * that had passed five runs that day. The in-page click is position-agnostic,
+   * as openAddColumns/openAddRows already use, and repeating it is harmless:
+   * Upload File only dispatches importWizardOpened, which sets a flag.
+   */
   async openImportWizard(): Promise<void> {
-    await this.uploadFileButton.click()
-    await this.importWizard.waitForDisplayed({ timeout: 10000 })
+    await this.uploadFileButton.waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    let attempts = 0
+    try {
+      await browser.waitUntil(
+        async () => {
+          if (await this.importWizard.isDisplayed().catch(() => false)) return true
+          attempts += 1
+          await this.clickToolbarButton('Upload File')
+          return false
+        },
+        { timeout: TIMEOUTS.MEDIUM, interval: 500 }
+      )
+    } catch (err) {
+      throw new Error(
+        `the import wizard never opened after ${attempts} Upload File click(s) ` +
+          `(${err instanceof Error ? err.message : String(err)})`
+      )
+    }
   }
 
   /**

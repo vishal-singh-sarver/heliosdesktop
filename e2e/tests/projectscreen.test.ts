@@ -456,8 +456,7 @@ describe('ProjectScreen — coordinate persistence', () => {
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId as string, name)
     await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
   })
 
@@ -525,8 +524,7 @@ describe('ProjectScreen — coordinate persistence', () => {
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId as string, name)
 
     // The reopened header must show the EDITED latitude (seeded from the freshly
     // fetched project metadata), never the create-time 45.5.

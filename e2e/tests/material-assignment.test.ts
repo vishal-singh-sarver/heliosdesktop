@@ -222,8 +222,10 @@ describe('Material assignment', () => {
   /**
    * Wait for a save to actually LAND.
    *
-   * `disabled` alone is NOT a settle, which is why ObjectProperties.save() is not
-   * used here: the button is disabled both while the PATCH is in flight
+   * `disabled` alone is NOT a settle. (ObjectProperties.save() used to settle on
+   * exactly that; since 16 Sep 2026 it waits for the label as below, so this local
+   * copy is now redundant with it and kept only to avoid churn.) The button is
+   * disabled both while the PATCH is in flight
    * (`draft.saving`) and once it has landed and cleared `dirty`, so a poll can
    * pass a millisecond after the click, before anything left the renderer. That
    * matters enormously on this form — stageReplace() depends on materialBaseline
@@ -340,7 +342,27 @@ describe('Material assignment', () => {
     // it; removing the ground first makes cleanup a plain pair of deletes.
     const trackedGrounds = [...grounds].reverse()
     const trackedMaterials = [...materials].reverse()
+    // The skip below reads the tree once; while it is reloading only the loading
+    // marker renders, so a live ground would look gone. Settle first (best-effort)
+    // — and before the expand, since a reload rebuilds every group collapsed.
+    await step('treeSettled', () =>
+      browser.waitUntil(
+        async () => browser.execute(() => !document.querySelector('[data-testid="geometry-tree-loading"]')),
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the geometry tree was still loading' }
+      )
+    )
+    // Members of a COLLAPSED group are not in the DOM; expand before the skip below.
+    await step('expandCollapsedGroups', async () => {
+      for (let i = 0; i < 10; i++) {
+        const collapsed = (await Geometry.groups()).filter((g) => g.expanded === false)
+        if (!collapsed.length) return
+        for (const g of collapsed) await Geometry.toggleGroup(g.id)
+      }
+    })
     for (const id of trackedGrounds) {
+      // A ground already gone (deleted with its group) would make deleteRow's
+      // waitForExist burn the full 10s. If the read throws, try the delete anyway.
+      if (!(await Geometry.rowState(id).then((r) => r !== undefined, () => true))) continue
       await step(`Geometry.deleteRow(${id})`, () => Geometry.deleteRow(id))
       await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     }

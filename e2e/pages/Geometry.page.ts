@@ -23,6 +23,13 @@ import { TIMEOUTS } from '../config/timeouts'
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
 
+/**
+ * The delete confirmation's aria-label (Geometry/messages.ts deleteTitle). Both
+ * TreeRow's and ObjectPropertiesForm's confirmations carry it; nothing else in
+ * the geometry surface does.
+ */
+const DELETE_DIALOG_LABEL = 'Delete'
+
 export interface GeoRow {
   id: string
   name: string
@@ -405,7 +412,7 @@ class GeometryPage {
    * displayed-ness, never with existence.
    */
   get deleteDialog(): El {
-    return $('dialog[aria-label="Delete"][open]')
+    return $(`dialog[aria-label="${DELETE_DIALOG_LABEL}"][open]`)
   }
 
   /**
@@ -449,6 +456,23 @@ class GeometryPage {
   }
 
   /**
+   * Whether a row's trash is ENABLED, or null when the row (or its trash) is not
+   * rendered.
+   *
+   * The trash is the in-flight oracle for a delete: RowActions renders it
+   * `disabled={deleting}`, the reducer marks the id on DELETE_NODE_REQUESTED and
+   * releases it on DELETE_NODE_FAILED. So a failed delete that never released
+   * the mark leaves a row nobody can retry deleting — this is how that is seen.
+   */
+  async deleteEnabled(id: string): Promise<boolean | null> {
+    return browser.execute((rowId: string) => {
+      const row = document.querySelector(`[data-testid="geo-row-${rowId}"]`)
+      const btn = row?.querySelector('[aria-label="Delete"]') as HTMLButtonElement | null
+      return btn ? !btn.disabled : null
+    }, id) as Promise<boolean | null>
+  }
+
+  /**
    * Delete a row through its confirmation dialog.
    *
    * Delete is PESSIMISTIC — the row stays until the server confirms — so the
@@ -474,8 +498,7 @@ class GeometryPage {
         timeoutMsg: `row ${id} was still present after confirming delete`
       })
     } catch (err) {
-      await this.closeAnyOpenDialog().catch(() => {})
-      throw err
+      throw await this.cleanUpDeleteConfirm(err)
     }
   }
 
@@ -486,9 +509,34 @@ class GeometryPage {
       await this.deleteDialog.$('button=Cancel').click()
       await this.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     } catch (err) {
-      await this.closeAnyOpenDialog().catch(() => {})
-      throw err
+      throw await this.cleanUpDeleteConfirm(err)
     }
+  }
+
+  /**
+   * deleteRow/cancelDelete's failure cleanup: close the DELETE confirmation this
+   * helper may have left open, and nothing else. Returns the error to rethrow.
+   *
+   * It used to call closeAnyOpenDialog, and that HID failures. When a delete
+   * goes wrong the dialog most worth seeing is often NOT the confirmation: a
+   * wrong group-delete url 404s, utils/scopeError raises the blocking
+   * "Project unavailable" dialog, the row stays, and the old cleanup quietly
+   * shut that dialog — so a test polling for it afterwards reported "no scope
+   * dialog" about an app that had just thrown the user out of their project.
+   *
+   * Any OTHER open dialog is now left exactly where it is and named in the
+   * rethrown error, so the failure says what the user was looking at. The
+   * spec's afterEach still sweeps with closeAnyOpenDialog, AFTER the test has
+   * had its chance to observe it.
+   */
+  private async cleanUpDeleteConfirm(err: unknown): Promise<unknown> {
+    const leftOpen = await this.closeOpenDialogs(DELETE_DIALOG_LABEL).catch(() => [] as string[])
+    if (!leftOpen.length) return err
+    const message = err instanceof Error ? err.message : String(err)
+    return new Error(
+      `${message}\n  another dialog was open and was LEFT open for the test to see: ` +
+        leftOpen.map((l) => `"${l}"`).join(', ')
+    )
   }
 
   /** Text of the empty-state hint — distinguishes "no rows" from "no matches". */
@@ -508,14 +556,33 @@ class GeometryPage {
    * Sending a real Escape KEYPRESS is not reliable here (it depends on focus,
    * and Dialog manages its own key handling), so this dispatches the `cancel`
    * event that Escape would have produced and then closes the node — see the
-   * body for why the event is required and not just the close().
+   * body of closeOpenDialogs for why the event is required and not just the
+   * close().
    *
    * Cleanup only — never use this to dismiss a dialog a test is asserting on.
    */
   async closeAnyOpenDialog(): Promise<void> {
-    await browser.execute(() => {
+    await this.closeOpenDialogs(null)
+  }
+
+  /**
+   * Close open dialogs — every one when `onlyLabel` is null, otherwise only
+   * those whose aria-label (components/Dialog's `title`) is exactly `onlyLabel`.
+   * Returns the aria-labels of the open dialogs it deliberately LEFT open.
+   *
+   * One implementation for both, so the cancel-then-close sequence below cannot
+   * drift between the broad teardown sweep and the narrow helper cleanup.
+   */
+  private async closeOpenDialogs(onlyLabel: string | null): Promise<string[]> {
+    return browser.execute((only: string | null) => {
+      const leftOpen: string[] = []
       document.querySelectorAll('dialog[open]').forEach((d) => {
         const dlg = d as HTMLDialogElement
+        const label = dlg.getAttribute('aria-label') ?? ''
+        if (only !== null && label !== only) {
+          leftOpen.push(label || '<dialog with no aria-label>')
+          return
+        }
         // Fire `cancel` BEFORE close(), because close() alone desynchronises the
         // component from its owner.
         //
@@ -543,7 +610,8 @@ class GeometryPage {
           dlg.removeAttribute('open')
         }
       })
-    })
+      return leftOpen
+    }, onlyLabel) as Promise<string[]>
   }
 
   /**
@@ -557,13 +625,21 @@ class GeometryPage {
   }
 
   async search(text: string): Promise<void> {
-    await this.searchBox.click()
+    // No WebDriver click first: the box sits inside the Geometry section body,
+    // and when that section is collapsed (display:none) the click retried
+    // "element not interactable" for the whole 10s waitforTimeout, once per
+    // teardown. But the click had a side effect the teardowns DEPEND on: moving
+    // focus BLURS an open inline rename editor, which closes it — and a row with
+    // its editor open has no Delete control (measured 15 Sep 2026: dropping the
+    // click broke afterEach right after the "opens an editor" test). focus()
+    // in-page keeps that blur without the displayedness wait.
     await browser.execute(
       (val: string) => {
         const node = document.querySelector(
           '[aria-label="Search saved geometries"]'
         ) as HTMLInputElement | null
         if (!node) throw new Error('geometry search box not found')
+        node.focus()
         const setter = Object.getOwnPropertyDescriptor(
           window.HTMLInputElement.prototype,
           'value'

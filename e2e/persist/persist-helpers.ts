@@ -56,7 +56,9 @@ export async function relaunchAndReopen(name: string): Promise<string> {
   // FULL relaunch — a brand new Electron process, SAME fixed profile, so the SQLite
   // DB persists on disk.
   await browser.reloadSession()
-  await waitForMainWindow()
+  // A cold Electron + backend start: the main window exists only once /health
+  // passes, so give the relaunch its own budget (the persist mocha timeout is 300s).
+  await waitForMainWindow(TIMEOUTS.RELAUNCH)
 
   // Re-inject the original session-id (the hard-killed process never flushed
   // localStorage), then refresh so getSessionId() reads it before the first /recent.

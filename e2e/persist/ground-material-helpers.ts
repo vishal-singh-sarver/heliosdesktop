@@ -45,7 +45,7 @@ export async function waitForMaterialsReady(): Promise<void> {
 
 /** Open a project from its Home row and wait until its tree and library are usable. */
 export async function openProjectFromHome(homeRowId: string): Promise<void> {
-  await HomePage.row(homeRowId).doubleClick()
+  await HomePage.openProject(homeRowId)
   await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   await Geometry.panel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   await Geometry.waitForTree()

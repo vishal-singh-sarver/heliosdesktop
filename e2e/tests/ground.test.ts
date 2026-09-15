@@ -120,11 +120,35 @@ describe('Ground container', () => {
     // fail with "element click intercepted", naming the wrong element.
     await step('expandRightPanel', () => RightPanel.expand())
     await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
+    // Reset the panel BEFORE clearSearch: the search box sits inside the
+    // Geometry section body, and a WebDriver click on a collapsed one retries
+    // "element not interactable" for the full 10s waitforTimeout.
+    await step('resetToDefault', () => LeftPanel.resetToDefault())
     await step('clearSearch', () => Geometry.clearSearch())
     await step('clearApiFaults', () => clearApiFaults())
+    // The skip reads the tree once; while it is reloading only the loading marker
+    // renders, so a live row would look gone. Settle first (best-effort step) —
+    // and before the expand, since a reload rebuilds every group collapsed.
+    await step('treeSettled', () =>
+      browser.waitUntil(
+        async () => browser.execute(() => !document.querySelector('[data-testid="geometry-tree-loading"]')),
+        { timeout: TIMEOUTS.MEDIUM, timeoutMsg: 'the geometry tree was still loading' }
+      )
+    )
+    // Members of a COLLAPSED group are not in the DOM; expand before the skip below.
+    await step('expandCollapsedGroups', async () => {
+      for (let i = 0; i < 10; i++) {
+        const collapsed = (await Geometry.groups()).filter((g) => g.expanded === false)
+        if (!collapsed.length) return
+        for (const g of collapsed) await Geometry.toggleGroup(g.id)
+      }
+    })
 
     const tracked = [...created].reverse()
     for (const id of tracked) {
+      // A row already gone (dissolved, or deleted with its group) would make
+      // deleteRow's waitForExist burn the full 10s. If the read throws, try anyway.
+      if (!(await Geometry.rowState(id).then((r) => r !== undefined, () => true))) continue
       await step(`deleteRow(${id})`, () => Geometry.deleteRow(id))
       await step('closeAnyOpenDialog', () => Geometry.closeAnyOpenDialog())
     }
