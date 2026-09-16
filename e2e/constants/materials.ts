@@ -119,7 +119,16 @@ export const MATERIALS_MSG = {
 export const MATERIALS_TOAST = {
   created: (name: string) => `"${name}" has been successfully created.`,
   deleted: (name: string) => `"${name}" has been successfully deleted.`,
-  saved: 'Changes have been successfully saved'
+  saved: 'Changes have been successfully saved',
+  // The failure twins. `createFailed` names the material the create WOULD have
+  // made — a failed create leaves no row to read it back from, so a caller has to
+  // predict it with the Materials/naming.ts rule (lowest free `Material.NNN`).
+  //
+  // Note `created`/`deleted` are NOT material-specific strings: the geometry
+  // toasts render the identical `"X" has been successfully created.` The failure
+  // twins here DO carry the `Material "..."` prefix, so they are unambiguous.
+  createFailed: (name: string) => `Material "${name}" could not be created.`,
+  deleteFailed: (name: string) => `Material "${name}" could not be deleted.`
 } as const
 
 export const MATERIAL_LIMITS = {

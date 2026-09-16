@@ -312,6 +312,37 @@ export async function backendFetch(
  * not, would go on to assert that no scope dialog appeared and pass for
  * entirely the wrong reason.
  */
+/**
+ * Teardown for a spec that provisions one project per test: leave it, then
+ * delete it behind the app's back. Shared by viewport / viewport-lighting /
+ * weather-selection, which had three byte-identical copies of it.
+ *
+ * ORDER IS LOAD-BEARING. Deleting while the window still has the project open
+ * 404s the next scoped call and raises the blocking scope dialog. That is
+ * survivable — reloadToHome() is a `browser.refresh()`, which no modal can
+ * intercept, and every one of these specs calls it in `beforeEach`, so the next
+ * test starts clean either way. It is still the wrong order to rely on.
+ *
+ * WHY IT REPORTS. All three copies were `.catch(() => {})` on BOTH steps, which
+ * makes a broken teardown indistinguishable from a working one: a delete that
+ * 404s every time, or a reload that never reaches Home, would leave no trace at
+ * all. It warns rather than throws — a leaked project only affects this spec's
+ * own session (wdio gives each spec file a fresh database), so failing an
+ * otherwise-green test over it would be worse than the leak.
+ */
+export async function leaveAndDeleteProject(projectId: string): Promise<void> {
+  const problems: string[] = []
+  await reloadToHome().catch((err) => {
+    problems.push(`could not return Home before deleting: ${(err as Error).message}`)
+  })
+  await deleteProjectViaBackend(projectId).catch((err) => {
+    problems.push((err as Error).message)
+  })
+  if (problems.length) {
+    console.warn(`[teardown] project ${projectId}: ${problems.join('; ')}`)
+  }
+}
+
 export async function deleteProjectViaBackend(projectId: string): Promise<void> {
   const res = await backendFetch(`/api/project/${projectId}`, { method: 'DELETE' })
   if (res.status < 200 || res.status >= 300) {

@@ -42,7 +42,7 @@ import Materials from '../pages/Materials.page'
 import ObjectProperties from '../pages/ObjectProperties.page'
 import Viewport from '../pages/Viewport3D.page'
 import {
-  deleteProjectViaBackend,
+  leaveAndDeleteProject,
   enterGeometry,
   reloadToHome,
   waitForBackendReady,
@@ -84,8 +84,7 @@ afterEach(async () => {
   if (projectId) {
     const id = projectId
     projectId = null
-    await reloadToHome().catch(() => {})
-    await deleteProjectViaBackend(id).catch(() => {})
+    await leaveAndDeleteProject(id)
   }
 })
 

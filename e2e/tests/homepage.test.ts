@@ -26,9 +26,11 @@ import {
   setInputValue,
   ACTIVE_PROJECT_KEY
 } from '../support/harness'
-import { PROJECT_MSG } from '../constants/messages'
+import { PROJECT_MSG, PROJECT_TOAST } from '../constants/messages'
 import { DEFAULT_COORDS, NAME_LIMITS, NO_MATCH_SEARCH } from '../constants/test-data'
 import { TIMEOUTS } from '../config/timeouts'
+import { drainToasts, waitForToast } from '../support/toasts'
+import { clearApiFaults, clearApiLatency, withApiFault } from '../support/faults'
 
 before(async () => {
   await waitForMainWindow()
@@ -36,6 +38,14 @@ before(async () => {
 
 beforeEach(async () => {
   await reloadToHome()
+})
+
+// Faults and latency live in the renderer, so beforeEach's refresh already clears
+// them — but that runs at the START of the next test, which would leave a rule
+// armed across the gap. Clear both explicitly, as every other fault-using spec does.
+afterEach(async () => {
+  await clearApiFaults()
+  await clearApiLatency()
 })
 
 /** Create a project (explicit name) and return home with its row present. */
@@ -459,6 +469,10 @@ describe('HomePage', () => {
       await expect(HomePage.renameNameInput).toHaveValue(name)
       await setInputValue(HomePage.renameNameInput, newName)
       await HomePage.renameSaveButton.click()
+      // NEXT statement after the click: toasts live ~2.66s and the dialog-close
+      // wait below is a round-trip. The toast names the OLD name because the saga
+      // reads it from a GET taken BEFORE the PATCH (HomePage/saga.ts:117).
+      await waitForToast(PROJECT_TOAST.renamed(name, newName))
       await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => (await HomePage.row(id).getText()).includes(newName), {
         timeout: TIMEOUTS.LONG,
@@ -487,6 +501,9 @@ describe('HomePage', () => {
       await HomePage.requestRename(id)
       await setInputValue(HomePage.renameNameInput, `  ${trimmed}  `)
       await HomePage.renameSaveButton.click()
+      // The toast reports the TRIMMED value, so it is a second, independent
+      // witness to the trim — it comes from the saga's payload, not from the row.
+      await waitForToast(PROJECT_TOAST.renamed(name, trimmed))
       await HomePage.renameDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(
         async () => (await HomePage.rowNameCell(id).getText()) === trimmed,
@@ -541,6 +558,10 @@ describe('HomePage', () => {
       await HomePage.requestRename(b.id)
       await setInputValue(HomePage.renameNameInput, a.name)
       await HomePage.renameSaveButton.click()
+      // Before the server-error wait below, which is a full round-trip and would
+      // regularly outlive the toast. The toast names the SUBMITTED (duplicate)
+      // name, a.name — not the project being renamed (HomePage/saga.ts:120).
+      await waitForToast(PROJECT_TOAST.renameFailed(a.name))
       await HomePage.renameServerError.waitForDisplayed({ timeout: TIMEOUTS.LONG })
       await expect(HomePage.renameDialog).toBeDisplayed()
       // Editing the field clears the stale server error.
@@ -556,11 +577,39 @@ describe('HomePage', () => {
       await HomePage.requestDelete(id)
       await expect(HomePage.deleteDialog).toBeDisplayed()
       await HomePage.confirmDelete()
+      // confirmDelete() only waits for the button to be clickable and clicks it
+      // (HomePage.page.ts:231-234) — no round-trip — so this lands well inside the
+      // ~2.66s window. Assert the FULL string: the geometry/materials "deleted"
+      // toast is a substring of this one.
+      await waitForToast(PROJECT_TOAST.deleted(name))
       await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
         timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Deleted row never disappeared'
       })
+    })
+
+    it('a FAILED delete keeps the project and reports it', async () => {
+      // The only fault test in this file. The delete dialog closes on the
+      // in-flight -> idle edge with NO success guard (HomePage/index.tsx:101-107),
+      // so it closes on failure too and the toast is the user's only report.
+      //
+      // 'DELETE', not '*': project.get and project.update share this path, and
+      // faulting them would break the row render rather than the delete.
+      const { id, name } = await createProject('delfail')
+      await HomePage.openRowMenu(name)
+      await HomePage.requestDelete(id)
+      await expect(HomePage.deleteDialog).toBeDisplayed()
+
+      await drainToasts()
+      await withApiFault('DELETE', '/api/project/', async () => {
+        await HomePage.confirmDelete()
+        await waitForToast(PROJECT_TOAST.deleteFailed(name), TIMEOUTS.LONG)
+      })
+
+      // The row survives — a pessimistic delete removed nothing.
+      await expect(HomePage.row(id)).toBeExisting()
+      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
     })
 
     it('cancel keeps the project and the row stays', async () => {

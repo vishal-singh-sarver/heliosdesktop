@@ -17,7 +17,7 @@
  *    / { reverse: true }) — never waitForExist.
  */
 
-import { selectAll } from '../support/harness'
+import { selectAll, setInputValue } from '../support/harness'
 import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
@@ -199,9 +199,13 @@ class HomePagePage {
    * select-all, and delete to genuinely reset the filter.
    */
   async clearSearch(): Promise<void> {
-    await this.searchbar.click()
-    await selectAll()
-    await browser.keys(['Delete'])
+    // Through setInputValue, which carries the focus wait between the click and
+    // the select-all. Hand-rolled here before, it was one of the last three
+    // click -> Control+A pairs in the suite with no guard: under load the chord
+    // can arrive before the click has focused the box, go to the document
+    // instead, and leave the filter still applied — so the NEXT assertion sees a
+    // filtered list and fails somewhere else entirely.
+    await setInputValue(this.searchbar, '')
   }
 
   /** Open a row's kebab action menu by project name. */

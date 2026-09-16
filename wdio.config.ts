@@ -21,6 +21,33 @@ delete process.env['ELECTRON_RUN_AS_NODE']
 // `??=` keeps an explicit override (e.g. a CI cache path).
 process.env['WEBDRIVER_CACHE_DIR'] ??= join(process.cwd(), '.cache', 'wdio')
 
+// Pin the window size for the whole suite.
+//
+// WHY: src/main/index.ts:142-146 sizes the main window from
+// `screen.getPrimaryDisplay().workAreaSize`, capped at 1920x1080. So the window
+// is as tall as whatever machine happens to run the suite — a developer's
+// 1920x1002, another's 1536x816, and three DIFFERENT CI runners
+// (windows-2022 / macos-latest / ubuntu-latest, .github/workflows/ci-main.yml:182).
+// Nothing set HELIOS_E2E_VIEWPORT, so every test whose outcome depends on how
+// many rows fit on screen was machine-dependent by construction.
+//
+// That is not hypothetical: the ungroup drop target is the empty space BELOW the
+// last tree row, and support/dnd.ts:187 throws when it is under 8px. The same
+// helper has been measured at 2px and at -32px on different runs of the same
+// suite. A test that passes here and fails on CI for want of vertical space is
+// exactly the "passes once, fails later" this pin exists to end.
+//
+// `??=` so an explicit value still wins — `HELIOS_E2E_VIEWPORT=1024x768 npx wdio ...`
+// still reproduces a narrow display, which is what that flag was added for.
+//
+// The window is never shown under automation (isHeadlessTestRun skips every
+// show()), so this size does not have to fit any real display.
+//
+// NOT applied to wdio.persist.config.ts: harness.ts:109 documents that the
+// override is ignored after a reloadSession, which is exactly what that suite
+// does, so setting it there would be a comforting no-op.
+process.env['HELIOS_E2E_VIEWPORT'] ??= '1600x1200'
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const electronPath: string = require('electron')
 

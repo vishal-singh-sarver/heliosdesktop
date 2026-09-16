@@ -92,22 +92,32 @@ class ProjectScreenPage {
     // 12.34 can come back as 12.340000152587891, and an exact string match would
     // hang until the timeout on a project that is perfectly correct.
     if (expectedLat !== undefined && expectedLon !== undefined) {
-      await browser.waitUntil(
-        async () => {
-          const lat = await this.latInput.getValue()
-          const lon = await this.lonInput.getValue()
-          if (lat === '' || lon === '') return false
-          return (
-            Math.abs(Number(lat) - Number(expectedLat)) < 0.01 &&
-            Math.abs(Number(lon) - Number(expectedLon)) < 0.01
+      // `seen` is recorded INSIDE the condition and reported from the catch.
+      // A timeoutMsg template is evaluated when waitUntil is CALLED, so it can
+      // only ever print the values we were looking for — never the ones that
+      // were actually on screen, which is the half that identifies the fault
+      // (a blank field means the seed never landed; a different number means
+      // the wrong project is open).
+      let seen = '<never read>'
+      await browser
+        .waitUntil(
+          async () => {
+            const lat = await this.latInput.getValue()
+            const lon = await this.lonInput.getValue()
+            seen = `${lat || '<empty>'}, ${lon || '<empty>'}`
+            if (lat === '' || lon === '') return false
+            return (
+              Math.abs(Number(lat) - Number(expectedLat)) < 0.01 &&
+              Math.abs(Number(lon) - Number(expectedLon)) < 0.01
+            )
+          },
+          { timeout: 15000, interval: 100 }
+        )
+        .catch(() => {
+          throw new Error(
+            `coordinate fields never showed the created project's ${expectedLat}, ${expectedLon} — last saw ${seen}`
           )
-        },
-        {
-          timeout: 15000,
-          interval: 100,
-          timeoutMsg: `coordinate fields never showed the created project's ${expectedLat}, ${expectedLon}`
-        }
-      )
+        })
       return
     }
 
@@ -185,10 +195,20 @@ class ProjectScreenPage {
       `[aria-label="${label}"]`,
       value
     )
-    await browser.waitUntil(async () => (await el.getValue()) === value, {
-      timeout: 5000,
-      timeoutMsg: `coordinate field "${label}" did not take the value "${value}"`
-    })
+    let seen = '<never read>'
+    await browser
+      .waitUntil(
+        async () => {
+          seen = await el.getValue()
+          return seen === value
+        },
+        { timeout: 5000 }
+      )
+      .catch(() => {
+        throw new Error(
+          `coordinate field "${label}" did not take the value "${value}" — it holds "${seen}"`
+        )
+      })
   }
 
   /**
@@ -226,6 +246,46 @@ class ProjectScreenPage {
   async setCoordinate(field: Field, value: string): Promise<void> {
     await this.typeCoordinate(field, value)
     await this.blurCoordinate(field)
+  }
+
+  /**
+   * Commit a coordinate ENTIRELY IN-PAGE — no WebDriver click anywhere.
+   *
+   * WHY THIS EXISTS: `setCoordinate` cannot be used once a blocking modal is up.
+   * It goes through `replaceValue`, whose first statement is `el.click()`, and
+   * the scope-lost dialog is a modal <dialog> whose ::backdrop covers the whole
+   * viewport — so the click is intercepted and the PATCH is never sent.
+   *
+   * That mattered: boot.test.ts provokes scope loss and then needs a
+   * PROJECT-scoped request to classify as 'project' rather than 'scenario'
+   * (utils/scopeError.ts checks the scenario id FIRST, so any URL carrying both
+   * reports 'scenario'). A coordinate commit is the only such request reachable
+   * from that screen, and it was racing the very dialog it had to out-run —
+   * passing or failing depending on which landed first.
+   *
+   * The commit fires on React's onBlur, which listens for `focusout` (`blur`
+   * does not bubble to React's root listener), so both are dispatched.
+   */
+  async commitCoordinateInPage(field: Field, value: string): Promise<void> {
+    await this.waitForCoordinatesSeeded()
+    const label = field === 'latitude' ? 'Latitude' : 'Longitude'
+    await browser.execute(
+      (sel: string, val: string) => {
+        const node = document.querySelector(sel) as HTMLInputElement | null
+        if (!node) throw new Error(`commitCoordinateInPage: no element for ${sel}`)
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )?.set
+        setter?.call(node, val)
+        node.dispatchEvent(new Event('input', { bubbles: true }))
+        node.dispatchEvent(new Event('change', { bubbles: true }))
+        node.dispatchEvent(new FocusEvent('blur'))
+        node.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      },
+      `[aria-label="${label}"]`,
+      value
+    )
   }
 
   async getCoordValue(field: Field): Promise<string> {

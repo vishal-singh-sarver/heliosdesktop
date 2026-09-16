@@ -118,17 +118,73 @@ class LeftPanelPage {
     })
   }
 
+  /**
+   * Drive one section to `open`, retrying the click — the same shape as
+   * setCollapsed below, and for the same reason.
+   *
+   * This was a single unretried click, and it carries the same consequence: it
+   * runs in `resetToDefault` (teardown) AND in the ungrouping `beforeEach`,
+   * where Materials and Models are collapsed to give the geometry tree enough
+   * height for the drop target to exist at all. A click that does not land there
+   * leaves the tree a third of its expected height, and
+   * `dragRowsToTreeBackground` then throws "no empty tree area below the last
+   * row" — which reads as a product bug rather than a missed click.
+   *
+   * Every retry re-reads the state first, so a toggle that merely landed SLOWLY
+   * is never undone by a second click.
+   */
   async setSection(key: Section, open: boolean): Promise<void> {
-    if ((await this.sectionExpanded(key)) !== open) await this.toggleSection(key)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if ((await this.sectionExpanded(key)) === open) return
+      await this.sectionToggle(key).click()
+      const settled = await browser
+        .waitUntil(async () => (await this.sectionExpanded(key)) === open, {
+          timeout: TIMEOUTS.SHORT,
+          interval: 100
+        })
+        .then(
+          () => true,
+          () => false
+        )
+      if (settled) return
+    }
+    throw new Error(
+      `the ${key} section never became ${open ? 'expanded' : 'collapsed'} after 3 click attempts`
+    )
   }
 
+  /**
+   * Drive the panel to `collapsed`, retrying the click.
+   *
+   * A SINGLE unretried click here was the whole of a long-standing flake. This
+   * runs in teardown (`resetToDefault`), where a click that does not land leaves
+   * the panel collapsed for the NEXT test — which then fails on its first line
+   * with `expected false, received true` and no hint where the state came from.
+   * Measured 16 Sep 2026: that is exactly how `geometry.test.ts:388`
+   * ("the rail is ABSENT while the panel is expanded") failed on a loaded
+   * machine while passing in isolation.
+   *
+   * Every retry is gated on re-reading the state, so a toggle that merely
+   * landed SLOWLY is never undone by a second click.
+   */
   async setCollapsed(collapsed: boolean): Promise<void> {
-    if ((await this.collapsed()) === collapsed) return
-    await this.collapseButton.click()
-    await browser.waitUntil(async () => (await this.collapsed()) === collapsed, {
-      timeout: TIMEOUTS.SHORT,
-      timeoutMsg: `the panel never became ${collapsed ? 'collapsed' : 'expanded'}`
-    })
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if ((await this.collapsed()) === collapsed) return
+      await this.collapseButton.click()
+      const settled = await browser
+        .waitUntil(async () => (await this.collapsed()) === collapsed, {
+          timeout: TIMEOUTS.SHORT,
+          interval: 100
+        })
+        .then(
+          () => true,
+          () => false
+        )
+      if (settled) return
+    }
+    throw new Error(
+      `the panel never became ${collapsed ? 'collapsed' : 'expanded'} after 3 click attempts`
+    )
   }
 
   /** Restore the as-mounted state: panel open, all three sections open. */
@@ -137,6 +193,24 @@ class LeftPanelPage {
     for (const key of ['geometry', 'materials', 'models'] as Section[]) {
       await this.setSection(key, true)
     }
+  }
+
+  /**
+   * Why the panel is NOT in its as-mounted state, or '' when it is.
+   *
+   * For teardown to assert on. `resetToDefault()` is called as a best-effort
+   * `step(...)`, whose errors are COLLECTED and then discarded unless something
+   * else also went wrong — so a failed reset used to vanish and surface as an
+   * unrelated failure in a later test. Panel state belongs in the same category
+   * as a leaked row: it is not benign, because it corrupts the NEXT test.
+   */
+  async defaultStateViolation(): Promise<string> {
+    if (await this.collapsed()) return 'the panel is still COLLAPSED'
+    const shut: Section[] = []
+    for (const key of ['geometry', 'materials', 'models'] as Section[]) {
+      if (!(await this.sectionExpanded(key))) shut.push(key)
+    }
+    return shut.length ? `section(s) still closed: ${shut.join(', ')}` : ''
   }
 }
 

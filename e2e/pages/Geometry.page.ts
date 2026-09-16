@@ -19,6 +19,10 @@
  */
 
 import { TIMEOUTS } from '../config/timeouts'
+import { BOOT_MSG } from '../constants/messages'
+
+/** ScopeLostDialog's title — the one dialog this file must not close silently. */
+const SCOPE_LOST_TITLE = BOOT_MSG.scopeTitle
 
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
@@ -530,7 +534,10 @@ class GeometryPage {
    * had its chance to observe it.
    */
   private async cleanUpDeleteConfirm(err: unknown): Promise<unknown> {
-    const leftOpen = await this.closeOpenDialogs(DELETE_DIALOG_LABEL).catch(() => [] as string[])
+    const { leftOpen } = await this.closeOpenDialogs(DELETE_DIALOG_LABEL).catch(() => ({
+      leftOpen: [] as string[],
+      closed: [] as string[]
+    }))
     if (!leftOpen.length) return err
     const message = err instanceof Error ? err.message : String(err)
     return new Error(
@@ -562,7 +569,23 @@ class GeometryPage {
    * Cleanup only — never use this to dismiss a dialog a test is asserting on.
    */
   async closeAnyOpenDialog(): Promise<void> {
-    await this.closeOpenDialogs(null)
+    const { closed } = await this.closeOpenDialogs(null)
+    // THE SCOPE DIALOG IS NOT AN ORDINARY CONFIRMATION. Closing it dispatches
+    // `cancel`, which ScopeLostDialog wires to its Go-to-Home handler — so this
+    // sweep silently NAVIGATES HOME and, in a shared-project spec, ejects the
+    // project every remaining test depends on. They then fail one after another
+    // on a screen nobody expected, with nothing pointing back here.
+    //
+    // It is still closed rather than left open: leaving a modal up means the next
+    // test dies on an intercepted click instead, which is no better. What was
+    // missing is the sentence saying it happened.
+    if (closed.includes(SCOPE_LOST_TITLE)) {
+      console.warn(
+        `[teardown] closed a "${SCOPE_LOST_TITLE}" dialog — the open project was deleted or lost ` +
+          'underneath this spec, and closing it navigates Home. Expect the rest of this file to fail; ' +
+          'the cause is here, not there.'
+      )
+    }
   }
 
   /**
@@ -573,9 +596,12 @@ class GeometryPage {
    * One implementation for both, so the cancel-then-close sequence below cannot
    * drift between the broad teardown sweep and the narrow helper cleanup.
    */
-  private async closeOpenDialogs(onlyLabel: string | null): Promise<string[]> {
+  private async closeOpenDialogs(
+    onlyLabel: string | null
+  ): Promise<{ leftOpen: string[]; closed: string[] }> {
     return browser.execute((only: string | null) => {
       const leftOpen: string[] = []
+      const closed: string[] = []
       document.querySelectorAll('dialog[open]').forEach((d) => {
         const dlg = d as HTMLDialogElement
         const label = dlg.getAttribute('aria-label') ?? ''
@@ -609,9 +635,10 @@ class GeometryPage {
         } catch {
           dlg.removeAttribute('open')
         }
+        closed.push(label || '<dialog with no aria-label>')
       })
-      return leftOpen
-    }, onlyLabel) as Promise<string[]>
+      return { leftOpen, closed }
+    }, onlyLabel) as Promise<{ leftOpen: string[]; closed: string[] }>
   }
 
   /**

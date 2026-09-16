@@ -31,7 +31,7 @@ import ProjectScreen from '../pages/ProjectScreen.page'
 import Viewport from '../pages/Viewport3D.page'
 import Lighting from '../pages/LightingDialog.page'
 import {
-  deleteProjectViaBackend,
+  leaveAndDeleteProject,
   enterGeometry,
   reloadToHome,
   waitForBackendReady,
@@ -73,8 +73,7 @@ afterEach(async () => {
   if (projectId) {
     const id = projectId
     projectId = null
-    await reloadToHome().catch(() => {})
-    await deleteProjectViaBackend(id).catch(() => {})
+    await leaveAndDeleteProject(id)
   }
 })
 

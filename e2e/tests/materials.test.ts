@@ -36,6 +36,7 @@ import {
   isSelectorEnum,
   justAboveMax,
   justBelowMin,
+  materialName,
   numericProps,
   propDef
 } from '../constants/materials'
@@ -1878,10 +1879,29 @@ describe('Materials', () => {
   // ══ Failure paths ════════════════════════════════════════════════════════
 
   describe('backend failures', () => {
-    it('a failed create adds NO row', async () => {
+    it('a failed create adds NO row, and reports the name it would have had', async () => {
       const before = await Materials.rowCount()
+
+      // The name has to be PREDICTED: a failed create leaves no row to read it
+      // back from, and the toast is the only place it appears. Mirrors
+      // Materials/naming.ts — parse every `Material.NNN` label and take the
+      // lowest free positive number (gap-filling, so a counter would be wrong
+      // as soon as an earlier test deleted a material).
+      const used = (await Materials.names())
+        .map((n) => n.match(/^Material\.(\d+)$/))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map((m) => Number.parseInt(m[1], 10))
+      let next = 1
+      while (used.includes(next)) next += 1
+      const expectedName = materialName(next)
+
+      await drainToasts()
       await withApiFault('POST', '/materials/library/groups', async () => {
         await Materials.addButton.click()
+        // NEXT statement after the click. The staysFalse gate below burns the
+        // whole NEGATIVE_GATE window, which is far longer than the toast lives —
+        // read the toast first, then prove the row never appeared.
+        await waitForToast(MATERIALS_TOAST.createFailed(expectedName), TIMEOUTS.LONG)
         expect(
           await staysFalse(async () => (await Materials.rowCount()) !== before)
         ).toBe(true)
@@ -1902,10 +1922,10 @@ describe('Materials', () => {
       const id = await track()
       const name = await nameOf(id)
 
-      // store/toastMessages.ts `materialDeleteFailed`, mirrored here rather than
-      // imported: MATERIALS_TOAST in constants/materials.ts carries only the
-      // success toasts. Verified verbatim against toastMessages.ts:66.
-      const deleteFailedToast = `Material "${name}" could not be deleted.`
+      // MATERIALS_TOAST now carries the failure twins too, so this no longer
+      // needs a local copy of the string (it used to, when that block held only
+      // the success toasts).
+      const deleteFailedToast = MATERIALS_TOAST.deleteFailed(name)
 
       await withApiFault('DELETE', '/materials/library/groups', async () => {
         await openRowDelete(id)

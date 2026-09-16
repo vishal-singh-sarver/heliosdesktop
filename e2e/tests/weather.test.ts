@@ -7,10 +7,12 @@
 
 import Weather from '../pages/Weather.page'
 import type { WeatherCatalogType, WeatherCatalogUnit } from '../pages/Weather.page'
-import { enterWeather, reloadToHome, reopenByName, selectAll, stubFileImport, waitForMainWindow } from '../support/harness'
-import { DELETE_IMPORT, WEATHER_MSG } from '../constants/messages'
+import { enterWeather, reloadToHome, reopenByName, setInputValue, stubFileImport, waitForMainWindow } from '../support/harness'
+import { DELETE_IMPORT, WEATHER_MSG, WEATHER_TOAST } from '../constants/messages'
 import { SAMPLE_CSV } from '../config/fixtures'
 import { TIMEOUTS } from '../config/timeouts'
+import { drainToasts, waitForToast } from '../support/toasts'
+import { clearApiFaults, clearApiLatency, withApiFault } from '../support/faults'
 
 before(async () => {
   await waitForMainWindow()
@@ -18,6 +20,13 @@ before(async () => {
 
 beforeEach(async () => {
   await reloadToHome()
+})
+
+// Faults live in the renderer and beforeEach's refresh clears them — but that
+// runs at the START of the next test, leaving a rule armed across the gap.
+afterEach(async () => {
+  await clearApiFaults()
+  await clearApiLatency()
 })
 
 /** Provision a managed column with `rows` rows and return its backend colId. */
@@ -389,6 +398,10 @@ describe('Weather CRUD — add column', () => {
   it('adds a managed column whose header shows the name', async () => {
     await enterWeather('addcol')
     await Weather.addColumn('temperature')
+    // addColumn() returns on the dialog-close edge, which WeatherToolbar.tsx:54
+    // fires on the same reducer tick the saga then toasts on — so this is inside
+    // the ~2.66s window even though a helper call sits between.
+    await waitForToast(WEATHER_TOAST.columnAdded('temperature'))
     const colId = await Weather.waitForColumn('temperature')
     await expect(Weather.columnNameInput(colId)).toHaveValue('temperature')
   })
@@ -439,9 +452,16 @@ describe('Weather CRUD — add column validation', () => {
     await Weather.addColumn('dup')
     await Weather.waitForColumn('dup')
     // Second 'dup' must be rejected by the backend (unique name) -> server banner.
+    //
+    // Driven by hand rather than through Weather.addColumn(): on a failure the
+    // dialog never closes (WeatherToolbar.tsx:54 guards on !addColumnError), so
+    // the helper's waitForDisplayed({reverse}) would hang and throw.
+    await drainToasts()
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'dup')
     await Weather.acSubmit.click()
+    // Before the server-banner wait, which is a full round-trip.
+    await waitForToast(WEATHER_TOAST.columnAddFailed('dup'))
     await Weather.acServerError.waitForDisplayed({ timeout: 15000 })
     await expect(Weather.addColumnDialog).toBeDisplayed()
   })
@@ -509,9 +529,10 @@ describe('Weather CRUD — rename column + header validation', () => {
     await Weather.addColumn('ccc')
     const colId = await Weather.waitForColumn('ccc')
     const input = Weather.columnNameInput(colId)
-    await input.click()
-    await selectAll()
-    await browser.keys(['Delete'])
+    // setInputValue, not a hand-rolled click + Control+A: it carries the focus
+    // wait between the two. Without it the chord can reach the document instead,
+    // the field keeps its old name, and the required error never renders.
+    await setInputValue(input, '')
     await expect($(`p=${WEATHER_MSG.columnNameRequired}`)).toBeDisplayed()
   })
 })
@@ -588,8 +609,34 @@ describe('Weather CRUD — delete column', () => {
     await enterWeather('delcol')
     await Weather.addColumn('zzz')
     const colId = await Weather.waitForColumn('zzz')
+    // The add toast is still up and 'zzz ... added.' cannot satisfy a wait for
+    // 'zzz ... deleted.', but drain anyway — it is the file-wide discipline.
+    await drainToasts()
     await Weather.deleteColumn(colId)
+    // deleteColumn() returns BEFORE the backend answers: WeatherTable.tsx:460-461
+    // closes the confirmation synchronously on dispatch. So the toast arrives
+    // after the helper returns and waitForToast polls it in.
+    await waitForToast(WEATHER_TOAST.columnDeleted('zzz'))
     await Weather.columnNameInput(colId).waitForExist({ reverse: true, timeout: 15000 })
+  })
+
+  it('a FAILED column delete reports it and the column comes back', async () => {
+    await enterWeather('delcolfail')
+    await Weather.addColumn('doomed')
+    const colId = await Weather.waitForColumn('doomed')
+    await drainToasts()
+
+    // deleteColumn() IS reusable on the failure path — unlike addColumn/addRows —
+    // because the dialog closes optimistically on dispatch, not on success.
+    await withApiFault('DELETE', '/weather_data_header', async () => {
+      await Weather.deleteColumn(colId)
+      await waitForToast(WEATHER_TOAST.columnDeleteFailed('doomed'), TIMEOUTS.LONG)
+    })
+
+    // deleteColumnFailed restores the pre-delete snapshot (ProjectScreen/saga.ts:761),
+    // so the optimistically-removed column is put back.
+    await Weather.columnNameInput(colId).waitForExist({ timeout: TIMEOUTS.LONG })
+    await expect(Weather.columnNameInput(colId)).toHaveValue('doomed')
   })
 
   it('cancel keeps the column', async () => {
@@ -616,7 +663,16 @@ describe('Weather CRUD — delete row', () => {
     await enterWeather('delrow')
     await Weather.addRows(2)
     const ids = await Weather.visibleRowIds()
+    await drainToasts()
     await Weather.deleteRow(ids[0])
+    // SINGULAR form. The per-row trash goes through the BULK path with
+    // keys.length === 1 (WeatherTable.tsx:552-556), so this is "Row has been
+    // successfully deleted." and not the "N rows" wording.
+    //
+    // deleteRow() returns on the loading -> idle edge, which is the same tick the
+    // saga toasts on; the 480ms row exit animation happens after, which is why the
+    // count waitUntil below would be too late a place to read the toast.
+    await waitForToast(WEATHER_TOAST.rowsDeleted(1))
     await browser.waitUntil(async () => (await Weather.rowCount()) === 1, {
       timeout: 15000,
       timeoutMsg:
@@ -629,6 +685,10 @@ describe('Weather CRUD — delete row', () => {
   it('cancel keeps the row', async () => {
     await enterWeather('delrowc')
     await Weather.addRows(1)
+    // The only addRows(1) in the suite, so this is where the SINGULAR add form
+    // ("Row has been successfully added.", not "1 rows") gets its coverage. It is
+    // this test's setup rather than its subject, hence the one extra line here.
+    await waitForToast(WEATHER_TOAST.rowsAdded(1))
     const [first] = await Weather.visibleRowIds()
     await Weather.deleteRowButton(first).click()
     await Weather.deleteRowDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
@@ -657,6 +717,8 @@ describe('Weather CRUD — bulk add (multiple columns / rows)', () => {
   it('adds several rows and the count matches exactly', async () => {
     await enterWeather('multirow')
     await Weather.addRows(5)
+    // PLURAL form — "5 rows have been successfully added."
+    await waitForToast(WEATHER_TOAST.rowsAdded(5))
     await browser.waitUntil(async () => (await Weather.rowCount()) === 5, {
       timeout: 15000,
       timeoutMsg: 'expected exactly 5 rows'
@@ -666,11 +728,45 @@ describe('Weather CRUD — bulk add (multiple columns / rows)', () => {
   it('adds rows in two batches and they accumulate', async () => {
     await enterWeather('batch')
     await Weather.addRows(5, { startDate: '2026-01-01' })
+    await waitForToast(WEATHER_TOAST.rowsAdded(5))
+    // Drain between the two: both toasts are plural "rows ... added." and the
+    // first would otherwise still be on screen when the second is asserted.
+    await drainToasts()
     await Weather.addRows(3, { startDate: '2027-06-01' })
+    await waitForToast(WEATHER_TOAST.rowsAdded(3))
     await browser.waitUntil(async () => (await Weather.rowCount()) === 8, {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'expected 8 rows after two batches (5 + 3)'
     })
+  })
+
+  it('a FAILED add reports it and no rows appear', async () => {
+    await enterWeather('addrowfail')
+    await drainToasts()
+
+    // Driven by hand: on a failure the Add Rows dialog stays open
+    // (WeatherToolbar.tsx:57 guards on !addRowError), so Weather.addRows() would
+    // hang on its waitForDisplayed({reverse}) and throw before the assertion.
+    //
+    // '/addRow' and not '/Row': the bulk delete route is '/deleteRow', which also
+    // contains "Row" and would be faulted by a looser substring.
+    await withApiFault('POST', '/addRow', async () => {
+      await Weather.openAddRows()
+      // All four fields: on a fresh empty scenario Start Date/Time are empty and
+      // REQUIRED (Weather.page.ts:483-486), so filling only the count leaves
+      // submit blocked by client validation and no POST is ever sent.
+      await Weather.setReactInput('[data-testid="input-numberOfRows"]', '2')
+      await Weather.setReactInput('[data-testid="input-startDate"]', '2026-01-01')
+      await Weather.setReactInput('[data-testid="input-startTime"]', '00:00')
+      await Weather.setReactInput('[data-testid="input-deltaHours"]', '1')
+      await Weather.arSubmit.click()
+      await waitForToast(WEATHER_TOAST.rowsAddFailed(2), TIMEOUTS.LONG)
+    })
+
+    await expect(Weather.addRowsDialog).toBeDisplayed()
+    await Weather.arCancel.click()
+    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+    expect(await Weather.rowCount()).toBe(0)
   })
 })
 
@@ -947,20 +1043,14 @@ describe('Weather CRUD — cell editing', () => {
     const input = Weather.cellInput(row, colId)
 
     // (a) the 8th decimal keystroke is rejected -> draft never reaches 8 decimals.
-    await input.click()
-    await selectAll()
-    await browser.keys(['Delete'])
-    await input.addValue('1.12345678')
+    await setInputValue(input, '1.12345678')
     const decimalValue = await input.getValue()
     expect(decimalValue).not.toBe('1.12345678')
     const decimals = decimalValue.includes('.') ? decimalValue.split('.')[1].length : 0
     expect(decimals <= 7).toBe(true)
 
     // (b) a value above the global ±1e6 bound is blocked keystroke-by-keystroke.
-    await input.click()
-    await selectAll()
-    await browser.keys(['Delete'])
-    await input.addValue('9999999')
+    await setInputValue(input, '9999999')
     await expect(await input.getValue()).not.toBe('9999999')
   })
 })
