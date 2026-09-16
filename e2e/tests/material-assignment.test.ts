@@ -2207,6 +2207,39 @@ describe('Material assignment', () => {
       expect(mesh.bytes).toBeGreaterThan(0)
     })
 
+    it('a FAILED drop reports it and assigns nothing', async () => {
+      // The ONLY route to GEOMETRY_TOAST.materialAssignFailed. The right-panel
+      // Save path goes through updateObjectWorker, whose failure toast is
+      // changesSaveFailed — which is why the faulted-save test at :694 does NOT
+      // cover this string, despite looking like it should.
+      //
+      // The fault is scoped to '/material-groups', the POST assignMaterialWorker
+      // makes (utils/constants.ts:124). A broader '/objects/' rule would also
+      // catch the ground's own PATCH and the mesh fetch, and the test would pass
+      // on the wrong failure.
+      const materialId = await trackMaterial()
+      const material = await materialNameOf(materialId)
+      const groundId = await trackGround()
+      await ObjectProperties.waitForOpen()
+      const groundName = await groundNameOf(groundId)
+
+      await drainToasts()
+      await withApiFault('POST', '/material-groups', async () => {
+        await dragMaterialOnto({ groupId: materialId, name: material }, groundId)
+        await waitForToast(
+          GEOMETRY_TOAST.materialAssignFailed(material, groundName),
+          TIMEOUTS.LONG
+        )
+      })
+
+      // Nothing was assigned: the drop path is not optimistic, so a failed POST
+      // leaves the ground exactly as it was. trackGround() unassigns the default
+      // material first, so "as it was" is an empty list.
+      expect(await staysFalse(async () => (await ObjectProperties.assignedNames()).length > 0)).toBe(
+        true
+      )
+    })
+
     it('a SECOND drop CONFIRMS before replacing, and leaves exactly ONE material', async () => {
       // The single-material rule reaches the drop path through a confirmation of
       // its OWN: TreeRow.handleDrop calls setReplaceDrop when any target already

@@ -80,6 +80,23 @@ class ShellPage {
     }, value)
   }
 
+  /**
+   * Maximize from the main process.
+   *
+   * Only the `before()` baseline settle uses this — the TESTS maximize by
+   * clicking the real title-bar button, which is the behaviour under test.
+   * Electron's maximize() also SHOWS a hidden window on Windows, so callers must
+   * have run keepOffDesktop() first (see the header).
+   */
+  async maximize(): Promise<void> {
+    await browser.electron.execute((electron) => {
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
+      win?.maximize()
+    })
+  }
+
   /** Restore a maximized window. Used by afterEach so one test cannot leak geometry. */
   async unmaximize(): Promise<void> {
     await browser.electron.execute((electron) => {
@@ -87,6 +104,35 @@ class ShellPage {
         (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
       )
       if (win?.isMaximized()) win.unmaximize()
+    })
+  }
+
+  /**
+   * Size AND both geometry flags in ONE main-process round trip.
+   *
+   * Used by the afterEach restore check. Reading isFullScreen(), isMaximized()
+   * and windowSize() separately is three round-trips against a window that the
+   * teardown is actively putting back, so the three can disagree — an
+   * unmaximize landing between calls reports "not maximized" at the old size.
+   * One read cannot tear.
+   */
+  async windowState(): Promise<{
+    width: number
+    height: number
+    maximized: boolean
+    fullScreen: boolean
+  }> {
+    return browser.electron.execute((electron) => {
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
+      const b = win ? win.getBounds() : { width: 0, height: 0 }
+      return {
+        width: b.width,
+        height: b.height,
+        maximized: win ? win.isMaximized() : false,
+        fullScreen: win ? win.isFullScreen() : false
+      }
     })
   }
 

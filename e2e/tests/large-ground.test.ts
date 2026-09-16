@@ -599,9 +599,19 @@ describe('A large ground', () => {
       )
     }
 
+    await drainToasts()
     await clickSave()
-    // The engine refuses at its subdivision check, before it does any work, so
-    // this comes back fast — but MUTATION is the honest budget for a write.
+    // The ONLY place in the suite that reaches `changesSaveFailedBecause`. An
+    // injected fault cannot: it is a status-0 connection failure with no `code`,
+    // so serverReason returns null and the saga raises the unqualified string
+    // instead (that one is covered by geometry.test.ts). Here the engine sends a
+    // real 422 carrying RESOLUTION_TOO_HIGH, so its own sentence is appended.
+    //
+    // Safe as the next statement despite this file's rule about slow saves: the
+    // engine refuses at its subdivision check BEFORE building anything, which is
+    // exactly why the form error below comes back fast.
+    await waitForToast(GEOMETRY_TOAST.saveFailedBecause(RESOLUTION_TOO_HIGH_MSG))
+    // The same sentence also reaches the form's inline error line.
     expect(await waitForFormError()).toBe(RESOLUTION_TOO_HIGH_MSG)
 
     // The DEVIATION, pinned: the offending fields carry no error of their own.

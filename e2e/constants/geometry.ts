@@ -148,6 +148,17 @@ export const GEOMETRY_TOAST = {
   createFailed: 'Ground could not be created.',
   deleted: (name: string) => `"${name}" has been successfully deleted.`,
   saved: 'Changes have been successfully saved',
+  saveFailed: 'Changes could not be saved',
+  /**
+   * The qualified form — `changesSaveFailedBecause` (store/toastMessages.ts:87).
+   *
+   * NOT reachable through support/faults.ts: `serverReason` (Geometry/saga.ts:49)
+   * returns a reason only for an ApiError carrying a `code`, and an injected fault
+   * is a status-0 connection failure with no body. It needs a REAL backend
+   * rejection that ships the house {error, code} shape — in practice the engine's
+   * 422 RESOLUTION_TOO_HIGH, which is why its only consumer is large-ground.test.ts.
+   */
+  saveFailedBecause: (reason: string) => `Changes could not be saved. ${reason}`,
   /**
    * Material assignment, from store/toastMessages.ts (saga.ts:451/453).
    *

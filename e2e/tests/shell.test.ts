@@ -48,6 +48,35 @@ before(async () => {
   // the never-shown window. Make it invisible and click-through first so the
   // file stays as headless as every other one (see Shell.page.ts).
   await Shell.keepOffDesktop()
+  // SETTLE THE BASELINE BEFORE ANY TEST MEASURES IT.
+  //
+  // Every other spec runs at the pinned HELIOS_E2E_VIEWPORT size, and an
+  // offscreen window takes that size exactly — the window manager never sees it.
+  // This spec is the one that maximizes, and maximize hands the window to the
+  // WM, which clamps it to the DISPLAY WORK AREA and remembers the clamped
+  // bounds as what unmaximize should restore. So a pinned 1600x1200 on a
+  // 1002-tall display comes back 1600x1002 after the first maximize and can
+  // never return to 1200.
+  //
+  // Doing one maximize/unmaximize round trip HERE means the baseline captured
+  // below is a size the OS will actually grant, so afterEach's restore check
+  // asserts something achievable instead of failing every single test. Safe
+  // after keepOffDesktop(), which is what stops a maximize showing the window.
+  // Each step is WAITED OUT: maximize/unmaximize are asynchronous WM
+  // operations, and Shell.unmaximize() no-ops unless isMaximized() is already
+  // true — so firing them back to back left the window MAXIMIZED and every test
+  // then failed on its own first assertion.
+  await Shell.maximize().catch(() => {})
+  await browser
+    .waitUntil(async () => Shell.isMaximized(), { timeout: TIMEOUTS.MEDIUM, interval: 100 })
+    .catch(() => {})
+  await Shell.unmaximize().catch(() => {})
+  await browser
+    .waitUntil(async () => !(await Shell.isMaximized()), {
+      timeout: TIMEOUTS.MEDIUM,
+      interval: 100
+    })
+    .catch(() => {})
 })
 
 beforeEach(async () => {
@@ -60,13 +89,54 @@ beforeEach(async () => {
 afterEach(async () => {
   // Never let window geometry leak into the next test: a maximized or
   // fullscreen window changes the renderer viewport, which moves everything.
-  await Shell.setFullScreen(false).catch(() => {})
-  await Shell.unmaximize().catch(() => {})
-  if (originalSize) {
-    await Shell.setWindowSize(originalSize.width, originalSize.height).catch(() => {})
+  //
+  // Every step is still caught — a failed restore must not mask the failure of
+  // the test that just ran — but the failures are COLLECTED and the restore is
+  // then VERIFIED, because all four used to be `.catch(() => {})` and nothing
+  // checked the outcome. A silently-failed restore left the next test at the
+  // wrong geometry, where it failed on something unrelated (`expect
+  // isMaximized() toBe(false)` at the top of the very next test) with no hint
+  // that teardown was the cause. This is the same class as the leaked-row guard
+  // in geometry.test.ts, and it throws for the same reason: it corrupts LATER
+  // tests, so failing here is the only place the diagnosis is still cheap.
+  const problems: string[] = []
+  const attempt = async (what: string, fn: () => Promise<unknown>): Promise<void> => {
+    await fn().catch((err) => problems.push(`${what}: ${(err as Error).message}`))
   }
-  // LAST: the restores above can re-show the window on Windows.
-  await Shell.rehide().catch(() => {})
+
+  await attempt('leave fullscreen', () => Shell.setFullScreen(false))
+  await attempt('unmaximize', () => Shell.unmaximize())
+  if (originalSize) {
+    await attempt('restore size', () =>
+      Shell.setWindowSize(originalSize!.width, originalSize!.height)
+    )
+  }
+
+  // Confirm it actually landed, rather than trusting that no step threw.
+  const state = await Shell.windowState().catch((err) => {
+    problems.push(`could not read the window back: ${(err as Error).message}`)
+    return null
+  })
+  if (state) {
+    if (state.fullScreen) problems.push('still fullscreen')
+    if (state.maximized) problems.push('still maximized')
+    if (originalSize && (state.width !== originalSize.width || state.height !== originalSize.height)) {
+      problems.push(
+        `size is ${state.width}x${state.height}, expected ${originalSize.width}x${originalSize.height}`
+      )
+    }
+  }
+
+  // LAST, and BEFORE any throw: the restores above can re-show the window on
+  // Windows, and leaving it visible is worse than the geometry leak itself.
+  await Shell.rehide().catch((err) => problems.push(`rehide: ${(err as Error).message}`))
+
+  if (problems.length) {
+    throw new Error(
+      `shell teardown did not restore the window — ${problems.join('; ')}. ` +
+        'Every later test in this file would have run at the wrong geometry.'
+    )
+  }
 })
 
 describe('shell — window controls over the real IPC bridge', () => {

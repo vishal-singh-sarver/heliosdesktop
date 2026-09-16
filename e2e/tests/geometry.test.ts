@@ -205,12 +205,30 @@ describe('Geometry', () => {
     for (const id of tracked) {
       if (await Geometry.row(id).isExisting().catch(() => false)) leaked.push(id)
     }
-    if (leaked.length) {
+    // Panel state is checked HERE, alongside leaked rows, because it fails the
+    // same way: both corrupt a LATER test rather than this one. resetToDefault()
+    // runs as a best-effort `step`, so a click that missed was collected and
+    // then DISCARDED whenever no row leaked — and the next test failed on a
+    // collapsed panel with `expected false, received true`, pointing nowhere
+    // near the cause. Measured 16 Sep 2026: that is exactly how
+    // geometry.test.ts:388 failed on a loaded machine while passing in
+    // isolation. The retry in LeftPanel.setCollapsed makes it rare; this makes
+    // it LEGIBLE when it still happens.
+    const panelDirty = await LeftPanel.defaultStateViolation().catch(
+      (err) => `panel state unreadable — ${err instanceof Error ? err.message : String(err)}`
+    )
+    if (leaked.length || panelDirty) {
+      const problems = [
+        leaked.length
+          ? `left ${leaked.length} geometry row(s) in the shared project: ${leaked.join(', ')}`
+          : '',
+        panelDirty ? `left the left panel dirty — ${panelDirty}` : ''
+      ].filter(Boolean)
       throw new Error(
-        `Cleanup left ${leaked.length} geometry row(s) in the shared project: ${leaked.join(', ')}.\n` +
+        `Cleanup ${problems.join('; and ')}.\n` +
           (failures.length
             ? `  cleanup errors:\n    ${failures.join('\n    ')}`
-            : '  No cleanup step reported an error, so the delete silently no-opped.')
+            : '  No cleanup step reported an error, so it silently no-opped.')
       )
     }
   })
@@ -1508,6 +1526,14 @@ describe('Geometry', () => {
         await LeftPanel.setSection('materials', true)
         await LeftPanel.setSection('models', true)
         const [, a] = await makeGroup()
+        // THIS TEST IS FRAGILE IN THE OPPOSITE DIRECTION TO ITS SIBLINGS. They
+        // need the tree to have room; this one needs it FULL, so a taller window
+        // breaks it — the loop runs out at 12 and the gap is still >= 8.
+        //
+        // That is now bounded rather than hoped for: wdio.config.ts pins
+        // HELIOS_E2E_VIEWPORT, and at that size this fills after 3 of the 12
+        // allowed rows (measured 16 Sep 2026, ending at a 0px gap). Nine rows of
+        // slack. If this ever fails, the pin grew — do NOT just raise the 12.
         for (let i = 0; i < 12 && (await treeBackgroundGap()) >= 8; i++) await track()
         expect(await treeBackgroundGap()).toBeLessThan(8)
         await expect(dragRowsToTreeBackground([a])).rejects.toThrow(/no empty tree area/)

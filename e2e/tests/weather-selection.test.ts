@@ -31,7 +31,7 @@
 import Weather from '../pages/Weather.page'
 import { clearApiFaults, clearApiLatency, installApiLatency, withApiFault } from '../support/faults'
 import {
-  deleteProjectViaBackend,
+  leaveAndDeleteProject,
   enterWeather,
   reloadToHome,
   reopenByName,
@@ -39,7 +39,8 @@ import {
   waitForMainWindow
 } from '../support/harness'
 import { TIMEOUTS } from '../config/timeouts'
-import { WEATHER_SELECTION } from '../constants/messages'
+import { WEATHER_SELECTION, WEATHER_TOAST } from '../constants/messages'
+import { drainToasts, waitForToast } from '../support/toasts'
 
 const SEEDED_ROWS = 6
 
@@ -66,15 +67,12 @@ beforeEach(async () => {
 afterEach(async () => {
   await clearApiFaults()
   await clearApiLatency()
-  // Leave the project BEFORE deleting it. Deleting while the window still has
-  // it open would 404 the next scoped call and raise the blocking scope dialog,
-  // which would then intercept the following test's very first click.
+  // Ordering and why it reports rather than swallows: see leaveAndDeleteProject.
   if (projectId) {
     const id = projectId
     projectId = null
     projectName = null
-    await reloadToHome().catch(() => {})
-    await deleteProjectViaBackend(id).catch(() => {})
+    await leaveAndDeleteProject(id)
   }
 })
 
@@ -192,9 +190,15 @@ describe('Weather — bulk delete', () => {
       timeout: TIMEOUTS.MEDIUM
     })
 
+    // The beforeEach seeded 6 rows and its "6 rows have been successfully added."
+    // toast can still be on screen; drain so it cannot satisfy the wait below.
+    await drainToasts()
     await Weather.selectionDeleteButton.click()
     await Weather.deleteSelectedRowsDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.deleteSelectedRowsDialog.$(`button=${WEATHER_SELECTION.confirmButton}`).click()
+    // PLURAL form, two rows. Read here and not after the count settles: the 480ms
+    // exit animation below outlasts a good part of the toast's ~2.66s life.
+    await waitForToast(WEATHER_TOAST.rowsDeleted(2))
 
     // The 480ms exit animation renders from a frozen snapshot, so the count
     // drops only once it finishes — poll rather than read.
@@ -285,10 +289,14 @@ describe('Weather — bulk delete', () => {
       timeout: TIMEOUTS.MEDIUM
     })
 
+    await drainToasts()
     await withApiFault('POST', '/deleteRow', async () => {
       await Weather.selectionDeleteButton.click()
       await Weather.deleteSelectedRowsDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
       await Weather.deleteSelectedRowsDialog.$(`button=${WEATHER_SELECTION.confirmButton}`).click()
+      // SINGULAR form — one row was highlighted, so keys.length === 1 and the
+      // saga renders "Row could not be deleted.", not "1 rows".
+      await waitForToast(WEATHER_TOAST.rowsDeleteFailed(1), TIMEOUTS.LONG)
       // The dialog closes on the loading -> idle edge whether the request
       // succeeded or failed.
       await Weather.deleteSelectedRowsDialog.waitForDisplayed({
@@ -298,6 +306,32 @@ describe('Weather — bulk delete', () => {
     })
 
     // Pessimistic: nothing was removed optimistically, so every row is intact.
+    expect(await Weather.rowCount()).toBe(SEEDED_ROWS)
+  })
+
+  it('a FAILED bulk delete of SEVERAL rows reports the plural count', async () => {
+    // The singular/plural split is a real branch in toastMessages.ts (rowCountFailed),
+    // and the test above only ever exercises the singular side. Three rows here so
+    // the count in the message cannot coincidentally match the 1-row wording.
+    const ids = await Weather.visibleRowIds()
+    for (const id of ids.slice(0, 3)) await Weather.shiftClickRow(id)
+    await browser.waitUntil(async () => (await Weather.selectionCount()) === 3, {
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: 'three rows were never highlighted'
+    })
+
+    await drainToasts()
+    await withApiFault('POST', '/deleteRow', async () => {
+      await Weather.selectionDeleteButton.click()
+      await Weather.deleteSelectedRowsDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await Weather.deleteSelectedRowsDialog.$(`button=${WEATHER_SELECTION.confirmButton}`).click()
+      await waitForToast(WEATHER_TOAST.rowsDeleteFailed(3), TIMEOUTS.LONG)
+      await Weather.deleteSelectedRowsDialog.waitForDisplayed({
+        reverse: true,
+        timeout: TIMEOUTS.MUTATION
+      })
+    })
+
     expect(await Weather.rowCount()).toBe(SEEDED_ROWS)
   })
 })

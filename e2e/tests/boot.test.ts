@@ -211,11 +211,24 @@ describe('scope loss — the project or scenario is deleted underneath you', () 
     // scenario id, which is what makes this classify as 'project'. A weather
     // call would carry both and report 'scenario' instead.
     //
-    // Swallow the helper's own error: setCoordinate commits by clicking the
-    // sibling input, and the 404 ALSO trips ProjectScreen's separate
-    // isStaleIdError path (any 4xx -> bounceToHome), which unmounts the header
-    // mid-helper. The dialog is the assertion; how the helper ended is not.
-    await ProjectScreen.setCoordinate('latitude', '41.5').catch(() => {})
+    // Committed IN-PAGE, not through setCoordinate.
+    //
+    // setCoordinate drives a WebDriver click (replaceValue starts with
+    // el.click(), and the blur is a click on the sibling). Once ANY background
+    // 404 has raised the scope dialog — the mesh fetch, the weather refresh, the
+    // scenario poll, all of which carry BOTH ids — that modal's ::backdrop
+    // covers the viewport and the click is intercepted. The PATCH then never
+    // leaves, so the only project-scoped request in this screen never happens,
+    // and the assertion below reads the 'scenario' copy instead. Which one won
+    // was a race: an archived run shows this test broken with 'the "Project
+    // unavailable" dialog never appeared'.
+    //
+    // The in-page commit cannot be intercepted, so the PATCH is guaranteed to go
+    // out and the classification is deterministic. Still tolerant of a throw:
+    // the 404 also trips ProjectScreen's separate isStaleIdError path (any 4xx ->
+    // bounceToHome), which unmounts the header mid-helper. The dialog is the
+    // assertion; how the helper ended is not.
+    await ProjectScreen.commitCoordinateInPage('latitude', '41.5').catch(() => {})
 
     await BootDialogs.waitForScope()
     expect(await BootDialogs.bodyText(BOOT_MSG.scopeTitle)).toBe(BOOT_MSG.scopeProject)
@@ -252,8 +265,15 @@ describe('scope loss — the project or scenario is deleted underneath you', () 
     // Two DIFFERENT scoped requests against a project that no longer exists: a
     // weather write and a project PATCH. Without the `reported` latch in
     // scopeError each failure would raise its own dialog and they would stack.
+    // The SECOND call must be committed in-page for the same reason as the test
+    // above, and here the consequence was worse: the first call has ALREADY
+    // raised the modal by the time this runs, so the click was intercepted every
+    // time and the project PATCH was NEVER sent. The `.catch(() => {})` hid it,
+    // and this test — whose whole subject is that TWO failures raise ONE dialog —
+    // was asserting the invariant against a single failure. It could not have
+    // caught a regression in scopeError's `reported` latch.
     await Weather.addRows(1).catch(() => {})
-    await ProjectScreen.setCoordinate('latitude', '41.5').catch(() => {})
+    await ProjectScreen.commitCoordinateInPage('latitude', '41.5').catch(() => {})
 
     await BootDialogs.waitForScope()
 

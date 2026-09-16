@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
-import { selectAll, stubFileImport, waitForMainWindow } from '../support/harness'
+import { setInputValue, stubFileImport, waitForMainWindow } from '../support/harness'
 import { PERSIST_DB, PERSIST_SAVE_DEBOUNCE_WAIT_MS, relaunchAndReopen } from './persist-helpers'
 import { TIMEOUTS } from '../config/timeouts'
 import { DEFAULT_COORDS } from '../constants/test-data'
@@ -33,10 +33,10 @@ import { DEFAULT_COORDS } from '../constants/test-data'
 async function typeCell(rowId: string, colId: string, value: string): Promise<void> {
   const input = Weather.cellInput(rowId, colId)
   await input.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
-  await input.click()
-  await selectAll()
-  await browser.keys(['Delete'])
-  await input.addValue(value)
+  // setInputValue carries the focus wait between the click and the select-all;
+  // hand-rolled, the chord could reach the document and the typed value would
+  // APPEND to the existing cell rather than replace it.
+  await setInputValue(input, value)
 }
 
 describe('Persistence — import + data type/unit + validation across relaunch', () => {

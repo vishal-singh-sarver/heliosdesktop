@@ -160,9 +160,22 @@ describe('Ground container', () => {
     for (const id of tracked) {
       if (await Geometry.row(id).isExisting().catch(() => false)) leaked.push(id)
     }
-    if (leaked.length) {
+    // Panel state is checked HERE, alongside leaked rows, because it fails the
+    // same way: both corrupt a LATER test rather than this one. See the longer
+    // note in geometry.test.ts — a missed click in resetToDefault() used to be
+    // collected by `step` and then discarded whenever no row leaked.
+    const panelDirty = await LeftPanel.defaultStateViolation().catch(
+      (err) => `panel state unreadable — ${err instanceof Error ? err.message : String(err)}`
+    )
+    if (leaked.length || panelDirty) {
+      const problems = [
+        leaked.length
+          ? `left ${leaked.length} geometry row(s) in the shared project: ${leaked.join(', ')}`
+          : '',
+        panelDirty ? `left the left panel dirty — ${panelDirty}` : ''
+      ].filter(Boolean)
       throw new Error(
-        `Cleanup left ${leaked.length} geometry row(s) in the shared project: ${leaked.join(', ')}.\n` +
+        `Cleanup ${problems.join('; and ')}.\n` +
           (failures.length
             ? `  cleanup errors:\n    ${failures.join('\n    ')}`
             : '  No cleanup step reported an error, so the delete silently no-opped.')
