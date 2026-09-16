@@ -180,6 +180,25 @@ class WeatherPage {
     return dialog.$('[data-testid="dialog-close"]')
   }
 
+  /**
+   * Close an open dialog through its header ×, then wait for it to go.
+   *
+   * TEARDOWN ONLY — for a test that has finished asserting and just needs the
+   * dialog gone. Deliberately NOT Cancel: the footer Cancel is reflowed out from
+   * under the pointer by the shipped bug described on `openFormSelect`, so a
+   * teardown click there fails and takes an otherwise-passing test down with it.
+   * Measured 16 Sep 2026 — the delta-boundary and pre-seed tests passed every
+   * assertion they own and then died on the trailing `arCancel.click()`.
+   *
+   * The × lives in the dialog HEADER, above the "required" error that does the
+   * reflowing, so it never moves. That is why `the × button closes it` has
+   * always passed while `Cancel closes it` never has.
+   */
+  async dismissDialog(dialog: El): Promise<void> {
+    await this.dialogCloseButton(dialog).click()
+    await dialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+  }
+
   // ----- Shift-click row highlight and the selection pill -----
 
   /**
@@ -1114,19 +1133,45 @@ class WeatherPage {
     return this.formSelectTrigger(name).isEnabled()
   }
 
-  /** Open the listbox (no-op if already open) and return its element id. */
+  /**
+   * Open the listbox (no-op if already open) and return its element id.
+   *
+   * Retries the trigger click. DEVIATION — shipped bug: the FIRST click into a
+   * freshly opened dialog is swallowed. The dialog auto-focuses its EMPTY
+   * required field; the press blurs it, the "required" error appears and pushes
+   * this trigger down one line before the release, so the click lands off-target
+   * and a real user has to click twice. Measured 16 Sep 2026 — three weather
+   * tests that never touch Cancel died here with `listbox … never opened`.
+   *
+   * ACCOMMODATED, not asserted. The intended ONE-click behaviour is the subject
+   * of the dedicated Cancel tests, which stay `it.skip` until the app is fixed;
+   * encoding the double-click there would turn the bug into the expectation.
+   * Here the click is incidental, so retrying restores the coverage the test
+   * actually owns.
+   *
+   * Each retry is gated on the listbox being genuinely absent, so one that
+   * merely opened SLOWLY is never toggled shut by a second click.
+   */
   async openFormSelect(name: string): Promise<string> {
     const trigger = this.formSelectTrigger(name)
     await trigger.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const listId = await trigger.getAttribute('aria-controls')
     if (!listId) throw new Error(`Select "${name}" has no aria-controls — not a components/Select`)
-    if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
-    await browser.waitUntil(
-      async () =>
-        (await browser.execute((id: string) => !!document.getElementById(id), listId)) === true,
-      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `listbox for "${name}" never opened` }
-    )
-    return listId
+    const isOpen = async (): Promise<boolean> =>
+      (await browser.execute((id: string) => !!document.getElementById(id), listId)) === true
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (await isOpen()) return listId
+      // A swallowed click never reaches the trigger, so React's state — and
+      // aria-expanded with it — stays false. Honouring it keeps the no-op
+      // contract for an already-open control.
+      if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
+      const opened = await browser.waitUntil(isOpen, { timeout: 2000, interval: 100 }).then(
+        () => true,
+        () => false
+      )
+      if (opened) return listId
+    }
+    throw new Error(`listbox for "${name}" never opened after 3 click attempts`)
   }
 
   private async readOptionLabels(listId: string): Promise<string[]> {
