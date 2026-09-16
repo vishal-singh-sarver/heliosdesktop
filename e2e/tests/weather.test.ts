@@ -467,13 +467,15 @@ describe('Weather CRUD — add column validation', () => {
 })
 
 describe('Weather CRUD — add column data-type/unit wiring', () => {
-  // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment, the
-  // `.skip` and the title's [SKIPPED] suffix) once it is fixed. The dialog
-  // auto-focuses its EMPTY first field; the press of a click blurs it, the
-  // "required" error pushes Cancel / the Data Type dropdown down one line before
-  // the release, and the click is lost — a user has to click twice. Same defect as
-  // the New Project dialog (homepage.test.ts).
-  it.skip('enables the unit select only after a data type is chosen [SKIPPED: known app bug — click lost to blur reflow, see comment]', async () => {
+  // RECOVERED 16 Sep 2026. This test asserts the unit select's GATING; the
+  // dropdown click and the closing click are incidental to it. It was
+  // quarantined alongside the Cancel tests because the shipped blur-reflow bug
+  // swallowed its first click into the dialog (measured: `listbox for
+  // "dataTypeId" never opened`). `Weather.openFormSelect` now retries that click
+  // and teardown goes through the header ×, so the coverage is restored without
+  // encoding the bug. The INTENDED one-click behaviour is still asserted — and
+  // still skipped — by 'Cancel closes it' above.
+  it('enables the unit select only after a data type is chosen', async () => {
     await enterWeather('acunit')
     await Weather.openAddColumns()
     // Before any data type is selected the unit select is disabled.
@@ -486,8 +488,7 @@ describe('Weather CRUD — add column data-type/unit wiring', () => {
       timeoutMsg: 'unit select never became enabled after choosing a data type'
     })
     await expect(await Weather.acUnitEnabled()).toBe(true)
-    await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+    await Weather.dismissDialog(Weather.addColumnDialog)
   })
 })
 
@@ -698,14 +699,14 @@ describe('Weather CRUD — add rows validation', () => {
     await expect(Weather.arError('deltaHours')).toBeDisplayed()
   })
 
-  // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment, the
-  // `.skip` and the title's [SKIPPED] suffix) once it is fixed. The dialog
-  // auto-focuses its EMPTY first field; the press of a click blurs it, the
-  // "required" error pushes Cancel down one line before the release, and the click
-  // is lost — a user has to click twice. Same defect as the New Project dialog
-  // (homepage.test.ts). (An earlier copy of this note named a Data Type dropdown
-  // here — AddRowsDialog.tsx has none.)
-  it.skip('pre-seeds start date/time and delta from the last row on reopen [SKIPPED: known app bug — click lost to blur reflow, see comment]', async () => {
+  // RECOVERED 16 Sep 2026. Every assertion this test owns — the pre-seeded
+  // start date, time and delta — ALREADY PASSED while it was quarantined; it
+  // died on the trailing `arCancel.click()`, which is teardown, not subject
+  // (measured: the failure was at the `waitForDisplayed({reverse:true})` on the
+  // line after the click). Teardown now goes through the header ×, which the
+  // blur reflow cannot move. The Cancel behaviour itself stays asserted, and
+  // stays skipped, by 'Cancel closes it' above.
+  it('pre-seeds start date/time and delta from the last row on reopen', async () => {
     await enterWeather('arseed')
     await Weather.addRows(2)
     // Reopening prefills Start Date/Time from the last row + delta, and delta carries over.
@@ -722,8 +723,7 @@ describe('Weather CRUD — add rows validation', () => {
     await expect(await Weather.arStartDate.getValue()).not.toBe('')
     await expect(await Weather.arStartTime.getValue()).not.toBe('')
     await expect(await Weather.arDeltaHours.getValue()).not.toBe('')
-    await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+    await Weather.dismissDialog(Weather.addRowsDialog)
   })
 
   it('accumulates two batches across a year boundary', async () => {
@@ -763,14 +763,13 @@ describe('Weather CRUD — add rows validation', () => {
     await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
-  // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment, the
-  // `.skip` and the title's [SKIPPED] suffix) once it is fixed. The dialog
-  // auto-focuses its EMPTY first field; the press of a click blurs it, the
-  // "required" error pushes Cancel down one line before the release, and the click
-  // is lost — a user has to click twice. Same defect as the New Project dialog
-  // (homepage.test.ts). (An earlier copy of this note named a Data Type dropdown
-  // here — AddRowsDialog.tsx has none.)
-  it.skip('rejects deltaHours above the 24 max and accepts the boundary [SKIPPED: known app bug — click lost to blur reflow, see comment]', async () => {
+  // RECOVERED 16 Sep 2026. This is an INCLUSIVE-BOUNDARY test — 25 rejected, 24
+  // accepted — and both halves ALREADY PASSED while it was quarantined: the
+  // values go in through setReactInput (native setter, no click at all), and the
+  // failure was at the line AFTER the trailing `arCancel.click()`. Losing this
+  // one cost the most, because a boundary case that stops running is the kind
+  // that silently stops being a boundary case. Teardown now uses the header ×.
+  it('rejects deltaHours above the 24 max and accepts the boundary', async () => {
     await enterWeather('armaxdelta')
     await Weather.openAddRows()
     await Weather.setReactInput('[data-testid="input-deltaHours"]', '25')
@@ -778,8 +777,7 @@ describe('Weather CRUD — add rows validation', () => {
     await expect(Weather.arError('deltaHours')).toHaveText(WEATHER_MSG.deltaTooLarge)
     await Weather.setReactInput('[data-testid="input-deltaHours"]', '24')
     await Weather.arError('deltaHours').waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
-    await Weather.arCancel.click()
-    await Weather.addRowsDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+    await Weather.dismissDialog(Weather.addRowsDialog)
   })
 })
 
@@ -1805,13 +1803,12 @@ describe('Weather add-column — re-add a name after deleting it', () => {
 })
 
 describe('Weather add-column — data-type dropdown options', () => {
-  // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment, the
-  // `.skip` and the title's [SKIPPED] suffix) once it is fixed. The dialog
-  // auto-focuses its EMPTY first field; the press of a click blurs it, the
-  // "required" error pushes Cancel / the Data Type dropdown down one line before
-  // the release, and the click is lost — a user has to click twice. Same defect as
-  // the New Project dialog (homepage.test.ts).
-  it.skip('exposes a placeholder plus at least one real data type option [SKIPPED: known app bug — click lost to blur reflow, see comment]', async () => {
+  // RECOVERED 16 Sep 2026. This asserts the dropdown's CONTENTS, not the click
+  // that opens it. It never reached its assertions while quarantined — it died
+  // in openFormSelect with `listbox for "dataTypeId" never opened`, the swallowed
+  // first click into the dialog. That click is now retried in the page object;
+  // teardown uses the header ×.
+  it('exposes a placeholder plus at least one real data type option', async () => {
     await enterWeather('ap21opts')
     await Weather.openAddColumns()
     const labels = await Weather.acDataTypeOptions()
@@ -1826,8 +1823,7 @@ describe('Weather add-column — data-type dropdown options', () => {
       expect(labels[i]).not.toBe(Weather.SELECT_PLACEHOLDERS.dataType)
     }
     await Weather.closeFormSelect('dataTypeId')
-    await Weather.acCancel.click()
-    await Weather.addColumnDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+    await Weather.dismissDialog(Weather.addColumnDialog)
   })
 })
 
@@ -1871,13 +1867,11 @@ describe('Weather add-column — submit with data type + auto-selected unit', ()
   // the column. Catalog-agnostic: pick the FIRST real type the dialog offers and
   // read the expected base-unit label from the backend catalog; self-skip only
   // if the catalog exposes no selectable data type.
-  // DISABLED 15 Sep 2026 — KNOWN APP BUG, re-enable (delete this comment, the
-  // `.skip` and the title's [SKIPPED] suffix) once it is fixed. The dialog
-  // auto-focuses its EMPTY first field; the press of a click blurs it, the
-  // "required" error pushes Cancel / the Data Type dropdown down one line before
-  // the release, and the click is lost — a user has to click twice. Same defect as
-  // the New Project dialog (homepage.test.ts).
-  it.skip("the created column's header shows the auto-selected base unit [SKIPPED: known app bug — click lost to blur reflow, see comment]", async function () {
+  // RECOVERED 16 Sep 2026. The happy path here SUBMITS, it never clicks Cancel
+  // (the two `acCancel` calls below are inside self-skip branches). It was
+  // quarantined because its first read of the data-type options died in
+  // openFormSelect with `listbox … never opened`, which that helper now retries.
+  it("the created column's header shows the auto-selected base unit", async function () {
     await enterWeather('gap1auto')
 
     // The unassigned header-picker label (DataTypeUnitPicker buttonLabel: no
