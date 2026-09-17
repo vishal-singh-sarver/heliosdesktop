@@ -60,6 +60,16 @@ plugins:
       type: date
       enable_creation_date: false
       fallback_to_build_date: true
+  # Offline copy — OFF unless HELIOS_DOCS_OFFLINE=true (see README "Documentation site").
+  # privacy downloads what the browser would otherwise fetch at view time (Mermaid,
+  # which 14 pages use; the Inter/JetBrains Mono web fonts; offline's search
+  # polyfill) into the build, so the build needs internet once and the result
+  # needs none. offline makes the site work from file://: page.html links
+  # instead of directory URLs, and a search index that loads without a server.
+  - privacy:
+      enabled: !ENV [HELIOS_DOCS_OFFLINE, false]
+  - offline:
+      enabled: !ENV [HELIOS_DOCS_OFFLINE, false]
 
 markdown_extensions:
   - admonition

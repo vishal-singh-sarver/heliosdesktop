@@ -1,6 +1,12 @@
-# Documentation site dependencies.
+# Documentation site dependencies (Python 3.9+). Full steps: README.md → "Documentation site".
 #   python3 -m venv .venv-docs && source .venv-docs/bin/activate
 #   pip install -r docs/requirements.txt
-#   mkdocs serve
-mkdocs-material>=9.5
-mkdocs-git-revision-date-localized-plugin>=1.2
+#   mkdocs serve                                        # live preview
+#   HELIOS_DOCS_OFFLINE=true mkdocs build --strict      # offline copy → site/
+#
+# Upper bounds are deliberate: MkDocs 2.0 removes the plugin and theme systems this
+# site depends on, and a new Material major can change the config. Tested with
+# mkdocs 1.6.1, mkdocs-material 9.7.7, git-revision-date-localized 1.5.0.
+mkdocs>=1.6,<2
+mkdocs-material>=9.5,<10
+mkdocs-git-revision-date-localized-plugin>=1.2,<2
