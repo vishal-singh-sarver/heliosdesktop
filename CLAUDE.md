@@ -45,6 +45,14 @@ On the **native Linux** checkout (verified 2026-09-02):
 agent harness themselves. `reapOrphans` already handles it; if you must sweep by
 hand, match `heliosgui_backend` and nothing broader.
 
+**macOS** (the suite is also run on a Mac mini). The shell is different there:
+the renderer paints NO window controls (native traffic lights, not in the DOM)
+and keeps the title bar in fullscreen. `shell.test.ts` branches on darwin with
+`itNotMac` / `itMacOnly`. The two Mac-only tests were written 17 Sep 2026 and
+have not yet run on a Mac; the fullscreen one self-skips if the hidden test window
+cannot enter fullscreen there. The app's crash log (`RENDERER GONE …`) is
+`~/Library/Application Support/Helios/logs/app-startup.log`.
+
 The backend can also be driven **directly over HTTP** without Electron, which is
 by far the cheapest way to answer "what does the engine actually do?":
 
@@ -371,9 +379,12 @@ snapshot with **added attributes and zero deletions**.
     `stomatal_sidedness` onto every card of the same material that carries it —
     last write wins. So two cards can never show different values for those two
     labels; `material-submodels.test.ts` pins it as a DEVIATION.
-28. **ON WINDOWS, MAXIMIZE AND FULLSCREEN SHOW THE HIDDEN WINDOW.** Electron's
-    `maximize()` "will also show … the window if it isn't being displayed", and
-    leaving fullscreen flips a hidden window visible. `shell.test.ts` is the only
+28. **MAXIMIZE SHOWS THE HIDDEN WINDOW (ANY PLATFORM), AND ON WINDOWS SO DOES
+    LEAVING FULLSCREEN.** Electron's `maximize()` "will also show … the window if
+    it isn't being displayed" — documented with no platform qualifier, though
+    MEASURED only on Windows — and on Windows leaving fullscreen flips a hidden
+    window visible. `before()` now ends with `Shell.rehide()` after its maximize
+    round trip, and the macOS fullscreen test settles and rehides in `finally`. `shell.test.ts` is the only
     spec that does either, so it now calls `Shell.keepOffDesktop()` in `before()`
     (opacity 0 + ignore OS mouse — set BEFORE any fullscreen, which would
     otherwise restore the old ex-style; its setSkipTaskbar is inert on a
@@ -457,6 +468,27 @@ snapshot with **added attributes and zero deletions**.
     "Project unavailable" dialog a scope-loss test was waiting for. Any other
     dialog is now left open and named in the thrown error.
     `closeAnyOpenDialog()` still closes everything, for teardown.
+41. **A DOUBLE-CLICK TEST MUST HOLD THE REQUEST OPEN — AND NEVER `.catch` THE
+    SECOND CLICK.** `double-clicking Create does not create two projects` and
+    `rapid double-confirm deletes the project exactly once` used to do
+    `click(); click().catch(() => {})`. The backend answers a create or delete in
+    milliseconds, so the second click landed on a hidden button in an already
+    closed dialog; the swallowed `element not interactable` is the
+    `ERROR webdriver` line passing runs printed, and the guard was never tested.
+    STILL OPEN (17 Sep 2026): `double-clicking the kebab Delete item opens exactly
+    one delete dialog` keeps the swallowed second click — the menu unmounts on
+    click 1, so click 2 waits 10s for nothing — and its dialog count cannot fail
+    (the `<dialog>` is always rendered).
+    Also, `createSubmitButton` (`button=Create`) cannot see the busy button at
+    all — its label is `Creating…`; use `createSubmitBusyButton`. The pattern now:
+    `installApiLatency` on the ONE request, click, wait for `disabled`, second
+    click uncaught via `clickWhileBusy`, then `apiLatencyHits(...) === 1`.
+    **Never fire both clicks inside one `browser.execute`**: React commits
+    `disabled` in a microtask, so the second click reaches an enabled button and
+    correct code sends two DELETEs (`takeEvery`) — a gesture no user can make.
+    NOT every `ERROR webdriver` line is a failure: geometry's full-tree ungroup
+    test expects `dnd: no empty tree area` to be thrown, and the log prints it
+    anyway. Trust the `Spec Files:` summary.
 32. **A GROUP WHOSE ID EQUALS A GROUND'S ID FREEZES THE APP.** Backend groups
     (`object_group`) and grounds (`scenario_object`) are separate tables with
     independent autoincrement ids; the frontend keys both into ONE `nodesById`

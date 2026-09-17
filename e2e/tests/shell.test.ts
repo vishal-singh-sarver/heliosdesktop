@@ -17,8 +17,20 @@
  *    with side="right"; on macOS the app uses native traffic lights. The
  *    side="left" branch is unreachable in the product — it belongs to the unit
  *    test, not here.
- *  - The macOS title-bar double-click strip. It renders only when getPlatform()
- *    returns 'darwin', so it does not exist on this runner.
+ *  - The macOS title-bar double-click strip (the bottom 17px of the 45px
+ *    title-bar row, below the native ~28px zone, darwin only). What it does is the MACHINE's AppleActionOnDoubleClick
+ *    preference, and one of the choices is Minimize — see MINIMIZE above.
+ *
+ * ── macOS ─────────────────────────────────────────────────────────────────
+ * This suite runs on a Mac too, and the shell really is different there:
+ *  - The renderer paints NO window controls (Header mounts WindowControls under
+ *    `!isMac && !isFullScreen`); the OS draws native traffic lights, which are
+ *    not in the DOM. No macOS renderer path calls window:toggleMaximize or
+ *    window:close at all.
+ *  - The title bar STAYS in fullscreen (`showTitleBar = isMac || !isFullScreen`).
+ * So the tests of the painted Maximize / Close buttons and of the title bar
+ * collapsing are `itNotMac`, and `itMacOnly` pins what macOS ships instead.
+ * The skips are declared, not commented out, so they are counted (trap 39).
  *
  * ── Ordering ──────────────────────────────────────────────────────────────
  * The Close test runs LAST and against a STUBBED handler. The real
@@ -41,11 +53,49 @@ import { TOOLBAR_LABELS } from '../constants/test-data'
 
 let originalSize: { width: number; height: number } | null = null
 
+// The worker runs on the same machine as the app it drives, so its platform IS
+// the app's — 'the platform bridge answers with the real platform' asserts that.
+const isMac = process.platform === 'darwin'
+/** Behaviour of the painted title-bar controls, which macOS does not render. */
+const itNotMac = isMac ? it.skip : it
+/** What macOS ships instead. */
+const itMacOnly = isMac ? it : it.skip
+
+const WINDOW_CONTROL_LABELS = ['Minimize window', 'Maximize window', 'Close window']
+
+/**
+ * Leave fullscreen and make sure it STAYS left before returning.
+ *
+ * On macOS the transition is asynchronous, and afterEach reads the window state
+ * immediately: a window still fullscreen at that moment throws there, and a
+ * failed root afterEach aborts every remaining test in this file. An enter that
+ * lands late (after we looked) would do the same, so after leaving we also hold
+ * still for NEGATIVE_GATE and go round again if it came back on.
+ */
+async function leaveFullScreenAndSettle(): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await Shell.isFullScreen()) {
+      await Shell.armFullScreenEvents()
+      await Shell.setFullScreen(false)
+      await browser.waitUntil(async () => (await Shell.fullScreenEvents()).left, {
+        timeout: TIMEOUTS.MEDIUM,
+        timeoutMsg: 'leave-full-screen never fired after setFullScreen(false)'
+      })
+    }
+    if (await staysFalse(() => Shell.isFullScreen())) {
+      await Shell.rehide()
+      return
+    }
+  }
+  throw new Error('the window kept returning to fullscreen after three attempts to leave it')
+}
+
 before(async () => {
   await waitForMainWindow()
   await waitForBackendReady()
-  // This is the one spec that maximizes / fullscreens, and on Windows both SHOW
-  // the never-shown window. Make it invisible and click-through first so the
+  // This is the one spec that maximizes / fullscreens. maximize() SHOWS the
+  // never-shown window (Electron documents no platform exception), and on
+  // Windows leaving fullscreen does too. Make it invisible and click-through first so the
   // file stays as headless as every other one (see Shell.page.ts).
   await Shell.keepOffDesktop()
   // SETTLE THE BASELINE BEFORE ANY TEST MEASURES IT.
@@ -77,6 +127,9 @@ before(async () => {
       interval: 100
     })
     .catch(() => {})
+  // maximize() shows a never-shown window (Electron documents no platform
+  // exception), and nothing else would hide it again until the first afterEach.
+  await Shell.rehide()
 })
 
 beforeEach(async () => {
@@ -140,7 +193,8 @@ afterEach(async () => {
 })
 
 describe('shell — window controls over the real IPC bridge', () => {
-  it('Maximize toggles the window, and toggles it back', async () => {
+  // Not on macOS: there is no painted Maximize button to click there.
+  itNotMac('Maximize toggles the window, and toggles it back', async () => {
     expect(await Shell.isMaximized()).toBe(false)
 
     await Shell.maximizeButton.click()
@@ -165,7 +219,33 @@ describe('shell — window controls over the real IPC bridge', () => {
     expect(reported).toBe(process.platform)
   })
 
-  it('entering fullscreen hides the title bar, and leaving restores it', async () => {
+  itMacOnly('on macOS the renderer paints NO window controls — the OS traffic lights replace them', async () => {
+    // Guard against passing for the wrong reason: the controls are hidden on
+    // macOS because the RENDERER was told darwin, so check that first.
+    const reported = await browser.execute(async () => {
+      const api = (window as unknown as { api?: { getPlatform?: () => Promise<string> } }).api
+      return (await api?.getPlatform?.()) ?? null
+    })
+    expect(reported).toBe('darwin')
+    await expect(HomePage.header).toBeDisplayed()
+
+    // Poll, never check once: useIsMac starts false, so all three flash in on
+    // every Header mount until getPlatform() resolves. Fresh $() per poll.
+    const anyControlExists = async (): Promise<boolean> => {
+      for (const label of WINDOW_CONTROL_LABELS) {
+        if (await $(`[aria-label="${label}"]`).isExisting()) return true
+      }
+      return false
+    }
+    await browser.waitUntil(async () => !(await anyControlExists()), {
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: 'the renderer still paints window controls on macOS'
+    })
+    expect(await staysFalse(anyControlExists)).toBe(true)
+  })
+
+  // Not on macOS: the title bar deliberately stays in fullscreen there (below).
+  itNotMac('entering fullscreen hides the title bar, and leaving restores it', async () => {
     // Driven from the main process so the REAL enter/leave-full-screen events
     // fire and push window:fullScreenChange into the renderer. F11 through
     // browser.keys depends on window focus, which a never-shown window does not
@@ -193,6 +273,74 @@ describe('shell — window controls over the real IPC bridge', () => {
 
     await reloadToHome()
     await deleteProjectViaBackend(id).catch(() => {})
+  })
+
+  itMacOnly('on macOS the title bar STAYS in fullscreen', async function () {
+    // The macOS half of the test above. Header keeps the row on darwin because
+    // the native traffic lights auto-hide and reveal on hover there.
+    //
+    // SELF-SKIPS when the window never enters fullscreen. A HIDDEN window (never
+    // shown by the app; before() may have shown it briefly via maximize() and
+    // hidden it again) may not be given a macOS fullscreen Space; Electron
+    // documents nothing either way. The skip is counted, not hidden.
+    const { id } = await enterProject('fsmac')
+    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+
+    // Record what the RENDERER hears. Without this the assertion below would
+    // pass on `isMac` alone even if window:fullScreenChange never arrived, since
+    // the title bar also stays when the renderer thinks it is NOT fullscreen.
+    await browser.execute(() => {
+      const w = window as unknown as {
+        api: { onFullScreenChange: (cb: (v: boolean) => void) => () => void }
+        __e2eFullScreen?: boolean[]
+      }
+      const seen: boolean[] = []
+      w.__e2eFullScreen = seen
+      w.api.onFullScreenChange((v) => seen.push(v))
+    })
+
+    let entered = false
+    try {
+      // Wait for the EVENT, not isFullScreen(): macOS transitions are async.
+      await Shell.armFullScreenEvents()
+      await Shell.setFullScreen(true)
+      entered = await browser
+        .waitUntil(async () => (await Shell.fullScreenEvents()).entered, {
+          timeout: TIMEOUTS.MEDIUM
+        })
+        .then(() => true)
+        .catch(() => false)
+
+      if (entered) {
+        await browser.waitUntil(
+          async () =>
+            browser.execute(() =>
+              ((window as unknown as { __e2eFullScreen?: boolean[] }).__e2eFullScreen ?? []).includes(true)
+            ),
+          {
+            timeout: TIMEOUTS.MEDIUM,
+            timeoutMsg: 'the window entered fullscreen but the renderer never heard window:fullScreenChange'
+          }
+        )
+        expect(
+          await staysFalse(async () => !(await ProjectScreen.projectTitle.isDisplayed()))
+        ).toBe(true)
+      }
+    } finally {
+      // Before ANY exit, pass or fail or skip: the root afterEach reads the
+      // window state at once, and a still-fullscreen window there aborts the file.
+      await leaveFullScreenAndSettle()
+      await reloadToHome()
+      await deleteProjectViaBackend(id).catch(() => {})
+    }
+
+    if (!entered) {
+      console.log(
+        '[shell] "on macOS the title bar STAYS in fullscreen" skipped: the hidden ' +
+          `window did not enter fullscreen within ${TIMEOUTS.MEDIUM}ms`
+      )
+      this.skip()
+    }
   })
 })
 
@@ -308,7 +456,9 @@ describe('shell — layout and close wiring', () => {
     await expect(ProjectScreen.projectTitle).toBeDisplayed()
     await expect(ProjectScreen.tab('3dwindow')).toBeDisplayed()
     await expect(ProjectScreen.tab('weather')).toBeDisplayed()
-    await expect(Shell.maximizeButton).toBeDisplayed()
+    // The right-hand end of the title bar, i.e. nothing clipped at 1024px. On
+    // macOS that end is empty by design (native lights sit on the LEFT).
+    if (!isMac) await expect(Shell.maximizeButton).toBeDisplayed()
 
     // And it is still operable, not merely painted.
     await ProjectScreen.selectTab('weather')
@@ -319,7 +469,9 @@ describe('shell — layout and close wiring', () => {
   })
 
   // LAST, and against a stub: the real handler quits the app.
-  it('Close is wired to the window:close channel', async () => {
+  // Not on macOS: there is no painted Close button, and nothing in the renderer
+  // calls window:close there.
+  itNotMac('Close is wired to the window:close channel', async () => {
     await Shell.stubWindowClose()
     expect(await Shell.windowCloseCalls()).toBe(0)
 

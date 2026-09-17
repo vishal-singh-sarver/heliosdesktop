@@ -115,10 +115,16 @@ export async function withApiFault<T>(
  *    `send` has no arguments that carry them.
  *  - Same lifetime rules as faults: a browser.refresh() drops the patch, so
  *    prefer withApiLatency() and keep a defensive clearApiLatency() in afterEach.
+ *  - Each rule also COUNTS the requests it holds (`hits`, read with
+ *    apiLatencyHits). That is what lets a test say "exactly one request was
+ *    sent" about a busy state it is holding open — see the double-click guard
+ *    tests in homepage.test.ts.
  */
 
 const LATENCY_KEY = '__e2eApiLatency'
 const SSE_LATENCY_KEY = '__e2eSseLatency'
+
+type LatencyRule = { method: string; urlPart: string; ms: number; hits?: number; released?: number }
 
 /**
  * Delay matching REST requests by `ms` before they are actually sent.
@@ -130,8 +136,8 @@ export async function installApiLatency(method: string, urlPart: string, ms: num
   await browser.execute(
     (key: string, m: string, u: string, delay: number) => {
       const w = window as never as Record<string, unknown>
-      const rules = (w[key] as { method: string; urlPart: string; ms: number }[] | undefined) ?? []
-      rules.push({ method: m.toUpperCase(), urlPart: u, ms: delay })
+      const rules = (w[key] as LatencyRule[] | undefined) ?? []
+      rules.push({ method: m.toUpperCase(), urlPart: u, ms: delay, hits: 0, released: 0 })
       w[key] = rules
       if (w[`${key}__patched`]) return
       w[`${key}__patched`] = true
@@ -150,8 +156,7 @@ export async function installApiLatency(method: string, urlPart: string, ms: num
       const origSend = XMLHttpRequest.prototype.send
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       XMLHttpRequest.prototype.send = function (this: Tagged, ...args: any[]) {
-        const active =
-          (w[key] as { method: string; urlPart: string; ms: number }[] | undefined) ?? []
+        const active = (w[key] as LatencyRule[] | undefined) ?? []
         const rule = active.find(
           (r) =>
             (r.method === '*' || r.method === this.__e2eMethod) &&
@@ -165,7 +170,13 @@ export async function installApiLatency(method: string, urlPart: string, ms: num
           }
         }
         if (!rule) return fire()
-        setTimeout(fire, rule.ms)
+        // Counted when send() is CALLED, before the hold, so a second request
+        // is visible the moment the app issues it — not seconds later.
+        rule.hits = (rule.hits ?? 0) + 1
+        setTimeout(() => {
+          rule.released = (rule.released ?? 0) + 1
+          fire()
+        }, rule.ms)
         return undefined
       } as never
     },
@@ -173,6 +184,52 @@ export async function installApiLatency(method: string, urlPart: string, ms: num
     method,
     urlPart,
     ms
+  )
+}
+
+/**
+ * How many requests the latency rule(s) for exactly this method + urlPart have
+ * held since they were installed.
+ *
+ * The count lives in the renderer beside the rule, so it dies with it:
+ * clearApiLatency(), withApiLatency()'s cleanup, and any browser.refresh() or
+ * reloadToHome() all reset it. Install AFTER any reload, before the action, and
+ * read BEFORE clearing. A request is credited to the FIRST rule that matches it,
+ * so install one method-specific rule per request you count. Returns 0 (never
+ * undefined) when no such rule exists, so `toBe(1)` fails with a clear reason.
+ */
+export async function apiLatencyHits(method: string, urlPart: string): Promise<number> {
+  return latencyCount(method, urlPart, 'hits')
+}
+
+/**
+ * How many of those held requests have been LET GO (their hold expired and they
+ * were actually sent). Same lifetime and matching as apiLatencyHits.
+ *
+ * Tells "the hold ran out before the test looked" apart from "the app never went
+ * busy": the first is a timing problem, the second a product regression, and
+ * they otherwise fail with the same message.
+ */
+export async function apiLatencyReleased(method: string, urlPart: string): Promise<number> {
+  return latencyCount(method, urlPart, 'released')
+}
+
+async function latencyCount(
+  method: string,
+  urlPart: string,
+  field: 'hits' | 'released'
+): Promise<number> {
+  return browser.execute(
+    (key: string, m: string, u: string, f: 'hits' | 'released') => {
+      const rules = ((window as never as Record<string, unknown>)[key] as LatencyRule[] | undefined) ?? []
+      return rules
+        .filter((r) => r.method === m && r.urlPart === u)
+        .reduce((sum, r) => sum + (r[f] ?? 0), 0)
+    },
+    LATENCY_KEY,
+    method.toUpperCase(),
+    urlPart,
+    field
   )
 }
 

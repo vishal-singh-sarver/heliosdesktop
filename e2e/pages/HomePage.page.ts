@@ -119,9 +119,24 @@ class HomePagePage {
   get createSubmitButton(): El {
     return this.createDialog.$('button=Create')
   }
+  /**
+   * The SAME Create button while a create is in flight. createSubmitButton cannot
+   * find it then: `button=Create` is an exact-text match and the busy label is
+   * `Creating…` (HomePage/messages.ts submitButtonBusy). A click through
+   * createSubmitButton during that window implicit-waits 10s for a "Create"
+   * button, then hits the hidden one left in the closed dialog after success.
+   * Partial match, so the U+2026 ellipsis never has to be typed right.
+   */
+  get createSubmitBusyButton(): El {
+    return this.createDialog.$('button*=Creating')
+  }
   get renameSaveButton(): El {
     return this.renameDialog.$('button=Save')
   }
+  /**
+   * Matches in BOTH states: while deleting, the label is a text-less spinner svg
+   * plus "Delete". Tell busy from idle with isEnabled(), never by text.
+   */
   get deleteConfirmButton(): El {
     return this.deleteDialog.$('button=Delete')
   }

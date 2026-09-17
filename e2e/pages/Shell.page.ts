@@ -10,18 +10,29 @@
  *    `!isMac && !isFullScreen`). The macOS traffic-light hover swap in the
  *    side="left" branch is unreachable in the shipped app — leave it to the
  *    unit test rather than treating it as an E2E gap.
+ *  - ON macOS NONE OF THE THREE BUTTONS EXIST once getPlatform() has resolved:
+ *    the OS draws native traffic lights, which are not in the DOM. They DO
+ *    flash in on every Header mount, because useIsMac starts false — so poll
+ *    for their absence, never check it once. macOS also keeps the title bar in
+ *    fullscreen (`showTitleBar = isMac || !isFullScreen`). shell.test.ts
+ *    branches on darwin for exactly these two facts.
  *  - The window is NEVER shown under E2E (`isHeadlessTestRun()` skips every
  *    `show()`), so `isVisible()` is false all run and must not be asserted.
  *    `maximize`/`unmaximize` and `setFullScreen` still mutate real state on a
  *    hidden window; `minimize` does not do so reliably and may not be
  *    recoverable, which is why there is no minimize helper here.
- *  - BUT on Windows `maximize()` SHOWS a hidden window (Electron: "This will
- *    also show (but not focus) the window if it isn't being displayed
- *    already"), and leaving fullscreen flips it visible too. Measured
- *    15 Sep 2026 with a window watcher: this was the ONLY spec in the whole
- *    run that put anything on the desktop — a 1536x816 window at 0,0 that
- *    stayed up for the rest of the file. `keepOffDesktop()` and `rehide()`
- *    below are what make this spec as headless as every other one.
+ *  - BUT `maximize()` SHOWS a hidden window (Electron: "This will also show
+ *    (but not focus) the window if it isn't being displayed already" — the
+ *    docs give no platform qualifier, so do not assume Windows only), and on
+ *    Windows leaving fullscreen flips it visible too. Measured 15 Sep 2026 on
+ *    Windows with a window watcher: this was the ONLY spec in the whole run
+ *    that put anything on the desktop — a 1536x816 window at 0,0 that stayed
+ *    up for the rest of the file. `keepOffDesktop()` and `rehide()` below are
+ *    what make this spec as headless as every other one.
+ *  - On macOS fullscreen transitions are ASYNCHRONOUS (electron.d.ts, notes on
+ *    setFullScreen and isFullScreen): the state is only trustworthy once
+ *    enter-/leave-full-screen has fired. Use armFullScreenEvents() and
+ *    fullScreenEvents() rather than trusting an immediate isFullScreen().
  *  - Menu dropdown items are `visibility: hidden` until the group is hovered,
  *    and are ALWAYS in the DOM. So `isDisplayed()` is the correct oracle for
  *    the hover reveal and `isExisting()` is meaningless.
@@ -81,12 +92,45 @@ class ShellPage {
   }
 
   /**
+   * Arm one-shot recorders for the main window's `enter-full-screen` and
+   * `leave-full-screen` events, both starting false. Re-arming starts a fresh
+   * record; listeners from an earlier arm only ever write to their own record.
+   */
+  async armFullScreenEvents(): Promise<void> {
+    await browser.electron.execute((electron) => {
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
+      )
+      if (!win) throw new Error('armFullScreenEvents: no main window')
+      const record = { entered: false, left: false }
+      ;(globalThis as unknown as Record<string, unknown>)['__e2eFullScreenEvents'] = record
+      win.once('enter-full-screen', () => {
+        record.entered = true
+      })
+      win.once('leave-full-screen', () => {
+        record.left = true
+      })
+    })
+  }
+
+  /** What the recorders armed by armFullScreenEvents() have seen so far. */
+  async fullScreenEvents(): Promise<{ entered: boolean; left: boolean }> {
+    return browser.electron.execute(() => {
+      const record = (globalThis as unknown as Record<string, unknown>)['__e2eFullScreenEvents'] as
+        | { entered: boolean; left: boolean }
+        | undefined
+      return record ? { entered: record.entered, left: record.left } : { entered: false, left: false }
+    })
+  }
+
+  /**
    * Maximize from the main process.
    *
    * Only the `before()` baseline settle uses this — the TESTS maximize by
    * clicking the real title-bar button, which is the behaviour under test.
-   * Electron's maximize() also SHOWS a hidden window on Windows, so callers must
-   * have run keepOffDesktop() first (see the header).
+   * Electron's maximize() also SHOWS a hidden window (documented with no platform
+   * qualifier), so callers must have run keepOffDesktop() first and rehide()
+   * after (see the header).
    */
   async maximize(): Promise<void> {
     await browser.electron.execute((electron) => {
