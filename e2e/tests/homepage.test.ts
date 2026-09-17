@@ -30,7 +30,14 @@ import { PROJECT_MSG, PROJECT_TOAST } from '../constants/messages'
 import { DEFAULT_COORDS, NAME_LIMITS, NO_MATCH_SEARCH } from '../constants/test-data'
 import { TIMEOUTS } from '../config/timeouts'
 import { drainToasts, waitForToast } from '../support/toasts'
-import { clearApiFaults, clearApiLatency, withApiFault } from '../support/faults'
+import {
+  apiLatencyHits,
+  apiLatencyReleased,
+  clearApiFaults,
+  clearApiLatency,
+  installApiLatency,
+  withApiFault
+} from '../support/faults'
 
 before(async () => {
   await waitForMainWindow()
@@ -67,6 +74,92 @@ async function createNamed(name: string): Promise<{ id: string; name: string }> 
 /** Create a project with a generated unique name and return home with its row. */
 async function createProject(label: string): Promise<{ id: string; name: string }> {
   return createNamed(uniqueName(label))
+}
+
+/**
+ * How long the double-click guard tests hold the ONE request their first click
+ * sends.
+ *
+ * Without a hold these tests were luck. The local backend answers a create or a
+ * delete in milliseconds, so the second click usually arrived after the request
+ * had finished — on a button inside a dialog that had already closed. It failed
+ * with `element not interactable`, a `.catch(() => {})` swallowed that, and the
+ * test passed without ever clicking the busy button. That swallowed failure is
+ * the `ERROR webdriver … element not interactable` line in passing runs.
+ *
+ * The hold has to outlast: click 1, the wait for the disabled state, click 2,
+ * and the in-flight checks — under full-suite load. Too short fails LOUDLY and
+ * says so (waitForBusy, clickWhileBusy), never silently.
+ *
+ * Every wait that ends in "release" (dialog closing) gets the hold ADDED to its
+ * budget: the hold is still running when that wait starts.
+ */
+const GUARD_LATENCY_MS = 5_000
+
+/**
+ * Wait for the busy state click 1 should produce, and when it never comes, say
+ * WHY.
+ *
+ * The budget is HALF the hold, on purpose. The busy state normally appears
+ * within milliseconds; a budget as long as the hold would let the request be
+ * released by the time a genuine regression timed out, and the check below would
+ * then blame timing for a product bug.
+ */
+async function waitForBusy(
+  wait: (timeout: number) => Promise<unknown>,
+  method: string,
+  urlPart: string
+): Promise<void> {
+  try {
+    await wait(GUARD_LATENCY_MS / 2)
+  } catch (err) {
+    if ((await apiLatencyReleased(method, urlPart)) > 0) {
+      throw new Error(
+        `the held ${method} was released before its busy state was seen — raise ` +
+          `GUARD_LATENCY_MS (${GUARD_LATENCY_MS}ms). Underlying: ${(err as Error).message}`
+      )
+    }
+    throw err
+  }
+}
+
+/**
+ * The second half of a double-click. Clicks a control that the first click made
+ * busy (disabled, request held by installApiLatency), then proves the click
+ * landed WHILE busy and that it sent nothing.
+ *
+ * Deliberately a separate WebDriver click, never both clicks inside one
+ * browser.execute. React commits `disabled` in a microtask, which cannot run
+ * between two synchronous element.click() calls. So the second click would reach
+ * an enabled button with stale props, and on CORRECT code the delete would send
+ * two DELETEs (takeEvery) — a double-click no user can make.
+ *
+ * Nothing is swallowed. A click that errors means it did not land on the busy
+ * button, which is this test's failure, not noise.
+ */
+async function clickWhileBusy(
+  busy: ReturnType<typeof $>,
+  method: string,
+  urlPart: string
+): Promise<void> {
+  try {
+    await busy.click()
+  } catch (err) {
+    throw new Error(
+      `the second click did not land on the busy button: ${(err as Error).message}. ` +
+        `The held request probably finished first — raise GUARD_LATENCY_MS (${GUARD_LATENCY_MS}ms).`
+    )
+  }
+  // isExisting() never implicit-waits, unlike isEnabled() on a missing element.
+  // Still busy right after the click means it returned INSIDE the held window,
+  // not through webdriver's retries + waitForClickable after the request ended.
+  if (!(await busy.isExisting()) || (await busy.isEnabled())) {
+    throw new Error(
+      'the button was no longer busy right after the second click, so that click ' +
+        `cannot be shown to have hit the busy state — raise GUARD_LATENCY_MS (${GUARD_LATENCY_MS}ms).`
+    )
+  }
+  await expect(await apiLatencyHits(method, urlPart)).toBe(1)
 }
 
 /** The "Recent Projects" heading — the only h2 directly inside <main>. */
@@ -309,24 +402,54 @@ describe('HomePage', () => {
 
   describe('create — submit guard', () => {
     it('double-clicking Create does not create two projects', async () => {
+      // WHAT THIS PINS: while a create is in flight the Create button is
+      // disabled, and a second click on it sends no second POST. A click on a
+      // disabled button never reaches React (it drops onClick), so this does NOT
+      // exercise onSubmit's `if (createLoading) return` or the saga's
+      // takeLeading. Those would still hide a second POST if `disabled` alone
+      // were removed — which is why the disabled state is asserted directly.
+      const createUrl = '/api/project/create'
       const name = uniqueName('guard')
       await HomePage.openCreateDialogViaSidebar()
       await setInputValue(HomePage.createNameInput, name)
       await setInputValue(HomePage.createLatInput, DEFAULT_COORDS.lat)
       await setInputValue(HomePage.createLonInput, DEFAULT_COORDS.lon)
+      await installApiLatency('POST', createUrl, GUARD_LATENCY_MS)
+
       await HomePage.createSubmitButton.click()
-      await HomePage.createSubmitButton.click().catch(() => {})
-      // The create round-trip finished when EITHER we navigated away (click 1
-      // succeeded) OR the dialog shows a duplicate error (a fast backend let
-      // click 2 attempt a same-name create). Both mean exactly one project was
-      // made — the guard + takeLeading prevent a second. Tolerate both paths so
-      // the timing race doesn't flake the test.
-      await browser.waitUntil(
-        async () =>
-          !(await HomePage.projectsTable.isDisplayed().catch(() => false)) ||
-          (await HomePage.createServerError.isDisplayed().catch(() => false)),
-        { timeout: 25000, timeoutMsg: 'create did not settle (no navigation, no error)' }
+      // formik validates asynchronously before it dispatches, so the busy state
+      // is not there the instant click 1 returns. Wait for it by its OWN label —
+      // createSubmitButton cannot see it (see HomePage.createSubmitBusyButton).
+      const busy = HomePage.createSubmitBusyButton
+      await waitForBusy(
+        (timeout) =>
+          busy.waitForDisplayed({
+            timeout,
+            timeoutMsg: 'Create never showed its busy "Creating…" state after the first click'
+          }),
+        'POST',
+        createUrl
       )
+      // Not waitForClickable: a disabled button never becomes clickable.
+      await waitForBusy(
+        (timeout) =>
+          busy.waitForEnabled({
+            reverse: true,
+            timeout,
+            timeoutMsg: 'the busy Create button is not disabled — a second click could submit again'
+          }),
+        'POST',
+        createUrl
+      )
+      await clickWhileBusy(busy, 'POST', createUrl)
+
+      // Release: success closes the dialog, then the app opens the new project.
+      await HomePage.createDialog.waitForDisplayed({
+        reverse: true,
+        timeout: TIMEOUTS.LONG + GUARD_LATENCY_MS
+      })
+      await expect(await apiLatencyHits('POST', createUrl)).toBe(1)
+      await HomePage.projectsTable.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
 
       await reloadToHome()
       await browser.waitUntil(async () => (await HomePage.rowIdForName(name)) !== null, {
@@ -1034,16 +1157,41 @@ describe('Recent Projects', () => {
       const { id, name } = await createProject('rp27')
       await HomePage.openRowMenu(name)
       await HomePage.requestDelete(id)
+      // WHAT THIS PINS: while the delete is in flight the Delete button is
+      // disabled, and a second click on it sends no second DELETE. A click on a
+      // disabled button never reaches React, so handleConfirmDelete's in-flight
+      // early return is not exercised. The request count still goes red if BOTH
+      // guards go (the saga is takeEvery, so a second dispatch is a second
+      // DELETE), and the disabled check goes red if `disabled` alone does.
+      // DELETE only: GET and PATCH use this same path.
+      const deleteUrl = `/api/project/${id}`
+      await installApiLatency('DELETE', deleteUrl, GUARD_LATENCY_MS)
       await HomePage.deleteConfirmButton.waitForClickable()
-      // Two quick clicks; the second is guarded (handleConfirmDelete returns early
-      // while in-flight and the button disables), so only one delete fires.
       await HomePage.deleteConfirmButton.click()
-      await HomePage.deleteConfirmButton.click().catch(() => {})
-      await HomePage.deleteDialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.LONG })
+      // Same selector in both states (see HomePage.deleteConfirmButton); busy is
+      // told by disabled. Not waitForClickable: a disabled button never is.
+      await waitForBusy(
+        (timeout) =>
+          HomePage.deleteConfirmButton.waitForEnabled({
+            reverse: true,
+            timeout,
+            timeoutMsg: 'the Delete button did not disable while its request was in flight'
+          }),
+        'DELETE',
+        deleteUrl
+      )
+      await clickWhileBusy(HomePage.deleteConfirmButton, 'DELETE', deleteUrl)
+
+      // Release: the held DELETE lands, the dialog closes, the row goes.
+      await HomePage.deleteDialog.waitForDisplayed({
+        reverse: true,
+        timeout: TIMEOUTS.LONG + GUARD_LATENCY_MS
+      })
       await browser.waitUntil(async () => !(await HomePage.row(id).isExisting()), {
         timeout: TIMEOUTS.LONG,
         timeoutMsg: 'Row never disappeared after confirm'
       })
+      await expect(await apiLatencyHits('DELETE', deleteUrl)).toBe(1)
       // Re-read the backend; the project is gone exactly once (no error state that
       // resurrects a row, no lingering duplicate).
       await reloadToHome()
