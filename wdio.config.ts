@@ -338,12 +338,32 @@ export const config: Options.Testrunner = {
   // only when the worker exits, after this hook. Measured 15 Sep 2026 on Windows:
   // reaping Electron here killed a healthy app after every spec, even with a 20s
   // grace (which only added 20s per spec file). A genuinely orphaned Electron
-  // tree is taken by onComplete (after every worker has exited) and by the next
-  // run's onPrepare. Note afterSession does NOT fire when session creation fails
-  // either.
+  // tree is taken by onWorkerEnd below (once that worker has exited), onComplete,
+  // and the next run's onPrepare. Note afterSession does NOT fire when session
+  // creation fails either.
   afterSession: function () {
     reapOrphans('afterSession', false)
     logDiskUsage('afterSession')
+  },
+
+  // Close each finished spec's app BEFORE the next spec starts.
+  //
+  // Without this, every spec file's Electron app stayed alive until onComplete:
+  // the 17 Sep 2026 full Linux run ended with "[reap:onComplete] killed 40
+  // orphaned process(es)" (20 apps x wrapper + main), and mid-run 8 leftover apps
+  // held ~4.5 GB (each app 4 processes totalling ~560 MB). The machine got slower as they piled up,
+  // and that run lost homepage.test.ts at session start (ETIMEDOUT connecting to
+  // its own chromedriver) — the same run shape as the datatype-validation bridge
+  // failure and the Mac weather crash near the end of its run.
+  //
+  // Safe HERE and not in afterSession: this is a LAUNCHER hook that runs after the
+  // worker PROCESS has exited, so its inspector connection is already gone, and
+  // @wdio/cli awaits it before scheduling the next spec (_endHandler). With
+  // maxInstances 1 no live session exists at this moment, so everything matched
+  // is a leftover. reapOrphans still skips when another wdio run is active.
+  // The 5s grace is Windows-only: it lets an app already exiting finish on its own.
+  onWorkerEnd: function () {
+    reapOrphans('onWorkerEnd', true, 5_000)
   },
 
   // Final safety net once the whole run finishes (or is interrupted): sweep both

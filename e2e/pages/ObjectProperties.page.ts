@@ -21,6 +21,7 @@
  */
 
 import { TIMEOUTS } from '../config/timeouts'
+import RightPanel from './RightPanel.page'
 
 type El = ReturnType<typeof $>
 
@@ -95,6 +96,9 @@ class ObjectPropertiesPage {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'the Ground Properties form never opened'
     })
+    // Same panel as the Material Properties form: wait out its opening width
+    // transition, or the fields are 0px wide. See RightPanel.waitForExpanded.
+    await RightPanel.waitForExpanded()
   }
 
   /**

@@ -23,6 +23,7 @@
 
 import Materials from '../pages/Materials.page'
 import MaterialProperties from '../pages/MaterialProperties.page'
+import RightPanel from '../pages/RightPanel.page'
 import {
   KNOWN_MATERIAL_TYPES,
   MATERIALS_MSG,
@@ -5566,30 +5567,20 @@ describe('Materials', () => {
 
   describe('the right panel — collapse and reopen', () => {
     /**
-     * containers/RightPanel/index.tsx:65-70 renders CollapseButton with
-     * dataTestId="right-panel-collapse-btn". The testid exists precisely because
-     * both panels' aria-labels are identical, so it is the only unambiguous
-     * handle on THIS chevron.
+     * The chevron is driven through RightPanel.page.ts (testid
+     * right-panel-collapse-btn — both panels' aria-labels are identical — with
+     * "Expand panel" meaning COLLAPSED). This file used to carry its own copy that
+     * clicked and returned as soon as the label flipped, while the width
+     * transition was still running and the chevron still MOVING. Its immediate
+     * second toggle then clicked where the chevron had been, and on the Mac the
+     * panel "never became expanded". The page object waits the transition out on
+     * both sides of the click.
      */
-    const RIGHT_PANEL_COLLAPSE = '[data-testid="right-panel-collapse-btn"]'
+    const rightPanelCollapsed = async (): Promise<boolean> => RightPanel.isCollapsed()
 
-    /**
-     * CollapseButton names itself for the ACTION it will perform
-     * (components/CollapseButton), so "Expand panel" means the panel is
-     * currently COLLAPSED — the same oracle LeftPanel.page.ts `collapsed()` uses.
-     */
-    const rightPanelCollapsed = async (): Promise<boolean> =>
-      (await $(RIGHT_PANEL_COLLAPSE).getAttribute('aria-label')) === 'Expand panel'
-
-    /** Click the chevron and wait for the panel to reach `want`. */
-    const setRightPanelCollapsed = async (want: boolean): Promise<void> => {
-      if ((await rightPanelCollapsed()) === want) return
-      await $(RIGHT_PANEL_COLLAPSE).click()
-      await browser.waitUntil(async () => (await rightPanelCollapsed()) === want, {
-        timeout: TIMEOUTS.SHORT,
-        timeoutMsg: `the right panel never became ${want ? 'collapsed' : 'expanded'}`
-      })
-    }
+    /** Toggle to `want` and wait until the panel has finished animating there. */
+    const setRightPanelCollapsed = async (want: boolean): Promise<void> =>
+      want ? RightPanel.collapse() : RightPanel.expand()
 
     it('collapsing the right panel HIDES the material form without unmounting it', async () => {
       await track()
