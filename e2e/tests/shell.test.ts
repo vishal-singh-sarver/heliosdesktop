@@ -127,9 +127,13 @@ before(async () => {
       interval: 100
     })
     .catch(() => {})
-  // maximize() shows a never-shown window (Electron documents no platform
-  // exception), and nothing else would hide it again until the first afterEach.
-  await Shell.rehide()
+  // Do NOT rehide() here. The window must still be VISIBLE when the first
+  // beforeEach runs: reloadToHome() re-applies HELIOS_E2E_VIEWPORT, and only a
+  // visible window is clamped to the work area (1600x1002 on a 1002-tall display),
+  // which is what makes originalSize restorable. A hidden window keeps 1600x1200,
+  // and the Maximize test's teardown then failed with
+  // "size is 1600x1002, expected 1600x1200" (full run, 17 Sep 2026). afterEach
+  // hides it after the first test.
 })
 
 beforeEach(async () => {

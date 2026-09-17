@@ -27,6 +27,7 @@
  */
 
 import { TIMEOUTS } from '../config/timeouts'
+import RightPanel from './RightPanel.page'
 
 type El = ReturnType<typeof $>
 
@@ -69,6 +70,9 @@ class MaterialPropertiesPage {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'the Material Properties form never opened'
     })
+    // "Displayed" is not "clickable": the right panel may still be widening, with
+    // this form 0px wide inside it. See RightPanel.waitForExpanded.
+    await RightPanel.waitForExpanded()
   }
 
   // ===== Cards =====
@@ -433,17 +437,55 @@ class MaterialPropertiesPage {
   }
 
   /**
-   * Close any open listbox.
+   * Close EVERY open Select, and wait until none is left open.
    *
    * An open Select listbox is portalled and sits above the panel, so a leaked
    * one intercepts later clicks the same way a leaked dialog does. Cheap
    * insurance in afterEach.
+   *
+   * ALL of them, not the first. This used to click only
+   * `querySelector(...)`'s single match, and the SPECTRUM-pickers test opens two
+   * (in-page clicks move no focus, so nothing blurs the first shut): the second
+   * stayed expanded, and the shared afterEach reported "closed a leaked
+   * full-screen overlay" in every full run (traced 17 Sep 2026).
+   *
+   * A button combobox toggles on click, but a SEARCHABLE Select's input only ever
+   * opens on click (onClick={openList}) — that one is closed through its own
+   * chevron button, which toggles.
    */
   async closeEnum(): Promise<void> {
-    await browser.execute(() => {
-      const open = document.querySelector('[role="combobox"][aria-expanded="true"]') as HTMLElement | null
-      open?.click()
-    })
+    const expanded = '[role="combobox"][aria-expanded="true"]'
+    const clicked = (await browser.execute((sel: string) => {
+      const open = Array.from(document.querySelectorAll(sel)) as HTMLElement[]
+      for (const combo of open) {
+        const chevron =
+          combo.tagName === 'INPUT'
+            ? (combo.parentElement?.querySelector('button[aria-hidden="true"]') as HTMLElement | null)
+            : null
+        ;(chevron ?? combo).click()
+      }
+      return open.length
+    }, expanded)) as number
+    if (clicked === 0) return
+    // Read-only polls: re-clicking here could toggle a closing Select back open.
+    let left = clicked
+    try {
+      await browser.waitUntil(
+        async () => {
+          left = (await browser.execute(
+            (sel: string) => document.querySelectorAll(sel).length,
+            expanded
+          )) as number
+          return left === 0
+        },
+        { timeout: TIMEOUTS.SHORT, interval: 100 }
+      )
+    } catch (err) {
+      throw new Error(
+        `closeEnum: ${left} of ${clicked} open Select(s) stayed expanded. ` +
+          (err instanceof Error ? err.message : String(err))
+      )
+    }
   }
 
   /** Whether a card currently renders a control for `property` at all. */

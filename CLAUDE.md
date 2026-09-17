@@ -39,7 +39,7 @@ On the **native Linux** checkout (verified 2026-09-02):
 | `libhelios.dll` staleness (§2.2) | the artifact is `pyhelios/pyhelios_build/build/lib/**libhelios.so**`. Same staleness risk, same check with `-newer …libhelios.so` |
 | `resources/backend/win` | `resources/backend/**linux**/heliosgui_backend/heliosgui_backend` |
 | PowerShell build/prune scripts | not used; the packaged backend was already built |
-| reaping (§2.4) — Windows now has its own implementation in `e2e/config/reap.ts` | `reapOrphans` runs here too, and `afterSession` passes `includeElectron = false`, so every finished spec file leaves its Electron app running until its worker exits (it waits for the inspector connection to drop); `onComplete` sweeps the rest — 11 were alive late in the 14 Sep 2026 run, and the final sweep killed 38 processes |
+| reaping (§2.4) — Windows now has its own implementation in `e2e/config/reap.ts` | `reapOrphans` runs here too. `afterSession` passes `includeElectron = false`; finished apps did NOT exit on their own — they stayed alive until `onComplete` (17 Sep 2026: 40 processes killed at the end; mid-run 8 leftover apps × ~560 MB each (4 processes per app) ≈ 4.5 GB, and that run lost a spec at session start). Since 17 Sep `onWorkerEnd` reaps them after each spec's worker has exited, so only ONE test app should be alive at a time |
 
 **Do NOT `pkill -f electron` on Linux.** The pattern matches the editor and the
 agent harness themselves. `reapOrphans` already handles it; if you must sweep by
@@ -144,8 +144,10 @@ Acceptance: `GET /api/catalog/material-types` returns seven types, and
   "Waiting for the debugger to disconnect…" until the worker (which holds the
   service's inspector connection) exits — reaping Electron there killed a healthy
   app after every spec, grace period or not. Electron trees are reaped in
-  `onComplete` (20s grace, after every worker has exited) and the next
-  `onPrepare`. Verified: orphaned tree 7 → 0 in 1.1s. Manual fallback if a run
+  `onWorkerEnd` (17 Sep 2026: a launcher hook, after THAT spec's worker has
+  exited and before the next spec is scheduled; 5s grace on Windows), in
+  `onComplete` (20s grace) and in the next `onPrepare`. Verified: orphaned tree
+  7 → 0 in 1.1s. Manual fallback if a run
   was killed mid-hook:
   ```powershell
   Get-Process electron, heliosgui_backend, chromedriver -EA SilentlyContinue | Stop-Process -Force
@@ -383,8 +385,11 @@ snapshot with **added attributes and zero deletions**.
     LEAVING FULLSCREEN.** Electron's `maximize()` "will also show … the window if
     it isn't being displayed" — documented with no platform qualifier, though
     MEASURED only on Windows — and on Windows leaving fullscreen flips a hidden
-    window visible. `before()` now ends with `Shell.rehide()` after its maximize
-    round trip, and the macOS fullscreen test settles and rehides in `finally`. `shell.test.ts` is the only
+    window visible. The macOS fullscreen test settles and rehides in `finally`.
+    **Never `rehide()` at the end of `before()`**: the first `beforeEach` must see a
+    VISIBLE window so the viewport override is clamped to the work area and
+    `originalSize` is restorable — adding it failed the full run on 17 Sep 2026 with
+    `size is 1600x1002, expected 1600x1200`. `shell.test.ts` is the only
     spec that does either, so it now calls `Shell.keepOffDesktop()` in `before()`
     (opacity 0 + ignore OS mouse — set BEFORE any fullscreen, which would
     otherwise restore the old ex-style; its setSkipTaskbar is inert on a
@@ -489,6 +494,35 @@ snapshot with **added attributes and zero deletions**.
     NOT every `ERROR webdriver` line is a failure: geometry's full-tree ungroup
     test expects `dnd: no empty tree area` to be thrown, and the log prints it
     anyway. Trust the `Spec Files:` summary.
+42. **A FORM THAT JUST OPENED CAN BE 0px WIDE — AND "DISPLAYED" DOES NOT SAY
+    SO.** The right panel widens 32 → 340px (`transition-[width] duration-150`),
+    and in the never-shown e2e window that took ~2.5s, standing still part-way
+    (measured 17 Sep 2026 with an in-page 20ms size sampler). Everything inside
+    is 0px wide until it ends, so a click there fails
+    `element not interactable: element has zero size`; webdriverio retries it and
+    the test passes, which is why full materials runs printed that ERROR line
+    (a Save ~0.5s after a fresh project's first material opened).
+    `isDisplayed()` uses `checkVisibility()`, which IGNORES size, and "the width
+    stopped changing" is fooled by the stall. Both `waitForOpen()` helpers now
+    end with `RightPanel.waitForExpanded()`, which waits for
+    `panel.getAnimations()` to be empty. **Policy for `ERROR webdriver` lines:**
+    not failures on their own. Fix one only when it repeats at the same spot,
+    fix it in the page-object HELPER (never per test), and never silence the
+    `webdriver` logger. Find the element with a temporary `logLevels.webdriver:
+    'info'` config placed in the REPO ROOT (wdio-electron-service resolves the
+    project from the config's location) and map the `e.NNNN` id to its
+    `findElement` selector. Also: `[afterEach] closed a leaked full-screen
+    overlay` and a nearby ERROR line need not be the same test — worker stdout
+    and the webdriver logger interleave. That leak was `closeEnum()` closing only
+    the FIRST open Select while the SPECTRUM-pickers test had opened two.
+    **Toggling the panel has the same hazard:** the chevron MOVES during the
+    transition (x=1574 → 1420 → back), so `RightPanel.collapse()/expand()` now
+    wait for the transition to end before AND after the click, and
+    materials.test.ts's collapse describe uses them instead of its own copy.
+    The Mac failure "the right panel never became expanded" (17 Sep 2026) did NOT
+    reproduce on Linux (hidden, slowed to 3s, or headed, 3 runs each), so that
+    cause is unproven; a timeout now reports the chevron's position and what
+    element sits on it.
 32. **A GROUP WHOSE ID EQUALS A GROUND'S ID FREEZES THE APP.** Backend groups
     (`object_group`) and grounds (`scenario_object`) are separate tables with
     independent autoincrement ids; the frontend keys both into ONE `nodesById`
