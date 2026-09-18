@@ -24,8 +24,14 @@ theme:
   favicon: assets/logo.png
   features:
     - navigation.tabs
+    # Move the tab bar into the fixed header. javascripts/helios.js and the
+    # "Navigation tabs" rules in stylesheets/helios.css then hide just the tab
+    # bar while the reader scrolls down and bring it back on scroll up.
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
+    # Removed from the offline build by docs/gen/hooks.py — it breaks every
+    # page's JavaScript when the site is opened from file://.
     - navigation.instant
     - navigation.footer
     - toc.follow
@@ -54,6 +60,9 @@ theme:
 extra_css:
   - stylesheets/helios.css
 
+extra_javascript:
+  - javascripts/helios.js
+
 plugins:
   - search
   - git-revision-date-localized:
@@ -70,6 +79,9 @@ plugins:
       enabled: !ENV [HELIOS_DOCS_OFFLINE, false]
   - offline:
       enabled: !ENV [HELIOS_DOCS_OFFLINE, false]
+
+hooks:
+  - docs/gen/hooks.py
 
 markdown_extensions:
   - admonition

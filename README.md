@@ -295,6 +295,11 @@ catch broken links.
 > later builds work without a connection. Without that variable the site is meant for a web
 > server: opened from disk, its diagrams do not render and search never loads. Zipping the output
 > of `docs:build` does **not** give a working offline copy.
+>
+> The same variable makes `docs/gen/hooks.py` drop the `navigation.instant` feature. Instant
+> navigation fetches `sitemap.xml`, which browsers block on `file://`, and the failure stops all of
+> the theme's page scripts: Mermaid shows "Syntax error in text", the sidebars grow scrollbars and
+> run over the footer. Keep that hook if you change the offline setup.
 
 #### Regenerating the reference pages
 
