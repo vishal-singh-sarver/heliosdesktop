@@ -1,0 +1,165 @@
+# Backend API — HTTP endpoints
+
+The backend is a FastAPI app (`app/main.py`) exposing roughly **130 endpoints** across 20 routers.
+It listens on `127.0.0.1` at the port the Electron main process chose — 8008 unless it was busy.
+
+!!! tip "The live schema is always correct"
+    While the backend is running:
+
+    - **`/docs`** — Swagger UI, interactive
+    - **`/openapi.json`** — the machine-readable schema
+
+    Prefer those over any hand-written list, including the one on this page.
+
+## Conventions
+
+**Every request carries a `session-id` header.** `get_session_id` rejects a missing or blank one
+with **400**. Routes that operate on a loaded project also take a `project-id` header and return
+**404** if that project is not in memory.
+
+**Scoping is in the path.** Most routes are scoped to a project and scenario:
+
+```
+/api/geometry/project/{project_id}/scenario/{scenario_id}/objects
+```
+
+!!! warning "`scenario` and `scenarios` are both real, and different"
+    Scenario lifecycle routes use the **plural** segment
+    (`/api/project/{id}/scenarios/{sid}/init`), while weather and geometry routes use the
+    **singular** (`/api/weather/project/{id}/scenario/{sid}/…`). They are not interchangeable.
+
+**Errors** use the house shape:
+
+```json
+{ "detail": { "error": "Geometry name already exists", "code": "NAME_CONFLICT" } }
+```
+
+The renderer surfaces `error` to the user and branches on `code` — never on the English text,
+which is free to be reworded. FastAPI's own validation errors arrive as the standard
+`detail: [{loc, msg}]` array and are mapped to per-field errors.
+
+**Every response carries `X-PyHelios-Stale: true`** when the native library is older than its
+sources and the automatic rebuild failed.
+
+## Request bodies
+
+Fully described by the OpenAPI schema — 57 of the 130 operations take one, backed by 65 Pydantic
+models. [All endpoints](endpoints.md) renders each one as a field table with types, requiredness
+and defaults, **generated from the schema**, so it cannot drift from the code.
+
+Two shapes worth knowing before reading them:
+
+**`Optional[X]` appears as `X | null`.** Pydantic emits `anyOf: [X, null]`, which is why nullable
+fields read that way in the tables.
+
+**`null` and *absent* are different.** For any nullable field where clearing is a real action, the
+service checks `model_fields_set` rather than `is None` — `group_id: null` means *ungroup*,
+omitting it means *do not touch the group*. See
+[Add an API endpoint](../recipes/add-endpoint.md).
+
+## Response bodies
+
+!!! warning "Not in the schema — no route declares a `response_model`"
+    FastAPI types **129 of 130** success responses as an empty `{}`. The OpenAPI document says
+    nothing about what comes back.
+
+So the response examples in [All endpoints](endpoints.md) are **derived by reading the service
+code**, not generated from the schema. They carry the function that builds each body, and a
+confidence marker where the shape was inferred through a serializer rather than read off a literal
+`return`.
+
+This is the one part of the API reference that can rot. Two consequences:
+
+- **Treat an example as documentation, not a contract.** The code is the contract.
+- **The durable fix is `response_model=` on the routes.** Declaring them would move responses into
+  the schema and make this section generated like the rest. Worth doing incrementally, starting
+  with the routes the renderer actually calls.
+
+Common shapes you will see repeatedly:
+
+| Shape | Meaning |
+|---|---|
+| `{"success": true, "object": {…}}` | A mutation that returns the affected row |
+| `{"<plural>": [...]}` | A list endpoint — `objects`, `groups`, `scenarios` |
+| Binary buffer | Geometry, wire format v1 or v2 |
+| `text/event-stream` | Scenario `init` progress |
+
+## Routers
+
+| Prefix | Router | Endpoints | Covers |
+|---|---|---|---|
+| *(none)* | `system` | 4 | `/`, `/health`, `/version`, `/api/pyhelios-info` |
+| `/api/project` | `project` | 5 | Create, list recent, get, update, delete |
+| `/api/project` | `scenario` | 5 | Scenario CRUD, plus `init` (SSE) and `discard` |
+| `/api/geometry` | `geometry` | 12 | Live geometry in the context |
+| `/api/geometry` | `scene_objects` | 24 | Persisted objects, groups, visibility, material assignment |
+| `/api/geometry` | `transforms` | 4 | Translate / rotate / scale |
+| `/api/materials` | `materials` | 12 | Material types and applied materials |
+| `/api/materials` | `material_library` | 15 | Global material groups, members, file uploads |
+| `/api/textures` | `textures` | 2 | `serve`, `defaults` |
+| `/api/weather` | `weather` | 15 | Weather tables — rows, columns, upload, clear |
+| `/api/catalog` | `catalog` | 4 | Object / material / model type catalogs |
+| `/api/data-types` | `helios_data_type` | 5 | Data types with their units inline |
+
+Seven further routers are mounted and appear in the live `/docs`, but nothing in the renderer
+calls them, so they are not documented here — see [Dormant surface](../../reference/dormant.md).
+
+The complete list of paths the renderer calls is `API_ROUTES` in
+`src/renderer/src/utils/constants.ts` — a single source of truth, with scoped routes exposed as
+builder functions so a caller cannot forget an id.
+
+## System endpoints
+
+```http
+GET /health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "env": "development",
+  "pyhelios_available": true,
+  "session_id": "3f2a…"
+}
+```
+
+This is what the Electron main process polls during startup, every 250 ms until it answers. The
+`session_id` changes on every backend restart, which is how the frontend detects that its cached
+state belongs to a backend that is no longer there.
+
+`GET /api/pyhelios-info` reports whether PyHelios is loaded from source or a pip wheel, its path,
+its version, whether it is stale, and whether the PlantArchitecture plugin is available.
+
+## Scenario init is Server-Sent Events
+
+```http
+POST /api/project/{project_id}/scenarios/{scenario_id}/init
+```
+
+This is the one slow call. It creates the scenario's PyHelios context and rebuilds the saved scene
+into memory, streaming progress as SSE. Every other scenario-scoped call is fast once it has
+finished — which is why the boot saga runs it first and alone.
+
+`POST …/discard` autosaves and releases the context. See
+[The Helios context](../../concepts/context.md).
+
+## Timeouts
+
+The renderer sets **none**, deliberately — saving a high-resolution textured geometry legitimately
+runs for minutes. See [State management](../arch/state.md#http).
+
+## The full endpoint list
+
+[HTTP endpoints](endpoints.md) lists all 130 operations, grouped by tag, **generated from the
+FastAPI application's own OpenAPI schema** — so it cannot drift from the code. Endpoints on a
+router the renderer never calls are marked there too.
+
+Regenerate it after adding or changing a route:
+
+```bash
+npm run docs:generate
+```
+
+That also refreshes the [Catalog reference](../../reference/catalog.md). Both files carry a
+"generated — do not edit" banner; change the generator in `docs/gen/`, not the output.

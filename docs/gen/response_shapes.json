@@ -1,0 +1,1043 @@
+{
+ "_comment": "Response bodies, derived by reading app/routers/ and app/services/. NOT machine-generated: FastAPI declares no response_model, so the OpenAPI schema types every success response as an empty object. Merged into the endpoint pages by generate_reference.py. Update when a service's return shape changes.",
+ "GET /": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"message\": \"HeliosGUI API\",\n  \"version\": \"1.0.0\"\n}",
+  "note": "",
+  "source": "system.root",
+  "confidence": "certain"
+ },
+ "GET /health": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"status\": \"ok\",\n  \"version\": \"1.0.0\",\n  \"env\": \"development\",\n  \"pyhelios_available\": true,\n  \"session_id\": \"3f2a9c14e8b0\"\n}",
+  "note": "Polled by the Electron manager during startup; `session_id` changes on every backend restart.",
+  "source": "system.health",
+  "confidence": "certain"
+ },
+ "GET /version": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"version\": \"1.0.0\",\n  \"session_id\": \"3f2a9c14e8b0\"\n}",
+  "note": "",
+  "source": "system.version",
+  "confidence": "certain"
+ },
+ "GET /api/pyhelios-info": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"source\": true,\n  \"source_path\": \"/\\u2026/helios-desktop-backend/pyhelios\",\n  \"stale\": false,\n  \"available\": true,\n  \"plantarch_available\": true,\n  \"version\": \"0.1.19\",\n  \"location\": \"/\\u2026/pyhelios\"\n}",
+  "note": "",
+  "source": "system.pyhelios_info",
+  "confidence": "certain"
+ },
+ "POST /api/project/create": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"project_id\": \"p_8f3a2c\",\n  \"main_scenario_id\": \"s_41bd90\",\n  \"name\": \"My Project\",\n  \"latitude\": 38.5,\n  \"longitude\": -121.7,\n  \"utc_offset\": \"-08:00\",\n  \"session_id\": \"3f2a9c14e8b0\"\n}",
+  "note": "Every project is created with a `main` scenario.",
+  "source": "project_service.create_project",
+  "confidence": "certain"
+ },
+ "GET /api/project/recent": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"projects\": [\n    {\n      \"id\": \"p_8f3a2c\",\n      \"name\": \"My Project\",\n      \"latitude\": 38.5,\n      \"longitude\": -121.7,\n      \"utc_offset\": \"-08:00\",\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:30:00\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "project_service.list_recent_projects",
+  "confidence": "certain"
+ },
+ "GET /api/project/{project_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"project\": {\n    \"id\": \"p_8f3a2c\",\n    \"name\": \"My Project\",\n    \"latitude\": 38.5,\n    \"longitude\": -121.7,\n    \"utc_offset\": \"-08:00\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:30:00\",\n    \"scenarios\": [\n      {\n        \"id\": \"s_41bd90\",\n        \"name\": \"main\",\n        \"has_weather\": true,\n        \"weather_data_headers\": [\n          {\n            \"id\": 5,\n            \"scenario_id\": \"s_41bd90\",\n            \"name\": \"Tair\",\n            \"helios_data_type_id\": 2,\n            \"unit_id\": 4,\n            \"status\": true,\n            \"display_order\": 1,\n            \"created_at\": \"2026-01-31 09:00:00\",\n            \"updated_at\": \"2026-01-31 09:00:00\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+  "note": "The boot saga's first call \u2014 it is what tells the app which scenario to initialise.",
+  "source": "project_service.get_project_with_scenarios",
+  "confidence": "certain"
+ },
+ "PATCH /api/project/{project_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"project\": {\n    \"id\": \"p_8f3a2c\",\n    \"name\": \"Renamed\",\n    \"latitude\": 38.5,\n    \"longitude\": -121.7,\n    \"utc_offset\": \"-08:00\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:45:00\"\n  }\n}",
+  "note": "",
+  "source": "project_service.update_project",
+  "confidence": "certain"
+ },
+ "DELETE /api/project/{project_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"project_id\": \"p_8f3a2c\"\n}",
+  "note": "",
+  "source": "project_service.delete_project",
+  "confidence": "certain"
+ },
+ "POST /api/project/{project_id}/scenarios/create": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"scenario_id\": \"s_9c22ef\",\n  \"name\": \"high-res\"\n}",
+  "note": "",
+  "source": "scenario_service.create_scenario",
+  "confidence": "certain"
+ },
+ "GET /api/project/{project_id}/scenarios": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"scenarios\": [\n    {\n      \"id\": \"s_41bd90\",\n      \"name\": \"main\",\n      \"has_weather\": true,\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:30:00\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "scenario_service.list_scenarios",
+  "confidence": "certain"
+ },
+ "DELETE /api/project/{project_id}/scenarios/{scenario_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"scenario_id\": \"s_9c22ef\"\n}",
+  "note": "",
+  "source": "scenario_service.delete_scenario",
+  "confidence": "certain"
+ },
+ "GET /api/project/{project_id}/scenarios/{scenario_id}/init": {
+  "status": 200,
+  "content_type": "text/event-stream",
+  "example": "Server-Sent Events. Each event is `data: {\"stage\": \"...\", \"progress\": 0-100, \"message\": \"...\"}`,\nterminating on `{\"stage\": \"done\"}` or `{\"error\": \"...\"}`.\n\n```\ndata: {\"stage\": \"context\", \"progress\": 10, \"message\": \"Loading scene\"}\n\ndata: {\"stage\": \"hydrate\", \"progress\": 60, \"message\": \"Building 3 objects\"}\n\ndata: {\"stage\": \"done\", \"progress\": 100}\n\n```",
+  "note": "`done` means hydration finished, so every other scenario-scoped endpoint is now safe to call.",
+  "source": "scenario_service.init_scenario",
+  "confidence": "certain"
+ },
+ "POST /api/project/{project_id}/scenarios/{scenario_id}/discard": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"scenario_id\": \"s_41bd90\",\n  \"discarded\": true,\n  \"saved\": true\n}",
+  "note": "`discarded` is false when no live context existed \u2014 the call is idempotent. `?save=false` releases WITHOUT writing context.xml.",
+  "source": "scenario_service.discard_scenario",
+  "confidence": "certain"
+ },
+ "GET /api/catalog/datatypes": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"datatypes\": [\n    {\n      \"id\": 1,\n      \"name\": \"float\"\n    },\n    {\n      \"id\": 2,\n      \"name\": \"integer\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "catalog_service.list_datatypes",
+  "confidence": "certain"
+ },
+ "GET /api/catalog/object-types": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"object_types\": [\n    {\n      \"id\": 1,\n      \"object\": \"Ground\",\n      \"properties\": [\n        {\n          \"property_type_id\": 1,\n          \"property\": \"length\",\n          \"description\": \"Ground size L in meters\",\n          \"datatype\": \"float\",\n          \"min\": 0.01,\n          \"max\": null,\n          \"required\": true,\n          \"display_order\": 1\n        }\n      ]\n    }\n  ]\n}",
+  "note": "Drives the dynamic properties form. See [The property system](../../arch/properties.md).",
+  "source": "catalog_service.list_object_types",
+  "confidence": "certain"
+ },
+ "GET /api/catalog/material-types": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"material_types\": [\n    {\n      \"id\": 1,\n      \"materialtype\": \"Radiation\",\n      \"description\": \"Optical and thermal-radiative surface properties\",\n      \"properties\": [\n        {\n          \"property_type_id\": 15,\n          \"property\": \"emissivity\",\n          \"datatype\": \"float\",\n          \"min\": 0,\n          \"max\": 1,\n          \"display_order\": 4\n        }\n      ],\n      \"groups\": [\n        {\n          \"name\": \"Spectrum\",\n          \"selector_property\": \"use_radiation_bands\",\n          \"selector_value\": \"1\",\n          \"properties\": []\n        }\n      ]\n    }\n  ]\n}",
+  "note": "Only `visibility='editable'` properties are returned.",
+  "source": "catalog_service.list_material_types",
+  "confidence": "certain"
+ },
+ "GET /api/catalog/model-types": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"model_types\": [\n    {\n      \"id\": 1,\n      \"model\": \"Photosynthesis\",\n      \"description\": \"Photosynthesis model\",\n      \"submodels\": [\n        {\n          \"id\": 7,\n          \"model\": \"Farquhar\",\n          \"description\": \"Farquhar photosynthesis submodel\"\n        }\n      ]\n    }\n  ]\n}",
+  "note": "",
+  "source": "catalog_service.list_model_types",
+  "confidence": "certain"
+ },
+ "GET /api/data-types/": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"data_types\": [\n    {\n      \"id\": 2,\n      \"data_type\": \"Temperature\",\n      \"description\": \"Air or surface temperature\",\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:00:00\",\n      \"units\": [\n        {\n          \"id\": 4,\n          \"unit\": \"Celsius\",\n          \"alias\": \"C\",\n          \"data_type_id\": 2,\n          \"min\": -90,\n          \"max\": 60,\n          \"to_base_factor\": 1.0,\n          \"to_base_offset\": 273.15,\n          \"is_base\": false,\n          \"created_at\": \"2026-01-31 09:00:00\",\n          \"updated_at\": \"2026-01-31 09:00:00\"\n        }\n      ]\n    }\n  ]\n}",
+  "note": "",
+  "source": "data_type_service.list_data_types",
+  "confidence": "certain"
+ },
+ "POST /api/data-types/": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"data_type\": {\n    \"id\": 9,\n    \"data_type\": \"Soil moisture\",\n    \"description\": null,\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\"\n  }\n}",
+  "note": "",
+  "source": "data_type_service.create_data_type",
+  "confidence": "certain"
+ },
+ "GET /api/data-types/{data_type_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"data_type\": {\n    \"id\": 2,\n    \"data_type\": \"Temperature\",\n    \"description\": null,\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\"\n  }\n}",
+  "note": "",
+  "source": "data_type_service.get_data_type",
+  "confidence": "certain"
+ },
+ "PATCH /api/data-types/{data_type_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"data_type\": {\n    \"id\": 2,\n    \"data_type\": \"Temperature\",\n    \"description\": \"updated\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 10:00:00\"\n  }\n}",
+  "note": "",
+  "source": "data_type_service.update_data_type",
+  "confidence": "certain"
+ },
+ "DELETE /api/data-types/{data_type_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"data_type_id\": 9\n}",
+  "note": "",
+  "source": "data_type_service.delete_data_type",
+  "confidence": "certain"
+ },
+ "POST /api/data-units/": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"data_unit\": {\n    \"id\": 4,\n    \"unit\": \"Celsius\",\n    \"alias\": \"C\",\n    \"data_type_id\": 2,\n    \"min\": -90,\n    \"max\": 60,\n    \"to_base_factor\": 1.0,\n    \"to_base_offset\": 273.15,\n    \"is_base\": false,\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\"\n  }\n}",
+  "note": "",
+  "source": "data_unit_service.create_data_unit",
+  "confidence": "certain"
+ },
+ "GET /api/data-units/": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"data_units\": [\n    {\n      \"id\": 4,\n      \"unit\": \"Celsius\",\n      \"alias\": \"C\",\n      \"data_type_id\": 2,\n      \"min\": -90,\n      \"max\": 60,\n      \"to_base_factor\": 1.0,\n      \"to_base_offset\": 273.15,\n      \"is_base\": false,\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:00:00\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "data_unit_service.list_data_units",
+  "confidence": "certain"
+ },
+ "GET /api/data-units/{data_unit_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"data_unit\": {\n    \"id\": 4,\n    \"unit\": \"Celsius\",\n    \"alias\": \"C\",\n    \"data_type_id\": 2,\n    \"min\": -90,\n    \"max\": 60,\n    \"to_base_factor\": 1.0,\n    \"to_base_offset\": 273.15,\n    \"is_base\": false,\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\"\n  }\n}",
+  "note": "",
+  "source": "data_unit_service.get_data_unit",
+  "confidence": "certain"
+ },
+ "PATCH /api/data-units/{data_unit_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"data_unit\": {\n    \"id\": 4,\n    \"unit\": \"Celsius\",\n    \"alias\": \"C\",\n    \"data_type_id\": 2,\n    \"min\": -90,\n    \"max\": 60,\n    \"to_base_factor\": 1.0,\n    \"to_base_offset\": 273.15,\n    \"is_base\": false,\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\"\n  }\n}",
+  "note": "",
+  "source": "data_unit_service.update_data_unit",
+  "confidence": "certain"
+ },
+ "DELETE /api/data-units/{data_unit_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"data_unit_id\": 4\n}",
+  "note": "",
+  "source": "data_unit_service.delete_data_unit",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/project/{project_id}/scenario/{scenario_id}/objects": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"object\": {\n    \"id\": 12,\n    \"name\": \"Ground.001\",\n    \"object_type_id\": 1,\n    \"object_type\": \"Ground\",\n    \"scenario_id\": \"s_41bd90\",\n    \"group_id\": null,\n    \"created_at\": \"2026-01-31 09:12:04\",\n    \"updated_at\": \"2026-01-31 09:14:22\",\n    \"properties\": {\n      \"length\": 10,\n      \"breadth\": 10,\n      \"resolution_x\": 1,\n      \"resolution_y\": 1,\n      \"position_x\": 0,\n      \"position_y\": 0,\n      \"position_z\": 0,\n      \"rotation_z\": 0,\n      \"texture_x\": 1,\n      \"texture_y\": 1\n    },\n    \"visibility\": {\n      \"viewport\": true,\n      \"render\": true,\n      \"models\": {\n        \"1\": true\n      }\n    },\n    \"helios_uuids\": [\n      0,\n      1,\n      2,\n      3\n    ],\n    \"viewport\": {\n      \"object_id\": 4711,\n      \"ctx_object_id\": 3\n    },\n    \"material_groups\": [\n      {\n        \"object_id\": 12,\n        \"group_id\": 7,\n        \"name\": \"Default Visualiser\",\n        \"sync\": true,\n        \"source\": \"library\",\n        \"materials\": [\n          {\n            \"material_type_id\": 7,\n            \"material_type\": \"Visualiser\",\n            \"properties\": {\n              \"color_r\": 128,\n              \"color_g\": 128,\n              \"color_b\": 128,\n              \"opacity\": 100\n            }\n          }\n        ]\n      }\n    ]\n  }\n}",
+  "note": "A create whose engine build fails deletes the row and raises, so you never get a DB-only object.",
+  "source": "scene_object_service.create_object",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/objects": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"objects\": [\n    {\n      \"id\": 12,\n      \"name\": \"Ground.001\",\n      \"object_type\": \"Ground\",\n      \"group_id\": null,\n      \"visibility\": {\n        \"viewport\": true,\n        \"render\": true,\n        \"models\": {\n          \"1\": true\n        }\n      },\n      \"viewport\": {\n        \"object_id\": 4711,\n        \"ctx_object_id\": 3\n      }\n    }\n  ]\n}",
+  "note": "",
+  "source": "scene_object_service.list_objects",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/next-name": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"name\": \"Ground.002\"\n}",
+  "note": "",
+  "source": "scene_object_service.next_name",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"object\": {\n    \"id\": 12,\n    \"name\": \"Ground.001\",\n    \"object_type_id\": 1,\n    \"object_type\": \"Ground\",\n    \"scenario_id\": \"s_41bd90\",\n    \"group_id\": null,\n    \"created_at\": \"2026-01-31 09:12:04\",\n    \"updated_at\": \"2026-01-31 09:14:22\",\n    \"properties\": {\n      \"length\": 10,\n      \"breadth\": 10,\n      \"resolution_x\": 1,\n      \"resolution_y\": 1,\n      \"position_x\": 0,\n      \"position_y\": 0,\n      \"position_z\": 0,\n      \"rotation_z\": 0,\n      \"texture_x\": 1,\n      \"texture_y\": 1\n    },\n    \"visibility\": {\n      \"viewport\": true,\n      \"render\": true,\n      \"models\": {\n        \"1\": true\n      }\n    },\n    \"helios_uuids\": [\n      0,\n      1,\n      2,\n      3\n    ],\n    \"viewport\": {\n      \"object_id\": 4711,\n      \"ctx_object_id\": 3\n    },\n    \"material_groups\": [\n      {\n        \"object_id\": 12,\n        \"group_id\": 7,\n        \"name\": \"Default Visualiser\",\n        \"sync\": true,\n        \"source\": \"library\",\n        \"materials\": [\n          {\n            \"material_type_id\": 7,\n            \"material_type\": \"Visualiser\",\n            \"properties\": {\n              \"color_r\": 128,\n              \"color_g\": 128,\n              \"color_b\": 128,\n              \"opacity\": 100\n            }\n          }\n        ]\n      }\n    ]\n  }\n}",
+  "note": "",
+  "source": "scene_object_service.get_object",
+  "confidence": "certain"
+ },
+ "PATCH /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"object\": {\n    \"id\": 12,\n    \"name\": \"Ground.001\",\n    \"object_type_id\": 1,\n    \"object_type\": \"Ground\",\n    \"scenario_id\": \"s_41bd90\",\n    \"group_id\": null,\n    \"created_at\": \"2026-01-31 09:12:04\",\n    \"updated_at\": \"2026-01-31 09:14:22\",\n    \"properties\": {\n      \"length\": 10,\n      \"breadth\": 10,\n      \"resolution_x\": 1,\n      \"resolution_y\": 1,\n      \"position_x\": 0,\n      \"position_y\": 0,\n      \"position_z\": 0,\n      \"rotation_z\": 0,\n      \"texture_x\": 1,\n      \"texture_y\": 1\n    },\n    \"visibility\": {\n      \"viewport\": true,\n      \"render\": true,\n      \"models\": {\n        \"1\": true\n      }\n    },\n    \"helios_uuids\": [\n      0,\n      1,\n      2,\n      3\n    ],\n    \"viewport\": {\n      \"object_id\": 4711,\n      \"ctx_object_id\": 3\n    },\n    \"material_groups\": [\n      {\n        \"object_id\": 12,\n        \"group_id\": 7,\n        \"name\": \"Default Visualiser\",\n        \"sync\": true,\n        \"source\": \"library\",\n        \"materials\": [\n          {\n            \"material_type_id\": 7,\n            \"material_type\": \"Visualiser\",\n            \"properties\": {\n              \"color_r\": 128,\n              \"color_g\": 128,\n              \"color_b\": 128,\n              \"opacity\": 100\n            }\n          }\n        ]\n      }\n    ]\n  }\n}",
+  "note": "A superseded request (a newer PATCH for the same object arrived first) returns the object unchanged without writing.",
+  "source": "scene_object_service.update_object",
+  "confidence": "certain"
+ },
+ "PATCH /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/rename": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"object\": {\n    \"id\": 12,\n    \"name\": \"Field\",\n    \"updated_at\": \"2026-01-31 10:02:00\"\n  }\n}",
+  "note": "",
+  "source": "scene_object_service.rename_object",
+  "confidence": "certain"
+ },
+ "DELETE /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"object_id\": 12\n}",
+  "note": "",
+  "source": "scene_object_service.delete_object",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/geometry/binary": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v1. See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "scene_object_service.get_object_geometry_binary",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/geometry/gpu": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v2 (`packGPUBuffers`). See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "scene_object_service.get_object_geometry_gpu",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/geometry/binary": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v1. See [Geometry & primitives](../../../concepts/primitives.md).\n\nFetching hydrates the scenario \u2014 use this as the first viewport load. Returns **499** if the client disconnects mid-pack.",
+  "note": "",
+  "source": "scene_object_service.get_scene_geometry_binary",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/models": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"models\": [\n    {\n      \"model_type_id\": 1,\n      \"model\": \"Radiation\",\n      \"enabled\": true\n    }\n  ]\n}",
+  "note": "An absent row means enabled.",
+  "source": "scene_object_service.get_scenario_models",
+  "confidence": "certain"
+ },
+ "PATCH /api/geometry/project/{project_id}/scenario/{scenario_id}/models": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"models\": [\n    {\n      \"model_type_id\": 1,\n      \"model\": \"Radiation\",\n      \"enabled\": false\n    }\n  ]\n}",
+  "note": "",
+  "source": "scene_object_service.update_scenario_models",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/project/{project_id}/scenario/{scenario_id}/groups": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 3,\n    \"name\": \"Group.001\",\n    \"scenario_id\": \"s_41bd90\",\n    \"member_ids\": [\n      12,\n      13\n    ],\n    \"created_at\": \"2026-01-31 09:20:00\",\n    \"updated_at\": \"2026-01-31 09:20:00\"\n  }\n}",
+  "note": "",
+  "source": "scene_object_service.create_group",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/groups": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"groups\": [\n    {\n      \"id\": 3,\n      \"name\": \"Group.001\",\n      \"scenario_id\": \"s_41bd90\",\n      \"member_ids\": [\n        12,\n        13\n      ],\n      \"created_at\": \"2026-01-31 09:20:00\",\n      \"updated_at\": \"2026-01-31 09:20:00\"\n    }\n  ]\n}",
+  "note": "`member_ids` is authoritative for membership and child order.",
+  "source": "scene_object_service.list_groups",
+  "confidence": "certain"
+ },
+ "PATCH /api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/rename": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 3,\n    \"name\": \"Plots\",\n    \"updated_at\": \"2026-01-31 10:05:00\"\n  }\n}",
+  "note": "",
+  "source": "scene_object_service.rename_group",
+  "confidence": "certain"
+ },
+ "DELETE /api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group_id\": 3,\n  \"ungrouped\": [\n    12,\n    13\n  ]\n}",
+  "note": "Deletes the group only \u2014 its members are ungrouped, not deleted.",
+  "source": "scene_object_service.delete_group",
+  "confidence": "certain"
+ },
+ "PATCH /api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/visibility": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group_id\": 3,\n  \"visibility\": {\n    \"viewport\": false\n  },\n  \"member_ids\": [\n    12,\n    13\n  ]\n}",
+  "note": "Cascades to every member.",
+  "source": "scene_object_service.update_group_visibility",
+  "confidence": "certain"
+ },
+ "DELETE /api/geometry/project/{project_id}/scenario/{scenario_id}/groups/{group_id}/objects": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group_id\": 3,\n  \"deleted_object_ids\": [\n    12,\n    13\n  ]\n}",
+  "note": "Deletes the group's member OBJECTS.",
+  "source": "scene_object_service.delete_group_objects",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"assignment\": {\n    \"object_id\": 12,\n    \"group_id\": 7,\n    \"name\": \"Default Visualiser\",\n    \"sync\": true,\n    \"source\": \"library\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128\n        }\n      }\n    ]\n  }\n}",
+  "note": "",
+  "source": "scene_object_service.assign_material_group",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"material_groups\": [\n    {\n      \"object_id\": 12,\n      \"group_id\": 7,\n      \"name\": \"Default Visualiser\",\n      \"sync\": true,\n      \"source\": \"library\",\n      \"materials\": [\n        {\n          \"material_type_id\": 7,\n          \"material_type\": \"Visualiser\",\n          \"properties\": {\n            \"color_r\": 128,\n            \"color_g\": 128,\n            \"color_b\": 128\n          }\n        }\n      ]\n    }\n  ]\n}",
+  "note": "`source` is `library` when sync=1, `frozen` when sync=0. A `stale: true` flag appears when the library group was deleted.",
+  "source": "scene_object_service.list_assignments",
+  "confidence": "certain"
+ },
+ "PATCH /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups/{group_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"assignment\": {\n    \"object_id\": 12,\n    \"group_id\": 7,\n    \"name\": \"Default Visualiser\",\n    \"sync\": true,\n    \"source\": \"library\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128\n        }\n      }\n    ]\n  }\n}",
+  "note": "",
+  "source": "scene_object_service.update_group_assignment",
+  "confidence": "certain"
+ },
+ "DELETE /api/geometry/project/{project_id}/scenario/{scenario_id}/objects/{object_id}/material-groups/{group_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"object_id\": 12,\n  \"group_id\": 7\n}",
+  "note": "Idempotent \u2014 an already-absent assignment also returns `already_absent: true`.",
+  "source": "scene_object_service.unassign_material_group",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/project/{project_id}/scenario/{scenario_id}/material-sync": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"scenario_id\": \"s_41bd90\",\n  \"in_sync\": false,\n  \"objects\": [\n    {\n      \"object_id\": 12,\n      \"object_name\": \"Ground.001\",\n      \"issues\": [\n        {\n          \"kind\": \"values_stale\",\n          \"group_id\": 7,\n          \"changed_properties\": [\n            \"color_r\"\n          ]\n        }\n      ]\n    }\n  ]\n}",
+  "note": "Dry run \u2014 reports drift without changing anything.",
+  "source": "material_sync_service.compute_sync",
+  "confidence": "certain"
+ },
+ "PUT /api/geometry/project/{project_id}/scenario/{scenario_id}/material-sync": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"scenario_id\": \"s_41bd90\",\n  \"applied\": {\n    \"removed_groups\": 0,\n    \"removed_members\": 1,\n    \"added_members\": 1,\n    \"refreshed_values\": 2\n  },\n  \"conflicts\": []\n}",
+  "note": "Conflicts are skipped and reported, never raised \u2014 partial success is normal.",
+  "source": "scene_object_service.apply_material_sync",
+  "confidence": "certain"
+ },
+ "POST /api/materials/library/groups": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "A material is created EMPTY; add one member per material type afterwards.",
+  "source": "material_library_service.create_group",
+  "confidence": "certain"
+ },
+ "GET /api/materials/library/groups": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"groups\": [\n    {\n      \"id\": 7,\n      \"project_id\": null,\n      \"scenario_id\": null,\n      \"name\": \"Default Visualiser\",\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:00:00\",\n      \"materials\": [\n        {\n          \"material_type_id\": 7,\n          \"material_type\": \"Visualiser\",\n          \"properties\": {\n            \"color_r\": 128,\n            \"color_g\": 128,\n            \"color_b\": 128,\n            \"opacity\": 100,\n            \"texture_toggle\": false\n          }\n        }\n      ]\n    }\n  ]\n}",
+  "note": "",
+  "source": "material_library_service.list_groups",
+  "confidence": "certain"
+ },
+ "GET /api/materials/library/groups/next-name": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"name\": \"Material.001\"\n}",
+  "note": "",
+  "source": "material_library_service.next_name",
+  "confidence": "certain"
+ },
+ "GET /api/materials/library/groups/{group_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "",
+  "source": "material_library_service.get_group",
+  "confidence": "certain"
+ },
+ "PUT /api/materials/library/groups/{group_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "With `?scenario_id=` the active scenario is reconciled and repainted in the same call.",
+  "source": "material_library_service.update_group",
+  "confidence": "certain"
+ },
+ "DELETE /api/materials/library/groups/{group_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group_id\": 7\n}",
+  "note": "",
+  "source": "material_library_service.delete_group",
+  "confidence": "certain"
+ },
+ "PATCH /api/materials/library/groups/{group_id}/rename": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "",
+  "source": "material_library_service.rename_group",
+  "confidence": "certain"
+ },
+ "POST /api/materials/library/groups/{group_id}/materials": {
+  "status": 201,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "One member per material type per group \u2014 a duplicate is refused with DUPLICATE_MATERIAL_TYPE_IN_GROUP.",
+  "source": "material_library_service.add_group_material",
+  "confidence": "certain"
+ },
+ "PUT /api/materials/library/groups/{group_id}/materials/{material_type_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "Full replacement of that member's properties.",
+  "source": "material_library_service.update_group_material",
+  "confidence": "certain"
+ },
+ "DELETE /api/materials/library/groups/{group_id}/materials/{material_type_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"group\": {\n    \"id\": 7,\n    \"project_id\": null,\n    \"scenario_id\": null,\n    \"name\": \"Default Visualiser\",\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\",\n    \"materials\": [\n      {\n        \"material_type_id\": 7,\n        \"material_type\": \"Visualiser\",\n        \"properties\": {\n          \"color_r\": 128,\n          \"color_g\": 128,\n          \"color_b\": 128,\n          \"opacity\": 100,\n          \"texture_toggle\": false\n        }\n      }\n    ]\n  }\n}",
+  "note": "",
+  "source": "material_library_service.remove_group_material",
+  "confidence": "certain"
+ },
+ "POST /api/materials/library/groups/{group_id}/files/{property_name}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"property\": \"texture_file\",\n  \"path\": \"materials/7/soil.jpg\"\n}",
+  "note": "Creates the member in texture mode if it does not exist yet.",
+  "source": "material_library_service.upload_file_property",
+  "confidence": "certain"
+ },
+ "POST /api/materials/library/groups/{group_id}/spectral": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"path\": \"materials/7/leaf.xml\"\n}",
+  "note": "Does NOT create the member \u2014 the card must already be saved. The caller stages this path and the member's own Save persists it.",
+  "source": "material_library_service.upload_spectral_data",
+  "confidence": "certain"
+ },
+ "GET /api/materials/library/groups/{group_id}/spectral/labels": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"labels\": [\n    \"leaf_reflectivity\",\n    \"leaf_transmissivity\"\n  ]\n}",
+  "note": "Reads the `<globaldata_vec2 label=\u2026>` entries out of a STORED file.",
+  "source": "material_library_service.spectral_labels",
+  "confidence": "certain"
+ },
+ "DELETE /api/materials/library/groups/{group_id}/spectral/labels": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"removed\": 1\n}",
+  "note": "",
+  "source": "material_library_service.delete_spectral_labels",
+  "confidence": "certain"
+ },
+ "DELETE /api/materials/library/groups/{group_id}/files": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"path\": \"materials/7/soil.jpg\"\n}",
+  "note": "409 FILE_IN_USE while any material or frozen snapshot still references it.",
+  "source": "material_library_service.delete_file",
+  "confidence": "certain"
+ },
+ "GET /api/textures/serve": {
+  "status": 200,
+  "content_type": "image/*",
+  "example": "The image file itself (`FileResponse`).",
+  "note": "",
+  "source": "textures.serve_texture",
+  "confidence": "certain"
+ },
+ "GET /api/textures/defaults": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"textures\": [\n    {\n      \"name\": \"soil.jpg\",\n      \"url\": \"/api/textures/serve?path=%2F\\u2026%2Fassets%2Fsoil.jpg\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "textures.list_defaults",
+  "confidence": "certain"
+ },
+ "GET /api/weather/project/{project_id}/scenario/{scenario_id}/inspect": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"pyhelios_available\": true,\n  \"file\": {\n    \"exists\": false,\n    \"note\": \"no file \\u2014 content lives in PyHelios memory only\"\n  },\n  \"pyhelios_state\": {\n    \"variables\": [\n      \"Tair\",\n      \"RH\"\n    ],\n    \"length\": 8760\n  }\n}",
+  "note": "Weather values live in the PyHelios context, not in SQLite.",
+  "source": "weather_service.inspect",
+  "confidence": "certain"
+ },
+ "GET /api/weather/project/{project_id}/scenario/{scenario_id}/getAllTimeSeriesData": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"labels\": [\n    \"date\",\n    \"time\",\n    \"Tair\"\n  ],\n  \"row_count\": 2,\n  \"total_rows\": 8760,\n  \"column_count\": 3,\n  \"offset\": 0,\n  \"limit\": 2,\n  \"rows\": [\n    [\n      \"2026-01-01\",\n      \"00:00:00\",\n      8.4\n    ],\n    [\n      \"2026-01-01\",\n      \"01:00:00\",\n      8.1\n    ]\n  ]\n}",
+  "note": "",
+  "source": "weather_service.get_all_timeseries_data",
+  "confidence": "certain"
+ },
+ "POST /api/weather/project/{project_id}/scenario/{scenario_id}/uploadfile": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"labels\": [\n    \"date\",\n    \"time\",\n    \"Tair\"\n  ],\n  \"row_count\": 8760,\n  \"column_count\": 3\n}",
+  "note": "Multipart upload; normalized in Python, streamed through a temp file, bulk-loaded with loadTabularTimeseriesData.",
+  "source": "weather_service.upload_file",
+  "confidence": "likely"
+ },
+ "POST /api/weather/project/{project_id}/scenario/{scenario_id}/addCol": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"columns\": [\n    {\n      \"id\": 6,\n      \"name\": \"RH\",\n      \"helios_data_type_id\": 3,\n      \"unit_id\": 9,\n      \"display_order\": 2\n    }\n  ]\n}",
+  "note": "",
+  "source": "weather_service.add_columns",
+  "confidence": "certain"
+ },
+ "PATCH /api/weather/project/{project_id}/scenario/{scenario_id}/updateCol/{column_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"columns\": [\n    {\n      \"id\": 6,\n      \"name\": \"RH\",\n      \"helios_data_type_id\": 3,\n      \"unit_id\": 9,\n      \"display_order\": 2\n    }\n  ]\n}",
+  "note": "The column is identified by `column_id` in the PATH \u2014 do not repeat it in the body.",
+  "source": "weather_service.update_columns",
+  "confidence": "certain"
+ },
+ "POST /api/weather/project/{project_id}/scenario/{scenario_id}/addRow": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"row_count\": 8761,\n  \"column_count\": 3,\n  \"added_rows\": [\n    {\n      \"date\": \"2026-12-31\",\n      \"time\": \"23:00:00\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "weather_service.add_rows",
+  "confidence": "certain"
+ },
+ "PATCH /api/weather/project/{project_id}/scenario/{scenario_id}/update": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"updated_count\": 3\n}",
+  "note": "",
+  "source": "weather_service.update_cells",
+  "confidence": "certain"
+ },
+ "POST /api/weather/project/{project_id}/scenario/{scenario_id}/delete": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"row_count\": 8760,\n  \"column_count\": 2\n}",
+  "note": "Deletes columns/variables.",
+  "source": "weather_service.delete",
+  "confidence": "certain"
+ },
+ "POST /api/weather/project/{project_id}/scenario/{scenario_id}/deleteRow": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"deleted_rows\": 2,\n  \"row_count\": 8758,\n  \"column_count\": 3,\n  \"message\": \"2 rows has been deleted\"\n}",
+  "note": "ALL-OR-NOTHING: one already-deleted row 404s the whole batch, which is why the caller passes skipScopeCheck.",
+  "source": "weather_service.delete_rows",
+  "confidence": "certain"
+ },
+ "DELETE /api/weather/project/{project_id}/scenario/{scenario_id}/clear_data": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"headers_removed\": 3,\n  \"row_count\": 0,\n  \"column_count\": 2\n}",
+  "note": "",
+  "source": "weather_service.clear_data",
+  "confidence": "certain"
+ },
+ "GET /api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"count\": 1,\n  \"headers\": [\n    {\n      \"id\": 5,\n      \"scenario_id\": \"s_41bd90\",\n      \"name\": \"Tair\",\n      \"helios_data_type_id\": 2,\n      \"unit_id\": 4,\n      \"status\": true,\n      \"display_order\": 1,\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:00:00\"\n    }\n  ]\n}",
+  "note": "",
+  "source": "weather_header_service.get_headers",
+  "confidence": "certain"
+ },
+ "PUT /api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"count\": 2,\n  \"headers\": [\n    {\n      \"id\": 5,\n      \"scenario_id\": \"s_41bd90\",\n      \"name\": \"Tair\",\n      \"helios_data_type_id\": 2,\n      \"unit_id\": 4,\n      \"status\": true,\n      \"display_order\": 1,\n      \"created_at\": \"2026-01-31 09:00:00\",\n      \"updated_at\": \"2026-01-31 09:00:00\"\n    }\n  ]\n}",
+  "note": "Atomic replacement. The chosen unit must belong to the header's data type \u2014 enforced here, not by SQLite.",
+  "source": "weather_header_service.replace_headers",
+  "confidence": "certain"
+ },
+ "DELETE /api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"count\": 3\n}",
+  "note": "",
+  "source": "weather_header_service.clear_headers",
+  "confidence": "certain"
+ },
+ "PATCH /api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header/{header_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"header\": {\n    \"id\": 5,\n    \"scenario_id\": \"s_41bd90\",\n    \"name\": \"Tair\",\n    \"helios_data_type_id\": 2,\n    \"unit_id\": 4,\n    \"status\": true,\n    \"display_order\": 1,\n    \"created_at\": \"2026-01-31 09:00:00\",\n    \"updated_at\": \"2026-01-31 09:00:00\"\n  }\n}",
+  "note": "",
+  "source": "weather_header_service.update_header",
+  "confidence": "certain"
+ },
+ "DELETE /api/weather/project/{project_id}/scenario/{scenario_id}/weather_data_header/{header_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"header_id\": 5\n}",
+  "note": "",
+  "source": "weather_header_service.delete_header",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/tile": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"uuids\": [\n    0,\n    1,\n    2,\n    3\n  ],\n  \"object_id\": 1\n}",
+  "note": "",
+  "source": "geometry_service.add_tile",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/patch": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"uuid\": 0,\n  \"object_id\": 1\n}",
+  "note": "",
+  "source": "geometry_service.add_patch",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/tile/textured": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"object_id\": 1,\n  \"uuids\": [\n    0,\n    1\n  ],\n  \"material_label\": \"mat_1\"\n}",
+  "note": "",
+  "source": "geometry_service.add_textured_tile",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/triangle/textured": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"uuid\": 0,\n  \"object_id\": 1\n}",
+  "note": "",
+  "source": "geometry_service.add_textured_triangle",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/all/binary": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v1. See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "geometry_service.get_all_geometry_binary",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/binary": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v1. See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "geometry_service.get_geometry_binary_subset",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/all/gpu": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v2 (`packGPUBuffers`). See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "geometry_service.get_all_geometry_gpu",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/count": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"count\": 40000\n}",
+  "note": "",
+  "source": "geometry_service.get_geometry_count",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/objects": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"objects\": [\n    {\n      \"object_id\": 1,\n      \"name\": \"Ground.001\",\n      \"type\": \"ground\",\n      \"primitive_uuids\": [\n        0,\n        1\n      ],\n      \"visible\": true\n    }\n  ]\n}",
+  "note": "",
+  "source": "geometry.get_objects",
+  "confidence": "certain"
+ },
+ "DELETE /api/geometry/object/{object_id}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "geometry_service.delete_object",
+  "confidence": "certain"
+ },
+ "DELETE /api/geometry/{uuid}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "geometry_service.delete_primitive",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/delete-batch": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "geometry_service.delete_primitives_batch",
+  "confidence": "certain"
+ },
+ "GET /api/materials": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"materials\": [\n    {\n      \"label\": \"so_12\",\n      \"color\": {\n        \"r\": 0.5,\n        \"g\": 0.5,\n        \"b\": 0.5,\n        \"a\": 1.0\n      },\n      \"texture_file\": \"\",\n      \"twosided\": false\n    }\n  ]\n}",
+  "note": "",
+  "source": "material_service.list_materials",
+  "confidence": "likely"
+ },
+ "POST /api/materials": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"label\": \"mat_1\",\n  \"color\": {\n    \"r\": 1.0,\n    \"g\": 1.0,\n    \"b\": 1.0,\n    \"a\": 1.0\n  },\n  \"texture_file\": \"\",\n  \"twosided\": false\n}",
+  "note": "",
+  "source": "material_service.create_material",
+  "confidence": "likely"
+ },
+ "PUT /api/materials/{label}/rename": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"label\": \"mat_2\",\n  \"color\": {\n    \"r\": 1.0,\n    \"g\": 1.0,\n    \"b\": 1.0,\n    \"a\": 1.0\n  },\n  \"texture_file\": \"\",\n  \"twosided\": false\n}",
+  "note": "",
+  "source": "material_service.rename_material",
+  "confidence": "likely"
+ },
+ "DELETE /api/materials/{label}": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "material_service.delete_material",
+  "confidence": "certain"
+ },
+ "PUT /api/materials/{label}/color": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "material_service.set_material_color",
+  "confidence": "certain"
+ },
+ "PUT /api/materials/{label}/texture": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "material_service.set_material_texture",
+  "confidence": "certain"
+ },
+ "PUT /api/materials/{label}/twosided": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "material_service.set_material_twosided",
+  "confidence": "certain"
+ },
+ "PUT /api/materials/{label}/texture-override": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "material_service.set_material_texture_override",
+  "confidence": "certain"
+ },
+ "POST /api/materials/assign": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "material_service.assign_material",
+  "confidence": "certain"
+ },
+ "GET /api/materials/{label}/primitives": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"uuids\": [\n    0,\n    1,\n    2\n  ]\n}",
+  "note": "",
+  "source": "material_service.get_material_primitives",
+  "confidence": "certain"
+ },
+ "GET /api/materials/textures/library": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"categories\": [\n    {\n      \"name\": \"soil\",\n      \"textures\": [\n        {\n          \"name\": \"dirt.jpg\",\n          \"path\": \"/\\u2026/assets/dirt.jpg\"\n        }\n      ]\n    }\n  ]\n}",
+  "note": "",
+  "source": "material_service.get_texture_library",
+  "confidence": "likely"
+ },
+ "GET /api/materials/textures/preview": {
+  "status": 200,
+  "content_type": "image/*",
+  "example": "The image file itself (`FileResponse`).",
+  "note": "",
+  "source": "materials.get_texture_preview",
+  "confidence": "certain"
+ },
+ "GET /api/objects/{object_id}/info": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"object_id\": 1,\n  \"name\": \"Ground.001\",\n  \"type\": \"ground\",\n  \"uuids\": [\n    0,\n    1\n  ],\n  \"plant_ids\": [],\n  \"children\": []\n}",
+  "note": "",
+  "source": "object_service.get_object_info",
+  "confidence": "certain"
+ },
+ "GET /api/objects/{object_id}/geometry/binary": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v1. See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "object_service.get_object_geometry_binary",
+  "confidence": "certain"
+ },
+ "GET /api/objects/{object_id}/geometry/gpu": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v2 (`packGPUBuffers`). See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "object_service.get_object_geometry_gpu",
+  "confidence": "certain"
+ },
+ "GET /api/objects/{object_id}/children/binary": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v1. See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "object_service.get_object_children_binary",
+  "confidence": "certain"
+ },
+ "GET /api/objects/{object_id}/children/gpu": {
+  "status": 200,
+  "content_type": "application/octet-stream",
+  "example": "Binary buffer \u2014 geometry wire format v2 (`packGPUBuffers`). See [Geometry & primitives](../../../concepts/primitives.md).",
+  "note": "",
+  "source": "object_service.get_object_children_gpu",
+  "confidence": "certain"
+ },
+ "GET /api/tree/types": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"types\": [\n    \"Almond\",\n    \"Apple\",\n    \"Avocado\",\n    \"Lemon\",\n    \"Olive\",\n    \"Orange\",\n    \"Peach\",\n    \"Pistachio\",\n    \"Walnut\"\n  ]\n}",
+  "note": "",
+  "source": "tree_service.get_tree_types",
+  "confidence": "certain"
+ },
+ "POST /api/tree/build": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"tree_id\": 0,\n  \"trunk_uuids\": [\n    0\n  ],\n  \"branch_uuids\": [\n    1,\n    2\n  ],\n  \"leaf_uuids\": [\n    3,\n    4\n  ],\n  \"all_uuids\": [\n    0,\n    1,\n    2,\n    3,\n    4\n  ],\n  \"object_id\": 2\n}",
+  "note": "",
+  "source": "tree_service.build_tree",
+  "confidence": "certain"
+ },
+ "GET /api/tree/{tree_id}/parts": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"trunk_uuids\": [\n    0\n  ],\n  \"branch_uuids\": [\n    1,\n    2\n  ],\n  \"leaf_uuids\": [\n    3,\n    4\n  ]\n}",
+  "note": "",
+  "source": "tree_service.get_tree_parts",
+  "confidence": "certain"
+ },
+ "GET /api/plantarch/species": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"species\": [\n    \"almond\",\n    \"bean\",\n    \"cowpea\",\n    \"maize\"\n  ]\n}",
+  "note": "",
+  "source": "canopy_service.get_plant_species",
+  "confidence": "certain"
+ },
+ "GET /api/plantarch/canopy": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"plant_ids\": [\n    0,\n    1\n  ],\n  \"uuids\": [\n    0,\n    1,\n    2\n  ],\n  \"object_id\": 3\n}",
+  "note": "",
+  "source": "canopy_service.build_canopy",
+  "confidence": "likely"
+ },
+ "POST /api/plantarch/canopy": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"plant_ids\": [\n    0,\n    1\n  ],\n  \"uuids\": [\n    0,\n    1,\n    2\n  ],\n  \"object_id\": 3\n}",
+  "note": "",
+  "source": "canopy_service.build_canopy",
+  "confidence": "likely"
+ },
+ "POST /api/plantarch/canopy/stream": {
+  "status": 200,
+  "content_type": "text/event-stream",
+  "example": "Server-Sent Events reporting build progress, terminating on a `done` event.",
+  "note": "",
+  "source": "plantarch.build_canopy_stream",
+  "confidence": "certain"
+ },
+ "POST /api/timeseries/apply": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true,\n  \"variables\": 2,\n  \"datapoints\": 17520,\n  \"warnings\": []\n}",
+  "note": "",
+  "source": "timeseries_service.apply_timeseries",
+  "confidence": "certain"
+ },
+ "GET /api/timeseries": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"variables\": [\n    {\n      \"label\": \"Tair\",\n      \"length\": 8760\n    }\n  ]\n}",
+  "note": "",
+  "source": "timeseries_service.get_timeseries",
+  "confidence": "likely"
+ },
+ "DELETE /api/timeseries": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "timeseries_service.delete_timeseries",
+  "confidence": "certain"
+ },
+ "GET /api/geometry/object/{object_id}/centroid": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"centroid\": {\n    \"x\": 0.0,\n    \"y\": 0.0,\n    \"z\": 0.0\n  }\n}",
+  "note": "",
+  "source": "transform_service.get_object_centroid",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/translate": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "transform_service.translate_object",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/rotate": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "transform_service.rotate_object",
+  "confidence": "certain"
+ },
+ "POST /api/geometry/scale": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"success\": true\n}",
+  "note": "",
+  "source": "transform_service.scale_object",
+  "confidence": "certain"
+ },
+ "POST /api/script/execute": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"stdout\": \"\",\n  \"stderr\": \"\",\n  \"error\": null,\n  \"duration\": 0.42,\n  \"new_object\": null,\n  \"deleted_uuids\": []\n}",
+  "note": "",
+  "source": "scripting_service.execute_script",
+  "confidence": "certain"
+ },
+ "POST /api/import/obj": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"uuids\": [\n    0,\n    1\n  ],\n  \"object_id\": 5,\n  \"name\": \"mesh\"\n}",
+  "note": "BROKEN: import_service calls get_context() with no argument against a signature that requires one \u2014 this raises TypeError and returns 500.",
+  "source": "import_service.import_obj",
+  "confidence": "unsure"
+ },
+ "POST /api/import/ply": {
+  "status": 200,
+  "content_type": "application/json",
+  "example": "{\n  \"uuids\": [\n    0,\n    1\n  ],\n  \"object_id\": 5,\n  \"name\": \"mesh\"\n}",
+  "note": "BROKEN: same TypeError as /api/import/obj.",
+  "source": "import_service.import_ply",
+  "confidence": "unsure"
+ }
+}

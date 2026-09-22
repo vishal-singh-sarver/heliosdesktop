@@ -39,7 +39,11 @@
     "e2e:smoke:build": "npm run build && npm run e2e:smoke",
     "e2e:typecheck": "tsc --noEmit -p e2e/tsconfig.json",
     "e2e:report": "allure generate allure-results --clean -o allure-report && allure open allure-report",
-    "e2e:report:generate": "allure generate allure-results --clean -o allure-report"
+    "e2e:report:generate": "allure generate allure-results --clean -o allure-report",
+    "docs:generate": "helios-desktop-backend/venv/bin/python3 docs/gen/generate_reference.py",
+    "docs:serve": ".venv-docs/bin/mkdocs serve",
+    "docs:build": ".venv-docs/bin/mkdocs build --strict",
+    "docs:offline": "HELIOS_DOCS_OFFLINE=true .venv-docs/bin/mkdocs build --no-directory-urls -d docs-offline && cd docs-offline && zip -qr ../helios-docs.zip . && cd .. && rm -rf docs-offline && echo \"helios-docs.zip ready\""
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.6",

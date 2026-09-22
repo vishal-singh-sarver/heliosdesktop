@@ -1,0 +1,179 @@
+site_name: Helios Desktop
+site_description: Technical documentation for the Helios desktop application
+# TODO: set once the publish target is decided (GitLab Pages vs GitHub Pages mirror).
+# site_url: https://example.org/helios-desktop/
+
+# TODO: point at the repo once there is a web-facing remote. The current origin is
+# an internal host (git@192.168.3.185), which would not resolve for readers.
+# repo_url: https://.../helios/heliosdesktop
+# edit_uri: -/edit/develop/docs/
+
+docs_dir: docs
+
+# Kept in docs/ for proximity to what they produce, but they are tooling and
+# source files — not pages. Without this they are copied verbatim into the built
+# site (and would be published with it).
+exclude_docs: |
+  gen/
+  requirements.txt
+
+theme:
+  name: material
+  # The application icon, byte-identical to build/Helios_icon.png.
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  features:
+    - navigation.tabs
+    # Move the tab bar into the fixed header. javascripts/helios.js and the
+    # "Navigation tabs" rules in stylesheets/helios.css then hide just the tab
+    # bar while the reader scrolls down and bring it back on scroll up.
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    # Removed from the offline build by docs/gen/hooks.py — it breaks every
+    # page's JavaScript when the site is opened from file://.
+    - navigation.instant
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  # No `primary`/`accent` here on purpose: the brand colours come from
+  # stylesheets/helios.css, which sets the Material CSS variables directly.
+  # Naming a built-in colour would fight with it.
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra_css:
+  - stylesheets/helios.css
+
+extra_javascript:
+  - javascripts/helios.js
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      type: date
+      enable_creation_date: false
+      fallback_to_build_date: true
+  # Offline copy — OFF unless HELIOS_DOCS_OFFLINE=true (see README "Documentation site").
+  # privacy downloads what the browser would otherwise fetch at view time (Mermaid,
+  # which 14 pages use; the Inter/JetBrains Mono web fonts; offline's search
+  # polyfill) into the build, so the build needs internet once and the result
+  # needs none. offline makes the site work from file://: page.html links
+  # instead of directory URLs, and a search index that loads without a server.
+  - privacy:
+      enabled: !ENV [HELIOS_DOCS_OFFLINE, false]
+  - offline:
+      enabled: !ENV [HELIOS_DOCS_OFFLINE, false]
+
+hooks:
+  - docs/gen/hooks.py
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  # Renders :material-xxx: / :fontawesome-xxx: icon shortcodes as inline SVG.
+  # Without it they render as literal text — the home page's card icons and the
+  # generated endpoint table's dormant markers both depend on this.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Installing Helios: user-guide/install.md
+      - Your first project: user-guide/first-project.md
+      - Tour of the interface: user-guide/interface.md
+      - Reporting bugs: user-guide/support.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Projects & storage: concepts/projects.md
+      - The Helios context: concepts/context.md
+      - Geometry & primitives: concepts/primitives.md
+      - Materials & textures: concepts/materials.md
+  - Reference:
+      - Environment variables: reference/env.md
+      - Keyboard shortcuts: reference/shortcuts.md
+      - Error & exit codes: reference/errors.md
+      - Catalog reference: reference/catalog.md
+      - Dormant surface: reference/dormant.md
+  - For Developers:
+      - Getting started: dev/getting-started.md
+      - Repo map: dev/repo-map.md
+      - Your first change: dev/first-change.md
+      - Architecture:
+          - Process model & IPC: dev/arch/processes.md
+          - Backend sidecar: dev/arch/backend.md
+          - State management: dev/arch/state.md
+          - Database & migrations: dev/arch/database.md
+          - The property system: dev/arch/properties.md
+          - Scene build & hydration: dev/arch/scene-build.md
+          - Backend submodule: git-submodule-setup.md
+      - Feature guides:
+          - Opening a project: dev/features/opening-a-project.md
+          - Geometry & scene objects: dev/features/geometry.md
+          - Materials, assignment & sync: dev/features/materials.md
+          - Weather data: dev/features/weather.md
+          - Packaging & installers: dev/features/packaging.md
+      - Recipes:
+          - Overview: dev/recipes/index.md
+          - Add an object type: dev/recipes/add-object-type.md
+          - Add a property to a type: dev/recipes/add-property.md
+          - Add a material type: dev/recipes/add-material-type.md
+          - Add an API endpoint: dev/recipes/add-endpoint.md
+          - Add a screen: dev/recipes/add-screen.md
+          - Add a migration: dev/recipes/add-migration.md
+      - Development:
+          - Dev loop: dev/dev-loop.md
+          - Testing: dev/testing.md
+          - Building installers: dev/build.md
+          - CI/CD workflow: ci-cd-workflow.md
+      - Backend API:
+          - Conventions: dev/api/http.md
+          - All endpoints: dev/api/endpoints.md
+          - By router:
+              # BEGIN generated-api-nav
+              - catalog: dev/api/ops/catalog.md
+              - geometry: dev/api/ops/geometry.md
+              - m2-catalog: dev/api/ops/m2-catalog.md
+              - m2-geometry: dev/api/ops/m2-geometry.md
+              - m2-materials: dev/api/ops/m2-materials.md
+              - materials: dev/api/ops/materials.md
+              - project: dev/api/ops/project.md
+              - scenario: dev/api/ops/scenario.md
+              - system: dev/api/ops/system.md
+              - textures: dev/api/ops/textures.md
+              - transforms: dev/api/ops/transforms.md
+              - weather: dev/api/ops/weather.md
+              # END generated-api-nav
+      - Troubleshooting: dev/troubleshooting.md
