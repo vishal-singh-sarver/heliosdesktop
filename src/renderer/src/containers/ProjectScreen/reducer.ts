@@ -11,6 +11,10 @@ import {
   DELETE_ROW_FAILED,
   DELETE_ROW_REQUESTED,
   DELETE_ROW_SUCCEEDED,
+  DELETE_ROWS_REQUESTED,
+  DELETE_ROWS_SUCCEEDED,
+  DELETE_ROWS_FAILED,
+  DELETE_ROWS_RESET,
   ADD_ROW_FAILED,
   ADD_ROW_REQUESTED,
   ADD_ROW_RESET,
@@ -21,6 +25,15 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MATERIAL_TYPES_FAILED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MATERIAL_TYPES_SUCCEEDED,
+  LOAD_MODEL_TYPES_FAILED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_SUCCEEDED,
+  LOAD_OBJECT_TYPES_FAILED,
+  LOAD_OBJECT_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_SUCCEEDED,
   LOAD_HEADERS_FAILED,
   LOAD_HEADERS_REQUESTED,
   LOAD_HEADERS_SUCCEEDED,
@@ -56,6 +69,9 @@ import {
   emptyWeatherTable,
   type DataTypeDef,
   type LoadStatus,
+  type MaterialTypeDef,
+  type ModelTypeDef,
+  type ObjectTypeDef,
   type ProjectMetadata,
   type RowId,
   type Scenario,
@@ -71,6 +87,9 @@ export type {
   DataTypeDef,
   DataUnitDef,
   LoadStatus,
+  MaterialTypeDef,
+  ModelTypeDef,
+  ObjectTypeDef,
   RowId,
   Scenario,
   WeatherHeader,
@@ -86,8 +105,24 @@ export interface DataTypesSlice {
   loadError: string | null
 }
 
+// All four catalogs share the same normalized shape (byId + ordered allIds +
+// load lifecycle). Generic over the entry type so each keeps a precise byId.
+export interface CatalogTypeSlice<T> {
+  byId: Record<number, T>
+  allIds: number[]
+  loadStatus: LoadStatus
+  loadError: string | null
+}
+
+export type ObjectTypesSlice = CatalogTypeSlice<ObjectTypeDef>
+export type MaterialTypesSlice = CatalogTypeSlice<MaterialTypeDef>
+export type ModelTypesSlice = CatalogTypeSlice<ModelTypeDef>
+
 export interface CatalogSlice {
   dataTypes: DataTypesSlice
+  objectTypes: ObjectTypesSlice
+  materialTypes: MaterialTypesSlice
+  modelTypes: ModelTypesSlice
 }
 
 export interface ScenariosByProjectEntry {
@@ -137,10 +172,19 @@ export interface ProjectScreenState {
   byScenario: Record<string, WeatherTable>
   addColumn: RequestStatus
   addRow: RequestStatus
+  deleteRows: RequestStatus
   updateProject: RequestStatus
 }
 
 const emptyDataTypesSlice = (): DataTypesSlice => ({
+  byId: {},
+  allIds: [],
+  loadStatus: 'idle',
+  loadError: null
+})
+
+// Fresh empty slice for any of the generic catalogs (object / material / model).
+const emptyCatalogTypeSlice = <T>(): CatalogTypeSlice<T> => ({
   byId: {},
   allIds: [],
   loadStatus: 'idle',
@@ -165,7 +209,10 @@ const idleStatus = (): RequestStatus => ({ loading: false, error: null })
 
 export const initialState: ProjectScreenState = {
   catalog: {
-    dataTypes: emptyDataTypesSlice()
+    dataTypes: emptyDataTypesSlice(),
+    objectTypes: emptyCatalogTypeSlice(),
+    materialTypes: emptyCatalogTypeSlice(),
+    modelTypes: emptyCatalogTypeSlice()
   },
   scenarios: { byProject: {} },
   headers: { byScenario: {} },
@@ -175,6 +222,7 @@ export const initialState: ProjectScreenState = {
   byScenario: {},
   addColumn: idleStatus(),
   addRow: idleStatus(),
+  deleteRows: idleStatus(),
   updateProject: idleStatus()
 }
 
@@ -237,6 +285,72 @@ const projectScreenReducer = (
       case LOAD_DATA_TYPES_FAILED:
         draft.catalog.dataTypes.loadStatus = 'error'
         draft.catalog.dataTypes.loadError = action.payload
+        break
+
+      // ── Catalog: object types ──────────────────────────────────────────────
+
+      case LOAD_OBJECT_TYPES_REQUESTED:
+        draft.catalog.objectTypes.loadStatus = 'loading'
+        draft.catalog.objectTypes.loadError = null
+        break
+
+      case LOAD_OBJECT_TYPES_SUCCEEDED:
+        draft.catalog.objectTypes.byId = {}
+        draft.catalog.objectTypes.allIds = []
+        for (const def of action.payload) {
+          draft.catalog.objectTypes.byId[def.id] = def
+          draft.catalog.objectTypes.allIds.push(def.id)
+        }
+        draft.catalog.objectTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_OBJECT_TYPES_FAILED:
+        draft.catalog.objectTypes.loadStatus = 'error'
+        draft.catalog.objectTypes.loadError = action.payload
+        break
+
+      // ── Catalog: material types ────────────────────────────────────────────
+
+      case LOAD_MATERIAL_TYPES_REQUESTED:
+        draft.catalog.materialTypes.loadStatus = 'loading'
+        draft.catalog.materialTypes.loadError = null
+        break
+
+      case LOAD_MATERIAL_TYPES_SUCCEEDED:
+        draft.catalog.materialTypes.byId = {}
+        draft.catalog.materialTypes.allIds = []
+        for (const def of action.payload) {
+          draft.catalog.materialTypes.byId[def.id] = def
+          draft.catalog.materialTypes.allIds.push(def.id)
+        }
+        draft.catalog.materialTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_MATERIAL_TYPES_FAILED:
+        draft.catalog.materialTypes.loadStatus = 'error'
+        draft.catalog.materialTypes.loadError = action.payload
+        break
+
+      // ── Catalog: model types ───────────────────────────────────────────────
+
+      case LOAD_MODEL_TYPES_REQUESTED:
+        draft.catalog.modelTypes.loadStatus = 'loading'
+        draft.catalog.modelTypes.loadError = null
+        break
+
+      case LOAD_MODEL_TYPES_SUCCEEDED:
+        draft.catalog.modelTypes.byId = {}
+        draft.catalog.modelTypes.allIds = []
+        for (const def of action.payload) {
+          draft.catalog.modelTypes.byId[def.id] = def
+          draft.catalog.modelTypes.allIds.push(def.id)
+        }
+        draft.catalog.modelTypes.loadStatus = 'loaded'
+        break
+
+      case LOAD_MODEL_TYPES_FAILED:
+        draft.catalog.modelTypes.loadStatus = 'error'
+        draft.catalog.modelTypes.loadError = action.payload
         break
 
       // ── Active project + scenario ──────────────────────────────────────────
@@ -599,6 +713,47 @@ const projectScreenReducer = (
         Object.assign(table.cellSync, snapshot.cellSync)
         break
       }
+
+      // ── Bulk row delete (selection action bar) ────────────────────────────
+      //
+      // NOT optimistic, unlike DELETE_ROW_* above. The rows stay put until the
+      // backend confirms, which is what lets the confirm dialog hold itself
+      // open until there is a real answer — and means there is no snapshot to
+      // capture and no rollback branch.
+
+      case DELETE_ROWS_REQUESTED:
+        draft.deleteRows.loading = true
+        draft.deleteRows.error = null
+        break
+
+      case DELETE_ROWS_SUCCEEDED: {
+        const { scenarioId, rowIds } = action.payload
+        draft.deleteRows.loading = false
+        draft.deleteRows.error = null
+        const table = draft.byScenario[scenarioId]
+        if (!table) break
+
+        const removed = new Set(rowIds)
+        table.rowOrder = table.rowOrder.filter((id) => !removed.has(id))
+        for (const rowId of rowIds) {
+          delete table.rows[rowId]
+          delete table.validationErrors[rowId]
+          delete table.rowSelection[rowId]
+        }
+        for (const key of Object.keys(table.cellSync)) {
+          if (removed.has(key.slice(0, key.lastIndexOf(':')))) delete table.cellSync[key]
+        }
+        break
+      }
+
+      case DELETE_ROWS_FAILED:
+        draft.deleteRows.loading = false
+        draft.deleteRows.error = action.payload.error
+        break
+
+      case DELETE_ROWS_RESET:
+        draft.deleteRows = idleStatus()
+        break
 
       // ── Cell edit ──────────────────────────────────────────────────────────
 

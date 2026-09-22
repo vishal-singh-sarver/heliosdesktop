@@ -1,11 +1,9 @@
 import Dialog from '@renderer/components/Dialog'
-import { CheckCircleIcon, CloseIcon } from '@renderer/components/ImportWizard/Icons'
 import { PrimaryBtn } from '@renderer/components/ImportWizard/primitives'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
-import messages from './messages'
-import { VALIDATION_MESSAGES } from 'utils/decimalValidation'
+import { loadScenarioRequested } from 'containers/ProjectScreen/actions'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
 import loadable from 'utils/loadable'
@@ -17,11 +15,13 @@ import {
   importWizardClosed,
   importWizardOpened
 } from './actions'
+import messages from './messages'
 import reducer from './reducer'
 import saga from './saga'
 import {
   selectActiveProjectId,
   selectActiveScenarioId,
+  selectActiveWeatherTable,
   selectClearingImport,
   selectDataset,
   selectFileError,
@@ -58,51 +58,38 @@ export function Weather(): React.JSX.Element {
   const importError = useSelector(selectImportError)
   const importPrecisionWarningPending = useSelector(selectImportPrecisionWarningPending)
   const wizardOpen = useSelector(selectWizardOpen)
-  const [importToastMessage, setImportToastMessage] = React.useState<string | null>(null)
   const [pendingImport, setPendingImport] = React.useState<{
     dataset: ImportedDataset
     truncatedDecimals: boolean
   } | null>(null)
-  const toastTimeoutRef = React.useRef<number | null>(null)
 
-  // Clear timeout on unmount
+  // Weather loads on first view, not on project open. It is one tab of three
+  // and most sessions never open it, while a year of hourly readings is
+  // thousands of rows — paying for that on every project open, before the user
+  // has asked for it, is time nobody gets back. Nothing in the 3D view or the
+  // geometry tree reads this data, so deferring it costs those nothing.
+  //
+  // Ref-keyed like the other mount fetches. The `weatherTable` check alone is
+  // not enough: StrictMode remounts before the first dispatch has resolved, so
+  // the table is still null and it fires twice. It only stays at one request
+  // today because takeLatest cancels the first worker before it reaches the
+  // network — luck, not design.
+  const weatherTable = useSelector(selectActiveWeatherTable)
+  const weatherRequestedRef = React.useRef<string | null>(null)
   React.useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        window.clearTimeout(toastTimeoutRef.current)
-      }
-    }
-  }, [])
+    if (weatherTable) return
+    if (!activeProjectId || !activeScenarioId) return
+    const key = `${activeProjectId}:${activeScenarioId}`
+    if (weatherRequestedRef.current === key) return
+    weatherRequestedRef.current = key
+    dispatch(loadScenarioRequested(activeProjectId, activeScenarioId))
+  }, [weatherTable, activeProjectId, activeScenarioId, dispatch])
 
-  React.useEffect(() => {
-    if (importToastMessage == null) return undefined
-    // Clear any existing timeout before setting a new one
-    if (toastTimeoutRef.current) {
-      window.clearTimeout(toastTimeoutRef.current)
-    }
-    toastTimeoutRef.current = window.setTimeout(() => {
-      setImportToastMessage(null)
-      toastTimeoutRef.current = null
-    }, 2000)
-    return () => {
-      if (toastTimeoutRef.current) {
-        window.clearTimeout(toastTimeoutRef.current)
-      }
-    }
-  }, [importToastMessage])
-
-  // Raise the toast during render so it appears in the same commit that the
-  // warning lands; the effect then acknowledges it back to the store. Tracking
-  // the last-seen flag keeps a dismissed toast from being re-raised while the
-  // `consumed` dispatch is still in flight.
-  const [warningRaised, setWarningRaised] = React.useState(false)
-  if (importPrecisionWarningPending && !warningRaised) {
-    setWarningRaised(true)
-    setImportToastMessage(VALIDATION_MESSAGES.IMPORT_WARNING)
-  } else if (!importPrecisionWarningPending && warningRaised) {
-    setWarningRaised(false)
-  }
-
+  // Acknowledge a precision-normalized import WITHOUT announcing it. The
+  // 7-decimal cap is a standing rule the user cannot change, and StepReview
+  // already states it up front in the wizard, so a toast after the fact would
+  // only repeat what they were told before importing. The flag is still
+  // consumed — left set, it would fire again for whatever reads it next.
   React.useEffect(() => {
     if (!importPrecisionWarningPending) return
     if (activeProjectId && activeScenarioId) {
@@ -111,7 +98,6 @@ export function Weather(): React.JSX.Element {
   }, [activeProjectId, activeScenarioId, dispatch, importPrecisionWarningPending])
 
   const openWizard = (): void => {
-    setImportToastMessage(null)
     dispatch(importWizardOpened())
   }
 
@@ -139,9 +125,6 @@ export function Weather(): React.JSX.Element {
 
   const handleConfirmImport = (): void => {
     if (importing || !pendingImport || !activeProjectId || !activeScenarioId) return
-    // The truncation toast surfaces only after the import saga succeeds (see
-    // the importPrecisionWarningPending effect), so the user sees it once in
-    // the Weather view — not while the wizard is still open.
     dispatch(
       importFinalizeRequested(
         activeProjectId,
@@ -164,7 +147,6 @@ export function Weather(): React.JSX.Element {
 
   const handleClearImportedFile = (): void => {
     if (!activeProjectId || !activeScenarioId) return
-    setImportToastMessage(null)
     dispatch(importClearRequested(activeProjectId, activeScenarioId))
   }
 
@@ -184,7 +166,6 @@ export function Weather(): React.JSX.Element {
           onClose={closeWizard}
           onRequestPickFile={handleRequestPickFile}
           onSubmit={handleSubmit}
-          onImportWarning={setImportToastMessage}
           pickedFile={pickedFile}
           fileLoading={fileLoading}
           fileError={fileError}
@@ -214,23 +195,6 @@ export function Weather(): React.JSX.Element {
           </PrimaryBtn>
         </div>
       </Dialog>
-
-      {importToastMessage && (
-        <div className="absolute left-1/2 top-2 z-[60] w-full max-w-[520px] -translate-x-1/2 px-4">
-          <div className="flex items-center gap-2 rounded border border-[#8dd3a8] bg-[#effcf4] px-4 py-3 text-sm text-[#0f6e3e] shadow-lg">
-            <CheckCircleIcon className="h-4 w-4 shrink-0" />
-            <div className="min-w-0 flex-1">{importToastMessage}</div>
-            <button
-              type="button"
-              aria-label="Dismiss import notification"
-              onClick={() => setImportToastMessage(null)}
-              className="shrink-0 text-[#0f6e3e] opacity-80 transition hover:opacity-100"
-            >
-              <CloseIcon className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

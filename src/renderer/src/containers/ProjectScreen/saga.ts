@@ -24,8 +24,18 @@ import {
 } from 'containers/Weather/service'
 import { buildConvertedColumnValues } from 'containers/Weather/unitConversion'
 import { validateCellValue } from 'containers/Weather/validation'
+import {
+  loadMaterialTypesRequest,
+  loadModelTypesRequest,
+  loadObjectTypesRequest,
+  type MaterialTypesResponse,
+  type ModelTypesResponse,
+  type ObjectTypesResponse
+} from './service'
 import { all, call, put, race, select, take, takeEvery, takeLatest } from 'redux-saga/effects'
-import { navigate } from 'store/navigationReducer'
+import { NAVIGATE, navigate, type NavigationAction } from 'store/navigationReducer'
+import { showSnackbar } from 'store/snackbarReducer'
+import toastMessages from 'store/toastMessages'
 import { ApiError } from 'utils/api'
 import { STORAGE_KEYS } from 'utils/storageKeys'
 import type {
@@ -33,6 +43,7 @@ import type {
   AddRowRequestedAction,
   DeleteColumnRequestedAction,
   DeleteRowRequestedAction,
+  DeleteRowsRequestedAction,
   ListScenariosRequestedAction,
   LoadScenarioRequestedAction,
   SeedDefaultColumnsRequestedAction,
@@ -46,10 +57,14 @@ import {
   ADD_ROW_REQUESTED,
   DELETE_COLUMN_REQUESTED,
   DELETE_ROW_REQUESTED,
+  DELETE_ROWS_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_REQUESTED,
   LOAD_SCENARIO_FAILED,
   LOAD_SCENARIO_REQUESTED,
   LOAD_SCENARIO_SUCCEEDED,
@@ -101,6 +116,46 @@ function* loadDataTypesWorker(): Generator {
     yield put(actions.loadDataTypesSucceeded(res.data_types))
   } catch (err) {
     yield put(actions.loadDataTypesFailed((err as Error).message))
+  }
+}
+
+// ── Catalog: object / material / model types ─────────────────────────────────
+//
+// Loaded in parallel with the data-types catalog on ProjectScreen mount. Each
+// is independent — one failing doesn't block the others (the component
+// dispatches all three; the root watcher runs a worker per type).
+
+function* loadObjectTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadObjectTypesRequest)) as ObjectTypesResponse
+    yield put(actions.loadObjectTypesSucceeded(res.object_types))
+  } catch (err) {
+    yield put(actions.loadObjectTypesFailed((err as Error).message))
+  }
+}
+
+function* loadMaterialTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadMaterialTypesRequest)) as MaterialTypesResponse
+    yield put(actions.loadMaterialTypesSucceeded(res.material_types))
+  } catch (err) {
+    yield put(actions.loadMaterialTypesFailed((err as Error).message))
+  }
+}
+
+// Model types are hierarchical on the wire; the GUI only needs the top-level
+// models, so we strip `submodels` here before the slice stores them.
+function* loadModelTypesWorker(): Generator {
+  try {
+    const res = (yield call(loadModelTypesRequest)) as ModelTypesResponse
+    const topLevel = res.model_types.map(({ id, model, description }) => ({
+      id,
+      model,
+      description
+    }))
+    yield put(actions.loadModelTypesSucceeded(topLevel))
+  } catch (err) {
+    yield put(actions.loadModelTypesFailed((err as Error).message))
   }
 }
 
@@ -160,6 +215,18 @@ function* bounceToHome(): Generator {
   yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
   yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
   yield put(navigate('home'))
+}
+
+// Forget the persisted project + scenario ids whenever the user returns to
+// Home. Driven off the NAVIGATE action — not a React unmount cleanup —
+// because StrictMode double-invokes effects in dev (mount → cleanup → mount),
+// so a mount-time fake unmount would wipe activeProjectId, which only
+// HomePage ever writes, leaving it gone for the rest of the session. A
+// genuine navigate('home') is the reliable signal that the user has left.
+export function* clearPersistedIdsOnHome(action: NavigationAction): Generator {
+  if (action.payload !== 'home') return
+  yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
+  yield call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
 }
 
 // ── Load scenario ────────────────────────────────────────────────────────────
@@ -486,7 +553,7 @@ function buildRowsForAdd(
   return out
 }
 
-function* addRowWorker(action: AddRowRequestedAction): Generator {
+export function* addRowWorker(action: AddRowRequestedAction): Generator {
   const { projectId, scenarioId, date, time, columnIds, numberOfRows, deltaHours } = action.payload
   try {
     const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
@@ -500,6 +567,7 @@ function* addRowWorker(action: AddRowRequestedAction): Generator {
           'Invalid start date / time / delta — could not build rows.'
         )
       )
+      yield put(showSnackbar(toastMessages.rowsAddFailed(numberOfRows), 'error'))
       return
     }
     ;(yield call(addRowsRequest, projectId, scenarioId, { rows })) as AddRowsResponse
@@ -514,8 +582,10 @@ function* addRowWorker(action: AddRowRequestedAction): Generator {
       return
     }
     yield put(actions.addRowSucceeded(projectId, scenarioId))
+    yield put(showSnackbar(toastMessages.rowsAdded(numberOfRows), 'success'))
   } catch (err) {
     yield put(actions.addRowFailed(projectId, scenarioId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.rowsAddFailed(numberOfRows), 'error'))
   }
 }
 
@@ -527,7 +597,7 @@ function* addRowWorker(action: AddRowRequestedAction): Generator {
 // row; otherwise we send [] and the server leaves new cells as NaN/null.
 // Rows missing date or time are skipped defensively.
 
-function* addColumnWorker(action: AddColumnRequestedAction): Generator {
+export function* addColumnWorker(action: AddColumnRequestedAction): Generator {
   const { projectId, scenarioId, name, dataTypeId, dataUnitId, defaultValue } = action.payload
   try {
     const table = (yield select(selectActiveWeatherTable)) as WeatherTable | null
@@ -552,8 +622,10 @@ function* addColumnWorker(action: AddColumnRequestedAction): Generator {
       defaultValue: defaultValue === '' ? 'NAN' : defaultValue
     })) as AddColumnResponse
     yield put(actions.addColumnSucceeded(projectId, scenarioId, res.column, defaultValue))
+    yield put(showSnackbar(toastMessages.columnAdded(name), 'success'))
   } catch (err) {
     yield put(actions.addColumnFailed(projectId, scenarioId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.columnAddFailed(name), 'error'))
   }
 }
 
@@ -670,7 +742,7 @@ export function* updateColumnWorker(action: UpdateColumnRequestedAction): Genera
 // optimistically on _REQUESTED; this worker confirms with the backend or
 // asks the reducer to restore the caller's snapshot on failure.
 
-function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
+export function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
   const { projectId, scenarioId, colId, snapshot } = action.payload
 
   const headerId = Number(colId)
@@ -684,26 +756,51 @@ function* deleteColumnWorker(action: DeleteColumnRequestedAction): Generator {
   try {
     yield call(deleteHeaderRequest, projectId, scenarioId, headerId)
     yield put(actions.deleteColumnSucceeded(projectId, scenarioId, colId))
+    yield put(showSnackbar(toastMessages.columnDeleted(snapshot.column.name), 'success'))
   } catch (err) {
     yield put(
       actions.deleteColumnFailed(projectId, scenarioId, colId, snapshot, (err as Error).message)
     )
+    yield put(showSnackbar(toastMessages.columnDeleteFailed(snapshot.column.name), 'error'))
   }
 }
 
 // Delete one row by its (date, time) key. The reducer already removed the row
 // optimistically on _REQUESTED; we POST the single key and roll back via the
 // snapshot if the backend rejects.
-function* deleteRowWorker(action: DeleteRowRequestedAction): Generator {
+export function* deleteRowWorker(action: DeleteRowRequestedAction): Generator {
   const { projectId, scenarioId, rowId, date, time, snapshot } = action.payload
 
   try {
     yield call(deleteRowsRequest, projectId, scenarioId, [{ date, time }])
     yield put(actions.deleteRowSucceeded(projectId, scenarioId, rowId))
+    yield put(showSnackbar(toastMessages.rowsDeleted(1), 'success'))
   } catch (err) {
     yield put(
       actions.deleteRowFailed(projectId, scenarioId, rowId, snapshot, (err as Error).message)
     )
+    yield put(showSnackbar(toastMessages.rowsDeleteFailed(1), 'error'))
+  }
+}
+
+// Bulk delete from the selection action bar. One request carrying every
+// (date, time) key — the backend removes each from every column, all or
+// nothing.
+//
+// Deliberately NOT optimistic, unlike deleteRowWorker above: the rows come out
+// of state only once the server has confirmed, which is what lets the confirm
+// dialog stay open until there is a real answer. Nothing to roll back, so
+// there is no snapshot.
+export function* deleteRowsWorker(action: DeleteRowsRequestedAction): Generator {
+  const { projectId, scenarioId, rowIds, keys } = action.payload
+
+  try {
+    yield call(deleteRowsRequest, projectId, scenarioId, keys)
+    yield put(actions.deleteRowsSucceeded(projectId, scenarioId, rowIds))
+    yield put(showSnackbar(toastMessages.rowsDeleted(keys.length), 'success'))
+  } catch (err) {
+    yield put(actions.deleteRowsFailed(projectId, scenarioId, (err as Error).message))
+    yield put(showSnackbar(toastMessages.rowsDeleteFailed(keys.length), 'error'))
   }
 }
 
@@ -804,6 +901,9 @@ function* updateAllCheckboxesWorker(action: UpdateAllCheckboxesRequestedAction):
 
 export default function* projectScreenSaga(): Generator {
   yield takeLatest(LOAD_DATA_TYPES_REQUESTED, loadDataTypesWorker)
+  yield takeLatest(LOAD_OBJECT_TYPES_REQUESTED, loadObjectTypesWorker)
+  yield takeLatest(LOAD_MATERIAL_TYPES_REQUESTED, loadMaterialTypesWorker)
+  yield takeLatest(LOAD_MODEL_TYPES_REQUESTED, loadModelTypesWorker)
   yield takeLatest(UPDATE_PROJECT_REQUESTED, updateProjectWorker)
   yield takeLatest(LIST_SCENARIOS_REQUESTED, listScenariosWorker)
   yield takeLatest(LOAD_SCENARIO_REQUESTED, loadScenarioWorker)
@@ -813,6 +913,8 @@ export default function* projectScreenSaga(): Generator {
   yield takeEvery(UPDATE_COLUMN_REQUESTED, updateColumnWorker)
   yield takeEvery(DELETE_COLUMN_REQUESTED, deleteColumnWorker)
   yield takeEvery(DELETE_ROW_REQUESTED, deleteRowWorker)
+  yield takeLatest(DELETE_ROWS_REQUESTED, deleteRowsWorker)
   yield takeEvery(UPDATE_CELL_LOCAL, updateCellWorker)
   yield takeLatest(UPDATE_ALL_CHECKBOXES_REQUESTED, updateAllCheckboxesWorker)
+  yield takeEvery(NAVIGATE, clearPersistedIdsOnHome)
 }

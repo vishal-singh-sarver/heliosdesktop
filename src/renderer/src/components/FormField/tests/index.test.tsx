@@ -1,5 +1,6 @@
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { useFormik } from 'formik'
 import FormField from '../index'
 
 // Mock Tooltip to isolate FormField — Tooltip has its own tests.
@@ -11,6 +12,20 @@ vi.mock('../../Tooltip', () => ({
     </span>
   )
 }))
+
+// FormField's error message is linked to the input by a React useId() value,
+// which depends on how many components rendered earlier in the FILE. That made
+// the snapshots below break whenever a test was added above them, for no real
+// change. Pin the generated ids so the snapshot only tracks actual markup.
+const stableIds = (root: HTMLElement): HTMLElement => {
+  root.querySelectorAll('[id], [aria-describedby]').forEach((el) => {
+    if (el.id.startsWith('_r_')) el.id = 'generated-id'
+    if (el.getAttribute('aria-describedby')?.startsWith('_r_')) {
+      el.setAttribute('aria-describedby', 'generated-id')
+    }
+  })
+  return root
+}
 
 describe('<FormField />', () => {
   const defaultProps = {
@@ -104,11 +119,12 @@ describe('<FormField />', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('renders a red border when error exists', () => {
+  it('renders the error-colored outline when error exists', () => {
     render(
       <FormField {...defaultProps} inputProps={{ ...defaultProps.inputProps, error: 'Required' }} />
     )
-    expect(screen.getByRole('textbox')).toHaveClass('outline-red-500')
+    // #D92D20 = --color-text-error-primary; index.css keeps this red on focus too.
+    expect(screen.getByRole('textbox')).toHaveClass('outline-[#D92D20]')
   })
 
   // Verifies aria-invalid is false when no error exists
@@ -150,6 +166,7 @@ describe('<FormField />', () => {
     expect(screen.getByRole('textbox')).toBeDisabled()
   })
 
+
   // ── helpPlace pass-through ──
 
   it('forwards helpPlace to the Tooltip when provided', () => {
@@ -186,7 +203,7 @@ describe('<FormField />', () => {
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
-  it('renders placeholder as the first empty option in the select', () => {
+  it('renders placeholder as the first, clearing entry in the list', () => {
     render(
       <FormField
         {...defaultProps}
@@ -197,9 +214,15 @@ describe('<FormField />', () => {
         }}
       />
     )
-    const options = Array.from(screen.getByRole('combobox').querySelectorAll('option'))
+    // The list is ours now, so it only exists once opened.
+    fireEvent.click(screen.getByRole('combobox'))
+    const options = screen.getAllByRole('option')
     expect(options[0]).toHaveTextContent('Pick one')
-    expect(options[0]).toHaveValue('')
+    // Choosing it clears the field, the way the empty <option> used to.
+    fireEvent.click(options[0])
+    expect(defaultProps.inputProps.onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ target: expect.objectContaining({ value: '' }) })
+    )
   })
 
   it('renders one option per entry in the options list', () => {
@@ -216,13 +239,14 @@ describe('<FormField />', () => {
         }}
       />
     )
-    const options = Array.from(screen.getByRole('combobox').querySelectorAll('option'))
-    // +1 for the placeholder option
+    fireEvent.click(screen.getByRole('combobox'))
+    const options = screen.getAllByRole('option')
+    // +1 for the placeholder entry
     expect(options).toHaveLength(4)
     expect(options.slice(1).map((o) => o.textContent)).toEqual(['Alpha', 'Beta', 'Gamma'])
   })
 
-  it('fires onChange when a select option is chosen', () => {
+  it('fires onChange with the picked value when an option is chosen', () => {
     const onChange = vi.fn()
     render(
       <FormField
@@ -237,14 +261,372 @@ describe('<FormField />', () => {
         }}
       />
     )
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'b' } })
-    expect(onChange).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(screen.getByRole('option', { name: 'Beta' }))
+
+    // The event is shaped like a <select>'s so existing handlers — including
+    // formik's handleChange, which reads name/type off the target — keep working.
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.objectContaining({
+          name: defaultProps.inputProps.name,
+          value: 'b',
+          type: 'select-one'
+        })
+      })
+    )
+  })
+
+  it('keeps the list anchored below the field regardless of what is selected', () => {
+    // The whole point of replacing the native <select>: the OS anchored its popup
+    // to the SELECTED option, so the list jumped upward once anything but the
+    // first entry was chosen. Ours is pinned to the control's bottom edge, and is
+    // now PORTALLED there with fixed positioning so no scrolling ancestor can clip
+    // it (an absolute list was unreachable inside the right panel).
+    const { rerender } = render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          value: '',
+          options: [
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' },
+            { value: 'c', label: 'Gamma' }
+          ]
+        }}
+      />
+    )
+    fireEvent.click(screen.getByRole('combobox'))
+    const list = screen.getByRole('listbox')
+    expect(list.parentElement).toBe(document.body)
+    expect(list.style.position).toBe('fixed')
+
+    // Re-render with the 2nd entry selected — the anchoring must not change.
+    rerender(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          value: 'b',
+          options: [
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' },
+            { value: 'c', label: 'Gamma' }
+          ]
+        }}
+      />
+    )
+    // Anchoring is unchanged by the selection — still portalled, still fixed.
+    const reselected = screen.getByRole('listbox')
+    expect(reselected.parentElement).toBe(document.body)
+    expect(reselected.style.position).toBe('fixed')
+    expect(screen.getByRole('option', { name: 'Beta' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('escapes a scrolling ancestor, and follows the control when it scrolls', () => {
+    // The reported bug: a Material Type card low in the right panel opened its
+    // options INSIDE the panel's overflow, where they could not be seen — and
+    // scrolling to reach them moved the control by the same amount, so they never
+    // came into view.
+    const { container } = render(
+      <div style={{ overflowY: 'auto', height: 100 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const combo = screen.getByRole('combobox')
+    // Give the control a measurable box — jsdom has no layout of its own.
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 300, left: 40, width: 200, height: 36, right: 240, bottom: 336 }) as DOMRect
+
+    fireEvent.click(combo)
+    const list = screen.getByRole('listbox')
+    // Portalled OUT of the scrolling wrapper — that is what stops it being clipped.
+    expect(container.contains(list)).toBe(false)
+    expect(list.parentElement).toBe(document.body)
+    expect(list.style.position).toBe('fixed')
+
+    // The list needs a box of its own before it can be placed (it is measured
+    // against the anchor), so give it one and let the next measure pass run —
+    // the same two-pass settle the real component goes through pre-paint.
+    list.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, width: 200, height: 80, right: 200, bottom: 80 }) as DOMRect
+    fireEvent.scroll(container.firstChild as HTMLElement)
+
+    expect(list.style.width).toBe('200px')
+    // Sits just under the control (36px tall at y=300, plus the 4px gap).
+    expect(list.style.top).toBe('340px')
+    expect(list.style.left).toBe('40px')
+
+    // Now scroll the panel: the control moves up, and the list must go with it.
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 220, left: 40, width: 200, height: 36, right: 240, bottom: 256 }) as DOMRect
+    fireEvent.scroll(container.firstChild as HTMLElement)
+    expect(screen.getByRole('listbox').style.top).toBe('260px')
+  })
+
+  it('leaves a panel that can already scroll far enough completely alone', () => {
+    // Room is only borrowed when the panel cannot reach the list on its own. Here
+    // it has 800px left to travel, so nothing is touched.
+    const { container } = render(
+      <div style={{ overflowY: 'scroll', height: 200 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const panel = container.firstChild as HTMLElement
+    Object.defineProperty(panel, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(panel, 'clientHeight', { value: 200, configurable: true })
+    Object.defineProperty(panel, 'scrollTop', { value: 0, configurable: true })
+    panel.scrollBy = vi.fn()
+
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(240)
+    const combo = screen.getByRole('combobox')
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 664, left: 40, width: 200, height: 36, right: 240, bottom: 700 }) as DOMRect
+
+    fireEvent.click(combo)
+
+    expect(panel.style.paddingBottom).toBe('')
+    expect(panel.scrollBy).not.toHaveBeenCalled()
+    scrollHeight.mockRestore()
+  })
+
+  it('borrows room at the panel bottom when it has none left, and gives it back', () => {
+    // The last card: the panel is already scrolled to its end, so scrollBy alone
+    // does nothing — the outer scrollbar refuses to move and the list stays
+    // clipped at the window edge. It needs somewhere to scroll TO first.
+    const { container } = render(
+      <div style={{ overflowY: 'scroll', height: 200 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const panel = container.firstChild as HTMLElement
+    // Scrollable, but sitting at the very bottom: nothing left to scroll through.
+    Object.defineProperty(panel, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(panel, 'clientHeight', { value: 200, configurable: true })
+    Object.defineProperty(panel, 'scrollTop', { value: 800, configurable: true })
+    panel.scrollBy = vi.fn()
+
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(240)
+    const combo = screen.getByRole('combobox')
+    combo.parentElement!.getBoundingClientRect = () =>
+      ({ top: 664, left: 40, width: 200, height: 36, right: 240, bottom: 700 }) as DOMRect
+
+    fireEvent.click(combo)
+
+    // 184px short with 0 left to scroll → the panel is given the whole 184px, so
+    // its scrollbar has somewhere to travel.
+    expect(panel.style.paddingBottom).toBe('184px')
+    // …and nothing is scrolled ON THE USER'S BEHALF. They scroll as much as they
+    // want; the list follows its control and grows as room opens beneath it.
+    expect(panel.scrollBy).not.toHaveBeenCalled()
+
+    // Closing hands it straight back — the borrowed space is never left behind.
+    fireEvent.click(combo)
+    expect(panel.style.paddingBottom).toBe('')
+    scrollHeight.mockRestore()
+  })
+
+  it('stays open when the panel SCROLLBAR is grabbed, but closes on a real outside click', () => {
+    // Dragging the scrollbar is a mousedown on the scrolling element — outside the
+    // control — so it read as "the user left the field" and shut the list on the
+    // one gesture meant to bring the rest of the options into view.
+    const { container } = render(
+      <div style={{ overflowY: 'scroll', height: 200 }}>
+        <FormField
+          {...defaultProps}
+          inputProps={{
+            ...defaultProps.inputProps,
+            options: [
+              { value: 'a', label: 'Alpha' },
+              { value: 'b', label: 'Beta' }
+            ]
+          }}
+        />
+      </div>
+    )
+
+    const panel = container.firstChild as HTMLElement
+    panel.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, width: 300, height: 200, right: 300, bottom: 200 }) as DOMRect
+    // Content stops at 285; 285–300 is the scrollbar gutter.
+    Object.defineProperty(panel, 'clientWidth', { value: 285, configurable: true })
+    Object.defineProperty(panel, 'clientHeight', { value: 200, configurable: true })
+
+    fireEvent.click(screen.getByRole('combobox'))
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    // Grab the scrollbar: past the content edge, still inside the panel.
+    fireEvent.mouseDown(panel, { clientX: 292, clientY: 100 })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    // A press on the panel's actual content is still "left the field".
+    fireEvent.mouseDown(panel, { clientX: 100, clientY: 100 })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('marks the selected option with a leading tick, in a slot every row reserves', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          value: 'b',
+          options: [
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' }
+          ]
+        }}
+      />
+    )
+    fireEvent.click(screen.getByRole('combobox'))
+
+    // The tick leads the row, so the label reads after it.
+    const selected = screen.getByRole('option', { name: 'Beta' })
+    const [tickSlot, label] = Array.from(selected.children) as HTMLElement[]
+    expect(tickSlot.querySelector('img')).toBeInTheDocument()
+    expect(label).toHaveTextContent('Beta')
+
+    // An unticked row keeps the identical empty slot, so no label shifts.
+    const other = screen.getByRole('option', { name: 'Alpha' })
+    const [emptySlot] = Array.from(other.children) as HTMLElement[]
+    expect(emptySlot.querySelector('img')).toBeNull()
+    expect(emptySlot.className).toBe(tickSlot.className)
+  })
+
+  it('shows the selected option label on the closed control', () => {
+    render(
+      <FormField
+        {...defaultProps}
+        inputProps={{
+          ...defaultProps.inputProps,
+          value: 'b',
+          placeholder: 'Pick one',
+          options: [
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' }
+          ]
+        }}
+      />
+    )
+    expect(screen.getByRole('combobox')).toHaveTextContent('Beta')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  // The dropdown no longer emits a real DOM change event, so formik's
+  // handleChange/handleBlur have to be satisfied by the synthetic one. Weather's
+  // AddColumnDialog drives its two selects entirely through getFieldProps, and
+  // its own tests mock FormField out — so this is the only place that check
+  // exists. Without it a broken event shape would fail silently in the app.
+  it('works with formik getFieldProps (the Weather dialog wiring)', async () => {
+    const submitted: Record<string, unknown>[] = []
+
+    function FormikHarness(): React.JSX.Element {
+      const formik = useFormik({
+        initialValues: { unitId: '' },
+        onSubmit: (values) => {
+          submitted.push(values)
+        }
+      })
+      return (
+        <form onSubmit={formik.handleSubmit}>
+          <FormField
+            labelProps={{ label: 'Unit', optional: true }}
+            inputProps={{
+              ...formik.getFieldProps('unitId'),
+              placeholder: 'Select unit',
+              options: [
+                { value: '10', label: 'Celsius' },
+                { value: '20', label: 'Fahrenheit' }
+              ]
+            }}
+          />
+          <button type="submit">Save</button>
+        </form>
+      )
+    }
+
+    render(<FormikHarness />)
+
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(screen.getByRole('option', { name: 'Fahrenheit' }))
+
+    // formik resolved the field from the event target's name and stored its value.
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveTextContent('Fahrenheit'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(submitted).toEqual([{ unitId: '20' }]))
+  })
+
+  it('marks the field touched on blur so formik validation can fire', async () => {
+    let touched: Record<string, boolean> = {}
+
+    function FormikHarness(): React.JSX.Element {
+      const formik = useFormik({
+        initialValues: { unitId: '' },
+        onSubmit: () => {}
+      })
+      touched = formik.touched as Record<string, boolean>
+      return (
+        <FormField
+          labelProps={{ label: 'Unit', optional: true }}
+          inputProps={{
+            ...formik.getFieldProps('unitId'),
+            placeholder: 'Select unit',
+            options: [{ value: '10', label: 'Celsius' }]
+          }}
+        />
+      )
+    }
+
+    render(<FormikHarness />)
+    expect(touched.unitId).toBeUndefined()
+
+    // Open, then click away — the field is only "left" once the list closes.
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.mouseDown(document.body)
+
+    await waitFor(() => expect(touched.unitId).toBe(true))
   })
 
   // Snapshot regression guard — default state (no error)
   it('should match the snapshot', () => {
     const { container } = render(<FormField {...defaultProps} />)
-    expect(container.firstChild).toMatchSnapshot()
+    expect(stableIds(container.firstChild as HTMLElement)).toMatchSnapshot()
   })
 
   // Snapshot regression guard — error state
@@ -252,7 +634,7 @@ describe('<FormField />', () => {
     const { container } = render(
       <FormField {...defaultProps} inputProps={{ ...defaultProps.inputProps, error: 'Required' }} />
     )
-    expect(container.firstChild).toMatchSnapshot()
+    expect(stableIds(container.firstChild as HTMLElement)).toMatchSnapshot()
   })
 
   // NOTE: the branch-coverage tests below run AFTER the two snapshot tests on

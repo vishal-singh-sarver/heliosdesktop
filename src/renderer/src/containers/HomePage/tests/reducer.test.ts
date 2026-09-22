@@ -192,7 +192,7 @@ describe('homePageReducer', () => {
         ...initialState,
         deleteProject: { inFlightIds: [], error: apiErr }
       }
-      const result = homePageReducer(prev, actions.deleteProject({ projectId: 'a' }))
+      const result = homePageReducer(prev, actions.deleteProject({ projectId: 'a', name: 'Project A' }))
       expect(result.deleteProject.inFlightIds).toEqual(['a'])
       expect(result.deleteProject.error).toBeNull()
     })
@@ -202,13 +202,13 @@ describe('homePageReducer', () => {
         ...initialState,
         deleteProject: { inFlightIds: ['a'], error: null }
       }
-      const result = homePageReducer(prev, actions.deleteProject({ projectId: 'a' }))
+      const result = homePageReducer(prev, actions.deleteProject({ projectId: 'a', name: 'Project A' }))
       expect(result.deleteProject.inFlightIds).toEqual(['a'])
     })
 
     it('DELETE_PROJECT supports concurrent deletes', () => {
-      const withA = homePageReducer(initialState, actions.deleteProject({ projectId: 'a' }))
-      const withAandB = homePageReducer(withA, actions.deleteProject({ projectId: 'b' }))
+      const withA = homePageReducer(initialState, actions.deleteProject({ projectId: 'a', name: 'Project A' }))
+      const withAandB = homePageReducer(withA, actions.deleteProject({ projectId: 'b', name: 'Project A' }))
       expect(withAandB.deleteProject.inFlightIds).toEqual(['a', 'b'])
     })
 
@@ -304,7 +304,7 @@ describe('homePageReducer', () => {
 
   it('does not mutate the initial state when reducing several actions', () => {
     homePageReducer(initialState, actions.createProject({ name: 'x', latitude: 0, longitude: 0 }))
-    homePageReducer(initialState, actions.deleteProject({ projectId: 'y' }))
+    homePageReducer(initialState, actions.deleteProject({ projectId: 'y', name: 'Project A' }))
     homePageReducer(initialState, actions.renameProject({ projectId: 'y', name: 'Y' }))
     expect(initialState.createProject).toEqual(initialCreateProjectState)
     expect(initialState.deleteProject).toEqual(initialDeleteProjectState)

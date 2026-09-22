@@ -94,6 +94,34 @@ function writeEarlyLog(message: string): void {
   }
 }
 
+/**
+ * writeEarlyLog for paths where a throw would cost more than the log is worth.
+ *
+ * writeEarlyLog is already guarded, but its own fallback is `console.error` — and
+ * a console write can itself throw once stdout is broken, which on a death path
+ * it may well be. That leaves the outer throw free to escape.
+ *
+ * Two ways that hurt, both real rather than theoretical:
+ *   - In a crash OBSERVER (render/child-process-gone), an escaping throw becomes
+ *     an uncaughtException, which exits the app — turning a renderer crash
+ *     Electron would have survived into a full shutdown. A diagnostic must never
+ *     escalate the fault it reports.
+ *   - In the uncaughtException handler itself, it would skip everything after it:
+ *     the backend reaper and the exit. The backend team hit precisely this in
+ *     their liveness watchdog, where a print() on the death path silently killed
+ *     the thread and the os._exit() below it never ran.
+ *
+ * So: swallow everything. A missing log line is a nuisance; a missed reaper is an
+ * orphaned backend holding a gigabyte until the machine is rebooted.
+ */
+function safeLog(message: string): void {
+  try {
+    writeEarlyLog(message)
+  } catch {
+    /* deliberately empty — see above */
+  }
+}
+
 function createWindow(splash?: BrowserWindow): BrowserWindow {
   const isMac = process.platform === 'darwin'
   // macOS: titleBarStyle 'hidden' keeps the native traffic lights (so the OS
@@ -155,7 +183,26 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   // ahead of it. Instead the initial screen (HomePage / ProjectScreen) sends
   // 'app:ready' from its own mount effect, so the splash holds until the
   // screen has actually painted.
-  mainWindow.webContents.ipc.once('app:ready', () => {
+  //
+  // "Painted" means the shell, NOT a fully loaded screen. ProjectScreen signals
+  // while a restart's /init is still hydrating (see its hydration gate), because
+  // that wait belongs in the app's own loader — which has a progress bar and a
+  // Cancel button — and not behind a splash PNG that has neither.
+  //
+  // One reveal path, whichever trigger gets here first.
+  //
+  // Showing the window WITHOUT taking the splash down is not a partial reveal,
+  // it is a broken one: the splash is alwaysOnTop and opaque, so it sits over
+  // whatever the renderer is showing. The fallback below used to do exactly
+  // that, which is why a stalled startup looked like a frozen splash on a black
+  // rectangle rather than an app with a loader in it — the boot dialog, its
+  // progress bar and its Cancel button were all rendering underneath.
+  let fallbackTimer: NodeJS.Timeout
+  let revealed = false
+  const reveal = (): void => {
+    if (revealed) return
+    revealed = true
+    clearTimeout(fallbackTimer)
     if (mainWindow.isDestroyed()) return
     // Headless e2e: skip show() so the window never reaches the screen. The
     // renderer is already mounted and painted at this point, so every WebDriver
@@ -170,16 +217,16 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
         splash.destroy()
       }
     })
-  })
+  }
 
-  // Safety net: if the renderer crashes before sending 'app:ready', show the
-  // window anyway after a generous timeout so the user doesn't stare at the
-  // splash forever. The splash stays up — error dialogs in the renderer (if
-  // any) will surface.
-  const fallbackTimer = setTimeout(() => {
-    if (isHeadlessTestRun()) return
-    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
-  }, 10_000)
+  mainWindow.webContents.ipc.once('app:ready', reveal)
+
+  // Safety net for a renderer that never signals at all — one that crashed
+  // before React ran, so no renderer-side gate can help. A slow /init is NOT
+  // this case any more: ProjectScreen's shell mounts and signals while the boot
+  // is still running, so a legitimately long load reveals immediately and shows
+  // its own loader.
+  fallbackTimer = setTimeout(reveal, 10_000)
   mainWindow.once('closed', () => clearTimeout(fallbackTimer))
 
   // F11 toggles fullscreen. enter/leave-full-screen fire AFTER the OS animation
@@ -353,9 +400,11 @@ function buildAppMenu(): void {
  * - Windows: taskbar jump list (app.setUserTasks)
  * - Linux: handled via .desktop file Actions (see linux-installer/helios.desktop)
  *
- * On Windows, the jump list item re-launches the Helios executable. The new
- * process hits the single-instance lock, which triggers the 'second-instance'
- * handler in the running instance, which then calls createWindow().
+ * On Windows, the jump list item re-launches the Helios executable with
+ * --new-window. The new process hits the single-instance lock, which triggers
+ * the 'second-instance' handler in the running instance; that flag is what
+ * tells the handler to open a window instead of focusing the existing one.
+ * The Linux .desktop NewWindow action passes the same flag.
  */
 function configurePlatformShortcuts(): void {
   if (process.platform === 'darwin') {
@@ -375,7 +424,7 @@ function configurePlatformShortcuts(): void {
       app.setUserTasks([
         {
           program: process.execPath,
-          arguments: '',
+          arguments: '--new-window',
           iconPath: process.execPath,
           iconIndex: 0,
           title: 'New Window',
@@ -477,9 +526,30 @@ if (!gotSingleInstanceLock) {
 // Only the first (and only) instance reaches this point.
 // When another Helios is launched, Electron fires 'second-instance' here
 // instead of spawning a new OS process.
-app.on('second-instance', () => {
-  writeEarlyLog('second-instance event received — opening a new window')
-  createWindow()
+app.on('second-instance', (_event, argv) => {
+  // Only an explicit "New Window" request opens another window. A plain launch
+  // (clicking the pinned taskbar/dock icon) must focus what's already open —
+  // otherwise every click stacks up one more window.
+  if (argv.some((arg) => arg.includes('--new-window'))) {
+    writeEarlyLog('second-instance: --new-window requested — opening a new window')
+    createWindow()
+    return
+  }
+
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length === 0) {
+    writeEarlyLog('second-instance: no windows open — creating one')
+    createWindow()
+    return
+  }
+
+  // windows[0] may be the splash if the user clicks again mid-startup;
+  // focusing it is the right behavior there too.
+  writeEarlyLog(`second-instance: focusing existing window (windows=${windows.length})`)
+  const win = windows[0]
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 })
 
 // Debug-only: log every activate event so we can see what's triggering reopens
@@ -713,4 +783,70 @@ app.on('will-quit', () => {
 process.on('exit', () => {
   if (SKIP_BACKEND) return
   backendManager.killSync()
+})
+
+// ── Crash reporting ──────────────────────────────────────────────────────────
+//
+// None of this existed, and its absence cost an afternoon. A user reported the
+// app "closing unexpectedly" on Ubuntu; the app's own logs had nothing at all —
+// not which process died, not why, not even that anything had. The cause had to
+// be reconstructed by hand from apport dumps and `ps` output.
+//
+// `reason` is the whole point of logging these. Electron reports 'oom' for the
+// failure this app is actually prone to: a scenario context is roughly 1.4 GB
+// and, on a machine already low on memory, whichever process allocates next is
+// the one refused. That is a one-word answer to a question that otherwise needs
+// a core dump.
+//
+// These only observe. A renderer crash is survivable and Electron keeps the app
+// alive, so nothing here quits or restarts anything.
+app.on('render-process-gone', (_event, contents, details) => {
+  // getURL() is read defensively because the WebContents is often ALREADY
+  // destroyed by the time this fires — its renderer is, after all, what just
+  // died — and every accessor on a destroyed WebContents throws "Object has
+  // been destroyed". An uncaught throw in here would be caught by the
+  // uncaughtException handler below and exit the app, turning a renderer crash
+  // Electron would otherwise have survived into a full shutdown. A diagnostic
+  // must never be able to escalate the fault it is reporting.
+  let url = 'unavailable'
+  try {
+    if (!contents.isDestroyed()) url = contents.getURL() || 'none'
+  } catch {
+    /* destroyed between the check and the read — the reason below is the useful part */
+  }
+
+  safeLog(`RENDERER GONE: reason=${details.reason} exitCode=${details.exitCode} url=${url}`)
+})
+
+app.on('child-process-gone', (_event, details) => {
+  safeLog(
+    `CHILD PROCESS GONE: type=${details.type} reason=${details.reason} ` +
+      `exitCode=${details.exitCode} name=${details.name ?? 'n/a'}`
+  )
+})
+
+// An uncaught throw in the main process takes the app with it, and takes the
+// 'will-quit' reaper with it too — so the backend survives with its whole
+// context resident and holds the port and the SQLite file for the next launch.
+// Reaping it here is the only chance left to prevent that. Still exits: this
+// handler exists to log and clean up, not to keep a broken main process running.
+//
+// EVERY step is independently guarded and the exit is unconditional, because the
+// ORDER of these three lines used to be a way to lose the reaper entirely. The
+// backend team hit exactly this in their own watchdog: a print() on the death
+// path raised (a real parent death takes stdout with it), which silently killed
+// the thread, so the os._exit() beneath it never ran — EOF was received
+// correctly, the process stayed alive anyway, and nothing was logged to say so.
+// The same shape was here: writeEarlyLog falls back to console.error, and a
+// console write on a broken stdout can throw, which would have skipped both
+// killSync and the exit. On a death path, cleanup may never sit downstream of
+// logging.
+process.on('uncaughtException', (err) => {
+  safeLog(`UNCAUGHT EXCEPTION in main: ${err?.stack || err}`)
+  try {
+    if (!SKIP_BACKEND) backendManager.killSync()
+  } catch {
+    /* nothing useful left to do — fall through to the exit regardless */
+  }
+  process.exit(1)
 })

@@ -9,11 +9,13 @@ exports[`<FormField /> > should match the snapshot 1`] = `
     class="flex items-center gap-1"
     for="projectName"
   >
-    Project Name
-    <span
-      class="text-red-400"
-    >
-      *
+    <span>
+      Project Name
+      <span
+        class="text-red-400"
+      >
+        *
+      </span>
     </span>
     <span
       aria-label="Show project name help"
@@ -28,7 +30,7 @@ exports[`<FormField /> > should match the snapshot 1`] = `
   >
     <input
       aria-invalid="false"
-      class="mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-neutral-500 outline-none px-3"
+      class="mt-1 text-ellipsis h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-neutral-500 outline-none px-3"
       data-testid="input-projectName"
       id="projectName"
       name="projectName"
@@ -49,11 +51,13 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
     class="flex items-center gap-1"
     for="projectName"
   >
-    Project Name
-    <span
-      class="text-red-400"
-    >
-      *
+    <span>
+      Project Name
+      <span
+        class="text-red-400"
+      >
+        *
+      </span>
     </span>
     <span
       aria-label="Show project name help"
@@ -67,9 +71,9 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
     class="relative"
   >
     <input
-      aria-describedby="_r_o_"
+      aria-describedby="generated-id"
       aria-invalid="true"
-      class="mt-1 h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-red-500 outline outline-1 -outline-offset-1 outline-red-500 px-3"
+      class="mt-1 text-ellipsis h-9 w-full rounded border border-app-border bg-dark text-sm text-white focus:border-[#D92D20] outline outline-1 -outline-offset-1 outline-[#D92D20] px-3"
       data-testid="input-projectName"
       id="projectName"
       name="projectName"
@@ -81,7 +85,7 @@ exports[`<FormField /> > should match the snapshot with error 1`] = `
   <p
     class="form-error-text mt-1"
     data-testid="error-projectName"
-    id="_r_o_"
+    id="generated-id"
     role="alert"
   >
     Required

@@ -5,8 +5,9 @@ import sortIcon from '@renderer/assets/Sort 3.svg'
 import React, { useState } from 'react'
 import { formatBytes, formatRelativeDate } from 'utils/format'
 import { useVirtualRows } from 'utils/useVirtualRows'
-import type { RecentProjectItem } from '../../containers/HomePage/types'
+import type { ApiErrorPayload, RecentProjectItem } from '../../containers/HomePage/types'
 import EmptyState from '../EmptyState'
+import ProjectsLoadError from '../ProjectsLoadError'
 
 interface ProjectsTableProps {
   projects: RecentProjectItem[]
@@ -16,6 +17,11 @@ interface ProjectsTableProps {
   onRequestDelete: (project: RecentProjectItem) => void
   onRequestRename: (project: RecentProjectItem) => void
   deletingIds: string[]
+  /** Failure of the LIST fetch. Only meaningful while there is nothing to show. */
+  loadError?: ApiErrorPayload | null
+  /** True while the list is in flight — distinguishes "none yet" from "none". */
+  loading?: boolean
+  onRetryLoad?: () => void
 }
 
 type SortKey = 'name' | 'last_updated' | 'size'
@@ -38,7 +44,10 @@ function ProjectsTable({
   onRequestDelete,
   onRequestRename,
   deletingIds,
-  onRowClick
+  onRowClick,
+  loadError = null,
+  loading = false,
+  onRetryLoad
 }: ProjectsTableProps): React.JSX.Element {
   const [sortKey, setSortKey] = useState<SortKey>('last_updated')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
@@ -130,6 +139,25 @@ function ProjectsTable({
     )
   }
 
+  // Three different situations hide behind "the table has no rows", and they all
+  // used to render the same "No Projects Found" — including a backend that was
+  // simply unreachable. See ProjectsLoadError for what that cost.
+  //
+  // `loadError` is passed only when there are genuinely no projects to show; a
+  // refresh that fails with rows already on screen keeps the rows, and a search
+  // that matches nothing is not a failure at all.
+  const renderPlaceholder = (): React.JSX.Element => {
+    if (loadError) return <ProjectsLoadError error={loadError} onRetry={onRetryLoad} />
+    if (loading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <p className="text-sm text-neutral-400">Loading projects…</p>
+        </div>
+      )
+    }
+    return <EmptyState icon={emptyIcon} onCreateNew={onCreateNew} />
+  }
+
   return (
     <>
       <h2 className="mb-6 text-lg font-medium text-white">Recent Projects</h2>
@@ -140,7 +168,7 @@ function ProjectsTable({
         className="scrollbar-custom flex-1 min-h-0 overflow-y-auto rounded border border-app-border bg-app-panel/20"
       >
         {sortedProjects.length === 0 ? (
-          <EmptyState icon={emptyIcon} onCreateNew={onCreateNew} />
+          renderPlaceholder()
         ) : (
           <table className="w-full border-separate table-fixed" style={{ borderSpacing: 0 }}>
             <colgroup>

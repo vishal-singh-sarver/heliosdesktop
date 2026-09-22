@@ -56,6 +56,8 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     await HomePage.openCreateDialogViaSidebar()
     await HomePage.fillAndSubmitCreate(name, DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    // The workspace lands on 3D Window; Weather mounts only while its tab is active.
+    await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // 2) IMPORT a 2-row CSV (datetime + a numeric column). stubFileImport feeds the
@@ -79,8 +81,8 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     //    imported rows back-fill it. This type + changed unit is what we verify.
     await Weather.openAddColumns()
     await Weather.setReactInput('[data-testid="input-parameterName"]', 'trange')
-    await Weather.acDataType.selectByVisibleText('air_temperature')
-    await browser.waitUntil(async () => (await Weather.acUnit.getValue()) !== '', {
+    await Weather.pickAcDataType('air_temperature')
+    await browser.waitUntil(async () => (await Weather.acUnitLabel()) !== '', {
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'base unit did not auto-select for air_temperature'
     })
@@ -110,6 +112,8 @@ describe('Persistence — import + data type/unit + validation across relaunch',
     const homeId = await relaunchAndReopen(name)
     await HomePage.row(homeId).doubleClick()
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    // The workspace lands on 3D Window; Weather mounts only while its tab is active.
+    await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // 6) ROWS survived: the two imported rows are back on the table.

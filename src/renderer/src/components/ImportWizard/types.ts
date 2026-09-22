@@ -16,7 +16,6 @@ export interface ImportWizardProps {
   onClose: () => void
   onRequestPickFile: () => void
   onSubmit: (dataset: ImportedDataset, truncatedDecimals: boolean) => void
-  onImportWarning: (message: string | null) => void
   pickedFile: PickedFile | null
   fileLoading: boolean
   fileError: string | null

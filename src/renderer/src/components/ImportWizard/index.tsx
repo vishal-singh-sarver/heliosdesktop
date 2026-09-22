@@ -180,7 +180,6 @@ function ImportWizard({
   onClose,
   onRequestPickFile,
   onSubmit,
-  onImportWarning,
   pickedFile,
   fileLoading,
   fileError,
@@ -218,9 +217,7 @@ function ImportWizard({
 
   // Parse on pickedFile change — adjusts state during render (React's documented
   // alternative to a setState-in-effect cascade), so the component re-runs with
-  // the parsed result before anything is committed to the DOM. `onImportWarning`
-  // is a parent callback, so it stays in the effect below — calling it here would
-  // set state on another component mid-render.
+  // the parsed result before anything is committed to the DOM.
   if (pickedFile !== lastSeenPickedFile) {
     setLastSeenPickedFile(pickedFile)
 
@@ -302,15 +299,6 @@ function ImportWizard({
       }
     }
   }
-
-  // Deferred out of the render-phase parse above: notifying the parent has to
-  // happen after commit. `parsed` is set on exactly the successful-parse path
-  // that used to call this inline, so depending on it fires the callback in the
-  // same cases and no others.
-  React.useEffect(() => {
-    if (!parsed) return
-    onImportWarning(null)
-  }, [parsed, onImportWarning])
 
   // Close on Esc — the wizard uses a custom <div> overlay (not <dialog>),
   // so we wire up the key handler ourselves. Skipped while importing.
@@ -618,7 +606,6 @@ function ImportWizard({
     disabledColumnIndices,
     columnSelection,
     filename,
-    onImportWarning,
     pickedFile,
     onSubmit
   ])

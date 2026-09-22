@@ -1,6 +1,9 @@
 import threeDWindowIcon from '@renderer/assets/3D_Window.svg'
 import outputIcon from '@renderer/assets/Output.svg'
 import weatherIcon from '@renderer/assets/weather.svg'
+import ThreeDWindow from '@renderer/containers/3DWindow/Loadable'
+import threeDWindowReducer from '@renderer/containers/3DWindow/store/reducer'
+import threeDWindowSaga from '@renderer/containers/3DWindow/store/saga'
 import Weather from '@renderer/containers/Weather'
 import React from 'react'
 import type { Reducer } from 'redux'
@@ -44,8 +47,10 @@ function TabButton({ label, icon, active, onClick, dataTestId }: TabButtonProps)
 export function CenterWorkspace(): React.JSX.Element {
   useInjectReducer({ key: 'centerWorkspace', reducer: reducer as Reducer })
   useInjectSaga({ key: 'centerWorkspace', saga })
+  useInjectReducer({ key: 'threeDWindow', reducer: threeDWindowReducer as Reducer })
+  useInjectSaga({ key: 'threeDWindow', saga: threeDWindowSaga })
 
-  const [activeTab, setActiveTab] = React.useState<Tab>('weather')
+  const [activeTab, setActiveTab] = React.useState<Tab>('3dWindow')
 
   return (
     <section
@@ -79,6 +84,9 @@ export function CenterWorkspace(): React.JSX.Element {
         />
       </div>
 
+      <div className={activeTab === '3dWindow' ? 'flex min-h-0 flex-1' : 'hidden'}>
+        <ThreeDWindow />
+      </div>
       {activeTab === 'weather' && <Weather />}
     </section>
   )

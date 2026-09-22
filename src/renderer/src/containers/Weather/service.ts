@@ -2,6 +2,7 @@ import type {
   CellValue,
   ColumnDef,
   DataTypeDef,
+  ModelTypeDef,
   Scenario,
   WeatherHeader
 } from 'containers/ProjectScreen/types'
@@ -21,6 +22,17 @@ export interface DataTypesResponse {
 
 export function loadDataTypesRequest(): Promise<DataTypesResponse> {
   return api.get<DataTypesResponse>(API_ROUTES.catalog.dataTypes)
+}
+
+// Model types are hierarchical on the wire (each carries a `submodels[]`); the
+// GUI only needs the top-level models, so the type intersection lets us read and
+// discard `submodels` in the reducer. One call on ProjectScreen mount.
+export interface ModelTypesResponse {
+  model_types: Array<ModelTypeDef & { submodels?: ModelTypeDef[] }>
+}
+
+export function loadModelTypesRequest(): Promise<ModelTypesResponse> {
+  return api.get<ModelTypesResponse>(API_ROUTES.catalog.modelTypes)
 }
 
 // ── Project (with scenarios) ────────────────────────────────────────────────
@@ -332,12 +344,19 @@ export type DeleteRowsRequestBody = Array<{ date: string; time: string }>
 
 export type DeleteRowsResponse = string
 
+// `skipScopeCheck` because this route is all-or-nothing: one already-deleted
+// key 404s the entire batch. That 404 carries no machine code, so the scope
+// detector would read it as "this scenario no longer exists" and throw the user
+// out to Home — out of a project that is perfectly healthy, with nothing
+// deleted. Callers surface the failure themselves.
 export function deleteRowsRequest(
   projectId: string,
   scenarioId: string,
   body: DeleteRowsRequestBody
 ): Promise<DeleteRowsResponse> {
-  return api.post<DeleteRowsResponse>(API_ROUTES.weather.deleteRow(projectId, scenarioId), body)
+  return api.post<DeleteRowsResponse>(API_ROUTES.weather.deleteRow(projectId, scenarioId), body, {
+    skipScopeCheck: true
+  })
 }
 
 // ── Update cell ──────────────────────────────────────────────────────────────

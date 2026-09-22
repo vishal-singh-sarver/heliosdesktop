@@ -9,10 +9,17 @@
   --color-text-primary: #ffffff;
   --color-text-secondary: #a1a1aa;
   --color-text-error-primary: #D92D20;
+  /* Shift-click row highlight in the weather table. */
+  --color-row-selected: #5888E5;
 
   /* TYPOGRAPHY */
   --font-main: Geist, sans-serif;
-  --text-sm: 14px;
+  /* Unified body/label size. text-sm and text-xs both resolve here so every
+     label and body string renders at one consistent 13px app-wide; headings
+     (text-base/lg/xl) keep their larger scale. Change this one value to
+     re-tune all body/label text. */
+  --text-xs: 13px;
+  --text-sm: 13px;
   --text-md: 16px;
   --text-lg: 18px;
 }
@@ -24,7 +31,108 @@
   --color-app-border: var(--color-border);
   --color-text-primary: var(--color-text-primary);
   --color-text-secondary: var(--color-text-secondary);
+  --color-app-row-selected: var(--color-row-selected);
   --font-main: var(--font-main);
+
+  /* Toasts slide in from the right edge they're anchored to, and leave the same
+     way — appearing and vanishing on the spot reads as a glitch, and with a
+     stack it's genuinely unclear whether a message arrived or one left. Out is
+     quicker than in: the user has already read it and is waiting on the space.
+     `forwards` holds the end state for the beat between the animation finishing
+     and the store dropping the toast, so it can't flash back into view. */
+  --animate-toast-in: toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-toast-out: toast-out 160ms ease-in forwards;
+
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(1.5rem);
+  }
+}
+
+/* Someone who has asked their OS for less motion still needs to see the toast —
+   they just shouldn't be shown it moving. Fade only, no travel. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes toast-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+}
+
+/* Weather table row exit (bulk delete).
+   Two phases on two DIFFERENT elements, so they can overlap without fighting
+   over the same `transform`: the leaving row travels on X, the survivors below
+   it travel on Y.
+
+   These are `transition`s and NOT keyframe animations, unlike the toasts above.
+   The table is virtualised, so a row scrolled into view mid-flight MOUNTS
+   mid-flight — and a fresh mount restarts a keyframe animation from frame 0,
+   leaving it still sliding after the store has dropped it. A transition has no
+   "from" state on a fresh mount, so such a row simply renders in its end state,
+   which is the correct thing to show. Toasts never remount mid-flight; rows do.
+
+   WEATHER_ROW_EXIT_MS in WeatherTable.tsx must match whichever of these
+   finishes LAST — currently the shift, at 220ms delay + 260ms = 480ms. */
+.weather-row-leaving {
+  transform: translateX(110%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 280ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 280ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Carries only the timing — the translateY itself is an inline style, since it
+   differs per row. Adding the transition and the transform in the same commit
+   still animates: a transition is started from the after-change style. Removing
+   both in the same commit does NOT animate, for the same reason, which is what
+   lets the row snap into its real position when the snapshot is dropped. */
+.weather-row-shift {
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 220ms;
+}
+
+/* Same bargain the toasts strike: the rows still leave, they just don't travel
+   to do it. Durations are untouched, so WEATHER_ROW_EXIT_MS stays correct and
+   no JS branch is needed. `!important` because the shift's transform is an
+   inline style, which nothing else can outrank. */
+@media (prefers-reduced-motion: reduce) {
+  .weather-row-leaving {
+    transform: none;
+  }
+
+  .weather-row-shift {
+    transform: none !important;
+  }
 }
 
 body {
@@ -32,6 +140,29 @@ body {
   background: var(--color-bg);
   color: var(--color-text-primary);
   font-family: var(--font-main);
+}
+
+/* The app shell is pinned to the viewport, so the WINDOW itself never scrolls.
+   Only the panels inside it do.
+
+   #root previously had no rule at all — an unstyled div in an unsized body — so
+   anything that grew the document grew the page. components/Select borrows scroll
+   room by adding paddingBottom to the nearest scrolling ancestor, and when it
+   finds none it falls back to document.scrollingElement; against an unpinned
+   document that put a scrollbar on the whole window instead of on the panel.
+   Fixed positioning takes #root out of flow entirely, so there is no page to
+   scroll and that fallback can no longer move the app. */
+#root {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+}
+
+/* Button labels are not selectable text — dragging across a button should never
+   highlight its caption (standard button behaviour). */
+button {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 :focus:not(:focus-visible) {
@@ -44,13 +175,14 @@ body {
   box-shadow: none;
 }
 
-/* Invalid fields keep a RED focus outline instead of the default blue, so a
-   focused invalid field reads as one consistent red rather than stacking a
-   blue focus ring on top of its red validation border. Must live here
-   (unlayered) — a Tailwind utility class can't win against the unlayered
-   :focus-visible rule above regardless of specificity. */
+/* A field with a validation error keeps its red focus ring while it's being
+   edited — the error state must outrank the global blue ring above, which (being
+   unlayered) otherwise wins over FormField's outline utility on focus. FormField
+   sets aria-invalid on the control whenever it has an error; the token matches
+   FormField's resting outline and the .form-error-text helper, so every error
+   cue is one red. Higher specificity than the bare :focus-visible, same layer. */
 [aria-invalid='true']:focus-visible {
-  outline-color: var(--color-red-500);
+  outline-color: var(--color-text-error-primary);
 }
 
 .text-primary {
@@ -62,11 +194,11 @@ body {
 }
 
 /* Single source of truth for form error text (field validation + saga error
-   banners) so they render identically — Geist 400 / 12px / 15px line-height. */
+   banners) so they render identically — Geist 400 / 13px / 15px line-height. */
 .form-error-text {
   font-family: var(--font-main);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 15px;
   letter-spacing: 0;
   color: var(--color-text-error-primary);

@@ -73,6 +73,7 @@ describe('projectScreenReducer', () => {
       const seed = {
         ...initialState,
         catalog: {
+          ...initialState.catalog,
           dataTypes: { ...initialState.catalog.dataTypes, loadError: 'prev' }
         }
       }
@@ -95,6 +96,39 @@ describe('projectScreenReducer', () => {
       const result = projectScreenReducer(initialState, actions.loadDataTypesFailed('boom'))
       expect(result.catalog.dataTypes.loadStatus).toBe('error')
       expect(result.catalog.dataTypes.loadError).toBe('boom')
+    })
+  })
+
+  describe('catalog: model types', () => {
+    const sampleModel = { id: 3, model: 'Solar Position', description: 'Sun position model' }
+
+    it('LOAD_MODEL_TYPES_REQUESTED sets loading and clears error', () => {
+      const seed = {
+        ...initialState,
+        catalog: {
+          ...initialState.catalog,
+          modelTypes: { ...initialState.catalog.modelTypes, loadError: 'prev' }
+        }
+      }
+      const result = projectScreenReducer(seed, actions.loadModelTypesRequested())
+      expect(result.catalog.modelTypes.loadStatus).toBe('loading')
+      expect(result.catalog.modelTypes.loadError).toBeNull()
+    })
+
+    it('LOAD_MODEL_TYPES_SUCCEEDED populates byId / allIds and flips status', () => {
+      const result = projectScreenReducer(
+        initialState,
+        actions.loadModelTypesSucceeded([sampleModel])
+      )
+      expect(result.catalog.modelTypes.byId[sampleModel.id]).toEqual(sampleModel)
+      expect(result.catalog.modelTypes.allIds).toEqual([sampleModel.id])
+      expect(result.catalog.modelTypes.loadStatus).toBe('loaded')
+    })
+
+    it('LOAD_MODEL_TYPES_FAILED stores the error and flips status', () => {
+      const result = projectScreenReducer(initialState, actions.loadModelTypesFailed('boom'))
+      expect(result.catalog.modelTypes.loadStatus).toBe('error')
+      expect(result.catalog.modelTypes.loadError).toBe('boom')
     })
   })
 
@@ -273,6 +307,82 @@ describe('projectScreenReducer', () => {
     it('LOAD_SCENARIO_FAILED is a no-op (UI surfaces error via toast)', () => {
       const result = projectScreenReducer(loaded(), actions.loadScenarioFailed(PROJ, SCN, 'boom'))
       expect(result.byScenario[SCN].rowOrder).toEqual(['row_0', 'row_1'])
+    })
+  })
+
+  describe('bulk row delete', () => {
+    // The whole point of this flow: the confirm dialog stays open until the
+    // backend answers, so nothing may leave state on _REQUESTED.
+    it('DELETE_ROWS_REQUESTED marks loading and leaves the rows alone', () => {
+      const result = projectScreenReducer(
+        loaded(),
+        actions.deleteRowsRequested(PROJ, SCN, ['row_0'], [{ date: '2026-04-27', time: '10:00:00' }])
+      )
+
+      expect(result.deleteRows).toEqual({ loading: true, error: null })
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_0', 'row_1'])
+      expect(result.byScenario[SCN].rows.row_0).toBeDefined()
+    })
+
+    it('DELETE_ROWS_SUCCEEDED removes every id from rows, order, validation, selection and sync', () => {
+      let seed = projectScreenReducer(
+        loaded(),
+        actions.setColumnValidationErrors(SCN, '7', { row_0: 'too high' })
+      )
+      seed = projectScreenReducer(seed, actions.setRowSelection(SCN, 'row_0', true))
+      seed = projectScreenReducer(
+        seed,
+        actions.updateCellLocal({
+          projectId: PROJ,
+          scenarioId: SCN,
+          rowId: 'row_0',
+          colId: '7',
+          value: '300',
+          validationError: null
+        })
+      )
+
+      const result = projectScreenReducer(
+        seed,
+        actions.deleteRowsSucceeded(PROJ, SCN, ['row_0', 'row_1'])
+      )
+      const table = result.byScenario[SCN]
+
+      expect(result.deleteRows).toEqual({ loading: false, error: null })
+      expect(table.rowOrder).toEqual([])
+      expect(table.rows.row_0).toBeUndefined()
+      expect(table.rows.row_1).toBeUndefined()
+      expect(table.validationErrors.row_0).toBeUndefined()
+      expect(table.rowSelection.row_0).toBeUndefined()
+      expect(table.cellSync[cellKey('row_0', '7')]).toBeUndefined()
+    })
+
+    it('DELETE_ROWS_SUCCEEDED leaves rows that were not in the batch', () => {
+      const result = projectScreenReducer(loaded(), actions.deleteRowsSucceeded(PROJ, SCN, ['row_0']))
+
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_1'])
+      expect(result.byScenario[SCN].rows.row_1).toBeDefined()
+    })
+
+    it('DELETE_ROWS_FAILED records the error and keeps every row', () => {
+      const seed = projectScreenReducer(
+        loaded(),
+        actions.deleteRowsRequested(PROJ, SCN, ['row_0'], [{ date: '2026-04-27', time: '10:00:00' }])
+      )
+
+      const result = projectScreenReducer(seed, actions.deleteRowsFailed(PROJ, SCN, 'row(s) not found'))
+
+      expect(result.deleteRows).toEqual({ loading: false, error: 'row(s) not found' })
+      expect(result.byScenario[SCN].rowOrder).toEqual(['row_0', 'row_1'])
+    })
+
+    it('DELETE_ROWS_RESET clears a previous failure', () => {
+      const seed = projectScreenReducer(loaded(), actions.deleteRowsFailed(PROJ, SCN, 'boom'))
+
+      expect(projectScreenReducer(seed, actions.deleteRowsReset()).deleteRows).toEqual({
+        loading: false,
+        error: null
+      })
     })
   })
 

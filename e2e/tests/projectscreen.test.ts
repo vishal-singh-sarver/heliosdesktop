@@ -93,8 +93,8 @@ describe('ProjectScreen — header title + logo', () => {
     await expect(ProjectScreen.projectTitle).toHaveText(name)
   })
 
-  it('the logo returns to Home and clears the active scenario id', async () => {
-    const { id } = await enterProject('logo')
+  it('the logo returns to Home and clears both persisted ids', async () => {
+    await enterProject('logo')
     // We must actually be ON the project screen before clicking the logo —
     // otherwise the "returns to Home" claim is vacuous (we might already be home).
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
@@ -106,22 +106,30 @@ describe('ProjectScreen — header title + logo', () => {
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await expect(HomePage.projectsTable).toBeDisplayed()
 
-    // The scenario id is cleared by ProjectScreen's unmount cleanup. Differential:
-    // if that cleanup were removed, this waitUntil would time out (stays === id).
+    // Both ids are cleared by the clearPersistedIdsOnHome saga in
+    // containers/ProjectScreen/saga.ts, which runs off the NAVIGATE action.
+    // Differential: if that saga were removed, these waits would time out.
+    //
+    // M2 moved this off a ProjectScreen unmount-cleanup effect, which used to
+    // remove ONLY activeScenarioId, and widened it to remove activeProjectId
+    // too. The move is deliberate: StrictMode double-invokes effects
+    // (mount -> cleanup -> mount), so a mount-time fake unmount would wipe the
+    // id for the rest of the session. A real navigate('home') is the reliable
+    // signal that the user has left.
+    //
+    // Boot auto-restore is unaffected and still passes: it refreshes with both
+    // ids in place and never navigates Home, so this saga never fires there.
     await browser.waitUntil(async () => (await getStorage(ACTIVE_SCENARIO_KEY)) === null, {
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'activeScenarioId not cleared on leaving the project screen'
     })
     await expect(await getStorage(ACTIVE_SCENARIO_KEY)).toBe(null)
 
-    // FINDING / app-behavior contract: navigate('home') does NOT clear
-    // activeProjectId (navigationReducer only flips the screen; the unmount
-    // cleanup in ProjectScreen removes ONLY activeScenarioId). The project id is
-    // intentionally retained so a refresh-with-both-ids can auto-restore the
-    // project view (see the boot auto-restore suite). Asserting the project id
-    // is null here would contradict the app and the auto-restore tests, so we
-    // assert the real, differential contract: it survives as `id`.
-    await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(id)
+    await browser.waitUntil(async () => (await getStorage(ACTIVE_PROJECT_KEY)) === null, {
+      timeout: TIMEOUTS.MEDIUM,
+      timeoutMsg: 'activeProjectId not cleared on leaving the project screen'
+    })
+    await expect(await getStorage(ACTIVE_PROJECT_KEY)).toBe(null)
   })
 })
 
@@ -311,13 +319,19 @@ describe('ProjectScreen — boot auto-restore', () => {
 })
 
 describe('ProjectScreen — CenterWorkspace tabs', () => {
-  it('defaults to the Weather tab with the table mounted', async () => {
+  it('defaults to the 3D Window tab with the Weather table unmounted', async () => {
     await enterProject('tabs')
-    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    // M2 moved the landing tab from Weather to 3D Window. Weather is mounted only
+    // while its own tab is active, so on entry the table is absent entirely — this
+    // is what enterWeather() has to click past before any weather assertion.
+    await expect(await ProjectScreen.tabActive('3dwindow')).toBe(true)
+    await expect(await ProjectScreen.tabActive('weather')).toBe(false)
+    await expect(await ProjectScreen.weatherSentinel.isExisting()).toBe(false)
   })
 
   it('switching to 3D Window unmounts the Weather table', async () => {
     await enterProject('tab3d')
+    await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await ProjectScreen.selectTab('3dwindow')
     await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: TIMEOUTS.MEDIUM })
@@ -325,6 +339,7 @@ describe('ProjectScreen — CenterWorkspace tabs', () => {
 
   it('switching to Output unmounts the Weather table', async () => {
     await enterProject('tabout')
+    await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await ProjectScreen.selectTab('output')
     await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: TIMEOUTS.MEDIUM })
@@ -332,12 +347,18 @@ describe('ProjectScreen — CenterWorkspace tabs', () => {
 
   it('returning to Weather remounts the table', async () => {
     await enterProject('tabback')
+    // Mount Weather first, so the middle leg asserts a real unmount rather than
+    // passing vacuously against a tab that was never active.
+    await ProjectScreen.selectTab('weather')
+    await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     await ProjectScreen.selectTab('output')
     await ProjectScreen.weatherSentinel.waitForExist({ reverse: true, timeout: TIMEOUTS.MEDIUM })
     await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
   })
-  // FINDING (not tested): 3D Window / Output tabs render no content (inert placeholders).
+  // FINDING (not tested): the Output tab renders no content (inert placeholder).
+  // 3D Window is no longer inert — M2 mounts <ThreeDWindow /> there, and unlike
+  // Weather it stays mounted behind a `hidden` wrapper rather than unmounting.
 })
 
 describe('ProjectScreen — coordinate edge cases', () => {

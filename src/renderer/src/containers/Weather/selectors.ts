@@ -95,6 +95,7 @@ export {
   selectDataTypesById,
   selectDataTypesError,
   selectDataTypesLoadStatus,
+  selectDeleteRowsLoading,
   selectActiveDateTimeFormat,
   selectDateTimeBaseUnit,
   selectDateTimeBaseUnitId,

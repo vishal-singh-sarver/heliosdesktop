@@ -66,6 +66,12 @@ if (process.contextIsolated) {
 } else {
   // @ts-expect-error (fallback for non-isolated context)
   window.electron = electronAPI
-  // @ts-expect-error
+  // This file is type-checked under BOTH tsconfigs, which disagree here: the
+  // node one has no DOM lib, so `window` is unknown and a suppression is
+  // required; the web one pulls this file in via renderer/src/env.d.ts, which
+  // declares Window.api, so there is no error to suppress and @ts-expect-error
+  // would itself be flagged as unused. @ts-ignore is the only form that is
+  // correct in both.
+  // @ts-ignore
   window.api = api
 }

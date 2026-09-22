@@ -7,6 +7,10 @@ import {
   DELETE_COLUMN_REQUESTED,
   DELETE_COLUMN_SUCCEEDED,
   DELETE_ROW_FAILED,
+  DELETE_ROWS_REQUESTED,
+  DELETE_ROWS_SUCCEEDED,
+  DELETE_ROWS_FAILED,
+  DELETE_ROWS_RESET,
   DELETE_ROW_REQUESTED,
   DELETE_ROW_SUCCEEDED,
   ADD_ROW_FAILED,
@@ -19,6 +23,15 @@ import {
   LOAD_DATA_TYPES_FAILED,
   LOAD_DATA_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
+  LOAD_MATERIAL_TYPES_FAILED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MATERIAL_TYPES_SUCCEEDED,
+  LOAD_MODEL_TYPES_FAILED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_SUCCEEDED,
+  LOAD_OBJECT_TYPES_FAILED,
+  LOAD_OBJECT_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_SUCCEEDED,
   LOAD_HEADERS_FAILED,
   LOAD_HEADERS_REQUESTED,
   LOAD_HEADERS_SUCCEEDED,
@@ -63,6 +76,9 @@ import type {
   DeleteColumnSnapshot,
   DeleteRowSnapshot,
   LoadedScenarioPayload,
+  MaterialTypeDef,
+  ModelTypeDef,
+  ObjectTypeDef,
   ProjectMetadata,
   RowId,
   Scenario,
@@ -94,6 +110,45 @@ export interface LoadDataTypesSucceededAction extends Idx {
 }
 export interface LoadDataTypesFailedAction extends Idx {
   type: typeof LOAD_DATA_TYPES_FAILED
+  payload: string
+}
+
+// Catalog: object types
+export interface LoadObjectTypesRequestedAction extends Idx {
+  type: typeof LOAD_OBJECT_TYPES_REQUESTED
+}
+export interface LoadObjectTypesSucceededAction extends Idx {
+  type: typeof LOAD_OBJECT_TYPES_SUCCEEDED
+  payload: ObjectTypeDef[]
+}
+export interface LoadObjectTypesFailedAction extends Idx {
+  type: typeof LOAD_OBJECT_TYPES_FAILED
+  payload: string
+}
+
+// Catalog: material types
+export interface LoadMaterialTypesRequestedAction extends Idx {
+  type: typeof LOAD_MATERIAL_TYPES_REQUESTED
+}
+export interface LoadMaterialTypesSucceededAction extends Idx {
+  type: typeof LOAD_MATERIAL_TYPES_SUCCEEDED
+  payload: MaterialTypeDef[]
+}
+export interface LoadMaterialTypesFailedAction extends Idx {
+  type: typeof LOAD_MATERIAL_TYPES_FAILED
+  payload: string
+}
+
+// Catalog: model types
+export interface LoadModelTypesRequestedAction extends Idx {
+  type: typeof LOAD_MODEL_TYPES_REQUESTED
+}
+export interface LoadModelTypesSucceededAction extends Idx {
+  type: typeof LOAD_MODEL_TYPES_SUCCEEDED
+  payload: ModelTypeDef[]
+}
+export interface LoadModelTypesFailedAction extends Idx {
+  type: typeof LOAD_MODEL_TYPES_FAILED
   payload: string
 }
 
@@ -299,6 +354,27 @@ export interface DeleteRowFailedAction extends Idx {
   }
 }
 
+export interface DeleteRowsRequestedAction extends Idx {
+  type: typeof DELETE_ROWS_REQUESTED
+  payload: {
+    projectId: string
+    scenarioId: string
+    rowIds: RowId[]
+    keys: Array<{ date: string; time: string }>
+  }
+}
+export interface DeleteRowsSucceededAction extends Idx {
+  type: typeof DELETE_ROWS_SUCCEEDED
+  payload: { projectId: string; scenarioId: string; rowIds: RowId[] }
+}
+export interface DeleteRowsFailedAction extends Idx {
+  type: typeof DELETE_ROWS_FAILED
+  payload: { projectId: string; scenarioId: string; error: string }
+}
+export interface DeleteRowsResetAction extends Idx {
+  type: typeof DELETE_ROWS_RESET
+}
+
 // Cell edit
 export interface UpdateCellLocalAction extends Idx {
   type: typeof UPDATE_CELL_LOCAL
@@ -369,6 +445,15 @@ export type ProjectScreenAction =
   | LoadDataTypesRequestedAction
   | LoadDataTypesSucceededAction
   | LoadDataTypesFailedAction
+  | LoadObjectTypesRequestedAction
+  | LoadObjectTypesSucceededAction
+  | LoadObjectTypesFailedAction
+  | LoadMaterialTypesRequestedAction
+  | LoadMaterialTypesSucceededAction
+  | LoadMaterialTypesFailedAction
+  | LoadModelTypesRequestedAction
+  | LoadModelTypesSucceededAction
+  | LoadModelTypesFailedAction
   | SetActiveProjectAction
   | SetActiveScenarioAction
   | LoadProjectSucceededAction
@@ -408,6 +493,10 @@ export type ProjectScreenAction =
   | DeleteRowRequestedAction
   | DeleteRowSucceededAction
   | DeleteRowFailedAction
+  | DeleteRowsRequestedAction
+  | DeleteRowsSucceededAction
+  | DeleteRowsFailedAction
+  | DeleteRowsResetAction
   | UpdateCellLocalAction
   | UpdateCellRequestedAction
   | UpdateCellSucceededAction
@@ -430,6 +519,46 @@ export const loadDataTypesSucceeded = (payload: DataTypeDef[]): LoadDataTypesSuc
 })
 export const loadDataTypesFailed = (payload: string): LoadDataTypesFailedAction => ({
   type: LOAD_DATA_TYPES_FAILED,
+  payload
+})
+
+export const loadObjectTypesRequested = (): LoadObjectTypesRequestedAction => ({
+  type: LOAD_OBJECT_TYPES_REQUESTED
+})
+export const loadObjectTypesSucceeded = (
+  payload: ObjectTypeDef[]
+): LoadObjectTypesSucceededAction => ({
+  type: LOAD_OBJECT_TYPES_SUCCEEDED,
+  payload
+})
+export const loadObjectTypesFailed = (payload: string): LoadObjectTypesFailedAction => ({
+  type: LOAD_OBJECT_TYPES_FAILED,
+  payload
+})
+
+export const loadMaterialTypesRequested = (): LoadMaterialTypesRequestedAction => ({
+  type: LOAD_MATERIAL_TYPES_REQUESTED
+})
+export const loadMaterialTypesSucceeded = (
+  payload: MaterialTypeDef[]
+): LoadMaterialTypesSucceededAction => ({
+  type: LOAD_MATERIAL_TYPES_SUCCEEDED,
+  payload
+})
+export const loadMaterialTypesFailed = (payload: string): LoadMaterialTypesFailedAction => ({
+  type: LOAD_MATERIAL_TYPES_FAILED,
+  payload
+})
+
+export const loadModelTypesRequested = (): LoadModelTypesRequestedAction => ({
+  type: LOAD_MODEL_TYPES_REQUESTED
+})
+export const loadModelTypesSucceeded = (payload: ModelTypeDef[]): LoadModelTypesSucceededAction => ({
+  type: LOAD_MODEL_TYPES_SUCCEEDED,
+  payload
+})
+export const loadModelTypesFailed = (payload: string): LoadModelTypesFailedAction => ({
+  type: LOAD_MODEL_TYPES_FAILED,
   payload
 })
 
@@ -711,6 +840,32 @@ export const deleteRowSucceeded = (
   type: DELETE_ROW_SUCCEEDED,
   payload: { projectId, scenarioId, rowId }
 })
+export const deleteRowsRequested = (
+  projectId: string,
+  scenarioId: string,
+  rowIds: RowId[],
+  keys: Array<{ date: string; time: string }>
+): DeleteRowsRequestedAction => ({
+  type: DELETE_ROWS_REQUESTED,
+  payload: { projectId, scenarioId, rowIds, keys }
+})
+export const deleteRowsSucceeded = (
+  projectId: string,
+  scenarioId: string,
+  rowIds: RowId[]
+): DeleteRowsSucceededAction => ({
+  type: DELETE_ROWS_SUCCEEDED,
+  payload: { projectId, scenarioId, rowIds }
+})
+export const deleteRowsFailed = (
+  projectId: string,
+  scenarioId: string,
+  error: string
+): DeleteRowsFailedAction => ({
+  type: DELETE_ROWS_FAILED,
+  payload: { projectId, scenarioId, error }
+})
+export const deleteRowsReset = (): DeleteRowsResetAction => ({ type: DELETE_ROWS_RESET })
 export const deleteRowFailed = (
   projectId: string,
   scenarioId: string,

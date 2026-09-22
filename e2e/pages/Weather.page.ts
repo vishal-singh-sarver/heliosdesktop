@@ -173,11 +173,18 @@ class WeatherPage {
   get acName(): El {
     return this.addColumnDialog.$('[data-testid="input-parameterName"]')
   }
+  /**
+   * The data-type / unit CONTROLS. Both resolve to the role=combobox trigger,
+   * not the `input-<name>` wrapper: since M2 the testid sits on a wrapper div
+   * that has no value, no options and no disabled state, so pointing these at it
+   * would silently answer every query wrong. Drive them with pickAcDataType /
+   * pickAcUnit / acUnitEnabled rather than the WebDriver select* commands.
+   */
   get acDataType(): El {
-    return this.addColumnDialog.$('[data-testid="input-dataTypeId"]')
+    return this.formSelectTrigger('dataTypeId')
   }
   get acUnit(): El {
-    return this.addColumnDialog.$('[data-testid="input-unitId"]')
+    return this.formSelectTrigger('unitId')
   }
   get acDefault(): El {
     return this.addColumnDialog.$('[data-testid="input-defaultValue"]')
@@ -255,10 +262,6 @@ class WeatherPage {
   }
   get importConfirmNo(): El {
     return this.importConfirmDialog.$('button=No')
-  }
-  /** Success/precision toast sentinel (its dismiss button — toast has no testid). */
-  get importToastDismiss(): El {
-    return $('[aria-label="Dismiss import notification"]')
   }
 
   // ===========================================================================
@@ -412,8 +415,8 @@ class WeatherPage {
   ): Promise<void> {
     await this.openAddColumns()
     await this.setReactInput('[data-testid="input-parameterName"]', name)
-    if (opts.dataType) await this.acDataType.selectByVisibleText(opts.dataType)
-    if (opts.unit) await this.acUnit.selectByVisibleText(opts.unit)
+    if (opts.dataType) await this.pickAcDataType(opts.dataType)
+    if (opts.unit) await this.pickAcUnit(opts.unit)
     if (opts.defaultValue != null)
       await this.setReactInput('[data-testid="input-defaultValue"]', opts.defaultValue)
     await this.acSubmit.click()
@@ -913,6 +916,193 @@ class WeatherPage {
    */
   unitSelectLabel(u: WeatherCatalogUnit): string {
     return u.alias ? `${u.unit} (${u.alias})` : u.unit
+  }
+
+  // ===========================================================================
+  // FormField dropdowns (components/Select)
+  //
+  // M2 replaced the native <select> with a portalled custom listbox, so the
+  // WebDriver select* commands (selectByVisibleText / selectByIndex / getValue /
+  // $$('option')) no longer apply to ANY FormField dropdown. The shape now:
+  //
+  //   [data-testid="input-<name>"]        the WRAPPER div — NOT the control
+  //     └ button[role="combobox"]         the trigger; its text is the selected
+  //                                       label, or the placeholder when unset
+  //   aria-controls ──> div[role="listbox"]  PORTALLED out of the wrapper, so it
+  //                                       is never a descendant of the testid
+  //       └ button[role="option"]         index 0 is the clear row, labelled with
+  //                                       the placeholder (FormField passes
+  //                                       `clearable`), mirroring the empty
+  //                                       <option> the native select carried
+  //
+  // Index semantics therefore match the old <select> exactly: 0 = placeholder,
+  // 1 = first real option.
+  //
+  // Options are resolved through aria-controls rather than a bare
+  // $('[role="listbox"]') so a helper can never pick up the header picker's
+  // popover by mistake, and are read/clicked IN-PAGE (same reason as pickerPick:
+  // position-agnostic, and it sidesteps the option rows' mousedown preventDefault).
+  // ===========================================================================
+
+  /** Placeholders the Add-Column dialog passes. Mirrors Weather/messages.ts. */
+  readonly SELECT_PLACEHOLDERS = {
+    dataType: 'Select data type',
+    unit: 'Select a unit',
+    unitDisabled: 'Select a data type first'
+  } as const
+
+  formSelectTrigger(name: string): El {
+    return $(`[data-testid="input-${name}"] [role="combobox"]`)
+  }
+
+  /** The trigger's text: the selected option's label, or the placeholder. */
+  async formSelectText(name: string): Promise<string> {
+    return (await this.formSelectTrigger(name).getText()).trim()
+  }
+
+  /**
+   * The selected label, or '' when the control is still showing `placeholder`.
+   * Stands in for the old native `getValue() !== ''` emptiness check — the custom
+   * control renders the option LABEL and never exposes the underlying value.
+   */
+  async formSelectLabel(name: string, placeholder: string): Promise<string> {
+    const text = await this.formSelectText(name)
+    return text === placeholder ? '' : text
+  }
+
+  async formSelectEnabled(name: string): Promise<boolean> {
+    return this.formSelectTrigger(name).isEnabled()
+  }
+
+  /** Open the listbox (no-op if already open) and return its element id. */
+  async openFormSelect(name: string): Promise<string> {
+    const trigger = this.formSelectTrigger(name)
+    await trigger.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    const listId = await trigger.getAttribute('aria-controls')
+    if (!listId) throw new Error(`Select "${name}" has no aria-controls — not a components/Select`)
+    if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute((id: string) => !!document.getElementById(id), listId)) === true,
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `listbox for "${name}" never opened` }
+    )
+    return listId
+  }
+
+  private async readOptionLabels(listId: string): Promise<string[]> {
+    return (await browser.execute((id: string) => {
+      const list = document.getElementById(id)
+      if (!list) return []
+      return Array.from(list.querySelectorAll('[role="option"]')).map((el) =>
+        (el.textContent ?? '').trim()
+      )
+    }, listId)) as string[]
+  }
+
+  /**
+   * Every option label, index 0 being the placeholder/clear row. Leaves the list
+   * OPEN — callers that only wanted a read should close it (Escape) or pick.
+   */
+  async formSelectOptions(name: string): Promise<string[]> {
+    return this.readOptionLabels(await this.openFormSelect(name))
+  }
+
+  private async waitFormSelectClosed(name: string, why: string): Promise<void> {
+    await browser.waitUntil(
+      async () => (await this.formSelectTrigger(name).getAttribute('aria-expanded')) !== 'true',
+      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `listbox for "${name}" never closed ${why}` }
+    )
+  }
+
+  /**
+   * Close an open listbox without choosing anything.
+   *
+   * Toggles the trigger rather than pressing Escape. components/Select handles
+   * Escape but does NOT stopPropagation, so the key also reaches the Dialog's own
+   * document listener and takes the whole dialog down with the list — after which
+   * the next `input-<name>` lookup has nothing to find and Cancel is no longer
+   * interactable.
+   */
+  async closeFormSelect(name: string): Promise<void> {
+    const trigger = this.formSelectTrigger(name)
+    if ((await trigger.getAttribute('aria-expanded')) !== 'true') return
+    await trigger.click()
+    await this.waitFormSelectClosed(name, 'on toggle')
+  }
+
+  private async clickOptionAt(name: string, listId: string, index: number): Promise<void> {
+    await browser.execute(
+      (id: string, i: number) => {
+        const list = document.getElementById(id)
+        const opts = Array.from(list?.querySelectorAll('[role="option"]') ?? []) as HTMLElement[]
+        opts[i]?.click()
+      },
+      listId,
+      index
+    )
+    // commit() closes the list; wait for that rather than racing the next action.
+    await this.waitFormSelectClosed(name, 'after picking')
+  }
+
+  /**
+   * Pick by visible label — the selectByVisibleText replacement. Matches exactly,
+   * or on the "unit (alias)" form units render with. Names the options actually
+   * on offer when there is no match, which the raw WebDriver error never did.
+   */
+  async formSelectPick(name: string, label: string): Promise<void> {
+    const listId = await this.openFormSelect(name)
+    const labels = await this.readOptionLabels(listId)
+    const idx = labels.findIndex(
+      (t) => t === label || t.startsWith(`${label} (`) || t.startsWith(`${label}(`)
+    )
+    if (idx === -1) {
+      throw new Error(
+        `Select "${name}" has no option "${label}". On offer: ${labels.join(' | ') || '(none)'}`
+      )
+    }
+    await this.clickOptionAt(name, listId, idx)
+  }
+
+  /** Pick by index — the selectByIndex replacement. 0 is the placeholder row. */
+  async formSelectPickIndex(name: string, index: number): Promise<void> {
+    const listId = await this.openFormSelect(name)
+    const labels = await this.readOptionLabels(listId)
+    if (index >= labels.length) {
+      throw new Error(
+        `Select "${name}" has no option at index ${index} (${labels.length} on offer)`
+      )
+    }
+    await this.clickOptionAt(name, listId, index)
+  }
+
+  // ----- Add Column dialog conveniences over the above -----
+  /** '' until a data type is chosen, then the type name. */
+  async acDataTypeLabel(): Promise<string> {
+    return this.formSelectLabel('dataTypeId', this.SELECT_PLACEHOLDERS.dataType)
+  }
+  /**
+   * '' until a unit is chosen, then its label. Both unit placeholders count as
+   * empty — which one shows depends on whether a data type is set yet.
+   */
+  async acUnitLabel(): Promise<string> {
+    const text = await this.formSelectText('unitId')
+    const { unit, unitDisabled } = this.SELECT_PLACEHOLDERS
+    return text === unit || text === unitDisabled ? '' : text
+  }
+  async acUnitEnabled(): Promise<boolean> {
+    return this.formSelectEnabled('unitId')
+  }
+  async pickAcDataType(label: string): Promise<void> {
+    await this.formSelectPick('dataTypeId', label)
+  }
+  async pickAcDataTypeIndex(index: number): Promise<void> {
+    await this.formSelectPickIndex('dataTypeId', index)
+  }
+  async pickAcUnit(label: string): Promise<void> {
+    await this.formSelectPick('unitId', label)
+  }
+  async acDataTypeOptions(): Promise<string[]> {
+    return this.formSelectOptions('dataTypeId')
   }
 
   // ===========================================================================

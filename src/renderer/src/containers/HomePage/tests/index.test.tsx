@@ -615,7 +615,7 @@ describe('<HomePage />', () => {
     expect(dialog).toBeInTheDocument()
     expect(dialog).toHaveAttribute('aria-label', 'Delete')
     expect(within(dialog).getByText('Delete Coastal Survey Alpha')).toBeInTheDocument()
-    expect(mockDispatch).not.toHaveBeenCalledWith(actions.deleteProject({ projectId: 'p-coastal' }))
+    expect(mockDispatch).not.toHaveBeenCalledWith(actions.deleteProject({ projectId: 'p-coastal', name: 'Coastal Survey Alpha' }))
   })
 
   it('dispatches deleteProject when the confirm dialog Delete button is clicked', () => {
@@ -625,7 +625,7 @@ describe('<HomePage />', () => {
 
     fireEvent.click(within(screen.getByTestId('dialog')).getByText('Delete'))
 
-    expect(mockDispatch).toHaveBeenCalledWith(actions.deleteProject({ projectId: 'p-coastal' }))
+    expect(mockDispatch).toHaveBeenCalledWith(actions.deleteProject({ projectId: 'p-coastal', name: 'Coastal Survey Alpha' }))
   })
 
   it('closes the confirm dialog without dispatching when Cancel is clicked', () => {
@@ -636,7 +636,7 @@ describe('<HomePage />', () => {
     fireEvent.click(within(screen.getByTestId('dialog')).getByText('Cancel'))
 
     expect(screen.queryByTestId('dialog')).not.toBeInTheDocument()
-    expect(mockDispatch).not.toHaveBeenCalledWith(actions.deleteProject({ projectId: 'p-coastal' }))
+    expect(mockDispatch).not.toHaveBeenCalledWith(actions.deleteProject({ projectId: 'p-coastal', name: 'Coastal Survey Alpha' }))
   })
 
   it('closes the confirm dialog once the delete settles (inFlight clears)', () => {

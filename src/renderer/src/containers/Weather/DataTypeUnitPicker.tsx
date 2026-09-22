@@ -4,6 +4,7 @@ import {
   type UpdateColumnPatch
 } from 'containers/ProjectScreen/types'
 import React from 'react'
+import { showFullTextOnHover } from 'utils/truncationTooltip'
 
 // One button + popover. The popover has two steps:
 //   1. Data type list (shown when no data type is set, or after the user clicks
@@ -116,7 +117,9 @@ function DataTypeUnitPicker({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-1 rounded border border-app-border bg-[#424242] px-2 py-1 text-xs text-neutral-200 outline-none hover:border-neutral-500 focus:border-neutral-500"
       >
-        <span className="truncate">{buttonLabel}</span>
+        <span className="truncate" onMouseEnter={showFullTextOnHover}>
+          {buttonLabel}
+        </span>
         <span aria-hidden className="text-neutral-400">
           ▾
         </span>
@@ -133,7 +136,7 @@ function DataTypeUnitPicker({
               className="mb-1 flex h-8 w-full items-center gap-1 bg-neutral-200 px-3 text-left text-xs text-[#245AC5] hover:bg-neutral-100"
             >
               <span
-                className="h-5 w-[134px] font-['Geist'] text-[14px] font-medium leading-5 tracking-normal text-[#245AC5]"
+                className="h-5 w-[134px] font-main text-[13px] font-medium leading-5 tracking-normal text-[#245AC5]"
               >
                 ‹ Back to Assign Type
               </span>
@@ -150,6 +153,7 @@ function DataTypeUnitPicker({
                   role="option"
                   aria-selected={isSelected}
                   onClick={() => pickDataType(dt.id)}
+                  onMouseEnter={showFullTextOnHover}
                   className={`block h-[42px] w-full truncate px-3 text-left text-xs leading-[42px] hover:bg-[#2b2b2b] ${
                     isSelected ? 'bg-[#111111] text-neutral-100' : 'text-neutral-300'
                   }`}
@@ -178,7 +182,9 @@ function DataTypeUnitPicker({
                       isSelected ? 'bg-[#111111] text-neutral-100' : 'text-neutral-300'
                     }`}
                   >
-                    <span className="truncate">{u.alias ? `${u.unit} (${u.alias})` : u.unit}</span>
+                    <span className="truncate" onMouseEnter={showFullTextOnHover}>
+                      {u.alias ? `${u.unit} (${u.alias})` : u.unit}
+                    </span>
                   </button>
                 )
               })

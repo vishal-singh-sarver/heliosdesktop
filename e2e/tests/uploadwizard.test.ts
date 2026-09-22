@@ -146,19 +146,24 @@ describe('Weather import — happy path', () => {
     })
   })
 
-  it('surfaces the truncation toast AND stores the value truncated to 7 decimals', async () => {
+  it('stores the value truncated to 7 decimals', async () => {
     await enterWeather('toast')
     // 1.123456789 has 9 decimals -> truncateToMaxDecimals writes 1.1234567 (7).
-    // The toast (wouldTruncateAny) and the value-writer (truncateToMaxDecimals)
-    // are SEPARATE functions, so assert BOTH: the warning fires AND the stored
-    // cell actually carries the truncated value. A writer regression that skipped
-    // truncation (or truncated to the wrong length) would still fire the toast —
-    // this assertion is what makes the test differential on the write path.
+    //
+    // This used to also assert a truncation TOAST. M2 removed it deliberately
+    // (Weather/index.tsx): the 7-decimal cap is a standing rule the user cannot
+    // change and StepReview states it up front in the wizard, so announcing it
+    // again afterwards only repeats what they were already told. The
+    // precision-warning flag is still consumed, just not surfaced.
+    //
+    // The write-path assertion below is the half that carried the value, and it
+    // is kept: wouldTruncateAny (the warning) and truncateToMaxDecimals (the
+    // writer) were always separate functions, so this is what makes the test
+    // differential on the write path.
     await stubFileImport(
       ['datetime,temperature', '2026-01-01T00:00:00Z,1.123456789'].join('\n')
     )
     await Weather.runImport()
-    await Weather.importToastDismiss.waitForDisplayed({ timeout: 15000 })
     // Exactly one row imported.
     const colId = await Weather.waitForColumn('temperature')
     await browser.waitUntil(async () => (await Weather.rowCount()) === 1, {
@@ -1650,6 +1655,9 @@ describe('Weather import — cell-edit persistence on a real import', () => {
     const homeId = await HomePage.rowIdForName(name)
     await HomePage.row(homeId as string).doubleClick()
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    // Reopening resets the workspace to the 3D Window tab; Weather mounts only
+    // while its tab is active.
+    await ProjectScreen.selectTab('weather')
     await Weather.selectAllCheckbox.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const col2 = await Weather.waitForColumn('humidity')
     const [row2] = await Weather.visibleRowIds()

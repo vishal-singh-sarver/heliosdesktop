@@ -7,9 +7,14 @@ import makeSelectCenterWorkspace, {
   selectStreamLog
 } from '../selectors'
 import { initialState } from '../reducer'
+import type { RootState } from 'store/reducers'
 
 const withCenterWorkspace = (partial: Partial<typeof initialState>) =>
   ({ centerWorkspace: { ...initialState, ...partial } }) as any
+
+// The slice really is absent here — that is the case under test — so the cast
+// stands in for a state shape the selector is expected to cope with.
+const withoutSlice = {} as RootState
 
 describe('selectCenterWorkspaceDomain', () => {
   it('selects the centerWorkspace slice', () => {
@@ -17,7 +22,7 @@ describe('selectCenterWorkspaceDomain', () => {
   })
 
   it('returns initialState when key is absent', () => {
-    expect(selectCenterWorkspaceDomain({})).toEqual(initialState)
+    expect(selectCenterWorkspaceDomain(withoutSlice)).toEqual(initialState)
   })
 })
 

@@ -50,6 +50,10 @@ export interface RecentProjectsResponse {
 
 export interface DeleteProjectPayload {
   projectId: string
+  // Carried so the outcome toast can name the project. The confirm dialog
+  // already has it, and after a successful DELETE it is gone from the store —
+  // so reading it back at that point would find nothing.
+  name: string
 }
 
 // ── Rename project ───────────────────────────────────────────────────────────

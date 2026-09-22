@@ -26,9 +26,12 @@ import {
   type LoadedScenarioPayload,
   type LoadStatus
 } from 'containers/ProjectScreen/types'
+import { showSnackbar } from 'store/snackbarReducer'
+import toastMessages from 'store/toastMessages'
 import { truncateToMaxDecimals } from 'utils/decimalValidation'
 import * as actions from './actions'
 import type { ImportFinalizeRequestedAction } from './actions'
+import { selectDataset } from './selectors'
 import {
   FETCH_STATUS,
   IMPORT_CLEAR_REQUESTED,
@@ -215,6 +218,9 @@ function backendAdjustedImportedValues(
 }
 
 export function* finalizeImportWorker(action: ImportFinalizeRequestedAction): Generator {
+  // Named out here so the catch below can report it too — `dataset` is scoped to
+  // the try, and a throw can happen before it is ever built.
+  const uploadedFilename = action.payload.filename
   try {
     const { projectId, scenarioId } = action
 
@@ -345,6 +351,7 @@ export function* finalizeImportWorker(action: ImportFinalizeRequestedAction): Ge
     // empty (cleared above) and the table reflects that — still report failure.
     if (addColError) {
       yield put(actions.importFinalizeFailed(`Import failed: ${addColError}`))
+      yield put(showSnackbar(toastMessages.weatherFileUploadFailed(uploadedFilename), 'error'))
       return
     }
 
@@ -357,12 +364,18 @@ export function* finalizeImportWorker(action: ImportFinalizeRequestedAction): Ge
         Boolean(raceResult.succeeded?.payload.precisionNormalized) || backendAdjusted
       )
     )
+    yield put(showSnackbar(toastMessages.weatherFileUploaded(uploadedFilename), 'success'))
   } catch (err) {
     yield put(actions.importFinalizeFailed((err as Error).message))
+    yield put(showSnackbar(toastMessages.weatherFileUploadFailed(uploadedFilename), 'error'))
   }
 }
 
 export function* clearImportedDataWorker(action: actions.ImportClearRequestedAction): Generator {
+  // Read the filename BEFORE the delete — afterwards the dataset is gone from
+  // the store and there is nothing left to name in the toast.
+  const cleared = (yield select(selectDataset)) as { filename: string } | null
+  const filename = cleared?.filename ?? ''
   try {
     const { projectId, scenarioId } = action
 
@@ -401,12 +414,15 @@ export function* clearImportedDataWorker(action: actions.ImportClearRequestedAct
           `Cleared imported data, but failed to refresh data: ${refreshError.payload.error}`
         )
       )
+      yield put(showSnackbar(toastMessages.weatherFileDeleteFailed(filename), 'error'))
       return
     }
 
     yield put(actions.importClearSucceeded(projectId, scenarioId))
+    yield put(showSnackbar(toastMessages.weatherFileDeleted(filename), 'success'))
   } catch (err) {
     yield put(actions.importClearFailed((err as Error).message))
+    yield put(showSnackbar(toastMessages.weatherFileDeleteFailed(filename), 'error'))
   }
 }
 

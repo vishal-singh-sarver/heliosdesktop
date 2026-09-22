@@ -3,6 +3,21 @@ export const LOAD_DATA_TYPES_REQUESTED = 'app/ProjectScreen/LOAD_DATA_TYPES_REQU
 export const LOAD_DATA_TYPES_SUCCEEDED = 'app/ProjectScreen/LOAD_DATA_TYPES_SUCCEEDED' as const
 export const LOAD_DATA_TYPES_FAILED = 'app/ProjectScreen/LOAD_DATA_TYPES_FAILED' as const
 
+// Catalog: object / material / model types (loaded in parallel with data types)
+export const LOAD_OBJECT_TYPES_REQUESTED = 'app/ProjectScreen/LOAD_OBJECT_TYPES_REQUESTED' as const
+export const LOAD_OBJECT_TYPES_SUCCEEDED = 'app/ProjectScreen/LOAD_OBJECT_TYPES_SUCCEEDED' as const
+export const LOAD_OBJECT_TYPES_FAILED = 'app/ProjectScreen/LOAD_OBJECT_TYPES_FAILED' as const
+
+export const LOAD_MATERIAL_TYPES_REQUESTED =
+  'app/ProjectScreen/LOAD_MATERIAL_TYPES_REQUESTED' as const
+export const LOAD_MATERIAL_TYPES_SUCCEEDED =
+  'app/ProjectScreen/LOAD_MATERIAL_TYPES_SUCCEEDED' as const
+export const LOAD_MATERIAL_TYPES_FAILED = 'app/ProjectScreen/LOAD_MATERIAL_TYPES_FAILED' as const
+
+export const LOAD_MODEL_TYPES_REQUESTED = 'app/ProjectScreen/LOAD_MODEL_TYPES_REQUESTED' as const
+export const LOAD_MODEL_TYPES_SUCCEEDED = 'app/ProjectScreen/LOAD_MODEL_TYPES_SUCCEEDED' as const
+export const LOAD_MODEL_TYPES_FAILED = 'app/ProjectScreen/LOAD_MODEL_TYPES_FAILED' as const
+
 // Active project + scenario
 export const SET_ACTIVE_PROJECT = 'app/ProjectScreen/SET_ACTIVE_PROJECT' as const
 export const SET_ACTIVE_SCENARIO = 'app/ProjectScreen/SET_ACTIVE_SCENARIO' as const
@@ -81,6 +96,14 @@ export const DELETE_COLUMN_FAILED = 'app/ProjectScreen/DELETE_COLUMN_FAILED' as 
 export const DELETE_ROW_REQUESTED = 'app/ProjectScreen/DELETE_ROW_REQUESTED' as const
 export const DELETE_ROW_SUCCEEDED = 'app/ProjectScreen/DELETE_ROW_SUCCEEDED' as const
 export const DELETE_ROW_FAILED = 'app/ProjectScreen/DELETE_ROW_FAILED' as const
+
+// Bulk delete driven by the shift-click highlight. Unlike DELETE_ROW_* above
+// this is NOT optimistic: the rows come out of state only on _SUCCEEDED, so the
+// confirm dialog can stay open until the backend has actually answered.
+export const DELETE_ROWS_REQUESTED = 'app/ProjectScreen/DELETE_ROWS_REQUESTED' as const
+export const DELETE_ROWS_SUCCEEDED = 'app/ProjectScreen/DELETE_ROWS_SUCCEEDED' as const
+export const DELETE_ROWS_FAILED = 'app/ProjectScreen/DELETE_ROWS_FAILED' as const
+export const DELETE_ROWS_RESET = 'app/ProjectScreen/DELETE_ROWS_RESET' as const
 
 // Cell edit. UPDATE_CELL_LOCAL is the synchronous optimistic write fired
 // from the cell on blur. The saga then dispatches UPDATE_CELL_REQUESTED only

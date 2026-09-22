@@ -1,3 +1,5 @@
+import { call } from 'redux-saga/effects'
+import projectScreenSaga, { clearPersistedIdsOnHome } from '../saga'
 // Unit tests for the ProjectScreen saga: drives the REAL worker generators to
 // completion (via runSaga) and asserts the actions they dispatch and the service
 // calls they make, mocking only the containers/Weather/service boundary. It does
@@ -11,7 +13,7 @@
 
 import { runSaga, stdChannel } from 'redux-saga'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import projectScreenSaga, { updateColumnWorker } from '../saga'
+import  { updateColumnWorker } from '../saga'
 import * as actions from '../actions'
 import { initialState } from '../reducer'
 import { ApiError } from 'utils/api'
@@ -22,8 +24,12 @@ import {
   ADD_ROW_REQUESTED,
   DELETE_COLUMN_REQUESTED,
   DELETE_ROW_REQUESTED,
+  DELETE_ROWS_REQUESTED,
   LIST_SCENARIOS_REQUESTED,
   LOAD_DATA_TYPES_REQUESTED,
+  LOAD_MATERIAL_TYPES_REQUESTED,
+  LOAD_MODEL_TYPES_REQUESTED,
+  LOAD_OBJECT_TYPES_REQUESTED,
   LOAD_DATA_TYPES_SUCCEEDED,
   LOAD_SCENARIO_FAILED,
   LOAD_SCENARIO_REQUESTED,
@@ -34,6 +40,8 @@ import {
   UPDATE_COLUMN_REQUESTED,
   UPDATE_PROJECT_REQUESTED
 } from '../constants'
+import { NAVIGATE } from 'store/navigationReducer'
+
 import type { DataTypeDef, DataUnitDef, ProjectMetadata, WeatherTable } from '../types'
 
 // ── Mock ONLY the service boundary ───────────────────────────────────────────
@@ -65,7 +73,38 @@ import * as service from 'containers/Weather/service'
 const PROJ = 'project-1'
 const SCN = 'scenario-1'
 
-// ── Catalog fixtures ─────────────────────────────────────────────────────────
+describe('projectScreenSaga (root watcher)', () => {
+  it('registers a watcher for every request action type the screen handles', () => {
+    const gen = projectScreenSaga()
+    const expected = [
+      LOAD_DATA_TYPES_REQUESTED,
+      LOAD_OBJECT_TYPES_REQUESTED,
+      LOAD_MATERIAL_TYPES_REQUESTED,
+      LOAD_MODEL_TYPES_REQUESTED,
+      UPDATE_PROJECT_REQUESTED,
+      LIST_SCENARIOS_REQUESTED,
+      LOAD_SCENARIO_REQUESTED,
+      SEED_DEFAULT_COLUMNS_REQUESTED,
+      ADD_ROW_REQUESTED,
+      ADD_COLUMN_REQUESTED,
+      UPDATE_COLUMN_REQUESTED,
+      DELETE_COLUMN_REQUESTED,
+      DELETE_ROW_REQUESTED,
+      DELETE_ROWS_REQUESTED,
+      UPDATE_ALL_CHECKBOXES_REQUESTED,
+      UPDATE_CELL_LOCAL,
+      NAVIGATE
+    ]
+    const seen = new Set<string>()
+    for (let i = 0; i < expected.length; i++) {
+      const step = gen.next()
+      const serialised = JSON.stringify(step.value)
+      for (const t of expected) if (serialised.includes(t)) seen.add(t)
+    }
+    expect(gen.next().done).toBe(true)
+    for (const t of expected) expect(seen).toContain(t)
+  })
+})
 
 const kelvin: DataUnitDef = {
   id: 5,
@@ -132,7 +171,30 @@ const dateTimeType: DataTypeDef = {
 }
 const CATALOG: DataTypeDef[] = [temperature, checkType, dateTimeType]
 
-// ── State + table builders shaped for the real selectors ─────────────────────
+// ── clearPersistedIdsOnHome ──────────────────────────────────────────────────
+
+describe('clearPersistedIdsOnHome', () => {
+  it('removes both persisted ids when navigating to home', () => {
+    const gen = clearPersistedIdsOnHome(navigate('home'))
+    expect(gen.next().value).toEqual(
+      call([localStorage, 'removeItem'], STORAGE_KEYS.activeProjectId)
+    )
+    expect(gen.next().value).toEqual(
+      call([localStorage, 'removeItem'], STORAGE_KEYS.activeScenarioId)
+    )
+    expect(gen.next().done).toBe(true)
+  })
+
+  it('removes nothing when navigating anywhere other than home', () => {
+    // The guard is what stops a navigate('project') — fired on every open —
+    // from wiping the ids the screen depends on. Without it this saga would
+    // clear the project id the moment the project screen is shown.
+    const gen = clearPersistedIdsOnHome(navigate('project'))
+    expect(gen.next().done).toBe(true)
+  })
+})
+
+// ── loadDataTypesWorker ──────────────────────────────────────────────────────
 
 interface StateOverrides {
   dataTypes?: DataTypeDef[]
@@ -152,6 +214,10 @@ function buildState(o: StateOverrides = {}): { projectScreen: typeof initialStat
     projectScreen: {
       ...initialState,
       catalog: {
+        // Spread first so the object/material/model-type slices keep their
+        // initial values — this helper only ever overrides dataTypes, and
+        // replacing the whole slice would drop the three the catalog gained.
+        ...initialState.catalog,
         dataTypes: { byId, allIds, loadStatus: o.loadStatus ?? 'loaded', loadError: null }
       },
       activeProjectId: PROJ,
@@ -227,7 +293,11 @@ beforeEach(() => {
 
 describe('worker extraction', () => {
   it('harvests real worker fns keyed by action type (updateColumnWorker matches the export)', () => {
-    expect(Object.keys(W).length).toBe(12)
+    // One entry per takeEvery/takeLatest in the root watcher. Was 12 before M2
+    // added the object/material/model-type loaders and the checkbox worker; the
+    // count is asserted so a watcher silently dropped from the root saga fails
+    // here rather than in whichever feature quietly stops responding.
+    expect(Object.keys(W).length).toBe(17)
     expect(W[UPDATE_COLUMN_REQUESTED]).toBe(updateColumnWorker)
   })
 })
@@ -1188,5 +1258,41 @@ describe('updateAllCheckboxesWorker (real)', () => {
       name: 'check',
       values: []
     })
+  })
+})
+
+// ── deleteRowsWorker ─────────────────────────────────────────────────────────
+
+describe('deleteRowsWorker (real)', () => {
+  const KEYS = [
+    { date: '2026-04-27', time: '10:00:00' },
+    { date: '2026-04-27', time: '11:00:00' }
+  ]
+
+  it('sends every key in ONE request and dispatches succeeded with the row ids', async () => {
+    vi.mocked(service.deleteRowsRequest).mockResolvedValue('ok')
+    const { task, dispatched } = drive(
+      W[DELETE_ROWS_REQUESTED],
+      actions.deleteRowsRequested(PROJ, SCN, ['row_0', 'row_1'], KEYS)
+    )
+    await task.toPromise()
+
+    expect(vi.mocked(service.deleteRowsRequest)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(service.deleteRowsRequest)).toHaveBeenCalledWith(PROJ, SCN, KEYS)
+    expect(dispatched).toContainEqual(actions.deleteRowsSucceeded(PROJ, SCN, ['row_0', 'row_1']))
+  })
+
+  it('dispatches failed with the message and never a succeeded on rejection', async () => {
+    vi.mocked(service.deleteRowsRequest).mockRejectedValue(new ApiError(404, 'row(s) not found'))
+    const { task, dispatched } = drive(
+      W[DELETE_ROWS_REQUESTED],
+      actions.deleteRowsRequested(PROJ, SCN, ['row_0'], KEYS)
+    )
+    await task.toPromise()
+
+    expect(dispatched).toContainEqual(actions.deleteRowsFailed(PROJ, SCN, 'row(s) not found'))
+    expect(dispatched.some((a) => a.type === actions.deleteRowsSucceeded(PROJ, SCN, []).type)).toBe(
+      false
+    )
   })
 })

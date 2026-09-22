@@ -53,6 +53,8 @@ describe('Persistence across app close/reopen', () => {
     await HomePage.openCreateDialogViaSidebar()
     await HomePage.fillAndSubmitCreate(name, DEFAULT_COORDS.lat, DEFAULT_COORDS.lon)
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    // The workspace lands on 3D Window; Weather mounts only while its tab is active.
+    await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // 2) Add REAL weather data: a managed column + a row, and edit the cell to a
@@ -80,6 +82,8 @@ describe('Persistence across app close/reopen', () => {
     const homeId = await relaunchAndReopen(name)
     await HomePage.row(homeId).doubleClick()
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    // The workspace lands on 3D Window; Weather mounts only while its tab is active.
+    await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
     // 4) Re-resolve the column + row and ASSERT the edited cell value survived.

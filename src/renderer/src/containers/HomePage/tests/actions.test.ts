@@ -138,10 +138,12 @@ describe('HomePage actions', () => {
   // ── Delete project ──────────────────────────────────────────────────────────
 
   describe('delete project', () => {
-    it('deleteProject carries the projectId in payload', () => {
-      expect(actions.deleteProject({ projectId: 'uuid-1' })).toEqual({
+    it('deleteProject carries the projectId AND the name in payload', () => {
+      // The name rides along so the outcome toast can report which project went —
+      // after the DELETE lands there is nothing left in the store to look it up in.
+      expect(actions.deleteProject({ projectId: 'uuid-1', name: 'Coastal' })).toEqual({
         type: DELETE_PROJECT,
-        payload: { projectId: 'uuid-1' }
+        payload: { projectId: 'uuid-1', name: 'Coastal' }
       })
     })
 

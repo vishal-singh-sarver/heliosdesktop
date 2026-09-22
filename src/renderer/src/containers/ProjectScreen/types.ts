@@ -34,6 +34,82 @@ export interface DataTypeDef {
   units: DataUnitDef[]
 }
 
+// ── Catalog: object / material / model types ────────────────────────────────
+//
+// Loaded in parallel with dataTypes on ProjectScreen mount, from the
+// /api/catalog/* endpoints. Wire shapes are snake_case; we keep them verbatim
+// so the service layer stays a pass-through (same convention as DataTypeDef).
+// `datatype` here is the backend's scalar kind string ("float" | "integer" |
+// "boolean" | "file" | "date" | "time" | "enum" | "string"), not a catalog id.
+
+export type CatalogPropertyDatatype =
+  | 'float'
+  | 'integer'
+  | 'boolean'
+  | 'file'
+  | 'date'
+  | 'time'
+  | 'enum'
+  | 'string'
+
+// One property row shared by object and material types. `group` and
+// `enum_values` are material-only (objects omit them); `required` is
+// object-only. All optional fields are absent — not null — when unused.
+export interface CatalogPropertyDef {
+  property_type_id: number
+  property: string
+  description: string
+  datatype: CatalogPropertyDatatype
+  min: number | null
+  max: number | null
+  display_order: number
+  required?: boolean // object-types only
+  group?: string // material-types only (e.g. "model" | "visualisation")
+  label?: string // material-types only — API-supplied display label ("V cmax25")
+  enum_values?: string[] // present only when datatype === 'enum'
+}
+
+// A material type's optional sub-group of properties, rendered as a collapsible
+// section under the type's top-level fields. `selector_property`/`selector_value`
+// make a group conditional: it shows only when the top-level enum named by
+// `selector_property` currently holds `selector_value` (e.g. the Ball-Woodrow-Berry
+// coefficients appear only while stomatal_model === "BWB"). Both null = always shown.
+export interface MaterialGroupDef {
+  name: string
+  selector_property: string | null
+  selector_value: string | null
+  display_order: number
+  properties: CatalogPropertyDef[]
+}
+
+// GET /api/catalog/object-types -> { object_types: ObjectTypeDef[] }
+export interface ObjectTypeDef {
+  id: number
+  object: string // "Ground" | "Crop"
+  properties: CatalogPropertyDef[]
+}
+
+// GET /api/catalog/material-types -> { material_types: MaterialTypeDef[] }
+export interface MaterialTypeDef {
+  id: number
+  materialtype: string // "Radiation" | "Energy Balance" | …
+  description: string
+  properties: CatalogPropertyDef[]
+  groups: MaterialGroupDef[]
+}
+
+// ── Catalog: model types (runnable simulation models) ───────────────────────
+//
+//   GET /api/catalog/model-types -> { model_types: ModelTypeDef[] }
+// The wire shape is hierarchical (each model carries a `submodels[]` array), but
+// the GUI consumes only the top-level models, so we drop submodels on ingest.
+// `model` is the display name; ids key `visibility.models` on geometry objects (§5).
+export interface ModelTypeDef {
+  id: number
+  model: string
+  description: string
+}
+
 // ── Project metadata ────────────────────────────────────────────────────────
 //
 // Subset of GET /api/project/{id} that the project screen needs in order

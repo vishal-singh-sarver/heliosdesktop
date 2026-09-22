@@ -10,14 +10,12 @@ import MenuBar from '@renderer/components/MenuBar'
 import ProjectsTable from '@renderer/components/ProjectsTable'
 import SearchBar from '@renderer/components/SearchBar'
 import Sidebar from '@renderer/components/Sidebar'
-import { setActiveProject } from 'containers/ProjectScreen/actions'
+import { openProject } from 'containers/ProjectBoot/actions'
 import { useFormik } from 'formik'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { navigate } from 'store/navigationReducer'
 import { useInjectReducer } from 'utils/injectReducer'
 import { useInjectSaga } from 'utils/injectSaga'
-import { STORAGE_KEYS } from 'utils/storageKeys'
 import { FormValues, INITIAL_VALUES, SidebarItem, TOOLBAR_ITEMS } from '../../types/project'
 import {
   createProject,
@@ -60,7 +58,16 @@ export function HomePage(): React.JSX.Element {
     success: createSuccess,
     data: createProjectData
   } = useSelector(selectCreateProject)
-  const { data: recentProjects } = useSelector(selectRecentProjects)
+  // `error` used to be dropped here. A backend that never answered left `data`
+  // at its initial [] and the table rendered "No Projects Found" — telling the
+  // user their projects were gone when they were on disk the whole time. That is
+  // the empty list in the crash report screenshot, and it sent the whole
+  // investigation down the wrong path.
+  const {
+    data: recentProjects,
+    error: recentProjectsError,
+    loading: recentProjectsLoading
+  } = useSelector(selectRecentProjects)
   const { inFlightIds: deletingIds } = useSelector(selectDeleteProject)
   const {
     loading: renameLoading,
@@ -110,7 +117,7 @@ export function HomePage(): React.JSX.Element {
 
   const handleConfirmDelete = (): void => {
     if (!pendingDelete || pendingDeleteInFlight) return
-    dispatch(deleteProject({ projectId: pendingDelete.id }))
+    dispatch(deleteProject({ projectId: pendingDelete.id, name: pendingDelete.name }))
   }
 
   const handleCancelDelete = (): void => {
@@ -313,18 +320,30 @@ export function HomePage(): React.JSX.Element {
             projects={filteredProjects}
             emptyIcon={searchIcon}
             onCreateNew={openNewProjectDialog}
-            onRowClick={(projectId) => {
-              try {
-                localStorage.setItem(STORAGE_KEYS.activeProjectId, projectId)
-              } catch {
-                /* storage disabled — navigation still proceeds */
-              }
-              dispatch(setActiveProject(projectId))
-              dispatch(navigate('project'))
-            }}
+            // One dispatch, and the boot saga owns the rest. The screen no
+            // longer switches on click — it switches when the project is
+            // actually ready, with the loader covering this page until then.
+            // Nothing is written to storage here either: the persisted ids
+            // record what finished, not what was attempted.
+            onRowClick={(projectId) => dispatch(openProject(projectId))}
             onRequestDelete={handleRequestDelete}
             onRequestRename={handleRequestRename}
             deletingIds={deletingIds}
+            // Both gated on there being NOTHING to fall back on, and gated here
+            // rather than in the table: the table receives only the FILTERED
+            // list, so it cannot tell "no projects" from "no matches".
+            //
+            // Without the gate, a search that matches nothing would render a
+            // backend error or a loading line over what is really just an empty
+            // search — and a background refresh (after a create, delete or
+            // rename) would briefly replace the empty-search state with
+            // "Loading projects…", which is both wrong and enough to fail the
+            // e2e specs that wait on the empty-state create button.
+            //
+            // A refresh that fails with rows already on screen keeps the rows.
+            loadError={recentProjects.length === 0 ? recentProjectsError : null}
+            loading={recentProjects.length === 0 && recentProjectsLoading}
+            onRetryLoad={() => dispatch(fetchRecentProjects())}
           />
         </main>
       </div>
@@ -397,6 +416,7 @@ export function HomePage(): React.JSX.Element {
 
         <div className="flex justify-end gap-2 pt-2">
           <button
+            type="button"
             onClick={closeNewProjectDialog}
             disabled={createLoading}
             className="rounded bg-neutral-200 px-3 py-1 text-sm text-black hover:bg-neutral-100 disabled:opacity-50"
@@ -404,6 +424,7 @@ export function HomePage(): React.JSX.Element {
             {messages.createProject.cancelButton}
           </button>
           <button
+            type="button"
             onClick={() => formik.submitForm()}
             disabled={createLoading}
             className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-500 disabled:opacity-50"

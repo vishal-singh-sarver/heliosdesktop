@@ -20,12 +20,28 @@ const sel = {
     latitude: number
     longitude: number
     utc_offset: string
-  } | null
+  } | null,
+  // The coordinate PATCH's status, so a test can settle a save either way.
+  updateLoading: false,
+  updateError: null as string | null,
+  // The hydration gate. Both are false in the steady state — the screen the
+  // user is actually looking at — so every test below that predates the gate
+  // exercises the same screen it always did.
+  restored: false,
+  bootActive: false
 }
 
+// `navigation` is a static root slice, not an injected one, so the real store
+// always has it — the stub state has to as well, or the gate's selector reads
+// through undefined.
 vi.mock('react-redux', () => ({
   useDispatch: () => mockDispatch,
-  useSelector: (s: (state: unknown) => unknown) => s({} as never)
+  useSelector: (s: (state: unknown) => unknown) =>
+    s({ navigation: { screen: 'project', restored: sel.restored } } as never)
+}))
+
+vi.mock('containers/ProjectBoot/selectors', () => ({
+  selectBootActive: () => sel.bootActive
 }))
 
 vi.mock('utils/injectReducer', () => ({ useInjectReducer: vi.fn() }))
@@ -33,7 +49,9 @@ vi.mock('utils/injectSaga', () => ({ useInjectSaga: vi.fn() }))
 
 vi.mock('../selectors', () => ({
   selectActiveProjectId: () => sel.activeProjectId,
-  selectActiveProject: () => sel.activeProject
+  selectActiveProject: () => sel.activeProject,
+  selectUpdateProjectLoading: () => sel.updateLoading,
+  selectUpdateProjectError: () => sel.updateError
 }))
 
 vi.mock('@renderer/containers/LeftPanel', () => ({
@@ -99,6 +117,10 @@ vi.mock('@renderer/components/LabeledField', () => ({
 function resetSel(): void {
   sel.activeProjectId = null
   sel.activeProject = null
+  sel.updateLoading = false
+  sel.updateError = null
+  sel.restored = false
+  sel.bootActive = false
 }
 
 describe('<ProjectScreen />', () => {
@@ -114,32 +136,34 @@ describe('<ProjectScreen />', () => {
 
   // ── Mount lifecycle ─────────────────────────────────────────────────────
 
-  it('dispatches loadDataTypesRequested on mount', () => {
+  // The loader covers only the scenario-context hydration (/init). By the time
+  // this mounts the backend is warm, and the screen loads its own data from
+  // here — so these dispatches are the contract, not an accident of ordering.
+  it('loads the whole type catalog on mount', () => {
     render(<ProjectScreen />)
+
     expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadObjectTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadMaterialTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadModelTypesRequested())
   })
 
-  it('hydrates active project from localStorage when no id is in state', () => {
+  it('hydrates the active project from localStorage when no id is in state', () => {
     localStorage.setItem(STORAGE_KEYS.activeProjectId, 'p-stored')
     render(<ProjectScreen />)
     expect(mockDispatch).toHaveBeenCalledWith(projectActions.setActiveProject('p-stored'))
   })
 
-  it('does not hydrate from localStorage when an active project id is already present', () => {
+  it('does not hydrate when an active project id is already present', () => {
     sel.activeProjectId = 'p-existing'
-    sel.activeProject = {
-      id: 'p-existing',
-      name: 'X',
-      latitude: 0,
-      longitude: 0,
-      utc_offset: '+00:00'
-    }
     localStorage.setItem(STORAGE_KEYS.activeProjectId, 'p-stored')
     render(<ProjectScreen />)
     expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.setActiveProject('p-stored'))
   })
 
   it('lists scenarios when activeProjectId is set', () => {
+    // listScenarios is also what sets the active scenario, which is what
+    // starts the scene load — so skipping it would leave the 3D view empty.
     sel.activeProjectId = 'p-1'
     render(<ProjectScreen />)
     expect(mockDispatch).toHaveBeenCalledWith(projectActions.listScenariosRequested('p-1'))
@@ -152,11 +176,102 @@ describe('<ProjectScreen />', () => {
     )
   })
 
-  it('clears the persisted scenario id on unmount', () => {
+  it('does not clear persisted ids on unmount (handled by the navigate-home saga)', () => {
+    // StrictMode double-invokes effects (mount → cleanup → mount), so the
+    // component must NOT clear ids in an unmount cleanup — that would wipe
+    // activeProjectId (only HomePage writes it) during the fake unmount and
+    // leave it gone for the session. Clearing lives in clearPersistedIdsOnHome.
+    localStorage.setItem(STORAGE_KEYS.activeProjectId, 'p-1')
     localStorage.setItem(STORAGE_KEYS.activeScenarioId, 's-1')
     const { unmount } = render(<ProjectScreen />)
     unmount()
-    expect(localStorage.getItem(STORAGE_KEYS.activeScenarioId)).toBeNull()
+    expect(localStorage.getItem(STORAGE_KEYS.activeProjectId)).toBe('p-1')
+    expect(localStorage.getItem(STORAGE_KEYS.activeScenarioId)).toBe('s-1')
+  })
+
+  // ── The hydration gate ─────────────────────────────────────────────────
+  //
+  // /init hydrates the scenario into the backend's memory, and everything this
+  // screen fetches depends on it being there. The gate holds those requests —
+  // and only those. The shell mounts regardless, because mounting it is what
+  // signals `app:ready` and takes the splash down; without that, a slow /init
+  // left the user on a static splash with no progress and no way out.
+
+  describe.each([
+    // Frame 0 of a restart: the screen is 'project' from the first render, but
+    // App's effect has not dispatched openProject yet, so no boot exists.
+    ['restored, before the boot has started', { restored: true, bootActive: false }],
+    // The rest of the run, and any boot begun while this screen is already
+    // mounted — which `restored` never sees.
+    ['a boot is active', { restored: false, bootActive: true }]
+  ])('while hydrating (%s)', (_label, flags) => {
+    beforeEach(() => {
+      sel.restored = flags.restored
+      sel.bootActive = flags.bootActive
+      sel.activeProjectId = 'p-1'
+    })
+
+    it('does not load the type catalog', () => {
+      render(<ProjectScreen />)
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadObjectTypesRequested())
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadMaterialTypesRequested())
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadModelTypesRequested())
+    })
+
+    it('does not list scenarios — it is what chains the scene load', () => {
+      render(<ProjectScreen />)
+      expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.listScenariosRequested('p-1'))
+    })
+
+    it('does not mount the panels — their children fetch on mount', () => {
+      render(<ProjectScreen />)
+      expect(screen.queryByTestId('left')).toBeNull()
+      expect(screen.queryByTestId('center')).toBeNull()
+      expect(screen.queryByTestId('right')).toBeNull()
+    })
+
+    it('still mounts the shell, so the window can be revealed', () => {
+      render(<ProjectScreen />)
+      expect(screen.getByTestId('logo')).toBeInTheDocument()
+      expect(screen.getByTestId('menu')).toBeInTheDocument()
+    })
+  })
+
+  it('runs the full load once the gate clears', () => {
+    sel.activeProjectId = 'p-1'
+    sel.restored = true
+    const { rerender } = render(<ProjectScreen />)
+    expect(mockDispatch).not.toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+
+    // What reveal() does at the end of the boot: navigate('project') clears
+    // `restored`, and bootSucceeded clears `active`.
+    sel.restored = false
+    rerender(<ProjectScreen />)
+
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadObjectTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadMaterialTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadModelTypesRequested())
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.listScenariosRequested('p-1'))
+    expect(screen.getByTestId('left')).toBeInTheDocument()
+    expect(screen.getByTestId('center')).toBeInTheDocument()
+    expect(screen.getByTestId('right')).toBeInTheDocument()
+  })
+
+  // The regression this whole gate reshuffle was for. The early return must not
+  // consume the ref that guards StrictMode's double-mount, or the catalogs
+  // would be skipped for good on the run that finally passes the gate.
+  it('does not spend the StrictMode guard on a gated run', () => {
+    sel.activeProjectId = 'p-1'
+    sel.restored = true
+    const { rerender } = render(<ProjectScreen />)
+    rerender(<ProjectScreen />)
+
+    sel.restored = false
+    rerender(<ProjectScreen />)
+
+    expect(mockDispatch).toHaveBeenCalledWith(projectActions.loadDataTypesRequested())
   })
 
   // ── Header navigation ──────────────────────────────────────────────────
@@ -339,6 +454,175 @@ describe('<ProjectScreen />', () => {
     expect(mockDispatch).not.toHaveBeenCalledWith(
       projectActions.updateProjectRequested(expect.any(String), expect.any(Object))
     )
+  })
+
+  // ── Blur restores the saved coordinate ─────────────────────────────────
+  //
+  // The header is the only place the project's coordinates are shown, so an edit
+  // that can't be committed must not be left sitting in the box: it reads as the
+  // project's location while the project still holds the old one, and the red
+  // border says "invalid" without saying what IS stored. Clicking away puts the
+  // saved value back.
+
+  const projectAt = (latitude: number, longitude: number): void => {
+    sel.activeProjectId = 'p-1'
+    sel.activeProject = { id: 'p-1', name: 'demo', latitude, longitude, utc_offset: '+00:00' }
+  }
+
+  it('restores the saved latitude when an out-of-range value is blurred', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '95' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('10')
+    // And the field stops claiming to be invalid, since what it now holds isn't.
+    expect(screen.getByTestId('field-Latitude')).toHaveAttribute('data-invalid', 'false')
+  })
+
+  it('restores the saved longitude when a non-numeric value is blurred', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Longitude')
+
+    fireEvent.change(input, { target: { value: 'abc' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('20')
+  })
+
+  it('restores the saved latitude when the field is cleared and blurred', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('10')
+  })
+
+  it('restores the saved latitude when the field is left holding only spaces', () => {
+    // Whitespace passed BOTH guards: validate() trims before deciding, so no
+    // error, and the value is not literally ''. Blur then reached
+    // Number.parseFloat('   ') and PATCHed latitude: NaN — which JSON encodes as
+    // null.
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveValue('10')
+    expect(mockDispatch).not.toHaveBeenCalledWith(
+      projectActions.updateProjectRequested(expect.any(String), expect.any(Object))
+    )
+  })
+
+  it('leaves a valid edit alone — restoring is only for what cannot be saved', () => {
+    projectAt(10, 20)
+    render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+
+    // The PATCH is on its way; snapping back to 10 here would flash the old
+    // coordinate and read as the edit being rejected.
+    expect(input).toHaveValue('11.5')
+  })
+
+  // ── A save that fails puts its field back too ──────────────────────────
+  //
+  // A valid edit is dispatched on blur and left on screen while the PATCH
+  // travels. If it fails, the project keeps its old coordinate and the header is
+  // left showing a number the backend never accepted — no red border, since the
+  // value is valid, and no message.
+
+  // Walk the PATCH through in-flight → settled, the way the reducer does.
+  const settleSave = (rerender: (ui: React.ReactElement) => void, error: string | null): void => {
+    sel.updateLoading = true
+    rerender(<ProjectScreen />)
+    sel.updateLoading = false
+    sel.updateError = error
+    rerender(<ProjectScreen />)
+  }
+
+  it('restores the saved latitude when the save fails', () => {
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+    expect(input).toHaveValue('11.5') // still on screen while in flight
+
+    settleSave(rerender, 'network down')
+
+    expect(input).toHaveValue('10')
+  })
+
+  it('leaves the field alone when the save succeeds', () => {
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+    settleSave(rerender, null)
+
+    expect(input).toHaveValue('11.5')
+  })
+
+  it('does not touch the OTHER field when a save fails', () => {
+    // The trap: resetForm() rewrites both boxes, so a longitude typed while the
+    // latitude save was in flight would be wiped mid-keystroke.
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const latitude = screen.getByTestId('input-Latitude')
+    const longitude = screen.getByTestId('input-Longitude')
+
+    fireEvent.change(latitude, { target: { value: '11.5' } })
+    fireEvent.blur(latitude)
+    // Still typing this one — it has never been blurred, let alone saved.
+    fireEvent.change(longitude, { target: { value: '25' } })
+
+    settleSave(rerender, 'network down')
+
+    expect(latitude).toHaveValue('10')
+    expect(longitude).toHaveValue('25')
+  })
+
+  it('does not overwrite a field the user has since typed into again', () => {
+    // What is in the box is newer than the save that failed, so it stands. The
+    // next blur decides what happens to it.
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    fireEvent.blur(input)
+    fireEvent.change(input, { target: { value: '12' } })
+
+    settleSave(rerender, 'network down')
+
+    expect(input).toHaveValue('12')
+  })
+
+  it('does not restore anything when a failure arrives with no save of ours pending', () => {
+    // updateProject is dispatched from elsewhere too; a failure that is not this
+    // header's must not reach into its boxes.
+    projectAt(10, 20)
+    const { rerender } = render(<ProjectScreen />)
+    const input = screen.getByTestId('input-Latitude')
+
+    fireEvent.change(input, { target: { value: '11.5' } })
+    settleSave(rerender, 'network down')
+
+    expect(input).toHaveValue('11.5')
   })
 
   it('keeps the UTC Offset input disabled', () => {

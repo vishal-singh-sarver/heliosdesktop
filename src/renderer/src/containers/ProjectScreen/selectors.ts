@@ -12,6 +12,9 @@ import {
   type ColumnDef,
   type DataTypeDef,
   type DataUnitDef,
+  type MaterialTypeDef,
+  type ModelTypeDef,
+  type ObjectTypeDef,
   type RowId,
   type Scenario,
   type WeatherHeader,
@@ -32,6 +35,14 @@ export const selectDataTypesById = createSelector(
 
 export const selectAllDataTypes = createSelector(selectProjectScreenDomain, (s): DataTypeDef[] =>
   s.catalog.dataTypes.allIds.map((id) => s.catalog.dataTypes.byId[id]).filter(Boolean)
+)
+
+// ── Catalog: model types ─────────────────────────────────────────────────────
+
+// Top-level simulation models in load order — the Geometry kebab renders one row
+// per model and uses each id to key visibility.models (§5).
+export const selectModelTypes = createSelector(selectProjectScreenDomain, (s): ModelTypeDef[] =>
+  s.catalog.modelTypes.allIds.map((id) => s.catalog.modelTypes.byId[id]).filter(Boolean)
 )
 
 // User-facing data-type list — excludes the dedicated `check` and `date_time`
@@ -145,6 +156,60 @@ export const makeSelectUnitSymbol = (
     }
     return null
   })
+
+// ── Catalog: object types ────────────────────────────────────────────────────
+
+export const selectAllObjectTypes = createSelector(
+  selectProjectScreenDomain,
+  (s): ObjectTypeDef[] =>
+    s.catalog.objectTypes.allIds.map((id) => s.catalog.objectTypes.byId[id]).filter(Boolean)
+)
+
+export const selectObjectTypesLoadStatus = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.objectTypes.loadStatus
+)
+
+export const selectObjectTypesError = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.objectTypes.loadError
+)
+
+// ── Catalog: material types ──────────────────────────────────────────────────
+
+export const selectAllMaterialTypes = createSelector(
+  selectProjectScreenDomain,
+  (s): MaterialTypeDef[] =>
+    s.catalog.materialTypes.allIds.map((id) => s.catalog.materialTypes.byId[id]).filter(Boolean)
+)
+
+export const selectMaterialTypesLoadStatus = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.materialTypes.loadStatus
+)
+
+export const selectMaterialTypesError = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.materialTypes.loadError
+)
+
+// ── Catalog: model types ─────────────────────────────────────────────────────
+
+export const selectAllModelTypes = createSelector(
+  selectProjectScreenDomain,
+  (s): ModelTypeDef[] =>
+    s.catalog.modelTypes.allIds.map((id) => s.catalog.modelTypes.byId[id]).filter(Boolean)
+)
+
+export const selectModelTypesLoadStatus = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.modelTypes.loadStatus
+)
+
+export const selectModelTypesError = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.catalog.modelTypes.loadError
+)
 
 // ── Scenarios (per project) ──────────────────────────────────────────────────
 
@@ -359,6 +424,10 @@ export const selectAddRowLoading = createSelector(
   (s) => s.addRow.loading
 )
 export const selectAddRowError = createSelector(selectProjectScreenDomain, (s) => s.addRow.error)
+export const selectDeleteRowsLoading = createSelector(
+  selectProjectScreenDomain,
+  (s) => s.deleteRows.loading
+)
 
 // ── Domain export (for tests / advanced consumers) ───────────────────────────
 

@@ -1,5 +1,19 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  readonly VITE_BACKEND_URL: string
+  /**
+   * Geometry wire format this build defaults to: 'v2' for the GPU-buffer path,
+   * anything else (or unset) for v1. Runtime storage still overrides it — see
+   * containers/3DWindow/store/featureFlags.ts.
+   */
+  readonly VITE_GEOMETRY_FORMAT?: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+
 import type { FileFilter, BackendStatus } from '../../preload/index'
 
 declare global {
