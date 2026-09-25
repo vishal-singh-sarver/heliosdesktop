@@ -381,6 +381,7 @@ jobs:
           install_one libasound2 libasound2t64
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
+          install_one python3-venv python3-full
 
       - name: Install dependencies
         run: npm install || npm install --legacy-peer-deps
