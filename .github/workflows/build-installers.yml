@@ -68,6 +68,8 @@ jobs:
   #
   # NOTE: the "mac" block in package.json must contain:
   #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
+  # NOTE: signing is currently lenient (continue-on-error). Pkg may be unsigned
+  # until the APPLE_CERTIFICATE (.p12) secret is fixed.
   # ============================================================================
   build-macos:
     name: Build macOS (${{ matrix.label }})
@@ -115,6 +117,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "WARNING: APPLE_CERTIFICATE secret is empty or missing, skipping cert import."
+            exit 0
+          fi
+          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
+          ls -l certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -133,6 +141,7 @@ jobs:
           # Both certs must be present or the build silently degrades: without
           # the Application cert the .app is unsigned; without the Installer
           # cert the .pkg is unsigned and Gatekeeper blocks the installer.
+          security find-identity -v || true
           security find-identity -v | grep -q "Developer ID Application" \
             || { echo "FAIL: no Developer ID Application identity imported"; exit 1; }
           security find-identity -v | grep -q "Developer ID Installer" \
@@ -368,7 +377,6 @@ jobs:
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
-      # Same fallback chain as the Windows/macOS jobs - see the comment there.
       - name: Install dependencies
         run: |
           npm i || npm install
@@ -379,6 +387,10 @@ jobs:
       # ERR_DLOPEN_FAILED. native.js requires the addon by name, so we point that
       # name at @rollup/wasm-node's dist/native.js, which exports the same
       # symbols with no libc dependency. Only this container needs it.
+      # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32, but the 20.04
+      # job runs in glibc 2.31. Replace it with the WASM build. Skipped when
+      # rollup is not installed (Vite 8 uses rolldown, which loads fine) or its
+      # native addon already loads.
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
@@ -411,7 +423,6 @@ jobs:
       - name: Package Linux Installer
         run: npm run package:linux
 
-      # AppImage builds are disabled - only .deb is tagged/uploaded.
       - name: Tag outputs with ubuntu version
         run: |
           cd dist
@@ -488,7 +499,7 @@ jobs:
             [[ "$name" == *.AppImage ]] && os="Linux"
             [[ "$name" == *.deb ]] && os="Linux"
 
-            echo "| $os | [$name]($url) | $size | \`$checksum\` |" >> notes.md
+            echo "| $os \vert{} [$name]($url) \vert{}$size | \`$checksum\` |" >> notes.md
           done
 
           cat notes.md
