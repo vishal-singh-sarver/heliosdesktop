@@ -368,6 +368,7 @@ jobs:
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
+      # Same fallback chain as the Windows/macOS jobs - see the comment there.
       - name: Install dependencies
         run: |
           npm i || npm install
