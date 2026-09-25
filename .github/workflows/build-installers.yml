@@ -29,17 +29,9 @@ jobs:
         with:
           node-version: 22
 
-      # Works around a known npm/cli Arborist bug ("Cannot read properties of
-      # null (reading 'edgesOut')") present in newer npm 10.9.x builds that
-      # ship with Node 22 - see npm/cli#8261, #9787, #9960 (still open).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
-      # Fallback chain for the npm Arborist "edgesOut" bug: plain install,
-      # then legacy-peer-deps, then as a last resort drop the lockfile and
-      # let npm regenerate it for this run. That last step keeps CI green
-      # but is NOT a real fix - see the "Regenerate lockfile" note below;
-      # commit a clean package-lock.json so this fallback stops triggering.
       - name: Install dependencies
         shell: bash
         run: |
@@ -71,16 +63,6 @@ jobs:
 
   # ============================================================================
   # macOS - 2 SEPARATE FILES: Intel (x86_64) + Apple Silicon (arm64).
-  #
-  # There is no separate build per macOS version (12 vs 13 vs 14...) - that is
-  # by Apple's design. With minimumSystemVersion "12.0" set (in package.json),
-  # both of these files run on every macOS from 12 (Monterey) to 26 (Tahoe):
-  #
-  #   intel file        -> all Intel Macs (macOS 12-15)
-  #   apple-silicon     -> all M1/M2/M3/M4 Macs (macOS 12-26)
-  #
-  # NOTE: the "mac" block in package.json must contain:
-  #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
   # ============================================================================
   build-macos:
     name: Build macOS (${{ matrix.label }})
@@ -105,13 +87,9 @@ jobs:
         with:
           node-version: 22
 
-      # Works around a known npm/cli Arborist bug ("Cannot read properties of
-      # null (reading 'edgesOut')") present in newer npm 10.9.x builds that
-      # ship with Node 22 - see npm/cli#8261, #9787, #9960 (still open).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
-      # Same fallback chain as the Windows job - see the comment there.
       - name: Install dependencies
         run: |
           npm i \
@@ -126,22 +104,20 @@ jobs:
         run: npm run build
 
       # ---------------- macOS signing + notarization ----------------
-      # Imports the Developer ID certs into a throwaway keychain. The .p12 in
-      # APPLE_CERTIFICATE holds BOTH certs we need:
-      #   Developer ID Application -> signs the .app and the backend binary
-      #   Developer ID Installer   -> signs the .pkg (productbuild finds it here)
       - name: Import Apple certificates
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "FAIL: APPLE_CERTIFICATE secret is empty or missing"
+            exit 1
+          fi
+          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
-          # Keep the keychain unlocked for the whole job; the default 5-minute
-          # idle timeout can lock it mid-notarization and break pkg signing.
           security set-keychain-settings -lut 21600 build.keychain
           security import certificate.p12 -k build.keychain \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
@@ -149,29 +125,20 @@ jobs:
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign:,productsign: \
             -s -k actions build.keychain
-          rm certificate.p12
+          rm -f certificate.p12
           echo "== identities available to the build =="
           security find-identity -v
-          # Both certs must be present or the build silently degrades: without
-          # the Application cert the .app is unsigned; without the Installer
-          # cert the .pkg is unsigned and Gatekeeper blocks the installer.
           security find-identity -v | grep -q "Developer ID Application" \
             || { echo "FAIL: no Developer ID Application identity imported"; exit 1; }
           security find-identity -v | grep -q "Developer ID Installer" \
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
 
-      # The PyInstaller sidecar is copied in via extraResources and is opaque
-      # to electron-builder's signing, so it must be signed separately or
-      # notarization rejects the whole bundle.
       - name: Sign Python backend
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '1'
         run: npm run sign:backend:mac
 
-      # `npm run package:mac` would re-run `npm run build`, which re-runs
-      # sync-backend and overwrites the binary we just signed. Use the
-      # package-only script so the signature survives.
       - name: Package macOS Installer
         env:
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
@@ -181,17 +148,13 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run package:mac:only
 
-      # The notarization hooks silently no-op if any APPLE_* secret is missing,
-      # so a green build does NOT by itself prove the installer is notarized.
-      # This step asserts it independently and fails the build otherwise -
-      # otherwise the first sign of trouble is a user seeing a Gatekeeper block.
       - name: Verify signing and notarization
         run: |
           set -euo pipefail
 
           app="dist/mac/Helios.app"
-          [ -d "$app" ] || app=$(find dist -maxdepth 3 -name '*.app' -type d | head -1)
-          if [ -z "${app:-}" ] || [ ! -d "$app" ]; then
+          [ -d "$app" ] \vert{}\vert{} app=$(find dist -maxdepth 3 -name '*.app' -type d | head -1)
+          if [ -z "${app:-}" ] \vert{}\vert{} [ ! -d "$app" ]; then
             echo "FAIL: no .app found under dist/"
             find dist -maxdepth 3 -name '*.app' -o -maxdepth 2 -name '*.pkg' || true
             exit 1
@@ -215,7 +178,6 @@ jobs:
           fi
 
           echo "== the bundled backend must carry its own signature =="
-          # find the sidecar wherever it landed (onefile or onedir layout)
           backend=$(find "$app/Contents/Resources/backend" -type f -name 'heliosgui_backend' | head -1)
           if [ -z "$backend" ]; then
             echo "FAIL: backend binary not found inside the app bundle"
@@ -230,8 +192,6 @@ jobs:
           fi
 
           echo "== Gatekeeper assessment (.app) =="
-          # "source=Notarized Developer ID" is the proof the notary ticket is
-          # recognized; anything else means the ticket is missing or not stapled.
           assess=$(spctl --assess --type execute --verbose=4 "$app" 2>&1)
           echo "$assess"
           if ! echo "$assess" | grep -q "source=Notarized Developer ID"; then
@@ -250,15 +210,12 @@ jobs:
           fi
           for pkg in $pkgs; do
             echo "-- $pkg"
-            # Must be signed by the Developer ID INSTALLER cert (not Application).
             sig=$(pkgutil --check-signature "$pkg" 2>&1)
             echo "$sig"
             if ! echo "$sig" | grep -q "Developer ID Installer"; then
               echo "FAIL: $pkg is not signed with a Developer ID Installer certificate"
               exit 1
             fi
-            # And must carry its own stapled notarization ticket, or users get a
-            # Gatekeeper block on the installer itself.
             xcrun stapler validate "$pkg"
           done
 
@@ -287,12 +244,6 @@ jobs:
 
   # ============================================================================
   # LINUX - A SEPARATE BUILD PER VERSION (3 distinct files).
-  #
-  #   20.04 -> python:3.10-bullseye  (glibc 2.31, same as Ubuntu 20.04, with
-  #            Python 3.10 already included. No deadsnakes/PPA needed. This file
-  #            runs on 20.04, 22.04, and 24.04.)
-  #   22.04 -> ubuntu:22.04          (Python 3.10 default) -> runs on 22.04 + 24.04
-  #   24.04 -> ubuntu:24.04          (Python 3.12 default) -> runs on 24.04
   # ============================================================================
   build-linux:
     runs-on: ubuntu-22.04
@@ -313,18 +264,13 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
-      # python:3.10-bullseye is Debian 11, which is EOL: deb.debian.org's
-      # bullseye-security suite still serves a stale Packages index but the
-      # actual .deb files behind it 404 (mirror decommissioned). Point apt at
-      # archive.debian.org, which keeps EOL releases available, and disable
-      # the Release date check (archive.debian.org no longer refreshes it).
       - name: Fix archived Debian bullseye repos (20.04 image only)
         if: matrix.label == '20.04'
         run: |
           sed -i \
-            -e 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
             -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
             /etc/apt/sources.list
+          sed -i '/bullseye-security/d' /etc/apt/sources.list
           sed -i '/bullseye-updates/d' /etc/apt/sources.list
           echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid
 
@@ -359,9 +305,6 @@ jobs:
           node --version
           npm --version
 
-      # Works around a known npm/cli Arborist bug ("Cannot read properties of
-      # null (reading 'edgesOut')") present in newer npm 10.9.x builds that
-      # ship with Node 22 - see npm/cli#8261, #9787, #9960 (still open).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
@@ -411,19 +354,12 @@ jobs:
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
-      # Same fallback chain as the Windows/macOS jobs - see the comment there.
       - name: Install dependencies
         run: |
           npm i \
             || npm i --legacy-peer-deps \
             || (rm -f package-lock.json && npm i)
 
-      # See ci-main.yml for the full explanation. Rollup's prebuilt
-      # linux-x64-gnu addon needs GLIBC_2.32; the 20.04 job builds in
-      # python:3.10-bullseye (glibc 2.31), so requiring it dies with
-      # ERR_DLOPEN_FAILED. native.js requires the addon by name, so we point that
-      # name at @rollup/wasm-node's dist/native.js, which exports the same
-      # symbols with no libc dependency. Only this container needs it.
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
@@ -456,7 +392,6 @@ jobs:
       - name: Package Linux Installer
         run: npm run package:linux
 
-      # AppImage builds are disabled - only .deb is tagged/uploaded.
       - name: Tag outputs with ubuntu version
         run: |
           cd dist
@@ -473,29 +408,13 @@ jobs:
         with:
           name: linux-packages-${{ matrix.label }}
           path: |
-            #dist/*.AppImage
             dist/*.deb
           compression-level: 0
           retention-days: 5
           if-no-files-found: warn
 
   # ============================================================================
-  # DOCS - Builds the MkDocs technical documentation site (docs/) per the
-  # README's "Documentation site" steps. This is a plain checkout (no
-  # --recurse-submodules needed): the docs site needs Python 3.9+ and Git,
-  # plus Node/npm only to invoke the npm run docs:* shortcuts, which call
-  # .venv-docs/bin/mkdocs directly - no `npm install` / node_modules required.
-  #
-  #   1. Install: python -m venv .venv-docs + pip install -r docs/requirements.txt
-  #   2. Check the build: npm run docs:build (mkdocs build --strict - fails on
-  #      any warning, e.g. a broken link or a page missing from mkdocs.yml nav)
-  #   3. Build the offline copy: npm run docs:offline -> helios-docs.zip
-  #      (sets HELIOS_DOCS_OFFLINE=true so Mermaid/fonts/search are vendored)
-  #
-  # Note: docs/dev/api/endpoints.md and docs/reference/catalog.md are
-  # generated by docs/gen/generate_reference.py and already committed, so this
-  # job does NOT run `npm run docs:generate` - that needs the backend venv +
-  # native PyHelios build, which this lightweight job intentionally skips.
+  # DOCS SITE BUILD JOB
   # ============================================================================
   build-docs:
     runs-on: ubuntu-latest
@@ -519,11 +438,6 @@ jobs:
           python3 -m venv .venv-docs
           .venv-docs/bin/pip install -r docs/requirements.txt
 
-      # Speeds up repeat runs: the offline build's Material privacy/offline
-      # plugins download Mermaid + Inter/JetBrains Mono fonts + the search
-      # polyfill into .cache/plugin/privacy/ on first use (see README). A CI
-      # runner starts clean every time, so without this cache that download
-      # repeats on every run instead of only after docs/requirements.txt changes.
       - name: Cache docs offline assets
         uses: actions/cache@v4
         with:
@@ -538,11 +452,6 @@ jobs:
       - name: Build offline docs copy
         run: npm run docs:offline
 
-      # continue-on-error: the repo's Actions storage quota can be exhausted
-      # independent of this job (see other jobs' artifacts), which fails
-      # CreateArtifact with "storage quota has been hit" - that's a
-      # billing/storage issue, not a docs problem. Don't let it redden this
-      # job or block anything that depends on it.
       - name: Upload offline docs archive
         uses: actions/upload-artifact@v5
         continue-on-error: true
@@ -553,15 +462,16 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
+  # ============================================================================
+  # RELEASE JOB
+  # ============================================================================
   release:
     name: Create QA Release
-    # Unchanged from the original pipeline: release only gates on the
-    # installer builds. build-docs runs alongside but never blocks it.
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5          # default shallow checkout; needed to read package.json
+        uses: actions/checkout@v5
 
       - name: Read version from package.json
         id: version
@@ -610,7 +520,7 @@ jobs:
             [[ "$name" == *.deb ]] && os="Linux"
             [[ "$name" == *.zip ]] && os="Docs"
 
-            echo "| $os | [$name]($url) | $size | \`$checksum\` |" >> notes.md
+            echo "| $os \vert{} [$name]($url) \vert{}$size | \`$checksum\` |" >> notes.md
           done
 
           cat notes.md
