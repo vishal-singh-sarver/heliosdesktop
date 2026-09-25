@@ -63,11 +63,6 @@ jobs:
 
   # ============================================================================
   # macOS - 2 SEPARATE FILES: Intel (x86_64) + Apple Silicon (arm64).
-<<<<<<< HEAD
-  # NOTE: signing is currently lenient (continue-on-error). Pkg may be unsigned
-  # until the APPLE_CERTIFICATE (.p12) secret is fixed.
-=======
->>>>>>> 122808d (ci: fix apt 404 errors for debian bullseye and resolve npm edgesOut bug)
   # ============================================================================
   build-macos:
     name: Build macOS (${{ matrix.label }})
@@ -116,18 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-<<<<<<< HEAD
-            echo "WARNING: APPLE_CERTIFICATE secret is empty or missing, skipping cert import."
-            exit 0
-          fi
-          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
-          ls -l certificate.p12
-=======
             echo "FAIL: APPLE_CERTIFICATE secret is empty or missing"
             exit 1
           fi
           echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
->>>>>>> 122808d (ci: fix apt 404 errors for debian bullseye and resolve npm edgesOut bug)
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -140,15 +127,11 @@ jobs:
             -s -k actions build.keychain
           rm -f certificate.p12
           echo "== identities available to the build =="
-<<<<<<< HEAD
-          security find-identity -v || true
-=======
           security find-identity -v
           security find-identity -v | grep -q "Developer ID Application" \
             || { echo "FAIL: no Developer ID Application identity imported"; exit 1; }
           security find-identity -v | grep -q "Developer ID Installer" \
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
->>>>>>> 122808d (ci: fix apt 404 errors for debian bullseye and resolve npm edgesOut bug)
 
       - name: Sign Python backend
         continue-on-error: true
@@ -164,8 +147,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run package:mac:only
 
-<<<<<<< HEAD
-=======
       - name: Verify signing and notarization
         run: |
           set -euo pipefail
@@ -239,7 +220,6 @@ jobs:
 
           echo "PASS: .app and .pkg are signed, notarized and stapled; sidecar is signed."
 
->>>>>>> 122808d (ci: fix apt 404 errors for debian bullseye and resolve npm edgesOut bug)
       - name: Tag outputs with arch
         run: |
           cd dist
@@ -264,13 +244,6 @@ jobs:
 
   # ============================================================================
   # LINUX - A SEPARATE BUILD PER VERSION (3 distinct files).
-<<<<<<< HEAD
-  #
-  #   20.04 -> python:3.10-bullseye (glibc 2.31, Python 3.10 already included)
-  #   22.04 -> ubuntu:22.04         (Python 3.10)
-  #   24.04 -> ubuntu:24.04         (Python 3.12)
-=======
->>>>>>> 122808d (ci: fix apt 404 errors for debian bullseye and resolve npm edgesOut bug)
   # ============================================================================
   build-linux:
     runs-on: ubuntu-22.04
@@ -396,13 +369,6 @@ jobs:
             || npm i --legacy-peer-deps \
             || (rm -f package-lock.json && npm i)
 
-<<<<<<< HEAD
-      # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32, but the 20.04
-      # job runs in glibc 2.31. Replace it with the WASM build. Skipped when
-      # rollup is not installed (Vite 8 uses rolldown, which loads fine) or its
-      # native addon already loads.
-=======
->>>>>>> 122808d (ci: fix apt 404 errors for debian bullseye and resolve npm edgesOut bug)
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
