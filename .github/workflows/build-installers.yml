@@ -32,6 +32,11 @@ jobs:
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
+      # Fallback chain for the npm Arborist "edgesOut" bug: plain install,
+      # then legacy-peer-deps, then as a last resort drop the lockfile and
+      # let npm regenerate it for this run. That last step keeps CI green
+      # but is NOT a real fix - see the "Regenerate lockfile" note below;
+      # commit a clean package-lock.json so this fallback stops triggering.
       - name: Install dependencies
         shell: bash
         run: |
@@ -90,9 +95,13 @@ jobs:
         with:
           node-version: 22
 
+      # Works around a known npm/cli Arborist bug ("Cannot read properties of
+      # null (reading 'edgesOut')") present in newer npm 10.9.x builds that
+      # ship with Node 22 - see npm/cli#8261, #9787, #9960 (still open).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
+      # Same fallback chain as the Windows job - see the comment there.
       - name: Install dependencies
         run: |
           npm i \
@@ -230,17 +239,19 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
-      # Debian 11 (bullseye) is EOL: point apt at archive.debian.org and drop
-      # the security/updates suites (they are no longer served there).
+      # python:3.10-bullseye is Debian 11, which is EOL: deb.debian.org's
+      # bullseye-security suite still serves a stale Packages index but the
+      # actual .deb files behind it 404 (mirror decommissioned). Point apt at
+      # archive.debian.org, which keeps EOL releases available, and disable
+      # the Release date check (archive.debian.org no longer refreshes it).
       - name: Fix archived Debian bullseye repos (20.04 image only)
         if: matrix.label == '20.04'
         run: |
           sed -i \
+            -e 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
             -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
             /etc/apt/sources.list
-          sed -i '/bullseye-security/d' /etc/apt/sources.list
           sed -i '/bullseye-updates/d' /etc/apt/sources.list
-          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources || true
           echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid
 
       - name: Install base tools
@@ -283,6 +294,9 @@ jobs:
           node --version
           npm --version
 
+      # Works around a known npm/cli Arborist bug ("Cannot read properties of
+      # null (reading 'edgesOut')") present in newer npm 10.9.x builds that
+      # ship with Node 22 - see npm/cli#8261, #9787, #9960 (still open).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
@@ -332,6 +346,7 @@ jobs:
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
+      # Same fallback chain as the Windows/macOS jobs - see the comment there.
       - name: Install dependencies
         run: |
           npm i \
