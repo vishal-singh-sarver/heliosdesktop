@@ -91,9 +91,13 @@ jobs:
         with:
           node-version: 22
 
+      # Works around a known npm/cli Arborist bug ("Cannot read properties of
+      # null (reading 'edgesOut')") present in newer npm 10.9.x builds that
+      # ship with Node 22 - see npm/cli#8261, #9787, #9960 (still open).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
+      # Same fallback chain as the Windows job - see the comment there.
       - name: Install dependencies
         run: npm install || npm install --legacy-peer-deps
 
@@ -105,8 +109,11 @@ jobs:
         run: npm run build
 
       # ---------------- macOS signing + notarization ----------------
+      # Imports the Developer ID certs into a throwaway keychain. The .p12 in
+      # APPLE_CERTIFICATE holds BOTH certs we need:
+      #   Developer ID Application -> signs the .app and the backend binary
+      #   Developer ID Installer   -> signs the .pkg (productbuild finds it here)
       - name: Import Apple certificates
-        continue-on-error: true
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -127,6 +134,8 @@ jobs:
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
+          # Keep the keychain unlocked for the whole job; the default 5-minute
+          # idle timeout can lock it mid-notarization and break pkg signing.
           security set-keychain-settings -lut 21600 build.keychain
           security import certificate.p12 -k build.keychain \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
@@ -134,7 +143,7 @@ jobs:
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign:,productsign: \
             -s -k actions build.keychain
-          rm -f certificate.p12
+          rm certificate.p12
           echo "== identities available to the build =="
           security find-identity -v || true
           security find-identity -v
@@ -144,8 +153,10 @@ jobs:
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
           security find-identity -v || true
 
+      # The PyInstaller sidecar is copied in via extraResources and is opaque
+      # to electron-builder's signing, so it must be signed separately or
+      # notarization rejects the whole bundle.
       - name: Sign Python backend
-        continue-on-error: true
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '0'
@@ -154,8 +165,13 @@ jobs:
           REQUIRE_SIGNING: '0'
         run: npm run sign:backend:mac || true
 
+      # `npm run package:mac` would re-run `npm run build`, which re-runs
+      # sync-backend and overwrites the binary we just signed. Use the
+      # package-only script so the signature survives.
       - name: Package macOS Installer
         env:
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -298,6 +314,9 @@ jobs:
             git \
             ca-certificates \
             gnupg \
+            python3 \
+            python3-venv \
+            python3-pip \
             build-essential
 
       # Ubuntu images only. python3-dev provides libpython3.x.so, which
@@ -381,8 +400,8 @@ jobs:
           install_one libasound2 libasound2t64
           install_one libatk1.0-0 libatk1.0-0t64
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
-          install_one python3-venv python3-full
 
+      # Same fallback chain as the Windows/macOS jobs - see the comment there.
       - name: Install dependencies
         run: npm install || npm install --legacy-peer-deps
 
