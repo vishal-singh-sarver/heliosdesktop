@@ -1,0 +1,223 @@
+/* Helios brand palette — derived from the application icon, which renders the
+ * "H" as a magenta → orange → yellow gradient on black (the same spectrum the
+ * radiation model paints across a canopy).
+ *
+ *   Magenta      #c2185b   primary accent, links in light mode
+ *   Crimson      #e5344a   gradient midpoint
+ *   Orange       #f57c1f   warnings, callouts
+ *   Yellow       #f2e14c   primary accent in dark mode, highlights
+ *   Ink          #121212   app background, header
+ *   Panel        #181a1f   app panel surfaces
+ *   Border       #424242   app hairlines
+ *
+ * Ink/Panel/Border are lifted verbatim from src/renderer/src/index.css so the
+ * docs and the application read as one product.
+ */
+
+:root {
+  --hl-magenta: #c2185b;
+  --hl-magenta-dark: #9c134a;
+  --hl-crimson: #e5344a;
+  --hl-orange: #f57c1f;
+  --hl-yellow: #f2e14c;
+  --hl-ink: #121212;
+  --hl-panel: #181a1f;
+  --hl-border: #424242;
+}
+
+/* Light mode (default scheme) */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--hl-ink);
+  --md-primary-fg-color--light: var(--hl-panel);
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffff;
+
+  --md-accent-fg-color: var(--hl-magenta);
+  --md-accent-fg-color--transparent: rgba(194, 24, 91, 0.1);
+
+  --md-typeset-a-color: var(--hl-magenta);
+}
+
+/* Dark mode */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: var(--hl-ink);
+  --md-primary-fg-color--light: var(--hl-panel);
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color: #ffffff;
+
+  --md-accent-fg-color: var(--hl-yellow);
+  --md-accent-fg-color--transparent: rgba(242, 225, 76, 0.15);
+
+  --md-typeset-a-color: var(--hl-yellow);
+
+  /* Match the app's near-black canvas rather than Material's default navy */
+  --md-default-bg-color: var(--hl-ink);
+  --md-default-bg-color--light: var(--hl-panel);
+  --md-code-bg-color: var(--hl-panel);
+}
+
+/* Header logo sits a hair larger than the default */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.6rem;
+}
+
+/* Make the site title weightier so the brand reads cleanly */
+.md-header__title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Card grid used on landing pages */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-typeset .grid > .card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > :is(ul, ol) > li:hover {
+  border-color: var(--hl-orange);
+  box-shadow: 0 4px 12px rgba(245, 124, 31, 0.12);
+  transform: translateY(-1px);
+}
+
+/* Screenshot frames: subtle border + drop shadow so they read as artifacts,
+ * not part of the page chrome. Add .no-frame to opt out. */
+.md-typeset img:not(.no-frame) {
+  border-radius: 0.35rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* Gradient rule under page titles, echoing the icon's spectrum */
+.md-typeset h1 {
+  border-bottom: 3px solid;
+  border-image: linear-gradient(
+      90deg,
+      var(--hl-magenta),
+      var(--hl-crimson),
+      var(--hl-orange),
+      var(--hl-yellow)
+    )
+    1;
+  padding-bottom: 0.3rem;
+  display: inline-block;
+}
+
+/* Status chips for features that are not finished yet. The app is in active
+ * development and several surfaces are placeholders — pages say so inline
+ * rather than describing something the reader cannot find. */
+.hl-status {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1em 0.5em;
+  border-radius: 0.25em;
+  vertical-align: 0.12em;
+  white-space: nowrap;
+}
+.hl-status.planned {
+  background: rgba(245, 124, 31, 0.15);
+  color: var(--hl-orange);
+  border: 1px solid rgba(245, 124, 31, 0.4);
+}
+.hl-status.partial {
+  background: rgba(242, 225, 76, 0.15);
+  color: #a08a00;
+  border: 1px solid rgba(242, 225, 76, 0.5);
+}
+[data-md-color-scheme="slate"] .hl-status.partial {
+  color: var(--hl-yellow);
+}
+
+/* Material renders h1 in a muted grey by default, which reads as disabled
+ * against the dark canvas. Use the normal body colour so page titles carry
+ * the weight the gradient rule beneath them implies. */
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+}
+
+/* The secondary (non-primary) .md-button is outlined in the current text
+ * colour, which all but disappears on the dark ground. Give it an explicit
+ * border and a hover fill so the two landing-page buttons read as a pair. */
+.md-typeset .md-button:not(.md-button--primary) {
+  border-color: var(--md-default-fg-color--light);
+  color: var(--md-default-fg-color);
+}
+.md-typeset .md-button:not(.md-button--primary):hover {
+  background-color: var(--hl-orange);
+  border-color: var(--hl-orange);
+  color: #ffffff;
+}
+
+/* Sidebars that stay put, closer to the tabs. Material puts a 1.5rem gap
+ * above the row holding the sidebars and the page; the sidebars scroll up
+ * through that gap before they stick under the header, so both lists jump as
+ * soon as the page moves. Without the gap the sidebars start where they stick,
+ * and the page starts nearer the tabs. Material's sidebar sizing reads the gap
+ * from the page, so it follows along. From 60em, where the table of contents
+ * becomes a sticky sidebar. */
+@media screen and (min-width: 60em) {
+  .md-main__inner {
+    margin-top: 0;
+  }
+}
+
+/* Navigation tabs: hidden while the reader scrolls down, back on scroll up.
+ * javascripts/helios.js sets .hl-tabs-hidden on <html>.
+ *
+ * The header keeps its full height, so the page never jumps and Material's
+ * sidebar sizing is untouched. The tabs slide up behind the top bar instead,
+ * and the strip they leave is see-through and lets clicks reach the page.
+ * Wide screens only: below 76.25em Material does not show the tabs at all. */
+@media screen and (min-width: 76.25em) {
+  /* The header box itself is see-through; the top bar and the tabs each paint
+   * their own background. */
+  .md-header--lifted {
+    background-color: transparent;
+    box-shadow: none;
+  }
+  /* Top bar background: full width, down to where the tabs start (2.4rem is
+   * Material's tab height). It sits above the tabs, so they slide underneath
+   * it, and below the bar's own contents. */
+  .md-header--lifted::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 2.4rem;
+    z-index: 1;
+    background-color: var(--md-primary-fg-color);
+  }
+  .md-header--lifted .md-header__inner {
+    position: relative;
+    z-index: 2;
+  }
+  .md-header--lifted .md-tabs {
+    position: relative;
+    z-index: 0;
+    transition: transform 250ms cubic-bezier(0.1, 0.7, 0.1, 1);
+  }
+  /* The header's scroll shadow moves to the tabs, the header's lowest edge. */
+  .md-header--shadow .md-tabs {
+    box-shadow: 0 0 0.2rem #0000001a, 0 0.2rem 0.4rem #0003;
+  }
+
+  .hl-tabs-hidden .md-header--lifted {
+    pointer-events: none;
+  }
+  .hl-tabs-hidden .md-header--lifted::before,
+  .hl-tabs-hidden .md-header--lifted .md-header__inner {
+    pointer-events: auto;
+  }
+  /* visibility also takes the hidden links out of the keyboard tab order. */
+  .hl-tabs-hidden .md-header--lifted .md-tabs {
+    transform: translateY(-100%);
+    visibility: hidden;
+    transition: transform 250ms cubic-bezier(0.8, 0, 0.6, 1), visibility 0s 250ms;
+  }
+}

@@ -77,10 +77,14 @@ temp/
 *~
 
 # Docs tooling (local only). `site/` is the generated static site built from
-# docs/, and `.venv-docs/` is the Python virtualenv used to build it — a 127 MB
+# docs/, and `.venv-docs/
+docs-offline/
+helios-docs.zip` is the Python virtualenv used to build it — a 127 MB
 # tree of platform-specific binaries that no other clone could use anyway.
 site/
 .venv-docs/
+docs-offline/
+helios-docs.zip
 
 # Test output
 coverage/
@@ -104,7 +108,12 @@ linux-installer/payload/Helios/resources/app.asar
 # commit no other clone can resolve.
 backend-api/
 
-
 CLAUDE.md
 docs/test-cases-ground-container.md
 docs/superpowers/
+
+# MkDocs
+site/
+.venv-docs/
+docs-offline/
+helios-docs.zip
