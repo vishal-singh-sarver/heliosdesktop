@@ -163,7 +163,7 @@ jobs:
       # No continue-on-error (it rewrites the conclusion to "success", so a
       # failing run would report green). bail is 0, so every spec runs and the
       # job fails at the end with the full list; this timeout bounds a hung
-      # run. `package` gates on this job, so a red run skips packaging.
+      # run.
       - name: Run Integration Checks
         timeout-minutes: 60
         run: npm run e2e
@@ -208,14 +208,16 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push, never on PRs.
     if: github.event_name != 'pull_request'
-    # Gated on test-integration: a release candidate should not be built from
-    # a tree whose e2e suite is failing. A failing e2e SKIPS all package jobs
-    # (the RUN still goes red). To get packaging/signing signal on its own,
-    # drop test-integration from `needs` temporarily.
+    # TEMPORARY: test-integration is removed from `needs` so packaging/signing
+    # runs even while the weather e2e specs are failing. The RUN still goes red
+    # because test-integration is red, so this cannot look green.
+    # TODO: once the weather e2e failures are fixed, restore test-integration
+    # below - a release candidate must not be built from a tree whose e2e
+    # suite is failing.
     needs:
       - lint
       - test-unit
-      - test-integration
+      # - test-integration
     strategy:
       fail-fast: false
       matrix:
