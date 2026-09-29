@@ -103,3 +103,8 @@ linux-installer/payload/Helios/resources/app.asar
 # bare gitlink with no .gitmodules entry, which would commit a pointer to a
 # commit no other clone can resolve.
 backend-api/
+
+
+CLAUDE.md
+docs/test-cases-ground-container.md
+docs/superpowers/
