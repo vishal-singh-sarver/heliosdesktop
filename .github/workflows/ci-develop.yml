@@ -25,6 +25,9 @@ jobs:
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
+      # Fallback chain: plain install, then legacy-peer-deps, then regenerate
+      # the lockfile. Commit a clean package-lock.json so the last fallback
+      # never triggers.
       - name: Install dependencies
         run: |
           npm i \
@@ -60,6 +63,14 @@ jobs:
           npm i \
             || npm i --legacy-peer-deps \
             || (rm -f package-lock.json && npm i)
+
+      # @testing-library/react (v16+) needs @testing-library/dom as a peer
+      # dependency. `--legacy-peer-deps` does not auto-install peers, so make
+      # sure it is present. TEMPORARY: once it is added to package.json
+      # devDependencies (npm install -D @testing-library/dom), this step is a
+      # harmless no-op and can be removed.
+      - name: Ensure @testing-library/dom is installed
+        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
