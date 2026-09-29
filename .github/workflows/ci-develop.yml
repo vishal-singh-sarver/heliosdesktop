@@ -25,13 +25,23 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+      # Works around the npm/cli Arborist bug ("Cannot read properties of
+      # null (reading 'edgesOut')") in newer npm 10.9.x shipped with Node 22.
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
+      - name: Install dependencies
+        run: |
+          npm i \
+            || npm i --legacy-peer-deps \
+            || (rm -f package-lock.json && npm i)
 
       - name: Create .env file
         run: cp .env.example .env
 
+      # No `|| echo` swallow: eslint fails only on errors, so real errors fail the build.
       # No `|| echo` swallow: eslint fails only on errors (warnings never
       # fail it), so real errors correctly fail the build.
-      # No `|| echo` swallow: eslint fails only on errors, so real errors fail the build.
       - name: Lint Execution
         run: npm run lint
 
@@ -50,6 +60,13 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+        run: npm install || npm install --legacy-peer-deps
+
+      # @testing-library/react needs @testing-library/dom as a peer; the
+      # --legacy-peer-deps fallback does not install peers. Remove this step once
+      # it is in devDependencies.
+      - name: Ensure @testing-library/dom is installed
+        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
 
       - name: Create .env file
         run: cp .env.example .env
