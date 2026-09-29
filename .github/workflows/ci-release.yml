@@ -312,6 +312,11 @@ jobs:
       #     echo "CSC_LINK=$certPath" >> $env:GITHUB_ENV
       #     echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CERT_PASSWORD }}" >> $env:GITHUB_ENV
 
+      - name: Warn when Apple certificate secret is missing (macOS)
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
+        run: |
+          echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
+
       # Imports the Developer ID certs into a throwaway keychain. The .p12 in
       # APPLE_CERTIFICATE holds BOTH certs we need:
       #   Developer ID Application -> signs the .app and the backend binary
