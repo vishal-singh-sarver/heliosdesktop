@@ -21,6 +21,21 @@ on:
   # Manual trigger - emergency cases
   workflow_dispatch:
 
+# ── About the "Install dependencies" step used in every job ─────────────────
+# Replaces a bare `npm install`, which died on all 5 jobs with:
+#   npm error Cannot read properties of null (reading 'edgesOut')
+# That is npm's tree builder (arborist) hitting a node it cannot resolve. The
+# usual causes are a committed (partial) node_modules, or a package-lock.json
+# that references a path/version that does not exist in this repo. The step:
+#   1. deletes any node_modules that came in with the checkout,
+#   2. tries a normal install against the committed lockfile,
+#   3. on failure prints the tail of npm's debug log (it otherwise dies with
+#      the runner), raises a visible ::warning::, and retries once WITHOUT the
+#      lockfile so the pipeline is not blocked.
+# The retry is a safety net, not the fix: a build without the lockfile is not
+# reproducible. Fix the repo (fix-npm-install.sh) so the warning disappears.
+# The step is repeated verbatim in each job; keep the copies in sync.
+
 jobs:
   # lint and test-unit run on EVERY event that reaches this workflow - no `if:`.
   # They previously ran on PRs only when the head branch was `release` or
@@ -42,7 +57,19 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "node $(node -v), npm $(npm -v)"
+          rm -rf node_modules
+          if npm install --no-audit --no-fund; then exit 0; fi
+          logdir="$(npm config get cache)/_logs"
+          log=$(ls -t "$logdir"/*-debug-0.log 2>/dev/null | head -1)
+          [ -n "$log" ] && { echo "===== $log (last 60 lines) ====="; tail -60 "$log"; }
+          echo "::warning title=npm install failed with committed lockfile::Retrying without package-lock.json. Regenerate and commit the lockfile so builds are reproducible."
+          rm -rf node_modules package-lock.json
+          npm install --no-audit --no-fund
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
@@ -67,7 +94,19 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "node $(node -v), npm $(npm -v)"
+          rm -rf node_modules
+          if npm install --no-audit --no-fund; then exit 0; fi
+          logdir="$(npm config get cache)/_logs"
+          log=$(ls -t "$logdir"/*-debug-0.log 2>/dev/null | head -1)
+          [ -n "$log" ] && { echo "===== $log (last 60 lines) ====="; tail -60 "$log"; }
+          echo "::warning title=npm install failed with committed lockfile::Retrying without package-lock.json. Regenerate and commit the lockfile so builds are reproducible."
+          rm -rf node_modules package-lock.json
+          npm install --no-audit --no-fund
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
@@ -155,7 +194,19 @@ jobs:
             libgbm1 libxkbcommon0 fonts-liberation xdg-utils \
             libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
 
-      - run: npm install
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "node $(node -v), npm $(npm -v)"
+          rm -rf node_modules
+          if npm install --no-audit --no-fund; then exit 0; fi
+          logdir="$(npm config get cache)/_logs"
+          log=$(ls -t "$logdir"/*-debug-0.log 2>/dev/null | head -1)
+          [ -n "$log" ] && { echo "===== $log (last 60 lines) ====="; tail -60 "$log"; }
+          echo "::warning title=npm install failed with committed lockfile::Retrying without package-lock.json. Regenerate and commit the lockfile so builds are reproducible."
+          rm -rf node_modules package-lock.json
+          npm install --no-audit --no-fund
 
       - name: Create .env file
         shell: bash
@@ -392,7 +443,19 @@ jobs:
           security find-identity -v | grep -q "Developer ID Installer" \
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
 
-      - run: npm install
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "node $(node -v), npm $(npm -v)"
+          rm -rf node_modules
+          if npm install --no-audit --no-fund; then exit 0; fi
+          logdir="$(npm config get cache)/_logs"
+          log=$(ls -t "$logdir"/*-debug-0.log 2>/dev/null | head -1)
+          [ -n "$log" ] && { echo "===== $log (last 60 lines) ====="; tail -60 "$log"; }
+          echo "::warning title=npm install failed with committed lockfile::Retrying without package-lock.json. Regenerate and commit the lockfile so builds are reproducible."
+          rm -rf node_modules package-lock.json
+          npm install --no-audit --no-fund
 
       # Rollup ships a prebuilt native .node per platform and picks it purely by
       # process.platform/arch (dist/native.js getPackageBase) - there is no env
@@ -635,6 +698,9 @@ jobs:
       #       s3://${{ secrets.UPDATE_FEED_BUCKET_STAGING }}/${{ matrix.label }}/${{ github.sha }}/
 
       # ── macOS cleanup (for the notarization keychain) ────────────────────
+      # Deletes the keychain the import step actually created (build.keychain).
+      # The previous path, $RUNNER_TEMP/app-signing.keychain-db, never existed,
+      # so the `|| true` hid a cleanup that did nothing.
       - name: Remove temporary keychain
         if: startsWith(matrix.label, 'macos') && always()
-        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+        run: security delete-keychain build.keychain || true
