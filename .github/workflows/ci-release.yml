@@ -38,7 +38,7 @@ jobs:
             || (rm -f package-lock.json && npm i)
 
       - name: Create .env file
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+        run: echo "VITE_BACKEND_URL=http://localhost:8000"  .env
 
       # No `|| echo` swallow: eslint fails only on errors, so real errors
       # correctly fail the build.
@@ -459,6 +459,11 @@ jobs:
         run: |
           echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
 
+      - name: Warn when Apple certificate secret is missing (macOS)
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
+        run: |
+          echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
+
       # Imports the Developer ID certs into a throwaway keychain. The .p12 in
       # APPLE_CERTIFICATE holds BOTH certs we need:
       #   Developer ID Application -> signs the .app and the backend binary
@@ -560,6 +565,7 @@ jobs:
       # TEMPORARY fallback used only while the APPLE_CERTIFICATE secret is
       # missing: builds an UNSIGNED, un-notarized package so the rest of the
       # flow (rename, upload) can be checked. Never ship this artifact.
+      # TEMPORARY: unsigned build while APPLE_CERTIFICATE is missing. Never ship it.
       - name: Package (macOS - UNSIGNED fallback, flow check only)
         if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
         env:
