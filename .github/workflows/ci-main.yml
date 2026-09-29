@@ -21,6 +21,21 @@ on:
   # Manual trigger - emergency cases
   workflow_dispatch:
 
+# ── About the "Install dependencies" step used in every job ─────────────────
+# Replaces a bare `npm install`, which died on all 5 jobs with:
+#   npm error Cannot read properties of null (reading 'edgesOut')
+# That is npm's tree builder (arborist) hitting a node it cannot resolve. The
+# usual causes are a committed (partial) node_modules, or a package-lock.json
+# that references a path/version that does not exist in this repo. The step:
+#   1. deletes any node_modules that came in with the checkout,
+#   2. tries a normal install against the committed lockfile,
+#   3. on failure prints the tail of npm's debug log (it otherwise dies with
+#      the runner), raises a visible ::warning::, and retries once WITHOUT the
+#      lockfile so the pipeline is not blocked.
+# The retry is a safety net, not the fix: a build without the lockfile is not
+# reproducible. Fix the repo (fix-npm-install.sh) so the warning disappears.
+# The step is repeated verbatim in each job; keep the copies in sync.
+
 jobs:
   # lint and test-unit run on every event (no `if:`), including every PR into main.
   lint:
