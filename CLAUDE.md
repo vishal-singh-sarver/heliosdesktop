@@ -49,8 +49,9 @@ hand, match `heliosgui_backend` and nothing broader.
 the renderer paints NO window controls (native traffic lights, not in the DOM)
 and keeps the title bar in fullscreen. `shell.test.ts` branches on darwin with
 `itNotMac` / `itMacOnly`. The two Mac-only tests were written 17 Sep 2026 and
-have not yet run on a Mac; the fullscreen one self-skips if the hidden test window
-cannot enter fullscreen there. The app's crash log (`RENDERER GONE …`) is
+have not yet run on a Mac. Since 29 Sep 2026 the fullscreen one no longer
+self-skips: it drives emitted enter-/leave-full-screen events (trap 28) and
+always runs. The app's crash log (`RENDERER GONE …`) is
 `~/Library/Application Support/Helios/logs/app-startup.log`.
 
 The backend can also be driven **directly over HTTP** without Electron, which is
@@ -167,9 +168,22 @@ Acceptance: `GET /api/catalog/material-types` returns seven types, and
 - **Headless is uniform now, and there is a way to check it.** Only
   `shell.test.ts` ever went headful: on Windows `BrowserWindow.maximize()` and
   leaving fullscreen SHOW a never-shown window, and nothing hid it again — a
-  watcher measured a 1536x816 window on the desktop for 34s. See trap 28. To
-  prove a change stays headless, log newly visible top-level windows during the
-  run (EnumWindows + IsWindowVisible); a healthy full run shows none.
+  watcher measured a 1536x816 window on the desktop for 34s. Since 29 Sep 2026
+  that spec no longer maximizes or enters real fullscreen, and a show guard
+  fails it if the window ever goes on screen — see trap 28. To prove a change
+  stays headless, log newly visible top-level windows during the run
+  (EnumWindows + IsWindowVisible on Windows; on X11, `xwininfo` Map State
+  `IsViewable` for windows owned by a `--test-type=webdriver` process); a
+  healthy full run shows none.
+- **"Headless" means NEVER SHOWN, not "no display".** Electron on Linux still
+  needs an X server: with no `DISPLAY` and no Xvfb it dies at launch with
+  `Missing X server or $DISPLAY` and every spec fails. On a display-less server
+  `@wdio/xvfb` wraps each worker in `xvfb-run --auto-servernum` (1280x1024, NO
+  window manager) — but only if `xvfb-run` is installed (`apt-get install
+  xvfb`); otherwise it just warns. Reproduce locally with
+  `env -u DISPLAY -u WAYLAND_DISPLAY npx wdio run …`. Windows and macOS have no
+  equivalent: they need a logged-in desktop session, and the window simply
+  never appears.
 - `_probe-*.test.ts` files are EXCLUDED from `npm run e2e` (wdio.config.ts
   `exclude`). Run one explicitly with `--spec`.
 
@@ -381,24 +395,33 @@ snapshot with **added attributes and zero deletions**.
     `stomatal_sidedness` onto every card of the same material that carries it —
     last write wins. So two cards can never show different values for those two
     labels; `material-submodels.test.ts` pins it as a DEVIATION.
-28. **MAXIMIZE SHOWS THE HIDDEN WINDOW (ANY PLATFORM), AND ON WINDOWS SO DOES
-    LEAVING FULLSCREEN.** Electron's `maximize()` "will also show … the window if
-    it isn't being displayed" — documented with no platform qualifier, though
-    MEASURED only on Windows — and on Windows leaving fullscreen flips a hidden
-    window visible. The macOS fullscreen test settles and rehides in `finally`.
-    **Never `rehide()` at the end of `before()`**: the first `beforeEach` must see a
-    VISIBLE window so the viewport override is clamped to the work area and
-    `originalSize` is restorable — adding it failed the full run on 17 Sep 2026 with
-    `size is 1600x1002, expected 1600x1200`. `shell.test.ts` is the only
-    spec that does either, so it now calls `Shell.keepOffDesktop()` in `before()`
-    (opacity 0 + ignore OS mouse — set BEFORE any fullscreen, which would
-    otherwise restore the old ex-style; its setSkipTaskbar is inert on a
-    never-shown window, so a taskbar button can still appear for the ~0.4s a
-    maximize keeps the window shown) and `Shell.rehide()` last in `afterEach` and
-    right after the title bar is back from fullscreen. WebDriver input is CDP, so none
-    of that touches it. Any new test that maximizes, fullscreens, minimizes or
-    `show()`s must follow the same pattern. Both helpers are no-ops under
-    `HELIOS_E2E_HEADED=1`.
+28. **NO TEST MAY MAXIMIZE, ENTER REAL FULLSCREEN, MINIMIZE OR `show()` — THEY
+    PUT THE HIDDEN WINDOW ON SCREEN.** Electron's `maximize()` "will also show …
+    the window if it isn't being displayed" (no platform qualifier); a real
+    `setFullScreen(true)` maps a hidden window on Linux, and on Windows LEAVING
+    fullscreen does. Under Xvfb (a display-less server: no window manager)
+    `maximize()` shows the window and then never takes effect —
+    `isMaximized()` stays false for good (measured 29 Sep 2026), which is why
+    shell.test.ts's Maximize test failed there and is now COMMENTED OUT at the
+    owner's request. What shell.test.ts does instead since 29 Sep 2026:
+    - Fullscreen tests call `Shell.emitFullScreenEvent(true|false)`, which fires
+      the window's OWN enter-/leave-full-screen events: the app's listeners,
+      the IPC channel and the Header all run, the window never changes. Cost:
+      the real OS fullscreen transition has no e2e coverage.
+    - `before()` calls `Shell.armShowGuard()`; `afterEach` records every test
+      during which the window was shown (`takeShowCount()`) or `isVisible()`,
+      rehides it, and the root `after()` FAILS THE SPEC FILE naming them. Not
+      thrown from `afterEach`: a throwing ROOT afterEach reports the offending
+      test as PASSED and makes Mocha drop every later test from the counts.
+      Skipped under `HELIOS_E2E_HEADED=1`. Negative control run on Linux only;
+      on macOS both oracles may depend on occlusion (unverified).
+    - `afterEach` calls `setFullScreen(false)` only if `isFullScreen()` is true.
+    - GONE: `keepOffDesktop()` (its `setOpacity(0)` is `@platform win32,darwin`
+      — a no-op on Linux, where the maximized window really appeared),
+      `Shell.maximize()`, the `before()` maximize/unmaximize baseline and the
+      "never rehide at the end of before()" rule (that 1600x1002 clamp only
+      happened because the baseline had shown the window). `rehide()` stays as a
+      safety net and is a no-op under `HELIOS_E2E_HEADED=1`.
 29. **`getAllWindows()[0]` CAN BE THE SPLASH.** It is created first (1000x600) and
     destroyed only on the renderer's `app:ready`, which is later than
     `waitForMainWindow()` returns. Pick the main window with
@@ -468,6 +491,10 @@ snapshot with **added attributes and zero deletions**.
     vanish from the skip count, so a green run silently overstates coverage.
     The nine "KNOWN APP BUG" click-lost-to-blur-reflow tests (8 in
     weather.test.ts, 1 in homepage.test.ts) are `it.skip` for this reason.
+    ONE DELIBERATE EXCEPTION: shell.test.ts's `Maximize toggles the window, and
+    toggles it back` is commented out (29 Sep 2026) at the owner's explicit
+    request, with a note on it saying so (trap 28). Do not convert it to
+    `it.skip` without asking.
 40. **`Geometry.deleteRow`'s failure cleanup closes ONLY the Delete
     confirmation.** It used to force-close every open dialog, which hid the very
     "Project unavailable" dialog a scope-loss test was waiting for. Any other

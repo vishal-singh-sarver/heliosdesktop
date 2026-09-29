@@ -6,8 +6,35 @@
  * before this file; the window controls were covered only by unit tests that
  * stub window.api, so the real preload bridge was never exercised.
  *
+ * ── Headless on every OS ──────────────────────────────────────────────────
+ * This file must run with the window NEVER on screen — on Windows, on macOS, on
+ * a Linux desktop, and on a display-less Linux server (where wdio wraps the
+ * worker in xvfb-run: an X server with NO window manager). So no test changes
+ * real window state in a way that maps the window:
+ *  - Nothing maximizes. maximize() shows a hidden window on every OS, and under
+ *    Xvfb it never takes effect at all. The Maximize test is commented out below.
+ *  - Nothing enters real fullscreen. The fullscreen tests fire the window's own
+ *    enter-/leave-full-screen events instead (Shell.emitFullScreenEvent), which
+ *    runs the app's real listeners, the IPC channel and the Header — everything
+ *    but the OS transition, which is the part that shows the window.
+ *  - The size change (1024x768) is a plain setSize, which never maps a window.
+ * And it is ENFORCED: before() arms a show guard, afterEach records every test
+ * during which the window was shown or is visible (and hides it again), and the
+ * root after() then FAILS THE SPEC FILE, naming those tests. Recorded rather
+ * than thrown from afterEach on purpose: a throwing root afterEach reports the
+ * offending test as PASSED and makes Mocha drop every later test in the file
+ * from the counts. Skipped under HELIOS_E2E_HEADED=1.
+ * One known blind spot, UNVERIFIED (no Mac run yet): on macOS Electron may
+ * derive both 'show' and isVisible() from occlusion, so a Mac whose display is
+ * asleep could let a show through unnoticed. Linux: negative control run.
+ *
  * ── What is deliberately NOT here, and why ────────────────────────────────
  *
+ *  - MAXIMIZE (commented out, 29 Sep 2026). See the note on the test itself.
+ *  - The REAL fullscreen transition. Both fullscreen tests emit the window's
+ *    enter-/leave-full-screen events instead, because a real setFullScreen maps
+ *    the hidden window. So a change that stops the window actually reaching
+ *    fullscreen while keeping those listeners would still pass here.
  *  - MINIMIZE. The window is never shown under E2E (isHeadlessTestRun skips
  *    every show()), and minimizing a never-shown window is OS-dependent: it may
  *    not flip Chromium's cached flag, and there is no guaranteed restore path
@@ -28,9 +55,9 @@
  *    not in the DOM. No macOS renderer path calls window:toggleMaximize or
  *    window:close at all.
  *  - The title bar STAYS in fullscreen (`showTitleBar = isMac || !isFullScreen`).
- * So the tests of the painted Maximize / Close buttons and of the title bar
- * collapsing are `itNotMac`, and `itMacOnly` pins what macOS ships instead.
- * The skips are declared, not commented out, so they are counted (trap 39).
+ * So the tests of the painted Close button and of the title bar collapsing are
+ * `itNotMac`, and `itMacOnly` pins what macOS ships instead. These platform
+ * skips are declared, not commented out, so they are counted (trap 39).
  *
  * ── Ordering ──────────────────────────────────────────────────────────────
  * The Close test runs LAST and against a STUBBED handler. The real
@@ -63,77 +90,34 @@ const itMacOnly = isMac ? it : it.skip
 
 const WINDOW_CONTROL_LABELS = ['Minimize window', 'Maximize window', 'Close window']
 
-/**
- * Leave fullscreen and make sure it STAYS left before returning.
- *
- * On macOS the transition is asynchronous, and afterEach reads the window state
- * immediately: a window still fullscreen at that moment throws there, and a
- * failed root afterEach aborts every remaining test in this file. An enter that
- * lands late (after we looked) would do the same, so after leaving we also hold
- * still for NEGATIVE_GATE and go round again if it came back on.
- */
-async function leaveFullScreenAndSettle(): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (await Shell.isFullScreen()) {
-      await Shell.armFullScreenEvents()
-      await Shell.setFullScreen(false)
-      await browser.waitUntil(async () => (await Shell.fullScreenEvents()).left, {
-        timeout: TIMEOUTS.MEDIUM,
-        timeoutMsg: 'leave-full-screen never fired after setFullScreen(false)'
-      })
-    }
-    if (await staysFalse(() => Shell.isFullScreen())) {
-      await Shell.rehide()
-      return
-    }
-  }
-  throw new Error('the window kept returning to fullscreen after three attempts to leave it')
-}
+/** A developer WATCHING the run (see src/main/index.ts): the window is meant to be visible. */
+const headed = process.env['HELIOS_E2E_HEADED'] === '1'
+
+/** Tests during which the window went on screen; reported by the root after(). */
+const headlessViolations: string[] = []
 
 before(async () => {
   await waitForMainWindow()
   await waitForBackendReady()
-  // This is the one spec that maximizes / fullscreens. maximize() SHOWS the
-  // never-shown window (Electron documents no platform exception), and on
-  // Windows leaving fullscreen does too. Make it invisible and click-through first so the
-  // file stays as headless as every other one (see Shell.page.ts).
-  await Shell.keepOffDesktop()
-  // SETTLE THE BASELINE BEFORE ANY TEST MEASURES IT.
+  // No keepOffDesktop() and no maximize/unmaximize baseline any more: both
+  // existed only because tests here maximized and fullscreened for real, which
+  // SHOWS the window (see the header). Nothing does now, so the window stays
+  // exactly as every other spec has it — never shown, at the pinned
+  // HELIOS_E2E_VIEWPORT size, which a hidden window takes exactly (no window
+  // manager ever clamps it), so afterEach's size restore is always achievable.
   //
-  // Every other spec runs at the pinned HELIOS_E2E_VIEWPORT size, and an
-  // offscreen window takes that size exactly — the window manager never sees it.
-  // This spec is the one that maximizes, and maximize hands the window to the
-  // WM, which clamps it to the DISPLAY WORK AREA and remembers the clamped
-  // bounds as what unmaximize should restore. So a pinned 1600x1200 on a
-  // 1002-tall display comes back 1600x1002 after the first maximize and can
-  // never return to 1200.
-  //
-  // Doing one maximize/unmaximize round trip HERE means the baseline captured
-  // below is a size the OS will actually grant, so afterEach's restore check
-  // asserts something achievable instead of failing every single test. Safe
-  // after keepOffDesktop(), which is what stops a maximize showing the window.
-  // Each step is WAITED OUT: maximize/unmaximize are asynchronous WM
-  // operations, and Shell.unmaximize() no-ops unless isMaximized() is already
-  // true — so firing them back to back left the window MAXIMIZED and every test
-  // then failed on its own first assertion.
-  await Shell.maximize().catch(() => {})
-  await browser
-    .waitUntil(async () => Shell.isMaximized(), { timeout: TIMEOUTS.MEDIUM, interval: 100 })
-    .catch(() => {})
-  await Shell.unmaximize().catch(() => {})
-  await browser
-    .waitUntil(async () => !(await Shell.isMaximized()), {
-      timeout: TIMEOUTS.MEDIUM,
-      interval: 100
-    })
-    .catch(() => {})
-  // Do NOT rehide() here. The window must still be VISIBLE when the first
-  // beforeEach runs: reloadToHome() re-applies HELIOS_E2E_VIEWPORT, and only a
-  // visible window is clamped to the work area (1600x1002 on a 1002-tall display),
-  // which is what makes originalSize restorable. A hidden window keeps 1600x1200,
-  // and the Maximize test's teardown then failed with
-  // "size is 1600x1002, expected 1600x1200" (full run, 17 Sep 2026). afterEach
-  // hides it after the first test.
+  // From here on, any show() of the main window is counted; afterEach records
+  // the test that caused it, and after() fails the spec file (see the header).
+  await Shell.armShowGuard()
+})
+
+after(() => {
+  if (headlessViolations.length) {
+    throw new Error(
+      'the window was put ON SCREEN — this spec must stay headless on every OS. ' +
+        `Offending tests: ${headlessViolations.join('; ')}`
+    )
+  }
 })
 
 beforeEach(async () => {
@@ -143,7 +127,7 @@ beforeEach(async () => {
   if (!originalSize) originalSize = await Shell.windowSize()
 })
 
-afterEach(async () => {
+afterEach(async function () {
   // Never let window geometry leak into the next test: a maximized or
   // fullscreen window changes the renderer viewport, which moves everything.
   //
@@ -161,7 +145,11 @@ afterEach(async () => {
     await fn().catch((err) => problems.push(`${what}: ${(err as Error).message}`))
   }
 
-  await attempt('leave fullscreen', () => Shell.setFullScreen(false))
+  // ONLY if actually fullscreen: setFullScreen(false) is itself a path that can
+  // show the window on Windows, and no test enters real fullscreen any more.
+  await attempt('leave fullscreen', async () => {
+    if (await Shell.isFullScreen()) await Shell.setFullScreen(false)
+  })
   await attempt('unmaximize', () => Shell.unmaximize())
   if (originalSize) {
     await attempt('restore size', () =>
@@ -184,8 +172,24 @@ afterEach(async () => {
     }
   }
 
-  // LAST, and BEFORE any throw: the restores above can re-show the window on
-  // Windows, and leaving it visible is worse than the geometry leak itself.
+  // THE HEADLESS GUARD. Two oracles, because either alone can miss: the 'show'
+  // count catches a window shown and hidden again within the test, and
+  // isVisible() catches one shown by a path that emits no 'show'. RECORDED, not
+  // thrown: rehide() below puts the window back, so later tests are safe to run,
+  // and after() fails the file with the names (see the header).
+  if (!headed) {
+    const title = this.currentTest?.title ?? '<unknown test>'
+    const shown = await Shell.takeShowCount().catch((err) => {
+      headlessViolations.push(`"${title}": could not read the show guard: ${(err as Error).message}`)
+      return 0
+    })
+    if (shown > 0 || state?.visible) {
+      headlessViolations.push(`"${title}" (shown ${shown}x, visible after it: ${state?.visible})`)
+    }
+  }
+
+  // LAST, and BEFORE any throw: a safety net so that one failure above does not
+  // leave a window on the desktop for the rest of the file.
   await Shell.rehide().catch((err) => problems.push(`rehide: ${(err as Error).message}`))
 
   if (problems.length) {
@@ -197,23 +201,33 @@ afterEach(async () => {
 })
 
 describe('shell — window controls over the real IPC bridge', () => {
-  // Not on macOS: there is no painted Maximize button to click there.
-  itNotMac('Maximize toggles the window, and toggles it back', async () => {
-    expect(await Shell.isMaximized()).toBe(false)
-
-    await Shell.maximizeButton.click()
-    await browser.waitUntil(async () => Shell.isMaximized(), {
-      timeout: TIMEOUTS.MEDIUM,
-      timeoutMsg: 'clicking Maximize did not maximize the BrowserWindow'
-    })
-
-    // The same control unmaximizes — the handler toggles on isMaximized().
-    await Shell.maximizeButton.click()
-    await browser.waitUntil(async () => (await Shell.isMaximized()) === false, {
-      timeout: TIMEOUTS.MEDIUM,
-      timeoutMsg: 'clicking Maximize again did not restore the window'
-    })
-  })
+  // COMMENTED OUT 29 Sep 2026, deliberately and at the owner's request — this
+  // is NOT the accident trap 39 warns about, so do not convert it to it.skip
+  // without asking. It no longer appears in the skip count.
+  //
+  // Why: it fails on a display-less Linux server. wdio runs the worker under
+  // xvfb-run there, which has NO window manager, and on Linux it is the window
+  // manager that carries out a maximize — so isMaximized() never turns true and
+  // the first wait below times out ("clicking Maximize did not maximize the
+  // BrowserWindow"). Passes on Windows and on a Linux desktop. Not on macOS
+  // either way: there is no painted Maximize button to click there.
+  //
+  // itNotMac('Maximize toggles the window, and toggles it back', async () => {
+  //   expect(await Shell.isMaximized()).toBe(false)
+  //
+  //   await Shell.maximizeButton.click()
+  //   await browser.waitUntil(async () => Shell.isMaximized(), {
+  //     timeout: TIMEOUTS.MEDIUM,
+  //     timeoutMsg: 'clicking Maximize did not maximize the BrowserWindow'
+  //   })
+  //
+  //   // The same control unmaximizes — the handler toggles on isMaximized().
+  //   await Shell.maximizeButton.click()
+  //   await browser.waitUntil(async () => (await Shell.isMaximized()) === false, {
+  //     timeout: TIMEOUTS.MEDIUM,
+  //     timeoutMsg: 'clicking Maximize again did not restore the window'
+  //   })
+  // })
 
   it('the platform bridge answers with the real platform', async () => {
     const reported = await browser.execute(async () => {
@@ -250,43 +264,40 @@ describe('shell — window controls over the real IPC bridge', () => {
 
   // Not on macOS: the title bar deliberately stays in fullscreen there (below).
   itNotMac('entering fullscreen hides the title bar, and leaving restores it', async () => {
-    // Driven from the main process so the REAL enter/leave-full-screen events
-    // fire and push window:fullScreenChange into the renderer. F11 through
-    // browser.keys depends on window focus, which a never-shown window does not
-    // reliably have.
+    // Driven by the window's OWN enter-/leave-full-screen events, emitted from
+    // the main process, so the app's real listeners push window:fullScreenChange
+    // into the renderer — WITHOUT the window going fullscreen. A real
+    // setFullScreen maps the hidden window on Linux (and leaving it does on
+    // Windows), which put this test on the desktop; see the header. F11 through
+    // browser.keys is no alternative: it depends on window focus, which a
+    // never-shown window does not reliably have, and it too goes fullscreen.
     const { id } = await enterProject('fs')
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
-    await Shell.setFullScreen(true)
+    await Shell.emitFullScreenEvent(true)
     await ProjectScreen.projectTitle.waitForExist({
       reverse: true,
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'the title bar did not collapse on entering fullscreen'
     })
 
-    await Shell.setFullScreen(false)
+    await Shell.emitFullScreenEvent(false)
     await ProjectScreen.projectTitle.waitForDisplayed({
       timeout: TIMEOUTS.MEDIUM,
       timeoutMsg: 'the title bar did not come back on leaving fullscreen'
     })
-    // Leaving fullscreen flips a hidden window visible on Windows. Hide it only
-    // AFTER the title is back: that proves leave-full-screen has fired, which on
-    // macOS happens at the END of an asynchronous exit animation that a hide()
-    // must not interrupt.
-    await Shell.rehide()
 
     await reloadToHome()
     await deleteProjectViaBackend(id).catch(() => {})
   })
 
-  itMacOnly('on macOS the title bar STAYS in fullscreen', async function () {
+  itMacOnly('on macOS the title bar STAYS in fullscreen', async () => {
     // The macOS half of the test above. Header keeps the row on darwin because
     // the native traffic lights auto-hide and reveal on hover there.
     //
-    // SELF-SKIPS when the window never enters fullscreen. A HIDDEN window (never
-    // shown by the app; before() may have shown it briefly via maximize() and
-    // hidden it again) may not be given a macOS fullscreen Space; Electron
-    // documents nothing either way. The skip is counted, not hidden.
+    // Driven by emitted events like the test above. This used to call a real
+    // setFullScreen and SELF-SKIP when a hidden window was never given a macOS
+    // fullscreen Space; the emitted event always arrives, so it now always runs.
     const { id } = await enterProject('fsmac')
     await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
 
@@ -303,47 +314,26 @@ describe('shell — window controls over the real IPC bridge', () => {
       w.api.onFullScreenChange((v) => seen.push(v))
     })
 
-    let entered = false
     try {
-      // Wait for the EVENT, not isFullScreen(): macOS transitions are async.
-      await Shell.armFullScreenEvents()
-      await Shell.setFullScreen(true)
-      entered = await browser
-        .waitUntil(async () => (await Shell.fullScreenEvents()).entered, {
-          timeout: TIMEOUTS.MEDIUM
-        })
-        .then(() => true)
-        .catch(() => false)
-
-      if (entered) {
-        await browser.waitUntil(
-          async () =>
-            browser.execute(() =>
-              ((window as unknown as { __e2eFullScreen?: boolean[] }).__e2eFullScreen ?? []).includes(true)
-            ),
-          {
-            timeout: TIMEOUTS.MEDIUM,
-            timeoutMsg: 'the window entered fullscreen but the renderer never heard window:fullScreenChange'
-          }
-        )
-        expect(
-          await staysFalse(async () => !(await ProjectScreen.projectTitle.isDisplayed()))
-        ).toBe(true)
-      }
+      await Shell.emitFullScreenEvent(true)
+      await browser.waitUntil(
+        async () =>
+          browser.execute(() =>
+            ((window as unknown as { __e2eFullScreen?: boolean[] }).__e2eFullScreen ?? []).includes(true)
+          ),
+        {
+          timeout: TIMEOUTS.MEDIUM,
+          timeoutMsg: 'enter-full-screen fired but the renderer never heard window:fullScreenChange'
+        }
+      )
+      expect(
+        await staysFalse(async () => !(await ProjectScreen.projectTitle.isDisplayed()))
+      ).toBe(true)
     } finally {
-      // Before ANY exit, pass or fail or skip: the root afterEach reads the
-      // window state at once, and a still-fullscreen window there aborts the file.
-      await leaveFullScreenAndSettle()
+      // Pass or fail, tell the renderer fullscreen is over before cleaning up.
+      await Shell.emitFullScreenEvent(false).catch(() => {})
       await reloadToHome()
       await deleteProjectViaBackend(id).catch(() => {})
-    }
-
-    if (!entered) {
-      console.log(
-        '[shell] "on macOS the title bar STAYS in fullscreen" skipped: the hidden ' +
-          `window did not enter fullscreen within ${TIMEOUTS.MEDIUM}ms`
-      )
-      this.skip()
     }
   })
 })
