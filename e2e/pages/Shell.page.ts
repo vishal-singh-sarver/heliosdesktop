@@ -17,22 +17,24 @@
  *    fullscreen (`showTitleBar = isMac || !isFullScreen`). shell.test.ts
  *    branches on darwin for exactly these two facts.
  *  - The window is NEVER shown under E2E (`isHeadlessTestRun()` skips every
- *    `show()`), so `isVisible()` is false all run and must not be asserted.
- *    `maximize`/`unmaximize` and `setFullScreen` still mutate real state on a
- *    hidden window; `minimize` does not do so reliably and may not be
+ *    `show()`), and this page object must never be the thing that shows it.
+ *    HEADLESS ON EVERY OS, INCLUDING A DISPLAY-LESS LINUX SERVER (Xvfb, no
+ *    window manager), so there is deliberately NO helper that changes real
+ *    window state in a way that maps the window:
+ *      - `maximize()` SHOWS a hidden window on every OS (Electron: "This will
+ *        also show (but not focus) the window"), and under Xvfb it never even
+ *        takes effect — there is no window manager to carry it out (measured
+ *        29 Sep 2026: shown, isMaximized() false for good).
+ *      - A real `setFullScreen(true)` maps a hidden window on Linux (measured
+ *        under Xvfb, 29 Sep 2026), and on Windows LEAVING fullscreen does.
+ *      - `setOpacity(0)`, which the old keepOffDesktop() relied on, is
+ *        `@platform win32,darwin` — a no-op on Linux, where a maximized window
+ *        therefore really appeared on the desktop.
+ *    Fullscreen is driven with emitFullScreenEvent() instead, and
+ *    armShowGuard()/takeShowCount() let shell.test.ts fail the spec file,
+ *    naming every test during which the window was shown.
+ *  - `minimize` does not mutate a hidden window reliably and may not be
  *    recoverable, which is why there is no minimize helper here.
- *  - BUT `maximize()` SHOWS a hidden window (Electron: "This will also show
- *    (but not focus) the window if it isn't being displayed already" — the
- *    docs give no platform qualifier, so do not assume Windows only), and on
- *    Windows leaving fullscreen flips it visible too. Measured 15 Sep 2026 on
- *    Windows with a window watcher: this was the ONLY spec in the whole run
- *    that put anything on the desktop — a 1536x816 window at 0,0 that stayed
- *    up for the rest of the file. `keepOffDesktop()` and `rehide()` below are
- *    what make this spec as headless as every other one.
- *  - On macOS fullscreen transitions are ASYNCHRONOUS (electron.d.ts, notes on
- *    setFullScreen and isFullScreen): the state is only trustworthy once
- *    enter-/leave-full-screen has fired. Use armFullScreenEvents() and
- *    fullScreenEvents() rather than trusting an immediate isFullScreen().
  *  - Menu dropdown items are `visibility: hidden` until the group is hovered,
  *    and are ALWAYS in the DOM. So `isDisplayed()` is the correct oracle for
  *    the hover reveal and `isExisting()` is meaningless.
@@ -81,7 +83,12 @@ class ShellPage {
     })
   }
 
-  /** Drive fullscreen from the main process so the REAL enter/leave events fire. */
+  /**
+   * Real fullscreen, from the main process. TEARDOWN SAFETY NET ONLY — no test
+   * may call it: it maps a hidden window on Linux (and leaving it does on
+   * Windows). afterEach calls setFullScreen(false) only if isFullScreen() is
+   * already true, which nothing in the spec should ever cause.
+   */
   async setFullScreen(value: boolean): Promise<void> {
     await browser.electron.execute((electron, v: boolean) => {
       const win = electron.BrowserWindow.getAllWindows().find(
@@ -92,52 +99,55 @@ class ShellPage {
   }
 
   /**
-   * Arm one-shot recorders for the main window's `enter-full-screen` and
-   * `leave-full-screen` events, both starting false. Re-arming starts a fresh
-   * record; listeners from an earlier arm only ever write to their own record.
+   * Fire the main window's OWN `enter-full-screen` / `leave-full-screen` event
+   * without changing the window.
+   *
+   * The app's listeners on those events (src/main/index.ts) send
+   * `window:fullScreenChange` through the preload bridge to the Header, so this
+   * still exercises the main-process wiring, the IPC channel and the renderer's
+   * reaction — everything except the OS actually entering fullscreen, which
+   * cannot be done headless (see the header). Measured under Xvfb, 29 Sep 2026:
+   * the listeners fire, and the window stays hidden, unmaximized and at its size.
    */
-  async armFullScreenEvents(): Promise<void> {
-    await browser.electron.execute((electron) => {
+  async emitFullScreenEvent(entered: boolean): Promise<void> {
+    await browser.electron.execute((electron, e: boolean) => {
       const win = electron.BrowserWindow.getAllWindows().find(
         (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
       )
-      if (!win) throw new Error('armFullScreenEvents: no main window')
-      const record = { entered: false, left: false }
-      ;(globalThis as unknown as Record<string, unknown>)['__e2eFullScreenEvents'] = record
-      win.once('enter-full-screen', () => {
-        record.entered = true
-      })
-      win.once('leave-full-screen', () => {
-        record.left = true
-      })
-    })
-  }
-
-  /** What the recorders armed by armFullScreenEvents() have seen so far. */
-  async fullScreenEvents(): Promise<{ entered: boolean; left: boolean }> {
-    return browser.electron.execute(() => {
-      const record = (globalThis as unknown as Record<string, unknown>)['__e2eFullScreenEvents'] as
-        | { entered: boolean; left: boolean }
-        | undefined
-      return record ? { entered: record.entered, left: record.left } : { entered: false, left: false }
-    })
+      if (!win) throw new Error('emitFullScreenEvent: no main window')
+      win.emit(e ? 'enter-full-screen' : 'leave-full-screen')
+    }, entered)
   }
 
   /**
-   * Maximize from the main process.
-   *
-   * Only the `before()` baseline settle uses this — the TESTS maximize by
-   * clicking the real title-bar button, which is the behaviour under test.
-   * Electron's maximize() also SHOWS a hidden window (documented with no platform
-   * qualifier), so callers must have run keepOffDesktop() first and rehide()
-   * after (see the header).
+   * Count every time the main window is shown, from now on. Call once, in
+   * before(): the BrowserWindow outlives renderer refreshes (reloadToHome), so
+   * the listener holds for the whole spec file. Arming twice does not add a
+   * second listener.
    */
-  async maximize(): Promise<void> {
+  async armShowGuard(): Promise<void> {
     await browser.electron.execute((electron) => {
       const win = electron.BrowserWindow.getAllWindows().find(
         (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
       )
-      win?.maximize()
+      if (!win) throw new Error('armShowGuard: no main window')
+      const g = globalThis as unknown as Record<string, unknown>
+      g['__e2eShowCount'] = 0
+      if (g['__e2eShowGuardArmed']) return
+      g['__e2eShowGuardArmed'] = true
+      win.on('show', () => {
+        g['__e2eShowCount'] = ((g['__e2eShowCount'] as number) ?? 0) + 1
+      })
+    })
+  }
+
+  /** How many times the window was shown since the last call, then reset to 0. */
+  async takeShowCount(): Promise<number> {
+    return browser.electron.execute(() => {
+      const g = globalThis as unknown as Record<string, unknown>
+      const n = (g['__e2eShowCount'] as number) ?? 0
+      g['__e2eShowCount'] = 0
+      return n
     })
   }
 
@@ -165,6 +175,7 @@ class ShellPage {
     height: number
     maximized: boolean
     fullScreen: boolean
+    visible: boolean
   }> {
     return browser.electron.execute((electron) => {
       const win = electron.BrowserWindow.getAllWindows().find(
@@ -175,7 +186,8 @@ class ShellPage {
         width: b.width,
         height: b.height,
         maximized: win ? win.isMaximized() : false,
-        fullScreen: win ? win.isFullScreen() : false
+        fullScreen: win ? win.isFullScreen() : false,
+        visible: win ? win.isVisible() : false
       }
     })
   }
@@ -212,45 +224,14 @@ class ShellPage {
   }
 
   /**
-   * Make the window invisible and click-through at the OS level BEFORE any test
-   * can show it. Call once, in before(): the BrowserWindow outlives renderer
-   * refreshes (reloadToHome), so it holds for the whole spec file.
-   *
-   *  - setOpacity(0): a maximize/fullscreen that shows the window paints nothing.
-   *    It must be set BEFORE fullscreen — Chromium restores the saved ex-style on
-   *    leaving fullscreen, so opacity applied during it would be lost.
-   *  - setSkipTaskbar(true): on Windows this is only ITaskbarList::DeleteTab, which
-   *    removes a button that already exists — on a never-shown window it is
-   *    inert, so a button CAN appear while a maximize keeps the window shown
-   *    (~0.4s measured). rehide() is what removes it. Kept for headed-style
-   *    windows that were shown before this call.
-   *  - setIgnoreMouseEvents(true): OS-level pass-through only. WebDriver input
-   *    arrives through CDP Input.* straight into the renderer, which this does
-   *    not touch — the suite already drives a never-shown window that way.
-   *
-   * Scoped to this spec on purpose. It is the only one that can show the window,
-   * and a layered (alpha) top-level window is an untested path for the WebGL
-   * canvas every other spec mounts.
-   */
-  async keepOffDesktop(): Promise<void> {
-    if (headed()) return
-    await browser.electron.execute((electron) => {
-      const win = electron.BrowserWindow.getAllWindows().find(
-        (w) => !w.isDestroyed() && !w.webContents.getURL().includes('helios-splash')
-      )
-      if (!win) throw new Error('keepOffDesktop: no main window')
-      win.setOpacity(0)
-      win.setSkipTaskbar(true)
-      win.setIgnoreMouseEvents(true)
-    })
-  }
-
-  /**
    * Put the window back into the never-shown state isHeadlessTestRun() starts it
-   * in. Call AFTER unmaximize/setFullScreen(false): on Windows both restore
-   * through a path that re-shows the window, so hiding first would be undone.
-   * hide() is safe for the renderer: backgroundThrottling is off under e2e
-   * (src/main/index.ts), so a hidden-again window behaves like a never-shown one.
+   * in. A SAFETY NET: nothing in the spec should show the window, and the show
+   * guard fails the test if something does — this only stops that one failure
+   * leaving a window on the desktop for the rest of the file. Call AFTER
+   * unmaximize/setFullScreen(false): on Windows both restore through a path that
+   * re-shows the window, so hiding first would be undone. hide() is safe for
+   * the renderer: backgroundThrottling is off under e2e (src/main/index.ts), so
+   * a hidden-again window behaves like a never-shown one.
    */
   async rehide(): Promise<void> {
     if (headed()) return
