@@ -1,5 +1,3 @@
-
-
 name: CI / develop
 
 on:
@@ -17,16 +15,27 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm install
+
+      # Works around the npm/cli Arborist bug ("Cannot read properties of
+      # null (reading 'edgesOut')") in newer npm 10.9.x shipped with Node 22.
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
+      - name: Install dependencies
+        run: |
+          npm i \
+            || npm i --legacy-peer-deps \
+            || (rm -f package-lock.json && npm i)
+
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-      
-      # See ci-main.yml: no `|| echo` swallow. eslint fails only on errors
-      # (warnings never fail it), so the previous form reported real errors as a
-      # green build.
+
+      # No `|| echo` swallow: eslint fails only on errors (warnings never
+      # fail it), so real errors correctly fail the build.
       - name: Lint Execution
         run: npm run lint
 
@@ -38,14 +47,24 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.PAT }}
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm install
+
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
+      - name: Install dependencies
+        run: |
+          npm i \
+            || npm i --legacy-peer-deps \
+            || (rm -f package-lock.json && npm i)
+
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-      
-      # Mapped directly to your package.json "test" script ("vitest run")
+
+      # Mapped directly to package.json "test" script ("vitest run")
       - name: Run Unit Tests
         run: npm run test
 
@@ -79,6 +98,6 @@ jobs:
   #       shell: bash
   #       run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
   #
-  #     # Mapped directly to your package.json "build" script
+  #     # Mapped directly to package.json "build" script
   #     - name: Build Check
   #       run: npm run build
