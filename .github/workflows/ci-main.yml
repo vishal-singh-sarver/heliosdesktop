@@ -21,19 +21,40 @@ on:
   # Manual trigger - emergency cases
   workflow_dispatch:
 
+# ── Work around npm's peer-resolution crash ─────────────────────────────────
+# Every job died in `npm install` with
+#   npm error Cannot read properties of null (reading 'edgesOut')
+# The debug log's `verbose stack` pins it: arborist #loadPeerSet crashes while
+# resolving the peer set of node_modules/vitest (last manifests fetched:
+# @vitest/coverage-istanbul@4.1.11, @vitest/coverage-v8@4.1.11, jsdom, canvas).
+# That is an npm 10 bug: a peer-dependency conflict crashes the tree builder
+# instead of reporting ERESOLVE. legacy-peer-deps skips peer-set resolution, so
+# the crash path is never reached. Set as an env var so it covers EVERY npm
+# call in every job and container (including the Rollup WASM `npm install`).
+# Proper fix: put vitest and every @vitest/* package on the same exact version
+# in package.json; after that this line can be removed.
+env:
+  NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+
 # ── About the "Install dependencies" step used in every job ─────────────────
 # Replaces a bare `npm install`, which died on all 5 jobs with:
 #   npm error Cannot read properties of null (reading 'edgesOut')
-# That is npm's tree builder (arborist) hitting a node it cannot resolve. The
-# usual causes are a committed (partial) node_modules, or a package-lock.json
-# that references a path/version that does not exist in this repo. The step:
+# That is a crash inside npm's tree builder (arborist). Cause found: peer
+# resolution for vitest - see the workflow-level `env:` above. Earlier notes:
+#   - It is not the lockfile: with package-lock.json AND node_modules deleted,
+#     the install crashed the same way ~100ms after starting, before any
+#     download - so it comes from package.json / repo contents / .npmrc.
+#   - A missing file:/link: folder or workspace does not reproduce it on
+#     npm 10.9 / Node 22 (tested), so that is not the explanation either.
+# The step:
 #   1. deletes any node_modules that came in with the checkout,
-#   2. tries a normal install against the committed lockfile,
-#   3. on failure prints the tail of npm's debug log (it otherwise dies with
-#      the runner), raises a visible ::warning::, and retries once WITHOUT the
-#      lockfile so the pipeline is not blocked.
-# The retry is a safety net, not the fix: a build without the lockfile is not
-# reproducible. Fix the repo (fix-npm-install.sh) so the warning disappears.
+#   2. installs, and on failure prints the tail of THIS install's debug log,
+#      whose `verbose stack` lines show where npm crashed.
+#      (The log path is taken from npm's own output. Picking the newest file in
+#      _logs is wrong: any later npm command, even `npm config get`, writes a
+#      newer log and hides the crash - which is what an earlier version did.)
+# No lockfile-less retry: it did not help, and a build without the lockfile
+# would pull unpinned dependency versions.
 # The step is repeated verbatim in each job; keep the copies in sync.
 
 jobs:
@@ -442,7 +463,12 @@ jobs:
           fi
           version=$(node -p "require('./node_modules/rollup/package.json').version")
           echo "rollup $version - installing matching @rollup/wasm-node"
-          npm install --no-save "@rollup/wasm-node@${version}"
+          # Re-request the peers added earlier: --no-save installs prune
+          # anything not in package.json/lockfile unless listed again.
+          extra=()
+          list="${RUNNER_TEMP:-/tmp}/extra-peers.txt"
+          if [ -s "$list" ]; then while IFS= read -r l; do l="${l%$'\r'}"; [ -n "$l" ] && extra+=("$l"); done < "$list"; fi
+          npm install --no-save "@rollup/wasm-node@${version}" "${extra[@]}"
           target=node_modules/@rollup/rollup-linux-x64-gnu
           rm -rf "$target"
           mkdir -p "$target"
