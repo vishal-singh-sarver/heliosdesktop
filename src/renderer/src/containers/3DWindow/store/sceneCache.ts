@@ -1,6 +1,68 @@
+import * as THREE from 'three'
+import type { GpuGeometry } from '../api/geometryV2'
 import type { PrimitiveInfo } from '../models/types'
 
 const cache = new Map<number, PrimitiveInfo[]>()
+
+// ── Wire format v2 ───────────────────────────────────────────────────────────
+//
+// Kept in its own map rather than converted into PrimitiveInfo[]: converting
+// would rebuild exactly the per-vertex object graph v2 exists to avoid. An
+// object is in one map or the other, never both.
+interface GpuEntry {
+  gpu: GpuGeometry
+  // Computed ONCE, here, from the positions array. The v1 path recomputes scene
+  // bounds by walking every vertex of every primitive on each geometryVersion
+  // bump — about thirteen full passes during a twelve-object load. There is no
+  // reason to pay that more than once per object.
+  bounds: THREE.Box3
+}
+
+const gpuCache = new Map<number, GpuEntry>()
+
+/** Axis-aligned bounds straight off the interleaved position array. */
+function boundsOfPositions(positions: Float32Array): THREE.Box3 {
+  const box = new THREE.Box3()
+  if (positions.length === 0) return box
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i], y = positions[i + 1], z = positions[i + 2]
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+  }
+  box.min.set(minX, minY, minZ)
+  box.max.set(maxX, maxY, maxZ)
+  return box
+}
+
+export function setObjectGpu(objectId: number, gpu: GpuGeometry): void {
+  gpuCache.set(objectId, { gpu, bounds: boundsOfPositions(gpu.positions) })
+}
+
+export function getObjectGpu(objectId: number): GpuGeometry | undefined {
+  return gpuCache.get(objectId)?.gpu
+}
+
+export function getObjectGpuBounds(objectId: number): THREE.Box3 | undefined {
+  return gpuCache.get(objectId)?.bounds
+}
+
+/** Ids of every object holding v2 geometry, in insertion order. */
+export function getCachedGpuIds(): number[] {
+  return Array.from(gpuCache.keys())
+}
+
+/** Union of every cached object's bounds. A few boxes, not a few million verts. */
+export function getGpuSceneBounds(): THREE.Box3 {
+  const box = new THREE.Box3()
+  for (const entry of gpuCache.values()) box.union(entry.bounds)
+  return box
+}
 
 // ── Staleness token ──────────────────────────────────────────────────────────
 //
@@ -56,6 +118,7 @@ export function getObjectPrimitives(objectId: number): PrimitiveInfo[] | undefin
 
 export function removeObjectPrimitives(objectId: number): void {
   cache.delete(objectId)
+  gpuCache.delete(objectId)
   // Hiding an object is exactly the case where a fetch already running for it
   // must not be allowed to land. Bumping here covers every caller that hides —
   // the eye toggle and the visibility-sync revert — rather than asking each to
@@ -79,4 +142,5 @@ export function clearSceneCache(): void {
   epoch += 1
   generation.clear()
   cache.clear()
+  gpuCache.clear()
 }

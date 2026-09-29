@@ -188,6 +188,7 @@ export default function MaterialRow({
         ) : (
           <span
             className="min-w-0 flex-1 truncate"
+            title={messages.renameHint}
             onDoubleClick={() => setEditing(true)}
             onMouseEnter={showFullTextOnHover}
           >

@@ -114,6 +114,14 @@ export interface ScenarioGeometry {
   // object, so one action produced both a success AND a failure toast. Scoped per
   // scenario because object ids are scenario-local. Mirrors Materials' deletingIds.
   deletingIds: string[]
+  // Objects whose material-assign POST is in flight. A geometry carries ONE
+  // material, so a second assign landing on one mid-flight is never an addition —
+  // it races the first, and both then re-fetch the same object's binary. The tree
+  // row and the right panel's material picker disable while an id is here, which
+  // together with the 3D slice's pendingObjectIds (the binary download that
+  // follows) locks the geometry for the whole assign → repaint cycle. Scoped per
+  // scenario because object ids are scenario-local; mirrors deletingIds.
+  assigningIds: string[]
   // The node +Ground just created, so its row can flash the "just appeared" cue.
   // Cleared once the cue has run (the tree dispatches it), so a remount can't
   // replay it.

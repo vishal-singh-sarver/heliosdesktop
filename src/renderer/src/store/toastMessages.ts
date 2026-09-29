@@ -68,13 +68,23 @@ const toastMessages = {
     `Material "${material}" has been successfully assigned to "${geometry}".`,
   materialAssignFailed: (material: string, geometry: string): string =>
     `Material "${material}" could not be assigned to "${geometry}".`,
+  // The same failure with the backend's own reason appended. Used only when the
+  // response carried the house {error, code} shape, which is what marks the text
+  // as copy meant for a user ("This texture is 512x512 pixels, too small for
+  // 'Ground.001' at 900 x 2.") rather than a bare status line. Anything else
+  // falls back to the unqualified form above — see serverReason in Geometry/saga.
+  materialAssignFailedBecause: (material: string, geometry: string, reason: string): string =>
+    `Material "${material}" could not be assigned to "${geometry}". ${reason}`,
 
   // ── Saving a form ──────────────────────────────────────────────────────────
   // Raised by BOTH right-panel Saves (the ground Properties form and a Material
   // Type card). Deliberately unqualified: the user just pressed Save on a thing
   // they are looking at, so naming it back adds nothing.
   changesSaved: 'Changes have been successfully saved',
-  changesSaveFailed: 'Changes could not be saved'
+  changesSaveFailed: 'Changes could not be saved',
+  // As changesSaveFailed, with the backend's reason appended on the same terms as
+  // materialAssignFailedBecause.
+  changesSaveFailedBecause: (reason: string): string => `Changes could not be saved. ${reason}`
 } as const
 
 export default toastMessages

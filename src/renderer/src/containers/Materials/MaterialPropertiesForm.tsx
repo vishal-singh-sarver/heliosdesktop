@@ -2,7 +2,6 @@ import addIcon from '@renderer/assets/add.svg'
 import chevronDown from '@renderer/assets/ChevronDownIcon.svg'
 import deleteIcon from '@renderer/assets/delete.svg'
 import infoIcon from '@renderer/assets/info.svg'
-import pencilIcon from '@renderer/assets/pencil.svg'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
 import Select from '@renderer/components/Select'
@@ -121,7 +120,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const scenarioId = useSelector(selectActiveScenarioId)
   const materialTypes = useSelector(selectAllMaterialTypes)
 
-  // The name is read-only until the pencil is tapped; the whole-material delete
+  // The name is read-only until it's double-clicked; the whole-material delete
   // confirmation lives here too.
   const [nameEditing, setNameEditing] = React.useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
@@ -138,7 +137,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const nameInputRef = React.useRef<HTMLInputElement>(null)
   // The name as it stands on the BACKEND — the row's, which only changes when a
   // rename is accepted. Blur compares against this so an untouched name is not
-  // re-sent. It was previously captured off the draft each time the pencil was
+  // re-sent. It was previously captured off the draft each time the field was
   // clicked, which meant a rejected name became the baseline: retyping the real
   // name then looked like a change and fired a rename to the name it already had.
   const committedName = useSelector(selectMaterialsById)[draft.groupId]?.name ?? draft.name
@@ -200,7 +199,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     setNewCardId(newId)
   }
 
-  // Focus the name field the moment the pencil unlocks it.
+  // Focus the name field the moment a double-click unlocks it.
   React.useEffect(() => {
     if (nameEditing) nameInputRef.current?.focus()
   }, [nameEditing])
@@ -235,7 +234,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
   const handleNameBlur = (): void => {
     // The field stays focusable while read-only, so it is blurred just by tabbing
     // through the panel — that is not a rename, and firing the PATCH on it hit the
-    // API on every pass. Only a field the pencil actually unlocked can rename, and
+    // API on every pass. Only a field a double-click actually unlocked can rename, and
     // only when the name really changed.
     if (!nameEditing) return
     setNameEditing(false)
@@ -413,8 +412,8 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
     // Full-height column: a static name header over the Parameter Groups box,
     // which fills the rest of the space and scrolls its own cards.
     <div className="flex h-full flex-col gap-2.5">
-      {/* Header: material name with a + (add a Parameter Group), a pencil (unlock
-          to rename) and a trash (delete the whole material). A rejected name is
+      {/* Header: material name with a + (add a Parameter Group) and a trash
+          (delete the whole material). A rejected name is
           reported by the in-field icon alone, so the row's height never changes
           and the buttons beside it don't shift. */}
       <div className="flex shrink-0 flex-col">
@@ -424,6 +423,9 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
               ref={nameInputRef}
               aria-label="Material name"
               aria-invalid={nameError != null}
+              // Only while the field is locked — once it's editing, the advice
+              // is spent and the tooltip would just sit over the caret.
+              title={!nameEditing ? messages.renameHint : undefined}
               value={draft.name}
               readOnly={!nameEditing}
               onChange={(e) => handleNameChange(e.target.value)}
@@ -477,7 +479,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             ariaLabel={messages.addMaterialType}
             title={atTypeLimit ? messages.allTypesAdded : messages.addMaterialType}
             icon={addIcon}
-            // Pinned to the same 24px as the pencil and trash it sits beside.
+            // Pinned to the same 24px as the trash it sits beside.
             size="xs"
             bgColor="#ffffff"
             textColor="#000000"
@@ -486,14 +488,6 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
             className="shrink-0"
             onClick={onAddGroup}
           />
-          <button
-            type="button"
-            aria-label="Edit name"
-            onClick={startNameEdit}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50"
-          >
-            <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
-          </button>
           <button
             type="button"
             aria-label="Delete material"

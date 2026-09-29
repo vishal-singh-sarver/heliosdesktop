@@ -11,13 +11,14 @@ import { selectLoadStatus, selectNodesById } from 'containers/Geometry/selectors
 import type { GeoNode } from 'containers/Geometry/types'
 import { selectActiveProjectId, selectActiveScenarioId } from 'containers/ProjectScreen/selectors'
 import { call, delay, put, race, select, take, takeLatest, takeLeading } from 'redux-saga/effects'
-import { fetchObjectGeometryBinary } from '../api/geometry'
+import { fetchObjectGeometryBinary, fetchObjectGeometryGpu } from '../api/geometry'
 import type { PrimitiveInfo, SceneObject } from '../models/types'
 import * as actions from '../store/actions'
 import { LOAD_OBJECT_GEOMETRY_REQUESTED, LOAD_SCENE_REQUESTED } from '../store/constants'
 import threeDWindowSaga, {
   loadObjectGeometryWorker,
   loadSceneWorker,
+  onMeshReady,
   onMaterialAssigned,
   onMaterialDeleted,
   onMaterialSaved,
@@ -27,8 +28,22 @@ import threeDWindowSaga, {
   onVisibilitySyncFailed
 } from '../store/saga'
 import { selectSceneObjects } from '../store/selectors'
-import { clearSceneCache, removeObjectPrimitives, setObjectPrimitives } from '../store/sceneCache'
+import {
+  clearSceneCache,
+  removeObjectPrimitives,
+  setObjectGpu,
+  setObjectPrimitives
+} from '../store/sceneCache'
+import { beginSceneLoad, endSceneLoad } from '../perf/metrics'
+import { resetGeometryFormat, setGeometryFormat } from '../store/featureFlags'
 import { clearTextureCache } from '../ui/textureCache'
+
+// Pinned rather than inherited. The saga picks its fetch and its cache from the
+// active wire format, and the default is a BUILD setting — so a v2 build flipped
+// every expectation below without a line of test code changing. Each suite now
+// states the format it is exercising.
+beforeEach(() => setGeometryFormat('v1'))
+afterEach(() => resetGeometryFormat())
 
 const testObject: SceneObject = { id: 28, name: 'Ground.001', object_type_id: 1 }
 
@@ -75,6 +90,9 @@ describe('loadSceneWorker', () => {
   it('settles an empty success when no active project/scenario is selected', () => {
     const gen = loadSceneWorker()
 
+    // The perf harness opens the measurement window before any work starts, so
+    // a slow clear is inside the number rather than hidden before it.
+    expect(gen.next().value).toEqual(call(beginSceneLoad))
     expect(gen.next().value).toEqual(call(clearSceneCache))
     expect(gen.next().value).toEqual(call(clearTextureCache))
     expect(gen.next().value).toEqual(select(selectActiveProjectId))
@@ -88,6 +106,7 @@ describe('loadSceneWorker', () => {
   it('settles an empty scene without waiting when the node tree is already loaded', () => {
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -106,6 +125,7 @@ describe('loadSceneWorker', () => {
   it('waits for the node tree while a list is genuinely in flight', () => {
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -129,6 +149,7 @@ describe('loadSceneWorker', () => {
     const second: SceneObject = { id: 29, name: 'Ground.002', object_type_id: 1 }
     const gen = loadSceneWorker()
 
+    gen.next() // beginSceneLoad
     gen.next() // clearSceneCache
     gen.next() // clearTextureCache
     gen.next() // select project id
@@ -175,10 +196,20 @@ describe('onMaterialAssigned', () => {
 
   it('re-fetches and re-caches the binary geometry of each restyled object', () => {
     const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
-    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(select(selectNodesById))
 
-    // Enter the loop with a visible node → fetch + cache its geometry.
-    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(select(selectActiveProjectId))
+    // Every target is marked pending BEFORE the first fetch — the tree row reads
+    // that mark to refuse a second material, and the fetches below run one at a
+    // time, so marking each at its own turn would leave the ones still queued
+    // looking idle and open to a drop.
+    expect(gen.next({ '28': visibleNode('28') }).value).toEqual(
+      put(actions.objectGeometryPending(28))
+    )
+
+    // Then the fetch itself (which marks pending again — the reducer dedupes).
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -189,12 +220,39 @@ describe('onMaterialAssigned', () => {
     expect(gen.next().done).toBe(true)
   })
 
+  it('marks every target pending up front, before any of them is fetched', () => {
+    // A group assign fans out over its members. They download one at a time, so
+    // without this the members still in the queue would carry no busy mark at
+    // all — their rows would look finished and accept another material while the
+    // restyle they already have is still waiting its turn.
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28', '29'], '7', 'Grass'))
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select nodesById
+    expect(gen.next({ '28': visibleNode('28'), '29': visibleNode('29') }).value).toEqual(
+      put(actions.objectGeometryPending(28))
+    )
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(29)))
+  })
+
   it('skips a hidden object so an assignment never un-hides it', () => {
     const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
-    gen.next() // select nodesById
+    gen.next() // select project id
+    gen.next('proj-1') // select scenario id
+    gen.next('scen-1') // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
-    // Node is hidden → no fetch, generator completes.
+    // Node is hidden → not even marked pending (nothing would ever settle the
+    // mark, since no fetch runs), and the generator completes.
     expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+
+  it('does nothing without an active project/scenario', () => {
+    // Bails before marking anything pending — a mark nothing will settle would
+    // leave the row locked against materials for the rest of the session.
+    const gen = onMaterialAssigned(assignMaterialSucceeded('p', 's', ['28'], '7', 'Grass'))
+    gen.next() // select project id
+    expect(gen.next(null).value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next(null).done).toBe(true)
   })
 })
 
@@ -223,7 +281,10 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
   it('onMaterialSaved re-fetches only the shown objects using the saved group', () => {
     const gen = onMaterialSaved(saveParameterGroupSucceeded('7', 1)) // materialId = group id
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    // Marked busy up front, before any fetch starts — then again by the fetch
+    // itself when its turn comes.
+    expect(gen.next(mixedNodes).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -240,13 +301,36 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
     expect(gen.next({ '29': withGroups('29', ['9']) }).done).toBe(true)
   })
 
+  it('marks EVERY affected object busy before fetching any of them', () => {
+    // The fetches run one at a time, so members 2..N used to sit with nothing
+    // said about them while a restyle they were already committed to was queued:
+    // their rows looked idle and stayed open to a material drop. Deleting a
+    // material assigned to three grounds now spins all three at once.
+    const threeUsers = {
+      '28': withGroups('28', ['7']),
+      '29': withGroups('29', ['7']),
+      '30': withGroups('30', ['7'])
+    }
+
+    const gen = onMaterialDeleted(removeMaterial('7'))
+    expect(gen.next().value).toEqual(select(selectNodesById))
+    expect(gen.next(threeUsers).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(29)))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryPending(30)))
+    // Only now does the first fetch begin.
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+  })
+
   // Deleting ONE material type (e.g. the Visualiser) changes how every object
   // using that material looks — the ground loses the texture. Before this, nothing
   // told the scene, so it kept rendering a texture the material no longer had.
   it('onMaterialTypeDeleted re-fetches the shown objects using that material', () => {
     const gen = onMaterialTypeDeleted(deleteParameterGroupSucceeded('7', 1))
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    // Marked busy up front, before any fetch starts — then again by the fetch
+    // itself when its turn comes.
+    expect(gen.next(mixedNodes).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -260,7 +344,10 @@ describe('onMaterialSaved / onMaterialDeleted (surgical by group)', () => {
   it('onMaterialDeleted re-fetches only the shown objects that used the deleted group', () => {
     const gen = onMaterialDeleted(removeMaterial('7')) // id = group id
     expect(gen.next().value).toEqual(select(selectNodesById))
-    expect(gen.next(mixedNodes).value).toEqual(select(selectActiveProjectId))
+    // Marked busy up front, before any fetch starts — then again by the fetch
+    // itself when its turn comes.
+    expect(gen.next(mixedNodes).value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
     expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
     expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
     expect(gen.next().value).toEqual(call(fetchObjectGeometryBinary, 'proj-1', 'scen-1', 28))
@@ -394,6 +481,59 @@ describe('onMaterialUnassigned', () => {
     gen.next() // select nodesById
     const hidden = { ...visibleNode('28'), visibleInViewport: false }
     expect(gen.next({ '28': hidden }).done).toBe(true)
+  })
+})
+
+describe('wire format v2', () => {
+  // The format the packaged app ships with, so it needs the same coverage as v1
+  // rather than only being exercised by the reader's own unit tests.
+  beforeEach(() => setGeometryFormat('v2'))
+
+  const gpu = { totalVerts: 4, totalTris: 2, primitiveCount: 1, groups: [] } as never
+
+  it('fetches the GPU buffer and caches it, not the v1 primitives', () => {
+    const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
+    expect(gen.next().value).toEqual(select(selectActiveProjectId))
+    expect(gen.next('proj-1').value).toEqual(select(selectActiveScenarioId))
+    expect(gen.next('scen-1').value).toEqual(put(actions.objectGeometryPending(28)))
+    expect(gen.next().value).toEqual(call(fetchObjectGeometryGpu, 'proj-1', 'scen-1', 28))
+    expect(gen.next(gpu).value).toEqual(call(setObjectGpu, 28, gpu))
+    expect(gen.next().value).toEqual(put(actions.objectGeometryLoaded(28)))
+  })
+
+  it('caches nothing when the object has no primitives', () => {
+    // The backend serves an empty body for an object with no geometry, which the
+    // reader turns into null. Writing that to the cache would put an entry there
+    // claiming the object is loaded and empty.
+    const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
+    gen.next()
+    gen.next('proj-1')
+    gen.next('scen-1')
+    gen.next()
+    expect(gen.next(null).value).toEqual(put(actions.objectGeometryLoaded(28)))
+  })
+
+  it('still drops a result whose staleness token moved while it downloaded', () => {
+    // The guard has to hold on BOTH paths. It briefly did not: folding the cache
+    // write into the fetch helper put it before this check.
+    const gen = loadObjectGeometryWorker(actions.loadObjectGeometry(testObject))
+    gen.next()
+    gen.next('proj-1')
+    gen.next('scen-1')
+    gen.next()
+    removeObjectPrimitives(28) // bumps the generation, as a hide does
+    expect(gen.next(gpu).done).toBe(true)
+  })
+})
+
+describe('onMeshReady', () => {
+  it('closes the perf harness measurement window', () => {
+    // MESH_READY is the first moment the geometry is actually on screen, which
+    // is two steps past loadSceneSucceeded. endSceneLoad is a no-op unless a
+    // load is outstanding, so the selection-change MESH_READYs cost nothing.
+    const gen = onMeshReady()
+    expect(gen.next().value).toEqual(call(endSceneLoad))
+    expect(gen.next().done).toBe(true)
   })
 })
 

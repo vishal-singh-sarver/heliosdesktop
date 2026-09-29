@@ -2,24 +2,24 @@ import type { CameraControls } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
-import * as THREE from 'three'
 import type { PrimitiveInfo } from '../models/types'
 import messages from '../messages'
 import {
-  selectGeometryVersion,
   selectMeshReady,
   selectSceneLoad,
-  selectSceneObjects,
-  selectSelectedObjectId
+  selectSceneObjects
 } from '../store/selectors'
 import { getAllCachedPrimitives } from '../store/sceneCache'
+import { installPerfBridge } from '../perf/console'
+import type { StageName } from '../perf/metrics'
+import { formatBytes, formatCount, isPerfEnabled, setPerfEnabled } from '../perf/metrics'
+import { usePerfReport } from '../perf/usePerfReport'
 import type { LightingMode } from './materials'
 import type { LightingSettings } from './SceneLighting'
 import { defaultLightingSettings } from './SceneLighting'
 import LightingSettingsDialog from './LightingSettingsDialog'
 import SceneCanvas from './SceneCanvas'
 import SceneContent from './SceneContent'
-import { gridStamp, isGridResetSpent } from './SceneHelpers'
 import SceneSelector from './SceneSelector'
 
 // ── Inline SVG icons (no external dependency) ────────────────────────────────
@@ -200,7 +200,6 @@ function ControlsBridge({
 }: {
   actionsRef: React.MutableRefObject<ViewportActions | null>
 }): null {
-  const { camera } = useThree()
   const controls = useThree((s) => s.controls) as CameraControls | null
   const invalidate = useThree((s) => s.invalidate)
 
@@ -238,19 +237,14 @@ function ControlsBridge({
         driveTransition()
       },
       resetView: () => {
-        // Restore default camera planes and control limits so the scene
-        // renders at the correct scale for the origin.
-        const perspCam = camera as THREE.PerspectiveCamera
-        perspCam.near = 0.1
-        perspCam.far = 1_000_000
-        perspCam.updateProjectionMatrix()
-
+        // Restore the default control limits so the scene navigates at the
+        // scale of the origin again. The clipping planes are deliberately not
+        // touched: AdaptiveClipping re-derives them from the camera on the very
+        // next frame, and writing them here only fought with it.
         controls.minDistance = 0.5
         controls.maxDistance = Infinity
 
-        // Instant snap (smooth=false) to avoid vibration — a smooth
-        // transition would traverse positions where the new near/far
-        // planes clip the far-away geometry, causing flicker.
+        // Instant snap (smooth=false) to avoid vibration.
         controls.setLookAt(...DEFAULT_POS, ...DEFAULT_TARGET, false)
         controls.update(1 / 60)
         invalidate()
@@ -262,7 +256,7 @@ function ControlsBridge({
       cancelAnimationFrame(transitionTimer)
       actionsRef.current = null
     }
-  }, [controls, invalidate, actionsRef, camera])
+  }, [controls, invalidate, actionsRef])
 
   return null
 }
@@ -305,6 +299,23 @@ function computeStats(primitives: PrimitiveInfo[], objectCount: number): SceneSt
   }
 }
 
+/** Stages shown in the overlay, in pipeline order. */
+const PERF_STAGES: StageName[] = ['fetch', 'parse', 'build']
+
+/**
+ * Hides the scene-statistics toolbar button and its overlay from users.
+ *
+ * A guard rather than a commented-out block: JSX children can only be commented
+ * with {/* *\/}, which terminates at the first `}` — and both blocks are full of
+ * them. Escaping around that leaves invisible characters in code someone will
+ * eventually uncomment. This keeps the markup type-checked so it cannot rot
+ * while hidden, and restoring it is one word.
+ *
+ * The perf harness itself is unaffected: __heliosPerf.on() still works from
+ * DevTools, since installPerfBridge() runs regardless.
+ */
+const SHOW_STATS_UI = false
+
 // ── Lighting mode config ─────────────────────────────────────────────────────
 
 const LIGHTING_MODES: Array<{ mode: LightingMode; Icon: () => React.JSX.Element; title: string }> =
@@ -320,50 +331,16 @@ export function Viewport3D(): React.JSX.Element {
   const sceneLoad = useSelector(selectSceneLoad)
   const meshReady = useSelector(selectMeshReady)
   const objects = useSelector(selectSceneObjects)
-  const geometryVersion = useSelector(selectGeometryVersion)
-  const selectedObjectId = useSelector(selectSelectedObjectId)
 
   const [lightingSettings, setLightingSettings] =
     useState<LightingSettings>(defaultLightingSettings)
   const [showLightingDialog, setShowLightingDialog] = useState(false)
   const [showStats, setShowStats] = useState(false)
 
-  // Stamped on reset so the grid falls back to default params, and stays there
-  // until geometry or selection moves on. Captured here in the click handler
-  // rather than compared during render — see SceneHelpers.gridStamp.
-  const [gridResetAt, setGridResetAt] = useState<string | null>(null)
-
-  // Drop the stamp once the scene has moved past it, which makes a reset
-  // one-shot: it applies until the next geometry or selection change and is
-  // then spent, matching the counter this replaced.
-  //
-  // Without this the stamp lives forever and the reset re-fires whenever the
-  // scene happens to return to the state it was taken in — select B, reset,
-  // select A, select B again, and the grid drops to defaults a second time
-  // even though reset was pressed once. Selection alone is enough to trigger
-  // that, because picking an object does not bump geometryVersion.
-  //
-  // Clearing here rather than inside useAdaptiveGrid keeps that hook pure —
-  // the reason the stamp exists at all. There is no window where the old value
-  // is wrongly applied: the render that changes the scene already fails the
-  // stamp comparison, so this only tidies up afterwards.
-  //
-  // Adjusted during render, not in an effect: React re-runs this component
-  // before committing, so there is no extra paint, and the condition is false
-  // once the stamp is null so it cannot loop. Same shape as the dialog state
-  // in Weather/WeatherToolbar. An effect here would both paint an extra frame
-  // and trip react-hooks' cascading-render rule.
-  if (isGridResetSpent(gridResetAt, geometryVersion, selectedObjectId)) {
-    setGridResetAt(null)
-  }
-
   const actionsRef = useRef<ViewportActions | null>(null)
   const handleZoomIn = useCallback(() => actionsRef.current?.zoomIn(), [])
   const handleZoomOut = useCallback(() => actionsRef.current?.zoomOut(), [])
-  const handleResetView = useCallback(() => {
-    actionsRef.current?.resetView()
-    setGridResetAt(gridStamp(geometryVersion, selectedObjectId))
-  }, [geometryVersion, selectedObjectId])
+  const handleResetView = useCallback(() => actionsRef.current?.resetView(), [])
 
   const isFetching = sceneLoad.loading || sceneLoad.objectLoading || sceneLoad.selectionLoading
   // Only surface the loading overlay when the scene actually has geometry to
@@ -382,10 +359,39 @@ export function Viewport3D(): React.JSX.Element {
     return computeStats(getAllCachedPrimitives(), objects.length)
   }, [showStats, objects.length, sceneLoad])
 
+  // ── Render-path harness ────────────────────────────────────────────────────
+  //
+  // The overlay is the on-switch: collection costs nothing while it is closed,
+  // so a session that never opens it pays nothing. To measure a scene LOAD, open
+  // the overlay before switching scenario — the numbers start when the load does.
+  useEffect(() => {
+    installPerfBridge()
+  }, [])
+
+  // Only ever gives back what it took. A session driven from the console
+  // (__heliosPerf.on()) must not be switched off by opening and closing this
+  // overlay, so the overlay tracks whether it was the one that enabled it.
+  const perfOwned = useRef(false)
+  useEffect(() => {
+    if (showStats) {
+      if (!isPerfEnabled()) {
+        setPerfEnabled(true)
+        perfOwned.current = true
+      }
+      return
+    }
+    if (perfOwned.current) {
+      setPerfEnabled(false)
+      perfOwned.current = false
+    }
+  }, [showStats])
+
+  const perf = usePerfReport(showStats)
+
   return (
     <div className="relative h-full w-full">
       <SceneCanvas>
-        <SceneContent lightingSettings={lightingSettings} gridResetAt={gridResetAt} />
+        <SceneContent lightingSettings={lightingSettings} />
         <ControlsBridge actionsRef={actionsRef} />
       </SceneCanvas>
 
@@ -453,7 +459,8 @@ export function Viewport3D(): React.JSX.Element {
           <SettingsIcon />
         </button>
 
-        {/* Stats toggle */}
+        {/* Stats toggle — hidden from users, see SHOW_STATS_UI */}
+        {SHOW_STATS_UI && (
         <button
           onClick={() => setShowStats((v) => !v)}
           className={`rounded p-1.5 transition-colors ${
@@ -465,10 +472,11 @@ export function Viewport3D(): React.JSX.Element {
         >
           <BarChartIcon />
         </button>
+        )}
       </div>
 
-      {/* Scene statistics overlay */}
-      {showStats && stats && (
+      {/* Scene statistics overlay — hidden from users, see SHOW_STATS_UI */}
+      {SHOW_STATS_UI && showStats && stats && (
         <div className="absolute left-3 top-10 z-10 select-text rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 font-mono text-[13px] leading-relaxed text-neutral-400 backdrop-blur-sm">
           <div className="flex gap-6">
             <div className="flex flex-col">
@@ -495,6 +503,80 @@ export function Viewport3D(): React.JSX.Element {
               )}
             </div>
           </div>
+
+          {perf && (
+            <div className="mt-2 border-t border-neutral-700 pt-2">
+              <div className="mb-1 text-[11px] uppercase tracking-wider text-neutral-500">
+                Render path
+              </div>
+              <div className="flex gap-6">
+                <div className="flex flex-col">
+                  <span>
+                    Load:{' '}
+                    <span className="text-neutral-200">
+                      {perf.sceneLoadMs === null
+                        ? '— reload to measure'
+                        : `${perf.sceneLoadMs.toFixed(0)} ms`}
+                    </span>
+                  </span>
+                  {PERF_STAGES.map((name) => {
+                    const st = perf.stages[name]
+                    if (st.count === 0) return null
+                    return (
+                      <span key={name}>
+                        {name}:{' '}
+                        <span className="text-neutral-200">{st.totalMs.toFixed(0)} ms</span>{' '}
+                        <span className={st.count > 1 ? 'text-amber-400' : 'text-neutral-500'}>
+                          ×{st.count}
+                        </span>
+                      </span>
+                    )
+                  })}
+                  <span>
+                    Wire:{' '}
+                    <span className="text-neutral-200">{formatBytes(perf.bytesFetched)}</span>
+                  </span>
+                </div>
+
+                <div className="flex flex-col">
+                  <span>
+                    Frame:{' '}
+                    <span className="text-neutral-200">
+                      {perf.frame.p50.toFixed(1)}/{perf.frame.p95.toFixed(1)} ms
+                    </span>{' '}
+                    <span className="text-neutral-500">p50/p95</span>
+                  </span>
+                  {perf.render && (
+                    <>
+                      <span>
+                        Draws:{' '}
+                        <span className="text-neutral-200">{perf.render.calls}</span>{' '}
+                        <span className="text-neutral-500">
+                          {formatCount(perf.render.triangles)} tris
+                        </span>
+                      </span>
+                      <span>
+                        GPU:{' '}
+                        <span className="text-neutral-200">{perf.render.geometries}</span> geo{' '}
+                        <span className="text-neutral-200">{perf.render.textures}</span> tex
+                      </span>
+                    </>
+                  )}
+                  {perf.heap && (
+                    <span>
+                      Heap:{' '}
+                      <span className="text-neutral-200">
+                        {perf.heap.currentMB.toFixed(0)} MB
+                      </span>{' '}
+                      <span className="text-neutral-500">
+                        peak {perf.heap.peakMB.toFixed(0)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

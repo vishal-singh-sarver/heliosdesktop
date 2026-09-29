@@ -15,6 +15,12 @@ const messages = {
   nameRequired: 'Name is required',
   nameTooLong: 'Character limit exceeded',
   nameExists: 'Material name already exists',
+  // Hover copy for every name a double-click renames — the right panel's
+  // Properties header AND the left panel's Saved Materials rows — shown as a
+  // native `title` tooltip. Both look like plain text, and a double-click is the
+  // only way to unlock either, so the gesture needs saying. Only shown while the
+  // name is locked; once the editor is open the advice is already spent.
+  renameHint: 'Double-click to rename the material.',
   // Right-panel material Properties form.
   parameterGroups: 'Material Types',
   // A numbered material-type header, e.g. "Material Type.01".

@@ -1,6 +1,7 @@
 import {
   ASSIGN_MATERIAL_REQUESTED,
   ASSIGN_MATERIAL_SUCCEEDED,
+  ASSIGN_MATERIAL_FAILED,
   CLEAR_CREATE_HIGHLIGHT,
   CLOSE_CREATE_FORM,
   CREATE_OBJECT_FAILED,
@@ -228,6 +229,14 @@ export type AssignMaterialSucceededAction = {
   groupId: string
   name: string
 }
+// The assign was refused. Carries only what the reducer needs to release the
+// targets' assigning mark — the saga's toast has already reported the reason.
+export type AssignMaterialFailedAction = {
+  type: typeof ASSIGN_MATERIAL_FAILED
+  projectId: string
+  scenarioId: string
+  objectIds: string[]
+}
 export type DeleteNodeRequestedAction = {
   type: typeof DELETE_NODE_REQUESTED
   projectId: string
@@ -286,6 +295,8 @@ export type CreateObjectRequestedAction = {
 }
 // The POST resolved: the persisted node + its property values, plus the catalog
 // type the form needs to render. The reducer inserts the node and opens the draft.
+// `materialGroups` carries the default material the backend attached to the new
+// ground — same field the LOAD path supplies, so the draft opens the same way.
 export type CreateObjectSucceededAction = {
   type: typeof CREATE_OBJECT_SUCCEEDED
   projectId: string
@@ -295,6 +306,7 @@ export type CreateObjectSucceededAction = {
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 }
 export type CreateObjectFailedAction = {
@@ -383,8 +395,14 @@ export type UnassignMaterialSucceededAction = {
   objectId: string
   groupId: string
 }
+// Carries the scope and object as well as the group: the reducer has to release
+// the object's material lock on failure, and it cannot find the right scope —
+// or the right id inside it — from a group id alone.
 export type UnassignMaterialFailedAction = {
   type: typeof UNASSIGN_MATERIAL_FAILED
+  projectId: string
+  scenarioId: string
+  objectId: string
   groupId: string
   payload: string
 }
@@ -411,6 +429,7 @@ export type GeometryAction =
   | ReorderNodesAction
   | AssignMaterialRequestedAction
   | AssignMaterialSucceededAction
+  | AssignMaterialFailedAction
   | MoveNodesSucceededAction
   | MoveNodesFailedAction
   | DeleteNodeRequestedAction
@@ -621,6 +640,17 @@ export const assignMaterialSucceeded = (
   name
 })
 
+export const assignMaterialFailed = (
+  projectId: string,
+  scenarioId: string,
+  objectIds: string[]
+): AssignMaterialFailedAction => ({
+  type: ASSIGN_MATERIAL_FAILED,
+  projectId,
+  scenarioId,
+  objectIds
+})
+
 export const moveNodesSucceeded = (
   projectId: string,
   scenarioId: string,
@@ -722,6 +752,7 @@ export const createObjectSucceeded = (
     values: Record<string, string>
     objectTypeId: number
     objectName: string
+    materialGroups: DraftMaterialGroup[]
   }
 ): CreateObjectSucceededAction => ({
   type: CREATE_OBJECT_SUCCEEDED,
@@ -805,10 +836,16 @@ export const unassignMaterialSucceeded = (
 })
 
 export const unassignMaterialFailed = (
+  projectId: string,
+  scenarioId: string,
+  objectId: string,
   groupId: string,
   error: string
 ): UnassignMaterialFailedAction => ({
   type: UNASSIGN_MATERIAL_FAILED,
+  projectId,
+  scenarioId,
+  objectId,
   groupId,
   payload: error
 })

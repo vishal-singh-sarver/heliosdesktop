@@ -162,6 +162,8 @@ npm run dev:no-backend   # frontend only (skip spawning the backend)
 | Package current OS (→ `dist/`) | `npm run package` |
 | Package Win / macOS / Linux | `npm run package:win` / `:mac` / `:linux` |
 | End-to-end tests | `npm run e2e` (`npm run e2e:build` to build first) |
+| Docs: preview / build / offline zip | `npm run docs:serve` / `docs:build` / `docs:offline` (see [Documentation site](#documentation-site)) |
+| Docs: regenerate API and catalog reference | `npm run docs:generate` |
 
 > `npm run build` runs `scripts/sync-backend.js` first, which copies the packaged backend into
 > `resources/`. Build the backend bundle before packaging — see
@@ -203,12 +205,115 @@ linux-installer/   Linux installer payload + build scripts
 
 | Doc | What it covers |
 |-----|----------------|
+| Technical documentation site ([`docs/`](docs/) + [`mkdocs.yml`](mkdocs.yml)) | User guide, concepts, reference, architecture, recipes and the backend API — build it with the steps below |
 | [docs/git-submodule-setup.md](docs/git-submodule-setup.md) | Fork-friendly submodule setup and the `setup:submodules` helper |
 | [docs/ci-cd-workflow.md](docs/ci-cd-workflow.md) | GitHub Actions pipeline, build policy, release flow |
 | [docs/installer-guide.html](docs/installer-guide.html) | Building & packaging installers per platform |
 | [docs/dev-strategy.html](docs/dev-strategy.html) | Architecture deep-dive (processes, IPC, TypeScript, state) |
 | [helios-desktop-backend/README.md](helios-desktop-backend/README.md) | Backend setup, API surface, persistence model |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guide and the authoritative conventions |
+
+### Documentation site
+
+The technical documentation is an [MkDocs Material](https://squidfunk.github.io/mkdocs-material/)
+site. Its sources are the Markdown files in `docs/`, its configuration is `mkdocs.yml`, and its
+Python dependencies are pinned in [`docs/requirements.txt`](docs/requirements.txt).
+
+It builds on its own. You need **Python 3.9+** and Git, plus Node/npm to use the `npm run docs:*`
+shortcuts. You do **not** need `npm install`, the backend submodule or a backend build, so a plain
+`git clone` (no `--recurse-submodules`) is enough.
+
+| Task | macOS / Linux |
+|------|---------------|
+| Preview with live reload | `npm run docs:serve` |
+| Build and check (fails on warnings) | `npm run docs:build` |
+| Offline copy → `helios-docs.zip` | `npm run docs:offline` |
+| Regenerate the API and catalog reference | `npm run docs:generate` |
+
+The shortcuts call `.venv-docs/bin/mkdocs` directly, so there is no environment to activate. They
+are **macOS/Linux only**: they use `.venv-docs/bin/`, `zip` and `rm`, none of which exist on
+Windows. Windows users run the equivalent commands shown under each step.
+
+#### 1. Install (once per clone)
+
+Run from the repository root. The virtual environment `.venv-docs/` is gitignored.
+
+```bash
+# macOS / Linux
+python3 -m venv .venv-docs
+.venv-docs/bin/pip install -r docs/requirements.txt
+```
+
+```powershell
+# Windows (PowerShell) — activate again in every new terminal before running mkdocs
+py -3 -m venv .venv-docs
+.venv-docs\Scripts\Activate.ps1
+pip install -r docs\requirements.txt
+```
+
+#### 2. Preview while you write
+
+```bash
+npm run docs:serve          # Windows: mkdocs serve
+```
+
+Open <http://127.0.0.1:8000>. Pages reload as you save them. Add every new page to the `nav:` list
+in `mkdocs.yml`, or it will not appear in the navigation.
+
+#### 3. Check the build
+
+```bash
+npm run docs:build          # Windows: mkdocs build --strict
+```
+
+`--strict` fails the build on any warning, such as a link to a page that does not exist. Fix the
+warning rather than dropping the flag. A page left out of `nav:` is only logged as `INFO` and does
+**not** fail the build, so check the navigation yourself after adding a page. The output goes to
+`site/` (gitignored).
+
+#### 4. Build an offline copy to download or share
+
+```bash
+npm run docs:offline
+```
+
+```powershell
+# Windows (PowerShell)
+$env:HELIOS_DOCS_OFFLINE = "true"; mkdocs build --strict; Remove-Item Env:HELIOS_DOCS_OFFLINE
+Compress-Archive -Path site\* -DestinationPath helios-docs.zip -Force
+```
+
+This writes `helios-docs.zip` (gitignored) to the repository root. Whoever receives it unzips it
+and opens `index.html` straight from disk, with no server or internet connection. Diagrams, fonts
+and search all work. `docs:offline` does not pass `--strict`, so run `npm run docs:build` first to
+catch broken links.
+
+> **The offline build needs internet the first time.** `docs:offline` sets
+> `HELIOS_DOCS_OFFLINE=true`, which turns on the Material `privacy` and `offline` plugins in
+> `mkdocs.yml`. They download Mermaid (used for diagrams), the Inter/JetBrains Mono fonts and the
+> search polyfill into the build. Downloads are cached in `.cache/plugin/privacy/` (gitignored), so
+> later builds work without a connection. Without that variable the site is meant for a web
+> server: opened from disk, its diagrams do not render and search never loads. Zipping the output
+> of `docs:build` does **not** give a working offline copy.
+>
+> The same variable makes `docs/gen/hooks.py` drop the `navigation.instant` feature. Instant
+> navigation fetches `sitemap.xml`, which browsers block on `file://`, and the failure stops all of
+> the theme's page scripts: Mermaid shows "Syntax error in text", the sidebars grow scrollbars and
+> run over the footer. Keep that hook if you change the offline setup.
+
+#### Regenerating the reference pages
+
+`docs/dev/api/endpoints.md`, the per-router pages under `docs/dev/api/ops/`, the API section of
+`nav:` in `mkdocs.yml`, and `docs/reference/catalog.md` are generated by
+`docs/gen/generate_reference.py` and committed, so readers never need to run it. Rerun it after a
+backend API or catalog change:
+
+```bash
+npm run docs:generate
+```
+
+It uses the **backend** virtual environment, not `.venv-docs`, and imports the backend app, which
+loads the PyHelios native library, so complete [Backend](#backend) steps 4 and 5 first.
 
 ## Architecture notes
 

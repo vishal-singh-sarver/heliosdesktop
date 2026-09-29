@@ -1393,7 +1393,7 @@ describe('<MaterialPropertiesForm /> material name', () => {
     expect(renameTypes(dispatch)).toEqual([])
   })
 
-  // The baseline used to be captured off the DRAFT each time the pencil was
+  // The baseline used to be captured off the DRAFT each time the field was
   // clicked. After a rejected name the draft still holds that invalid text, so it
   // became the baseline — and typing the real name back then read as a change.
   it('does not rename when the original name is restored after a rejected one', () => {
@@ -1406,14 +1406,14 @@ describe('<MaterialPropertiesForm /> material name', () => {
     )
 
     // Clear the name and blur: rejected, no rename, the blank text stays.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
+    fireEvent.doubleClick(screen.getByLabelText('Material name'))
     fireEvent.change(screen.getByLabelText('Material name'), { target: { value: '' } })
     fireEvent.blur(screen.getByLabelText('Material name'))
     expect(renameTypes(dispatch)).toEqual([])
 
     // Now put the real name back. That is not a change — it is what the backend
     // already holds — so nothing should be sent.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
+    fireEvent.doubleClick(screen.getByLabelText('Material name'))
     fireEvent.change(screen.getByLabelText('Material name'), {
       target: { value: 'Material.001' }
     })
@@ -1430,9 +1430,9 @@ describe('<MaterialPropertiesForm /> material name', () => {
       </Provider>
     )
 
-    // The pencil unlocks the field, but clicking away without editing is not a
-    // rename — the name is identical.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
+    // A double-click unlocks the field, but clicking away without editing is
+    // not a rename — the name is identical.
+    fireEvent.doubleClick(screen.getByLabelText('Material name'))
     fireEvent.blur(screen.getByLabelText('Material name'))
     expect(renameTypes(dispatch)).toEqual([])
   })
@@ -1447,7 +1447,7 @@ describe('<MaterialPropertiesForm /> material name', () => {
           <MaterialPropertiesForm />
         </Provider>
       )
-      fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
+      fireEvent.doubleClick(screen.getByLabelText('Material name'))
       return screen.getByLabelText('Material name')
     }
 
@@ -1533,7 +1533,7 @@ describe('<MaterialPropertiesForm /> material name', () => {
         screen.getByLabelText('Validation error: Material name already exists')
       ).toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Edit name' }))
+      fireEvent.doubleClick(screen.getByLabelText('Material name'))
       fireEvent.change(screen.getByLabelText('Material name'), { target: { value: 'Granite' } })
       expect(
         screen.queryByLabelText('Validation error: Material name already exists')

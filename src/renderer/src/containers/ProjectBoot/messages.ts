@@ -14,7 +14,12 @@ const messages = {
     title: 'Could not open project',
     retryButton: 'Retry',
     homeButton: 'Go to Home',
-    generic: 'Something went wrong while opening this project.'
+    generic: 'Something went wrong while opening this project.',
+    // The init stream closed without ever saying it finished. Worded for the
+    // only cause the user can act on — the backend went away — because the
+    // client genuinely cannot tell that apart from a server that closed early.
+    initIncomplete:
+      'The scenario did not finish loading — the connection to the backend ended early.'
   },
 
   scopeLost: {

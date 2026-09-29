@@ -2,7 +2,7 @@ import { removeMaterial } from 'containers/Materials/actions'
 import { setActiveScenario } from 'containers/ProjectScreen/actions'
 import geometryReducer, { initialState, scopeKey } from '../reducer'
 import * as actions from '../actions'
-import type { GeoNode, ObjectDetail } from '../types'
+import type { DraftMaterialGroup, GeoNode, ObjectDetail } from '../types'
 
 const P = 'p1'
 const S = 's1'
@@ -558,17 +558,117 @@ describe('geometryReducer', () => {
     })
   })
 
+  // A geometry carries ONE material, so a second assign landing on it mid-flight
+  // never adds — it races the first, and both then re-fetch the same object's
+  // binary. The mark is what closes the row (and the right panel's picker) for
+  // that window.
+  describe('in-flight assign marks (assigningIds)', () => {
+    const seeded = (): ReturnType<typeof geometryReducer> =>
+      geometryReducer(
+        initialState,
+        actions.listNodesSucceeded(P, S, [ground('a', 'Ground.001'), ground('b', 'Ground.002')])
+      )
+
+    it('ASSIGN_MATERIAL_REQUESTED marks every target, and does not double-add', () => {
+      let r = geometryReducer(
+        seeded(),
+        actions.assignMaterialRequested(P, S, ['a', 'b'], '7', 'Grass', 'Group.001')
+      )
+      expect([...r.byScope[KEY].assigningIds].sort()).toEqual(['a', 'b'])
+      r = geometryReducer(
+        r,
+        actions.assignMaterialRequested(P, S, ['a'], '7', 'Grass', 'Ground.001')
+      )
+      expect([...r.byScope[KEY].assigningIds].sort()).toEqual(['a', 'b'])
+    })
+
+    it('ASSIGN_MATERIAL_SUCCEEDED releases the targets', () => {
+      let r = geometryReducer(
+        seeded(),
+        actions.assignMaterialRequested(P, S, ['a'], '7', 'Grass', 'Ground.001')
+      )
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['a'], '7', 'Grass'))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+    })
+
+    it('ASSIGN_MATERIAL_FAILED releases the targets so the drop can be retried', () => {
+      let r = geometryReducer(
+        seeded(),
+        actions.assignMaterialRequested(P, S, ['a'], '7', 'Grass', 'Ground.001')
+      )
+      r = geometryReducer(r, actions.assignMaterialFailed(P, S, ['a']))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+      // Nothing was written, so the object keeps whatever it already had.
+      expect(r.byScope[KEY].nodesById['a']).toMatchObject({ id: 'a' })
+    })
+
+    it('a SUCCEEDED for one target leaves the others locked', () => {
+      // A group assign POSTs per member; only what this action names is released.
+      let r = geometryReducer(
+        seeded(),
+        actions.assignMaterialRequested(P, S, ['a', 'b'], '7', 'Grass', 'Group.001')
+      )
+      r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['a'], '7', 'Grass'))
+      expect(r.byScope[KEY].assigningIds).toEqual(['b'])
+    })
+
+    it('a delete releases a mark left on the node it removed', () => {
+      // The assign was still out when the node went. Its SUCCEEDED/FAILED lands on
+      // an object with no row left, so nothing else would ever release the id.
+      let r = geometryReducer(
+        seeded(),
+        actions.assignMaterialRequested(P, S, ['a'], '7', 'Grass', 'Ground.001')
+      )
+      r = geometryReducer(r, actions.deleteNodeSucceeded(P, S, 'a'))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+    })
+
+    // An unassign is a material change like any other: it takes the same mark, so
+    // the row spins for the DELETE and refuses a drop that would race it. Before
+    // this the row sat idle for the whole request and only began spinning
+    // afterwards, once the restyled binary came back.
+    it('UNASSIGN_MATERIAL_REQUESTED marks the object', () => {
+      const r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      expect(r.byScope[KEY].assigningIds).toEqual(['a'])
+    })
+
+    it('UNASSIGN_MATERIAL_SUCCEEDED releases it', () => {
+      let r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      r = geometryReducer(r, actions.unassignMaterialSucceeded(P, S, 'a', '7'))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+    })
+
+    it('UNASSIGN_MATERIAL_FAILED releases it too, so the row is not stranded', () => {
+      // Nothing follows a failure to take the mark over — no binary refetch — so
+      // leaving it set would spin the row for the rest of the session.
+      let r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      r = geometryReducer(r, actions.unassignMaterialFailed(P, S, 'a', '7', 'nope'))
+      expect(r.byScope[KEY].assigningIds).toEqual([])
+    })
+
+    it('an unassign on one object leaves another object marked', () => {
+      let r = geometryReducer(seeded(), actions.unassignMaterialRequested(P, S, 'a', '7'))
+      r = geometryReducer(r, actions.unassignMaterialRequested(P, S, 'b', '7'))
+      r = geometryReducer(r, actions.unassignMaterialSucceeded(P, S, 'a', '7'))
+      expect(r.byScope[KEY].assigningIds).toEqual(['b'])
+    })
+  })
+
   describe('edit-object draft', () => {
     // +Ground POSTs first; CREATE_OBJECT_SUCCEEDED inserts the node AND opens the
     // edit form populated from the persisted object's values.
-    const created = (values: Record<string, string> = { length: '10', breadth: '10' }) =>
+    const created = (
+      values: Record<string, string> = { length: '10', breadth: '10' },
+      materialGroups: DraftMaterialGroup[] = []
+    ) =>
       geometryReducer(
         initialState,
         actions.createObjectSucceeded(P, S, {
           node: ground('27', 'Ground.001'),
           values,
           objectTypeId: 1,
-          objectName: 'Ground'
+          objectName: 'Ground',
+          materialGroups
         })
       )
 
@@ -598,6 +698,19 @@ describe('geometryReducer', () => {
       expect(created().byScope[KEY].lastCreatedId).toBe('27')
     })
 
+    // The backend gives every new ground a default `mtl.<name>` material group
+    // and returns it on the POST, so the form must open already showing it.
+    it('CREATE_OBJECT_SUCCEEDED seeds the default material into the draft AND the baseline', () => {
+      const mtl: DraftMaterialGroup = { groupId: '8', name: 'mtl.Ground.001' }
+      const r = created({ length: '10' }, [mtl])
+      expect(r.createDraft?.materials).toEqual([mtl])
+      // The BASELINE half is what stops Save re-PATCHing a group the backend
+      // already assigned (an add-only PATCH would 409).
+      expect(r.createDraft?.materialBaseline).toEqual(['8'])
+      // Cached too, or clicking away and back would serve a material-less detail.
+      expect(r.byScope[KEY].detailsById['27'].materialGroups).toEqual([mtl])
+    })
+
     // +Ground has to lock while its own POST is in flight, and release on either
     // outcome — otherwise a failed create would leave the button dead.
     it('CREATE_OBJECT_REQUESTED marks the create in flight', () => {
@@ -615,7 +728,8 @@ describe('geometryReducer', () => {
             node: ground('27', 'Ground.001'),
             values: {},
             objectTypeId: 1,
-            objectName: 'Ground'
+            objectName: 'Ground',
+            materialGroups: []
           })
         ).creating
       ).toBe(false)
@@ -933,8 +1047,8 @@ describe('geometryReducer', () => {
     })
 
     it('ASSIGN_MATERIAL_SUCCEEDED (drag-drop) REPLACES the material already on the object', () => {
-      // Single-material rule holds for drops too: the saga has already DELETEd the
-      // displaced assignment, so every list here is overwritten, not appended to.
+      // Single-material rule holds for drops too: the backend displaced the older
+      // assignment, so every list here is overwritten, not appended to.
       let r = created()
       r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '55', 'Concrete'))
       r = geometryReducer(r, actions.assignMaterialSucceeded(P, S, ['27'], '56', 'Sand'))

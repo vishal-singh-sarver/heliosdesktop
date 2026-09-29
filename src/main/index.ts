@@ -183,7 +183,26 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   // ahead of it. Instead the initial screen (HomePage / ProjectScreen) sends
   // 'app:ready' from its own mount effect, so the splash holds until the
   // screen has actually painted.
-  mainWindow.webContents.ipc.once('app:ready', () => {
+  //
+  // "Painted" means the shell, NOT a fully loaded screen. ProjectScreen signals
+  // while a restart's /init is still hydrating (see its hydration gate), because
+  // that wait belongs in the app's own loader — which has a progress bar and a
+  // Cancel button — and not behind a splash PNG that has neither.
+  //
+  // One reveal path, whichever trigger gets here first.
+  //
+  // Showing the window WITHOUT taking the splash down is not a partial reveal,
+  // it is a broken one: the splash is alwaysOnTop and opaque, so it sits over
+  // whatever the renderer is showing. The fallback below used to do exactly
+  // that, which is why a stalled startup looked like a frozen splash on a black
+  // rectangle rather than an app with a loader in it — the boot dialog, its
+  // progress bar and its Cancel button were all rendering underneath.
+  let fallbackTimer: NodeJS.Timeout
+  let revealed = false
+  const reveal = (): void => {
+    if (revealed) return
+    revealed = true
+    clearTimeout(fallbackTimer)
     if (mainWindow.isDestroyed()) return
     // Headless e2e: skip show() so the window never reaches the screen. The
     // renderer is already mounted and painted at this point, so every WebDriver
@@ -198,16 +217,16 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
         splash.destroy()
       }
     })
-  })
+  }
 
-  // Safety net: if the renderer crashes before sending 'app:ready', show the
-  // window anyway after a generous timeout so the user doesn't stare at the
-  // splash forever. The splash stays up — error dialogs in the renderer (if
-  // any) will surface.
-  const fallbackTimer = setTimeout(() => {
-    if (isHeadlessTestRun()) return
-    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
-  }, 10_000)
+  mainWindow.webContents.ipc.once('app:ready', reveal)
+
+  // Safety net for a renderer that never signals at all — one that crashed
+  // before React ran, so no renderer-side gate can help. A slow /init is NOT
+  // this case any more: ProjectScreen's shell mounts and signals while the boot
+  // is still running, so a legitimately long load reveals immediately and shows
+  // its own loader.
+  fallbackTimer = setTimeout(reveal, 10_000)
   mainWindow.once('closed', () => clearTimeout(fallbackTimer))
 
   // F11 toggles fullscreen. enter/leave-full-screen fire AFTER the OS animation

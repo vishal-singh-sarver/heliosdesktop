@@ -1,6 +1,5 @@
 import deleteIcon from '@renderer/assets/delete.svg'
 import infoIcon from '@renderer/assets/info.svg'
-import pencilIcon from '@renderer/assets/pencil.svg'
 import AnchoredPopup from '@renderer/components/AnchoredPopup'
 import Dialog from '@renderer/components/Dialog'
 import FormField from '@renderer/components/FormField'
@@ -32,6 +31,7 @@ import {
   selectAllObjectTypes
 } from 'containers/ProjectScreen/selectors'
 import type { MaterialTypeDef } from 'containers/ProjectScreen/types'
+import { selectPendingObjectIds } from 'containers/3DWindow/store/selectors'
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import type { Reducer } from 'redux'
@@ -72,6 +72,7 @@ import RepeatField from './RepeatField'
 import saga from './saga'
 import SelectMaterialsPopup from './SelectMaterialsPopup'
 import {
+  selectAssigningIds,
   selectCreateDraft,
   selectCreateDraftNonce,
   selectDeletingIds,
@@ -414,6 +415,16 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // which guards a double click while the POST is in flight.
   const nextMaterialName = useSelector(selectNextMaterialName)
   const materialCreateStatus = useSelector(selectMaterialCreateStatus)
+  // A material is still being applied to THIS object — its assign POST is out, or
+  // the restyled binary it produced is still downloading (the long half: a
+  // 1000×1000 ground is 228 MB). The picker closes for that window, so a material
+  // dropped on the tree can't be overtaken by one staged here: the ground carries
+  // ONE material, so the second would race the first rather than add to it. Same
+  // lock the tree row applies to a drop — see TreeRow's `objectLocked`.
+  const assigningIds = useSelector(selectAssigningIds)
+  const pendingBinaryIds = useSelector(selectPendingObjectIds)
+  const materialLocked =
+    assigningIds.has(draft.objectId) || pendingBinaryIds.has(Number(draft.objectId))
 
   // The material currently in the Materials section — the GET baseline, or the
   // one picked this session that replaced it. A ground carries at most one, so
@@ -554,7 +565,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
   // (on commit, on a resolution change, or on open). Cleared as soon as that
   // field is edited again, so it always describes the value on screen.
   const [repeatNotes, setRepeatNotes] = React.useState<Record<string, string | null>>({})
-  // The name is read-only until the pencil is tapped (spec: "edit icon which
+  // The name is read-only until it's double-clicked (spec: "edit icon which
   // should be tapped only to edit the name"); the trash icon's confirmation lives
   // here too (saved objects confirm before delete; brand-new ones discard).
   const [nameEditing, setNameEditing] = React.useState(false)
@@ -571,6 +582,13 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     setMaterialPopupOpen(true)
   }
   const closeMaterialPopup = (): void => setMaterialPopupOpen(false)
+  // The picker can be standing open when the lock arrives — this ground's binary
+  // re-fetch landing from an earlier Save, say. Its Select button is disabled by
+  // then, so leaving the list up would offer a pick the button behind it has
+  // already refused. Derived rather than synced through an effect: the lock takes
+  // the popup off screen without a second render pass, and if the assign is
+  // refused the user gets back the picker they left open.
+  const materialPopupVisible = materialPopupOpen && !materialLocked
 
   // "+ Add New Material", from the picker's empty state — the same thing +Add
   // Materials does in the left panel: create an empty Material.NNN group on the
@@ -651,7 +669,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     }
   }, [detailPanel])
 
-  // Focus the name field the moment the pencil unlocks it (it's read-only until
+  // Focus the name field the moment a double-click unlocks it (read-only until
   // then, so we can't focus in the same click handler before the re-render).
   React.useEffect(() => {
     if (nameEditing) nameInputRef.current?.focus()
@@ -1023,8 +1041,8 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // the form never needs an inner scrollbar — even with every field showing an
     // error. Overflow on very short windows is absorbed by the RightPanel wrapper.
     <div className="flex flex-col gap-2.5">
-      {/* Header: object name with a pencil (unlock to rename) and a trash
-          (discard/delete). The name is read-only until the pencil is tapped. */}
+      {/* Header: object name with a trash (discard/delete). The name is
+          read-only until it's double-clicked. */}
       <div>
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
@@ -1032,6 +1050,10 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
               ref={nameInputRef}
               aria-label="Object name"
               aria-invalid={nameError != null}
+              // Only while the field is actually double-clickable: mid-edit the
+              // advice is spent, and on a deleted object the gesture is a no-op
+              // (the handler below bails), so promising it would be a lie.
+              title={!nameEditing && !objectDeleted ? messages.renameHint : undefined}
               value={draft.name}
               readOnly={!nameEditing}
               disabled={objectDeleted}
@@ -1068,15 +1090,6 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           </div>
           <button
             type="button"
-            aria-label="Edit name"
-            disabled={objectDeleted}
-            onClick={() => setNameEditing(true)}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-neutral-700/50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <img src={pencilIcon} alt="" aria-hidden="true" className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
             aria-label="Delete geometry"
             disabled={objectDeleted || deleting}
             onClick={onDeleteClick}
@@ -1100,15 +1113,14 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
             {group.heading && (
               <p className="mb-1.5 text-[13px] font-medium leading-[20px] tracking-normal text-[#D3D3D3]">
                 {group.heading}
-                {/* The required marker sits on the HEADING, not the fields: the
-                    heading is the group's name ("Position"), and its fields are
-                    the axes of one value (X, Y, Z) whose own labels are sr-only.
-                    Starring each box would repeat the same claim three times for
-                    what the user reads as a single required entry. Shown when the
-                    group holds any required field. */}
-                {group.fields.some((field) => field.required) && (
-                  <span className="text-red-400">*</span>
-                )}
+                {/* NO required marker on this form, by request. The heading used
+                    to carry a red star whenever the group held a required field
+                    (it sits on the heading rather than on each box because the
+                    fields are the axes of one value — X, Y, Z — whose own labels
+                    are sr-only, so starring each would repeat the same claim
+                    three times). Requiredness is still enforced: Save stays
+                    disabled while a required field is empty, and the per-field
+                    `optional` flag below keeps the sr-only labels accurate. */}
               </p>
             )}
             <div
@@ -1209,9 +1221,13 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           <button
             ref={selectBtnRef}
             type="button"
-            disabled={objectDeleted}
-            aria-expanded={materialPopupOpen}
-            onClick={() => (materialPopupOpen ? closeMaterialPopup() : openMaterialPopup())}
+            disabled={objectDeleted || materialLocked}
+            // The button goes grey with nothing to explain it, and the geometry's
+            // spinner is over in the left panel — this is what says which of the
+            // two disabled states the user is looking at.
+            title={materialLocked ? messages.materialAssignInProgress(draft.name) : undefined}
+            aria-expanded={materialPopupVisible}
+            onClick={() => (materialPopupVisible ? closeMaterialPopup() : openMaterialPopup())}
             className="flex h-[25px] w-[58px] shrink-0 items-center justify-center rounded-[4px] border border-app-border bg-white text-[13px] font-normal leading-none text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Select
@@ -1283,7 +1299,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
         {/* "Select Materials" popup — level with the Select button, on the strip
             beside the panel, and it stays there as the window resizes. */}
         <AnchoredPopup
-          open={materialPopupOpen}
+          open={materialPopupVisible}
           onClose={closeMaterialPopup}
           getAnchorRect={getSelectAnchorRect}
           placement="left-start"

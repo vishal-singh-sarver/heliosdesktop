@@ -7,6 +7,7 @@ import projectScreenSaga from './containers/ProjectScreen/saga'
 import threeDWindowReducer from './containers/3DWindow/store/reducer'
 import threeDWindowSaga from './containers/3DWindow/store/saga'
 import { openProject, scopeLost } from './containers/ProjectBoot/actions'
+import { navigate } from './store/navigationReducer'
 import type { RootState } from './store/reducers'
 import HomePage from './containers/HomePage/Loadable'
 import ProjectScreen from './containers/ProjectScreen/Loadable'
@@ -44,28 +45,72 @@ function App(): React.JSX.Element {
   // screen has been deleted. This is the one place that turns that into state.
   React.useEffect(() => onScopeLost((loss) => dispatch(scopeLost(loss))), [dispatch])
 
-  // Restart: navigationReducer opens straight to the project screen when both
-  // ids were persisted, so the boot runs with the screen already behind the
-  // loader. The ref keeps StrictMode's deliberate double-mount in dev from
-  // starting a second load.
-  const restoredRef = React.useRef(false)
+  // ── Restart restore ────────────────────────────────────────────────────────
+  //
+  // navigationReducer opens straight to 'project' when both ids were persisted,
+  // which mounted ProjectScreen in the FIRST frame — before the restore effect
+  // below had even dispatched openProject. React runs child effects before
+  // parent ones, so the whole screen's data load went out ahead of /init: the
+  // four type catalogs, listScenarios (and the scene load it chains), and the
+  // geometry tree. They did not corrupt anything — the backend's hydration lock
+  // serialises them — they simply queued behind the very hydration they were
+  // meant to run after. The loader hid that, but hiding a request is not the
+  // same as not making it, and it defeated the point of running /init first and
+  // alone (see ProjectBoot/saga's streamInit).
+  //
+  // So on this path those requests are held back until the boot settles, which
+  // is what already happens on the Home path — there ProjectScreen does not
+  // exist until reveal() navigates to it, after /init is done.
+  //
+  // What is held back is the point. This used to unmount the whole SCREEN, and
+  // that overshot: the shell — header, project name, the empty panel frame —
+  // fetches nothing, and unmounting it meant that on this path nothing at all
+  // was mounted while /init ran. The splash comes down only when a screen
+  // signals `app:ready`, so a slow /init (a large context.xml is legitimately
+  // slow) left the user on an always-on-top splash with no progress bar and no
+  // Cancel — with the boot loader rendering, unseen, underneath it.
+  //
+  // The gate now lives in ProjectScreen and covers exactly the fetching parts.
+  // See the hydration gate there for why it reads `restored || bootActive`.
+
+  // The ref keeps StrictMode's deliberate double-mount in dev from starting a
+  // second load.
+  const restoreStartedRef = React.useRef(false)
   React.useEffect(() => {
-    if (restoredRef.current) return
-    restoredRef.current = true
+    if (restoreStartedRef.current) return
+    restoreStartedRef.current = true
     if (screen !== 'project') return
 
     try {
       const projectId = localStorage.getItem(STORAGE_KEYS.activeProjectId)
       const scenarioId = localStorage.getItem(STORAGE_KEYS.activeScenarioId)
-      if (projectId && scenarioId) dispatch(openProject(projectId))
+      if (projectId && scenarioId) {
+        dispatch(openProject(projectId))
+        return
+      }
     } catch {
       /* storage disabled — nothing to restore */
     }
+
+    // No boot will run, so nothing would ever open the gate above. Only
+    // reachable if storage stopped being readable between pickInitialScreen()
+    // and here — but a window stuck on an empty backdrop forever is not an
+    // acceptable way to lose that race, and Home is where a restore that cannot
+    // happen belongs anyway.
+    dispatch(navigate('home'))
   }, [dispatch, screen])
 
   return (
     <div className="flex flex-col h-screen bg-dark text-neutral-200 overflow-hidden">
       {screen === 'home' && <HomePage />}
+      {/* The gate moved INTO ProjectScreen, and narrowed: it holds back the
+          panels and the fetch effects, not the screen itself. Keeping the whole
+          screen unmounted meant that on the restart path NOTHING was mounted
+          while /init ran — and since the splash comes down only when a screen
+          signals `app:ready`, a slow or stalled /init left the user staring at
+          an always-on-top splash with no progress and no way out. The shell
+          makes no requests, so mounting it costs nothing and is what lets the
+          window reveal. See the hydration gate in ProjectScreen. */}
       {screen === 'project' && <ProjectScreen />}
       {/* App-global toast outlet (material-assignment feedback, etc.). */}
       <SnackbarHost />

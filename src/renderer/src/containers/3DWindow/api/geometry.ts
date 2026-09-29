@@ -1,7 +1,10 @@
 import { ApiError } from 'utils/api'
 import { BASE_URL } from 'utils/constants'
 import { getSessionId } from 'utils/session'
+import type { GpuGeometry } from './geometryV2'
+import { parseGpuBuffers } from './geometryV2'
 import type { PrimitiveInfo, Vec2UV, Vec3 } from '../models/types'
+import { countBytes, countGeometry, startTimer } from '../perf/metrics'
 import { GEOMETRY_ROUTES } from './endpoints'
 
 /**
@@ -22,7 +25,13 @@ class GeometryParseError extends Error {
   }
 }
 
-function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
+interface ParsedGeometry {
+  primitives: PrimitiveInfo[]
+  /** Tallied during the walk below — see the note at the return. */
+  triangles: number
+}
+
+function parseBinaryPrimitives(buffer: ArrayBuffer): ParsedGeometry {
   const view = new DataView(buffer)
   let offset = 0
 
@@ -55,12 +64,15 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
   offset += 4
 
   const primitives: PrimitiveInfo[] = new Array(count)
+  let triangles = 0
   for (let i = 0; i < count; i++) {
     need(8, i, 'header')
     const uuid = view.getInt32(offset, true)
     offset += 4
     const vertexCount = view.getUint32(offset, true)
     offset += 4
+
+    if (vertexCount >= 3) triangles += vertexCount - 2
 
     need(vertexCount * 12, i, 'vertices')
     const vertices: Vec3[] = new Array(vertexCount)
@@ -120,7 +132,13 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
     }
   }
 
-  return primitives
+  // Counted INSIDE the walk rather than by a second pass over the result.
+  // A separate tally re-traverses the whole primitive graph at the exact moment
+  // it is largest — 2.75 GB at a 2000x2000 ground — and on a machine that has
+  // started swapping, touching every one of those objects again is far more
+  // expensive than the arithmetic suggests. Two adds in a loop that already
+  // performs ~20 DataView reads per primitive costs nothing measurable.
+  return { primitives, triangles }
 }
 
 // Requests that have STARTED but not yet settled, keyed by path.
@@ -136,7 +154,10 @@ function parseBinaryPrimitives(buffer: ArrayBuffer): PrimitiveInfo[] {
 // Callers share the SAME array. Nothing mutates a parsed result today (it is
 // stored in sceneCache and read for rendering), and nothing should start.
 interface InFlightRequest {
-  promise: Promise<PrimitiveInfo[]>
+  // `unknown` because v1 and v2 parse to different shapes. They never collide:
+  // the map is keyed by PATH and the two formats live on different routes, so a
+  // joined caller always gets the shape it asked for.
+  promise: Promise<unknown>
   // Superseding a request is the only thing that aborts it. See the note on
   // fetchBinaryGeometry for why nothing else may.
   controller: AbortController
@@ -176,13 +197,26 @@ export function isGeometryAborted(err: unknown): boolean {
  * lock for a result nobody would read. Cancelling on supersede is free;
  * cancelling on a clock is the thing that broke.
  */
-async function fetchBinaryGeometry(path: string, objectId?: number): Promise<PrimitiveInfo[]> {
+async function fetchBinaryGeometry<T>(
+  path: string,
+  objectId: number | undefined,
+  decode: (buffer: ArrayBuffer) => T
+): Promise<T> {
   const joined = inFlight.get(path)
-  if (joined) return joined.promise
+  if (joined) return joined.promise as Promise<T>
 
   const controller = new AbortController()
 
-  const promise = (async (): Promise<PrimitiveInfo[]> => {
+  const promise = (async (): Promise<T> => {
+    // Timed separately because they fail for different reasons and are fixed by
+    // different changes: `fetch` is the backend's packing plus transfer, `parse`
+    // is main-thread work in this process. Conflating them hid which half of a
+    // slow load was actually slow.
+    //
+    // Neither timer settles on the throw paths, deliberately — an aborted or
+    // failed request is not a sample of how long a load takes.
+    const endFetch = startTimer('fetch')
+
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: { 'session-id': getSessionId() },
       signal: controller.signal
@@ -194,7 +228,14 @@ async function fetchBinaryGeometry(path: string, objectId?: number): Promise<Pri
     }
 
     const buffer = await res.arrayBuffer()
-    return parseBinaryPrimitives(buffer)
+    endFetch()
+    countBytes(buffer.byteLength)
+
+    const endParse = startTimer('parse')
+    const decoded = decode(buffer)
+    endParse()
+
+    return decoded
   })()
 
   const entry: InFlightRequest = { promise, controller }
@@ -202,7 +243,7 @@ async function fetchBinaryGeometry(path: string, objectId?: number): Promise<Pri
   if (objectId !== undefined) inFlightByObject.set(objectId, path)
 
   try {
-    return await promise
+    return (await promise) as T
   } finally {
     // Cleared once settled, success or failure, so a retry starts a fresh
     // request rather than replaying a stale rejection.
@@ -245,12 +286,40 @@ export function abortObjectGeometry(objectId: number): void {
   entry.controller.abort()
 }
 
-/** Fetch and parse one object's geometry. */
+/** Fetch and parse one object's geometry (wire format v1). */
 export async function fetchObjectGeometryBinary(
   projectId: string,
   scenarioId: string,
   objectId: number
 ): Promise<PrimitiveInfo[]> {
   const path = GEOMETRY_ROUTES.objectGeometryBinary(projectId, scenarioId, objectId)
-  return fetchBinaryGeometry(path, objectId)
+  return fetchBinaryGeometry(path, objectId, (buffer) => {
+    const { primitives, triangles } = parseBinaryPrimitives(buffer)
+    countGeometry({ primitives: primitives.length, triangles })
+    return primitives
+  })
+}
+
+/**
+ * Fetch one object's geometry as GPU-ready typed arrays (wire format v2).
+ *
+ * Shares the in-flight dedupe and the abort handling above, deliberately: those
+ * guard real bugs — a save landing on a superseded download, a hidden object's
+ * 228 MB continuing to arrive — and a second fetch path that quietly skipped
+ * them would reintroduce both.
+ *
+ * Returns null when the object has no primitives, which the backend serves as an
+ * empty body.
+ */
+export async function fetchObjectGeometryGpu(
+  projectId: string,
+  scenarioId: string,
+  objectId: number
+): Promise<GpuGeometry | null> {
+  const path = GEOMETRY_ROUTES.objectGeometryGpu(projectId, scenarioId, objectId)
+  return fetchBinaryGeometry(path, objectId, (buffer) => {
+    const gpu = parseGpuBuffers(buffer)
+    if (gpu) countGeometry({ primitives: gpu.primitiveCount, triangles: gpu.totalTris })
+    return gpu
+  })
 }

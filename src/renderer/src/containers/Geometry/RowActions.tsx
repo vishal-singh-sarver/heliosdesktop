@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { showFullTextOnHover } from 'utils/truncationTooltip'
 import { setModelOn, toggleRender, toggleViewport } from './actions'
+import messages from './messages'
 import { isModelOn } from './models'
 import { selectModelIds } from './selectors'
 import type { GeoNode } from './types'
@@ -21,6 +22,11 @@ import type { GeoNode } from './types'
 
 interface IconButtonProps {
   label: string
+  // Native hover tooltip. Optional and unset by default, so only the buttons
+  // that have something to add beyond their glyph carry one — a tooltip that
+  // just restates the aria-label is noise. Screen readers read `aria-label` and
+  // ignore `title`, so the two never collide.
+  title?: string
   children: React.ReactNode
   className?: string
   active?: boolean
@@ -41,6 +47,7 @@ interface IconButtonProps {
 
 function IconButton({
   label,
+  title,
   children,
   className = '',
   active = false,
@@ -57,6 +64,7 @@ function IconButton({
       ref={buttonRef}
       type="button"
       aria-label={label}
+      title={title}
       aria-pressed={active}
       aria-haspopup={hasMenu ? 'menu' : undefined}
       aria-expanded={hasMenu ? expanded : undefined}
@@ -140,6 +148,7 @@ export default function RowActions({
 
   const anchorRef = React.useRef<HTMLSpanElement>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const menuRef = React.useRef<HTMLDivElement>(null)
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null)
   const menuOpen = coords !== null
 
@@ -178,7 +187,17 @@ export default function RowActions({
   }
 
   // Close on Escape and restore focus to the trigger, matching native menu
-  // behaviour for keyboard users (outside-click close is handled by the overlay).
+  // behaviour for keyboard users.
+  //
+  // Focus leaving the menu closes it too, and that half is NOT redundant with the
+  // overlay. The overlay is a POINTER trap: it has no tabindex, so it isn't in
+  // the tab order and doesn't stop focus reaching the controls painted beneath
+  // it. Tabbing out of an open menu therefore lands on (say) the panel's collapse
+  // button, and Enter fires that button's own click — an event that never touches
+  // the overlay, so its onClick never ran and the menu stayed open behind the
+  // action the user just took. Tab dismissing a menu is also what the ARIA menu
+  // pattern calls for. `focusin` rather than `focus` because only the former
+  // bubbles, so one document listener covers the whole tree.
   React.useEffect(() => {
     if (!menuOpen) return
     const onKeyDown = (e: KeyboardEvent): void => {
@@ -188,8 +207,22 @@ export default function RowActions({
         triggerRef.current?.focus()
       }
     }
+    const onFocusIn = (e: FocusEvent): void => {
+      const target = e.target as Node | null
+      if (!target) return
+      // The trigger counts as inside: it keeps focus while the menu is open, so
+      // treating it as outside would close the menu the moment it opened.
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      // No focus() back to the trigger here — the user is deliberately moving
+      // somewhere else, and yanking focus back would fight them.
+      closeMenu()
+    }
     document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
+    document.addEventListener('focusin', onFocusIn)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('focusin', onFocusIn)
+    }
   }, [menuOpen])
 
   // Reflect the per-model state: the icon is "shown" if any model is on, and
@@ -221,6 +254,7 @@ export default function RowActions({
       <span className="relative shrink-0" ref={anchorRef}>
         <IconButton
           label={renderHidden ? 'Show in render' : 'Hide from render'}
+          title={renderHidden ? messages.rowRenderShowHint : messages.rowRenderHideHint}
           active={renderHidden}
           hasMenu
           expanded={menuOpen}
@@ -251,6 +285,7 @@ export default function RowActions({
               />
               <div
                 role="menu"
+                ref={menuRef}
                 style={{ top: coords.top, left: coords.left, width: MENU_WIDTH }}
                 className="fixed z-50 rounded-md border border-app-border bg-[#1f2126] p-1 shadow-lg"
                 onClick={(e) => e.stopPropagation()}
@@ -292,6 +327,9 @@ export default function RowActions({
       </span>
       <IconButton
         label={node.visibleInViewport ? 'Hide from viewport' : 'Show in viewport'}
+        title={
+          node.visibleInViewport ? messages.rowViewportHideHint : messages.rowViewportShowHint
+        }
         active={!node.visibleInViewport}
         noHoverBg
         onClick={onToggleViewport}

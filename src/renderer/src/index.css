@@ -142,6 +142,22 @@ body {
   font-family: var(--font-main);
 }
 
+/* The app shell is pinned to the viewport, so the WINDOW itself never scrolls.
+   Only the panels inside it do.
+
+   #root previously had no rule at all — an unstyled div in an unsized body — so
+   anything that grew the document grew the page. components/Select borrows scroll
+   room by adding paddingBottom to the nearest scrolling ancestor, and when it
+   finds none it falls back to document.scrollingElement; against an unpinned
+   document that put a scrollbar on the whole window instead of on the panel.
+   Fixed positioning takes #root out of flow entirely, so there is no page to
+   scroll and that fallback can no longer move the app. */
+#root {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+}
+
 /* Button labels are not selectable text — dragging across a button should never
    highlight its caption (standard button behaviour). */
 button {

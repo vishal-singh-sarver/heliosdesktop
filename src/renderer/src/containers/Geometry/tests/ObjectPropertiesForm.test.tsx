@@ -916,6 +916,102 @@ describe('<ObjectPropertiesForm /> — material properties popup', () => {
   })
 })
 
+// A ground carries ONE material. While one is still being applied to THIS object
+// — its assign POST out, or the restyled binary still downloading — staging
+// another here would race the first, so the picker closes for that window. The
+// same lock the tree row applies to a drop.
+describe('<ObjectPropertiesForm /> — picker locked while a material is applying', () => {
+  const startAssign = (store: InjectableStore): void =>
+    void act(() => {
+      store.dispatch(
+        actions.assignMaterialRequested(
+          PROJECT,
+          SCENARIO,
+          [OBJECT_ID],
+          '7',
+          'Grass',
+          'Ground.001'
+        )
+      )
+    })
+
+  it('disables Select while the assign is in flight', () => {
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled()
+
+    startAssign(store)
+
+    expect(screen.getByRole('button', { name: 'Select' })).toBeDisabled()
+  })
+
+  it('says why the button is dead, since the spinner is in the other panel', () => {
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    startAssign(store)
+
+    expect(screen.getByRole('button', { name: 'Select' })).toHaveAttribute(
+      'title',
+      messages.materialAssignInProgress('Ground.001')
+    )
+  })
+
+  it('closes a picker left standing open when the lock arrives', () => {
+    // The drop can happen in the tree while this list is up.
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    expect(screen.getByText('Select Materials')).toBeInTheDocument()
+
+    startAssign(store)
+
+    expect(screen.queryByText('Select Materials')).not.toBeInTheDocument()
+  })
+
+  it('re-opens the picker once a refused assign settles', () => {
+    // Nothing was written, so there is nothing to wait for — locking the ground
+    // out of the picker for the rest of the session would be the worse bug.
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    startAssign(store)
+    act(() => void store.dispatch(actions.assignMaterialFailed(PROJECT, SCENARIO, [OBJECT_ID])))
+
+    expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled()
+  })
+
+  it('leaves the picker open when a DIFFERENT ground is the one assigning', () => {
+    const store = makeStore([material('m1', 'Cotton')])
+    render(
+      <Provider store={store}>
+        <ObjectPropertiesForm />
+      </Provider>
+    )
+    act(() => {
+      store.dispatch(
+        actions.assignMaterialRequested(PROJECT, SCENARIO, ['99'], '7', 'Grass', 'Ground.002')
+      )
+    })
+
+    expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled()
+  })
+})
+
 describe('<ObjectPropertiesForm /> — numeric keystroke guard', () => {
   it('rejects a leading + in Ground Size instead of silently dropping it', () => {
     // "+5" used to pass every check: it saved as 5, so the field read back "5"
@@ -967,22 +1063,31 @@ describe('<ObjectPropertiesForm /> — numeric keystroke guard', () => {
 })
 
 describe('<ObjectPropertiesForm /> — required marker', () => {
-  it('stars the group heading, not each field, when the group holds a required field', () => {
+  it('shows NO star on a group heading, even when the group holds a required field', () => {
     const { container } = render(
       <Provider store={makeStore()}>
         <ObjectPropertiesForm />
       </Provider>
     )
-    // "Ground Size" (length + breadth, both required) carries the star; the
-    // individual boxes keep their bare names as placeholders.
-    expect(screen.getByText(/Ground Size/).textContent).toBe('Ground Size*')
+    // "Ground Size" holds length + breadth, both required — and still reads
+    // bare. The required marker was removed from this form by request; Save
+    // gating (below) is what enforces requiredness now, so assert the heading
+    // is clean rather than that the group has no required field.
+    expect(screen.getByText(/Ground Size/).textContent).toBe('Ground Size')
     expect(fieldInput(container, 'length')).toHaveAttribute('placeholder', 'Length')
     expect(fieldInput(container, 'breadth')).toHaveAttribute('placeholder', 'Breadth')
 
-    // A group of entirely optional fields shows no star. Position's x/y/z are
-    // required: false in this fixture, so its heading stays bare.
+    // The all-optional group is unchanged and still bare, so a regression that
+    // re-added the star would be caught by the required group above, not here.
     expect(screen.getByText('Position').textContent).toBe('Position')
     expect(fieldInput(container, 'position_x')).toHaveAttribute('placeholder', 'X')
+
+    // Nothing on the form PAINTS a star. Stars do survive inside the sr-only
+    // field labels (FormField's own `optional` marker), which is deliberate —
+    // the requirement is still announced, just not drawn. A star re-added to a
+    // heading would sit outside an sr-only label and fail here.
+    const stars = Array.from(container.querySelectorAll('.text-red-400'))
+    expect(stars.filter((s) => s.closest('label.sr-only') === null)).toHaveLength(0)
   })
 })
 

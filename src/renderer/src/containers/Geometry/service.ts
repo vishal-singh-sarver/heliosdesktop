@@ -389,10 +389,13 @@ export function deleteNode(projectId: string, scenarioId: string, id: string): P
 }
 
 // The persisted object as the slice needs it: the tree node plus its raw form
-// values (so the right-panel form can show the just-created object's properties).
+// values (so the right-panel form can show the just-created object's properties)
+// and the material groups the create attached — the backend gives every ground a
+// default `mtl.<name>` group, so a new object is NOT born bare.
 export interface CreatedObject {
   node: GeoNode
   values: Record<string, string>
+  materialGroups: DraftMaterialGroup[]
 }
 
 // Creates an object (e.g. a Ground) with its default property values. The
@@ -413,7 +416,11 @@ export function createObject(
     })
     .then((res) => {
       const obj = 'object' in res ? res.object : res
-      return { node: wireObjectToNode(obj), values: wireObjectToValues(obj) }
+      return {
+        node: wireObjectToNode(obj),
+        values: wireObjectToValues(obj),
+        materialGroups: wireObjectToMaterialGroups(obj)
+      }
     })
 }
 
