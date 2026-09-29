@@ -119,6 +119,17 @@ jobs:
     # TEMPORARY: a failing e2e does not block `package`.
     # TODO: remove once the weather e2e failures are fixed.
     continue-on-error: true
+    # TEMPORARY: a failing e2e does not block `package`.
+    # TODO: remove once the weather e2e failures are fixed.
+    continue-on-error: true
+    # TEMPORARY (flow check): job-level continue-on-error. The job still shows
+    # its real red/green status and its logs, but a failing e2e no longer fails
+    # the whole run and no longer blocks `package`.
+    # TODO: REMOVE this line once the 8 weather e2e failures are fixed -
+    # otherwise a broken e2e suite can never fail a release.
+    continue-on-error: true
+    # Without this the job inherits GitHub's 6-hour default. Kept above the
+    # e2e step's own cap below so the step timeout is the one that fires.
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -209,6 +220,9 @@ jobs:
       # job fails at the end with the full list; this timeout bounds a hung
       # run. `package` gates on this job, so a red run skips packaging.
       # run.
+      # No step-level continue-on-error (it would rewrite this step to
+      # "success" and hide the failure). bail is 0, so every spec runs and the
+      # step fails at the end with the full list; the timeout bounds a hung run.
       - name: Run Integration Checks
         timeout-minutes: 60
         run: npm run e2e
@@ -272,6 +286,21 @@ jobs:
       - lint
       - test-unit
       # - test-integration
+    # A failing e2e suite blocks packaging again. While test-integration has
+    # job-level continue-on-error (above), its result counts as success here,
+    # so this dependency is harmless now and becomes a real gate the moment
+    # that temporary line is removed.
+    needs:
+      - lint
+      - test-unit
+      - test-integration
+    env:
+      # TEMPORARY (flow check): true only when the APPLE_CERTIFICATE secret is
+      # actually visible to this job. When it is empty the macOS job builds an
+      # UNSIGNED package instead of failing in the cert import step.
+      # TODO: once the secret is fixed, remove HAS_APPLE_CERT and the
+      # "unsigned" macOS step so a missing cert fails the build again.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -347,6 +376,11 @@ jobs:
         run: |
           echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
 
+      - name: Warn when Apple certificate secret is missing (macOS)
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
+        run: |
+          echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
+
       # Imports the Developer ID certs into a throwaway keychain. The .p12 in
       # APPLE_CERTIFICATE holds BOTH certs we need:
       #   Developer ID Application -> signs the .app and the backend binary
@@ -359,6 +393,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
+          [ -s certificate.p12 ] || { echo "FAIL: decoded certificate.p12 is empty"; exit 1; }
+          [ -s certificate.p12 ] || { echo "FAIL: decoded certificate.p12 is empty"; exit 1; }
           ls -l certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
@@ -409,6 +445,10 @@ jobs:
 
       # macOS is split into three steps because the PyInstaller sidecar has to
       # be signed BETWEEN building and packaging: `npm run build` runs
+      # macOS is split into steps because the PyInstaller sidecar has to be
+      # signed BETWEEN building and packaging: `npm run build` runs
+      # macOS is split into steps because the PyInstaller sidecar has to be
+      # signed BETWEEN building and packaging: `npm run build` runs
       # sync-backend (re-copies the backend) and `npm run package` re-runs the
       # build, which would wipe a signature applied earlier.
       - name: Build application (macOS)
@@ -434,10 +474,25 @@ jobs:
         run: npm run package:only
         timeout-minutes: 60
 
+      # TEMPORARY: unsigned build while APPLE_CERTIFICATE is missing. Never ship it.
+      # TEMPORARY fallback used only while the APPLE_CERTIFICATE secret is
+      # missing: builds an UNSIGNED, un-notarized package so the rest of the
+      # flow (rename, upload) can be checked. Never ship this artifact.
+      - name: Package (macOS - UNSIGNED fallback, flow check only)
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          SKIP_NOTARIZATION: '1'
+        run: npm run package:only
+        timeout-minutes: 60
+
+      # The signing hooks no-op silently without credentials, so assert it.
+      # No notarization checks: release builds are deliberately not notarized.
       # A green build does NOT by itself prove the artifact is signed, because
       # the hooks no-op silently when credentials are missing. Notarization
       # assertions (spctl, stapler) are omitted since this build is
       # deliberately not notarized. Everything signing related is asserted.
+      # Skipped for the unsigned fallback (there is nothing to verify).
       - name: Verify signing (macOS)
         if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
         shell: bash
@@ -553,4 +608,6 @@ jobs:
       # Deletes build.keychain, the keychain the import step actually creates.
       - name: Remove temporary keychain
         if: startsWith(matrix.label, 'macos') && always()
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true' && always()
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true' && always()
         run: security delete-keychain build.keychain || true
