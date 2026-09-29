@@ -80,6 +80,14 @@ jobs:
       - name: Ensure @testing-library/dom is installed
         run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
 
+      # @testing-library/react (v16+) needs @testing-library/dom as a peer
+      # dependency. `--legacy-peer-deps` does not auto-install peers, so make
+      # sure it is present. TEMPORARY: once it is added to package.json
+      # devDependencies (npm install -D @testing-library/dom), this step is a
+      # harmless no-op and can be removed.
+      - name: Ensure @testing-library/dom is installed
+        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
+
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
