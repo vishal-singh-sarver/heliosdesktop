@@ -255,14 +255,12 @@ jobs:
       # which wins. Left in place because the suite passes either way (1299/1299
       # verified under UTC) - but do not rely on it to make an IST-hardcoded
       # test pass.
-      # TEMPORARILY DISABLED - re-enable once @testing-library/dom (and any
-      # other missing peers) are added to devDependencies in package.json.
-      # - name: Run unit tests
-      #   env:
-      #     TZ: Asia/Kolkata
-      #   run: npm test
-      - name: Unit tests disabled
-        run: echo "::warning title=Unit tests skipped::npm test is commented out in ci-main.yml"
+      # @testing-library/dom (and any other missing peer) is installed by the
+      # "Install missing peer dependencies" step above.
+      - name: Run unit tests
+        env:
+          TZ: Asia/Kolkata
+        run: npm test
 
   # ==========================================================================
   # DOCS - offline documentation bundle for the stable release.
@@ -327,221 +325,210 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ==========================================================================
-  # TEMPORARILY DISABLED: Integration Tests (windows-2022, macos-latest,
-  # ubuntu-latest). The e2e suite currently fails (weather / projectscreen /
-  # journey specs), so the whole job is commented out for now.
-  # TODO: uncomment this job AND restore `test-integration` in the `needs:` of
-  # the `package` job below. Until then NO e2e gate protects main: a broken UI
-  # can still be signed and packaged.
-  # ==========================================================================
-  # test-integration:
-  #   # Old gate (kept for reference):
-  #   # if: |
-  #   #   (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
-  #   #   github.event_name == 'push' ||
-  #   #   github.event_name == 'workflow_dispatch'
-  #   # Builds the app + runs e2e, so it is a build: only on push/dispatch, never on PRs.
-  #   if: github.event_name != 'pull_request'
-  #   name: Integration Tests (${{ matrix.os }})
-  #   # Without this the job inherits GitHub's 6-hour default. A macOS run on
-  #   # 2026-07-29 spent 1h50m here because ~104 e2e tests each waited out their
-  #   # own 10s/120s timeout - and since `package` needs this job, that stalled
-  #   # signing behind a result that `continue-on-error` discards anyway.
-  #   # Must stay above the e2e step's own cap below, or the job kills the step
-  #   # first and the step timeout never takes effect.
-  #   timeout-minutes: 75
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       os:
-  #         - windows-2022
-  #         - macos-latest
-  #         - ubuntu-latest
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - uses: actions/checkout@v5
-  #       with:
-  #         submodules: recursive
-  #         token: ${{ secrets.PAT }}
-  #
-  #     # Mirrors ci-release.yml - see the long comment there for the evidence.
-  #     # Short version: the ubuntu runner's e2e working set SPIKES (~36G steady,
-  #     # 50G and 57G during two specs) rather than growing, and without this
-  #     # reclamation the spike exhausts the disk. It does not fail cleanly: the
-  #     # app opens a window whose renderer never mounts, so specs fail as
-  #     # renderer timeouts and hook failures that read like product bugs.
-  #     #
-  #     # MUST run BEFORE setup-node, and must NOT delete /opt/hostedtoolcache or
-  #     # $AGENT_TOOLSDIRECTORY - setup-node installs node there, and deleting it
-  #     # afterwards makes `npm install` die with "npm: command not found".
-  #     - name: Free disk space (Linux)
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         echo "=== before ==="; df -h /
-  #         sudo rm -rf /usr/local/lib/android \
-  #                     /usr/share/dotnet \
-  #                     /usr/share/swift \
-  #                     /usr/local/.ghcup \
-  #                     /opt/ghc \
-  #                     /usr/local/share/boost \
-  #                     /usr/local/share/powershell || true
-  #         sudo apt-get clean || true
-  #         docker image prune -af || true
-  #         echo "=== after ==="; df -h /
-  #
-  #     - uses: actions/setup-node@v5
-  #       with:
-  #         node-version: 22
-  #
-  #     - name: Install Linux system dependencies
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install -y \
-  #           build-essential libgtk-3-dev libnss3 libxss1 libasound2t64 \
-  #           libxtst6 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
-  #           libgbm1 libxkbcommon0 fonts-liberation xdg-utils \
-  #           libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
-  #
-  #     - name: Install dependencies
-  #       shell: bash
-  #       run: |
-  #         set -uo pipefail
-  #         echo "node $(node -v), npm $(npm -v)"
-  #         rm -rf node_modules
-  #         out="${RUNNER_TEMP:-/tmp}/npm-install-output.txt"
-  #         if npm install --no-audit --no-fund 2>&1 | tee "$out"; then exit 0; fi
-  #         log=$(grep -o 'A complete log of this run can be found in: .*' "$out" | tail -1 | sed 's/.*found in: //' | tr -d '\r')
-  #         command -v cygpath >/dev/null 2>&1 && [ -n "$log" ] && log=$(cygpath -u "$log")
-  #         if [ -n "$log" ] && [ -f "$log" ]; then
-  #           echo "===== $log (last 120 lines; 'verbose stack' shows where npm crashed) ====="
-  #           tail -120 "$log"
-  #         else
-  #           echo "npm debug log not found (looked for: ${log:-<none>})"
-  #         fi
-  #         echo "::error title=npm install failed::See the npm debug log printed above."
-  #         exit 1
-  #
-  #     # See the "Install missing peer dependencies" step in the lint job for
-  #     # the full explanation. Repeated verbatim; keep the copies in sync.
-  #     - name: Install missing peer dependencies
-  #       shell: bash
-  #       run: |
-  #         set -euo pipefail
-  #         list="${RUNNER_TEMP:-/tmp}/extra-peers.txt"
-  #         : > "$list"
-  #         for round in 1 2 3; do
-  #           node -e '
-  #             const fs=require("fs"),path=require("path");
-  #             const want=new Map();
-  #             function scan(dir){
-  #               if(!fs.existsSync(dir))return;
-  #               for(const n of fs.readdirSync(dir)){
-  #                 if(n.startsWith("."))continue;
-  #                 const p=path.join(dir,n);
-  #                 if(n.startsWith("@")){scan(p);continue;}
-  #                 const pj=path.join(p,"package.json");
-  #                 if(!fs.existsSync(pj))continue;
-  #                 let j;try{j=JSON.parse(fs.readFileSync(pj,"utf8"))}catch{continue}
-  #                 const meta=j.peerDependenciesMeta||{};
-  #                 for(const [d,v] of Object.entries(j.peerDependencies||{})){
-  #                   if(meta[d]&&meta[d].optional)continue;
-  #                   if(fs.existsSync(path.join("node_modules",d,"package.json")))continue;
-  #                   if(!want.has(d)){want.set(d,v);console.error("missing peer: "+d+"@"+v+" (wanted by "+j.name+")");}
-  #                 }
-  #               }
-  #             }
-  #             scan("node_modules");
-  #             for(const [d,v] of want)console.log(d+"@"+v);
-  #           ' > "$list.new"
-  #           if [ ! -s "$list.new" ]; then echo "No missing peer dependencies (round $round)."; break; fi
-  #           cat "$list.new" >> "$list"
-  #           sort -u "$list" -o "$list"
-  #           specs=(); while IFS= read -r l; do l="${l%$'\r'}"; [ -n "$l" ] && specs+=("$l"); done < "$list"
-  #           echo "Round $round: npm install --no-save ${specs[*]}"
-  #           npm install --no-save --no-audit --no-fund "${specs[@]}"
-  #         done
-  #         rm -f "$list.new"
-  #         echo "::notice title=Peers installed by CI::$(tr '\n' ' ' < "$list")- add these to devDependencies in package.json."
-  #
-  #     - name: Create .env file
-  #       shell: bash
-  #       run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-  #
-  #     - name: Build Application for Integration Testing
-  #       run: npm run build
-  #
-  #     # No continue-on-error: a failing e2e run must show up as a failing job.
-  #     # It previously reported green - and `continue-on-error` does not merely
-  #     # let the job proceed, it REWRITES the recorded conclusion, so both the
-  #     # step and the job read "success" while the log showed `exit code 1`. A
-  #     # check that cannot go red is worse than no check. `package` NOW GATES on
-  #     # this job (see its `needs`), so a red run here skips the installers.
-  #     #
-  #     # bail is 0 (wdio.config.ts): every spec runs and the job fails at the end
-  #     # with the full list, rather than stopping at the first failure and hiding
-  #     # the rest. This timeout is what bounds the cost - a hung app or a wedged
-  #     # wdio would otherwise bleed on three OSes at once, macOS billing at 10x.
-  #     # A full healthy suite is ~13min locally and ~20min on CI, so 60min is a
-  #     # backstop against a wedged run, not a budget.
-  #     - name: Run Integration Checks
-  #       timeout-minutes: 60
-  #       run: npm run e2e
-  #
-  #     # Keep the e2e evidence. Until now a red run left NOTHING behind: the only
-  #     # upload-artifact in this workflow is the installer one in `package`, so
-  #     # allure-results (which holds each failure's message, stack and attached
-  #     # DOM) died with the runner and the error text survived only as scrollback
-  #     # in the job log.
-  #     #
-  #     # if: always() because the interesting case is exactly when e2e failed.
-  #     # Retention is short: this is debugging evidence, not a release artifact.
-  #     - name: Upload e2e results (diagnostic)
-  #       if: always()
-  #       uses: actions/upload-artifact@v5
-  #       with:
-  #         name: e2e-results-${{ matrix.os }}
-  #         path: allure-results
-  #         retention-days: 7
-  #         if-no-files-found: ignore
-  #
-  #     # "Timeout exceeded to get the ContextId" is NOT itself proof of a crash.
-  #     # wdio-electron-service races a Runtime.executionContextCreated listener
-  #     # against an uncancelled setTimeout(cdpBridgeTimeout, default 10s); the
-  #     # timer fires and logs at ERROR even when the context arrived and the run
-  #     # passes. What matters is whether the bridge actually came up. Keep
-  #     # dumping the startup log anyway - it is still the only view into an app
-  #     # that died during init. writeEarlyLog() in src/main/index.ts appends to
-  #     # <userData>/logs/app-startup.log from a path derived from getPath('home')
-  #     # (NOT the automation-skipped userData override), so it survives the crash.
-  #     # if: always() because the interesting case is exactly when e2e failed.
-  #     - name: Dump app startup + backend logs (diagnostic)
-  #       if: always()
-  #       shell: bash
-  #       run: |
-  #         found=0
-  #         for d in "$HOME/Library/Application Support/Helios" \
-  #                  "$HOME/.config/Helios" \
-  #                  "${APPDATA:-}/Helios"; do
-  #           [ -d "$d/logs" ] || continue
-  #           for f in "$d/logs"/*.log; do
-  #             [ -f "$f" ] || continue
-  #             found=1
-  #             echo "===== $f (last 100 lines) ====="
-  #             tail -100 "$f" || true
-  #           done
-  #         done
-  #         [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
+  test-integration:
+    # Old gate (kept for reference):
+    # if: |
+    #   (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
+    #   github.event_name == 'push' ||
+    #   github.event_name == 'workflow_dispatch'
+    # Builds the app + runs e2e, so it is a build: only on push/dispatch, never on PRs.
+    if: github.event_name != 'pull_request'
+    name: Integration Tests (${{ matrix.os }})
+    # Without this the job inherits GitHub's 6-hour default. A macOS run on
+    # 2026-07-29 spent 1h50m here because ~104 e2e tests each waited out their
+    # own 10s/120s timeout - and since `package` needs this job, that stalled
+    # signing behind a result that `continue-on-error` discards anyway.
+    # Must stay above the e2e step's own cap below, or the job kills the step
+    # first and the step timeout never takes effect.
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-2022
+          - macos-latest
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          token: ${{ secrets.PAT }}
+
+      # Mirrors ci-release.yml - see the long comment there for the evidence.
+      # Short version: the ubuntu runner's e2e working set SPIKES (~36G steady,
+      # 50G and 57G during two specs) rather than growing, and without this
+      # reclamation the spike exhausts the disk. It does not fail cleanly: the
+      # app opens a window whose renderer never mounts, so specs fail as
+      # renderer timeouts and hook failures that read like product bugs.
+      #
+      # MUST run BEFORE setup-node, and must NOT delete /opt/hostedtoolcache or
+      # $AGENT_TOOLSDIRECTORY - setup-node installs node there, and deleting it
+      # afterwards makes `npm install` die with "npm: command not found".
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== before ==="; df -h /
+          sudo rm -rf /usr/local/lib/android \
+                      /usr/share/dotnet \
+                      /usr/share/swift \
+                      /usr/local/.ghcup \
+                      /opt/ghc \
+                      /usr/local/share/boost \
+                      /usr/local/share/powershell || true
+          sudo apt-get clean || true
+          docker image prune -af || true
+          echo "=== after ==="; df -h /
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libgtk-3-dev libnss3 libxss1 libasound2t64 \
+            libxtst6 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
+            libgbm1 libxkbcommon0 fonts-liberation xdg-utils \
+            libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "node $(node -v), npm $(npm -v)"
+          rm -rf node_modules
+          out="${RUNNER_TEMP:-/tmp}/npm-install-output.txt"
+          if npm install --no-audit --no-fund 2>&1 | tee "$out"; then exit 0; fi
+          log=$(grep -o 'A complete log of this run can be found in: .*' "$out" | tail -1 | sed 's/.*found in: //' | tr -d '\r')
+          command -v cygpath >/dev/null 2>&1 && [ -n "$log" ] && log=$(cygpath -u "$log")
+          if [ -n "$log" ] && [ -f "$log" ]; then
+            echo "===== $log (last 120 lines; 'verbose stack' shows where npm crashed) ====="
+            tail -120 "$log"
+          else
+            echo "npm debug log not found (looked for: ${log:-<none>})"
+          fi
+          echo "::error title=npm install failed::See the npm debug log printed above."
+          exit 1
+
+      # See the "Install missing peer dependencies" step in the lint job for
+      # the full explanation. Repeated verbatim; keep the copies in sync.
+      - name: Install missing peer dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="${RUNNER_TEMP:-/tmp}/extra-peers.txt"
+          : > "$list"
+          for round in 1 2 3; do
+            node -e '
+              const fs=require("fs"),path=require("path");
+              const want=new Map();
+              function scan(dir){
+                if(!fs.existsSync(dir))return;
+                for(const n of fs.readdirSync(dir)){
+                  if(n.startsWith("."))continue;
+                  const p=path.join(dir,n);
+                  if(n.startsWith("@")){scan(p);continue;}
+                  const pj=path.join(p,"package.json");
+                  if(!fs.existsSync(pj))continue;
+                  let j;try{j=JSON.parse(fs.readFileSync(pj,"utf8"))}catch{continue}
+                  const meta=j.peerDependenciesMeta||{};
+                  for(const [d,v] of Object.entries(j.peerDependencies||{})){
+                    if(meta[d]&&meta[d].optional)continue;
+                    if(fs.existsSync(path.join("node_modules",d,"package.json")))continue;
+                    if(!want.has(d)){want.set(d,v);console.error("missing peer: "+d+"@"+v+" (wanted by "+j.name+")");}
+                  }
+                }
+              }
+              scan("node_modules");
+              for(const [d,v] of want)console.log(d+"@"+v);
+            ' > "$list.new"
+            if [ ! -s "$list.new" ]; then echo "No missing peer dependencies (round $round)."; break; fi
+            cat "$list.new" >> "$list"
+            sort -u "$list" -o "$list"
+            specs=(); while IFS= read -r l; do l="${l%$'\r'}"; [ -n "$l" ] && specs+=("$l"); done < "$list"
+            echo "Round $round: npm install --no-save ${specs[*]}"
+            npm install --no-save --no-audit --no-fund "${specs[@]}"
+          done
+          rm -f "$list.new"
+          echo "::notice title=Peers installed by CI::$(tr '\n' ' ' < "$list")- add these to devDependencies in package.json."
+
+      - name: Create .env file
+        shell: bash
+        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+
+      - name: Build Application for Integration Testing
+        run: npm run build
+
+      # No continue-on-error: a failing e2e run must show up as a failing job.
+      # It previously reported green - and `continue-on-error` does not merely
+      # let the job proceed, it REWRITES the recorded conclusion, so both the
+      # step and the job read "success" while the log showed `exit code 1`. A
+      # check that cannot go red is worse than no check. `package` NOW GATES on
+      # this job (see its `needs`), so a red run here skips the installers.
+      #
+      # bail is 0 (wdio.config.ts): every spec runs and the job fails at the end
+      # with the full list, rather than stopping at the first failure and hiding
+      # the rest. This timeout is what bounds the cost - a hung app or a wedged
+      # wdio would otherwise bleed on three OSes at once, macOS billing at 10x.
+      # A full healthy suite is ~13min locally and ~20min on CI, so 60min is a
+      # backstop against a wedged run, not a budget.
+      - name: Run Integration Checks
+        timeout-minutes: 60
+        run: npm run e2e
+
+      # Keep the e2e evidence. Until now a red run left NOTHING behind: the only
+      # upload-artifact in this workflow is the installer one in `package`, so
+      # allure-results (which holds each failure's message, stack and attached
+      # DOM) died with the runner and the error text survived only as scrollback
+      # in the job log.
+      #
+      # if: always() because the interesting case is exactly when e2e failed.
+      # Retention is short: this is debugging evidence, not a release artifact.
+      - name: Upload e2e results (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: e2e-results-${{ matrix.os }}
+          path: allure-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # "Timeout exceeded to get the ContextId" is NOT itself proof of a crash.
+      # wdio-electron-service races a Runtime.executionContextCreated listener
+      # against an uncancelled setTimeout(cdpBridgeTimeout, default 10s); the
+      # timer fires and logs at ERROR even when the context arrived and the run
+      # passes. What matters is whether the bridge actually came up. Keep
+      # dumping the startup log anyway - it is still the only view into an app
+      # that died during init. writeEarlyLog() in src/main/index.ts appends to
+      # <userData>/logs/app-startup.log from a path derived from getPath('home')
+      # (NOT the automation-skipped userData override), so it survives the crash.
+      # if: always() because the interesting case is exactly when e2e failed.
+      - name: Dump app startup + backend logs (diagnostic)
+        if: always()
+        shell: bash
+        run: |
+          found=0
+          for d in "$HOME/Library/Application Support/Helios" \
+                   "$HOME/.config/Helios" \
+                   "${APPDATA:-}/Helios"; do
+            [ -d "$d/logs" ] || continue
+            for f in "$d/logs"/*.log; do
+              [ -f "$f" ] || continue
+              found=1
+              echo "===== $f (last 100 lines) ====="
+              tail -100 "$f" || true
+            done
+          done
+          [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
 
   package:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
-    # TEMPORARY: test-integration is commented out (job above) and removed from
-    # `needs`, so packaging/signing runs without an e2e gate.
-    # TODO: restore `- test-integration` here when the job above is re-enabled.
-    # main is what publish-stable.yml promotes to the stable feed, so an
+    # Gated on test-integration: main is what publish-stable.yml promotes to the stable feed, so an
     # artifact that ships should not come from a tree whose e2e is failing.
     # publish-stable.yml requires a SUCCESSFUL ci-main run for the tagged commit
     # and downloads its artifacts. Check conclusions before tagging:
@@ -549,18 +536,7 @@ jobs:
     needs:
       - lint
       - test-unit
-      # - test-integration
-    env:
-      # TEMPORARY: true only when the APPLE_CERTIFICATE secret is actually
-      # visible to this job. It is currently NOT set on this repo, so macOS
-      # signing + notarization are SKIPPED and an UNSIGNED .pkg is built
-      # instead of failing the job (same switch as ci-release.yml).
-      # An unsigned .pkg is blocked by Gatekeeper - do not tag/promote a
-      # release while this is false (publish-stable ships these artifacts).
-      # TODO: once the APPLE_* secrets are added, delete HAS_APPLE_CERT, the
-      # "Warn ..." and "UNSIGNED fallback" steps, and every
-      # `&& env.HAS_APPLE_CERT == 'true'` below, so a missing cert fails again.
-      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      - test-integration
     strategy:
       fail-fast: false
       matrix:
@@ -712,12 +688,6 @@ jobs:
       #     echo "CSC_LINK=$certPath" >> $env:GITHUB_ENV
       #     echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CERT_PASSWORD }}" >> $env:GITHUB_ENV
 
-      # TEMPORARY - see HAS_APPLE_CERT on the job.
-      - name: Warn when Apple certificate secret is missing (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
-        run: |
-          echo "::warning title=macOS build is UNSIGNED::APPLE_CERTIFICATE secret is not set (or not visible to this job), so signing + notarization are skipped. The .pkg will be blocked by Gatekeeper - do not release it. Add the APPLE_* repository secrets to turn signing back on."
-
       # Imports the Developer ID certs into a throwaway keychain. The .p12 in
       # APPLE_CERTIFICATE holds BOTH certs we need:
       #   Developer ID Application -> signs the .app and the backend binary
@@ -742,7 +712,7 @@ jobs:
       # so this workflow is self-contained.
       # Details: docs/ci-cd-workflow.md -> Troubleshooting.
       - name: Import Apple certificates (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -1075,7 +1045,7 @@ jobs:
         run: npm run build
 
       - name: Sign Python backend (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '1'
@@ -1089,7 +1059,7 @@ jobs:
       # import). It is EMPTY when that step had to repack the .p12; then
       # electron-builder auto-discovers the identities in build.keychain.
       - name: Package (production artifacts, macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         env:
           CSC_LINK: ${{ env.APPLE_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -1099,25 +1069,12 @@ jobs:
         run: npm run package:only
         timeout-minutes: 180
 
-      # TEMPORARY fallback while APPLE_CERTIFICATE is missing: UNSIGNED and
-      # un-notarized. CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder
-      # from hunting for an identity; SKIP_NOTARIZATION=1 short-circuits both
-      # notarize hooks. No APPLE_* secrets are passed. Never ship this .pkg.
-      - name: Package (macOS - UNSIGNED fallback, no certificate)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          SKIP_NOTARIZATION: '1'
-        run: npm run package:only
-        timeout-minutes: 60
-
       # The notarization hooks silently no-op if any APPLE_* secret is missing,
       # so a green build does NOT by itself prove the installer is notarized.
       # This asserts it independently and fails the build otherwise - otherwise
       # the first sign of trouble is a user hitting a Gatekeeper block.
-      # Skipped for the unsigned fallback - there is nothing to verify.
       - name: Verify signing and notarization (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         shell: bash
         run: |
           set -euo pipefail
@@ -1264,7 +1221,7 @@ jobs:
       # The previous path, $RUNNER_TEMP/app-signing.keychain-db, never existed,
       # so the `|| true` hid a cleanup that did nothing.
       - name: Remove temporary keychain
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true' && always()
+        if: startsWith(matrix.label, 'macos') && always()
         run: |
           security delete-keychain build.keychain || true
           rm -f "$RUNNER_TEMP/apple-codesign.p12"
