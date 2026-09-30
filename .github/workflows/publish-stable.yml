@@ -7,7 +7,7 @@
 #
 # 3 jobs:
 #   1. verify      - is the tag on main? are the artifacts available?
-#   2. promote     - per-platform (matrix) - copy from staging to the stable bucket
+#   2. promote     - per-platform (matrix) - fetch each ci-main artifact
 #   3. github-release - create the GitHub Release + Slack notify
 #                     (if: always() - runs even if one platform fails)
 #
@@ -83,7 +83,7 @@ jobs:
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
   # --------------------------------------------------------------------------
-  # 2. PROMOTE - copy each platform's artifacts from staging to stable
+  # 2. PROMOTE - download each platform's ci-main artifact (+ docs zip)
   # fail-fast: false - if one platform fails, the others still run
   # --------------------------------------------------------------------------
   promote:
@@ -115,23 +115,6 @@ jobs:
       - name: List downloaded files
         run: ls -la ./dist
 
-      # ── Stable Bucket Sync (Priority 1 - uncomment after S3 setup) ───────
-      # See doc section 5.5 + section 8.
-      #
-      # - name: Configure AWS credentials
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     aws-access-key-id: ${{ secrets.UPDATE_FEED_S3_ACCESS_KEY }}
-      #     aws-secret-access-key: ${{ secrets.UPDATE_FEED_S3_SECRET_KEY }}
-      #     aws-region: us-east-1
-      #
-      # - name: Promote to stable bucket
-      #   run: |
-      #     aws s3 sync ./dist \
-      #       s3://${{ secrets.UPDATE_FEED_BUCKET_STABLE }}/ \
-      #       --metadata-directive REPLACE \
-      #       --cache-control "max-age=300"
-
       - name: Re-upload artifacts (combined for github-release job)
         uses: actions/upload-artifact@v5
         with:
@@ -148,6 +131,8 @@ jobs:
     needs: [verify, promote]
     if: always() && needs.verify.result == 'success'
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_RELEASES }}
     steps:
       - uses: actions/checkout@v5
 
@@ -169,19 +154,6 @@ jobs:
           echo "" >> notes.md
           echo "- **Released:** ${DATE}" >> notes.md
           echo "- **Commit:** \`${GITHUB_SHA:0:7}\`" >> notes.md
-          echo "" >> notes.md
-
-          # Per-platform promotion status table
-          echo "### Platform Status" >> notes.md
-          echo "" >> notes.md
-          echo "| Platform | Status |" >> notes.md
-          echo "|----------|--------|" >> notes.md
-          # NOTE: reading the matrix job results dynamically here is complex, so
-          # this is a placeholder for now. In the future we can use the
-          # workflow_run API to surface detailed status.
-          echo "| Windows  | See workflow run for details |" >> notes.md
-          echo "| macOS    | See workflow run for details |" >> notes.md
-          echo "| Linux    | See workflow run for details |" >> notes.md
           echo "" >> notes.md
 
           echo "### Assets" >> notes.md
@@ -227,5 +199,3 @@ jobs:
             {
               "text": "🚀 Helios ${{ github.ref_name }} STABLE released!\nVerify: ${{ needs.verify.result }}\nPromote: ${{ needs.promote.result }}\n<https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}|View Release>"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_RELEASES }}

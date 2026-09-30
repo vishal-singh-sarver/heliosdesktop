@@ -450,7 +450,7 @@ jobs:
   # ============================================================================
   release:
     name: Create QA Release
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos, build-linux, build-docs]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

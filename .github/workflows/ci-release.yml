@@ -307,20 +307,10 @@ jobs:
         with:
           node-version: 22
 
-      # ── Signing ──────────────────────────────────────────────────────────
-      # macOS is configured (see the APPLE_* repo secrets). Windows signing is
-      # still pending - it needs its own EV/OV code-signing certificate:
-      #
-      # - name: Import Windows signing cert
-      #   if: matrix.label == 'windows'
-      #   shell: pwsh
-      #   run: |
-      #     $base64String = "${{ secrets.WIN_CERT_BASE64 }}".Trim()
-      #     $certBytes = [Convert]::FromBase64String($base64String)
-      #     $certPath = "$env:RUNNER_TEMP\codesign.pfx"
-      #     [IO.File]::WriteAllBytes($certPath, $certBytes)
-      #     echo "CSC_LINK=$certPath" >> $env:GITHUB_ENV
-      #     echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CERT_PASSWORD }}" >> $env:GITHUB_ENV
+      - name: Warn when Apple certificate secret is missing (macOS)
+        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
+        run: |
+          echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
 
       - name: Warn when Apple certificate secret is missing (macOS)
         if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'

@@ -1,5 +1,8 @@
 name: CI / develop
 
+# Fast gates only: lint + unit tests. No builds on develop or PRs - installers
+# are built on M2 (build-installers.yml), release and main.
+
 on:
   pull_request:
     branches: [develop]
