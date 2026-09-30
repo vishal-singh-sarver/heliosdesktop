@@ -29,12 +29,9 @@ jobs:
         with:
           node-version: 22
 
-<<<<<<< HEAD
-=======
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
       - name: Install dependencies
         shell: bash
         run: |
@@ -64,7 +61,6 @@ jobs:
 
   # ============================================================================
   # macOS - 2 SEPARATE FILES: Intel (x86_64) + Apple Silicon (arm64).
-<<<<<<< HEAD
   #
   # There is no separate build per macOS version (12 vs 13 vs 14...) - that is
   # by Apple's design. With minimumSystemVersion "12.0" set (in package.json),
@@ -75,8 +71,6 @@ jobs:
   #
   # NOTE: the "mac" block in package.json must contain:
   #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
-=======
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
   # NOTE: signing is currently lenient (continue-on-error). Pkg may be unsigned
   # until the APPLE_CERTIFICATE (.p12) secret is fixed.
   # ============================================================================
@@ -103,12 +97,6 @@ jobs:
         with:
           node-version: 22
 
-<<<<<<< HEAD
-=======
-      - name: Pin known-good npm version
-        run: npm install -g npm@10.8.2
-
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
       - name: Install dependencies
         run: |
           npm i || npm install
@@ -128,32 +116,19 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-<<<<<<< HEAD
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-=======
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
-          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-            echo "WARNING: APPLE_CERTIFICATE secret is empty or missing, skipping cert import."
-            exit 0
-          fi
-          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
-<<<<<<< HEAD
-          ls -l certificate.p12
-=======
-=======
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
->>>>>>> 00328d4 (fixed ubuntu build issue)
-=======
           if [ -z "${APPLE_CERTIFICATE:-}" ]; then
             echo "WARNING: APPLE_CERTIFICATE secret is empty or missing, skipping cert import."
             exit 0
           fi
           echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
           ls -l certificate.p12
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "WARNING: APPLE_CERTIFICATE secret is empty or missing, skipping cert import."
+            exit 0
+          fi
+          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
+          ls -l certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -166,7 +141,6 @@ jobs:
             -s -k actions build.keychain
           rm -f certificate.p12
           echo "== identities available to the build =="
-<<<<<<< HEAD
           security find-identity -v
           # Both certs must be present or the build silently degrades: without
           # the Application cert the .app is unsigned; without the Installer
@@ -176,28 +150,17 @@ jobs:
             || { echo "FAIL: no Developer ID Application identity imported"; exit 1; }
           security find-identity -v | grep -q "Developer ID Installer" \
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
-=======
           security find-identity -v || true
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
 
       - name: Sign Python backend
         continue-on-error: true
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-<<<<<<< HEAD
           REQUIRE_SIGNING: '0'
-=======
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
           REQUIRE_SIGNING: '1'
           REQUIRE_SIGNING: '0'
-        run: npm run sign:backend:mac
-=======
           REQUIRE_SIGNING: '0'
-        run: npm run sign:backend:mac || true
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
+        run: npm run sign:backend:mac
 
       - name: Package macOS Installer
         env:
@@ -224,7 +187,6 @@ jobs:
           codesign -dvv "$app" 2>&1 | grep -i "authority\|signature" || true
           codesign -dvv "$app" 2>&1 | grep -i "flags" || true
 
-<<<<<<< HEAD
           echo "== signing authority (.app) =="
           if ! codesign -dvv "$app" 2>&1 | grep -q "Authority=Developer ID Application"; then
             echo "FAIL: .app is not signed with a Developer ID Application certificate"
@@ -240,19 +202,12 @@ jobs:
 
           echo "== the bundled backend must carry its own signature =="
           # find the sidecar wherever it landed (onefile or onedir layout)
-<<<<<<< HEAD
-=======
->>>>>>> 00328d4 (fixed ubuntu build issue)
-=======
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
           backend=$(find "$app/Contents/Resources/backend" -type f -name 'heliosgui_backend' | head -1)
           if [ -n "$backend" ]; then
             echo "backend: $backend"
             codesign --verify --strict "$backend" || true
           fi
 
-<<<<<<< HEAD
           echo "== Gatekeeper assessment (.app) =="
           # "source=Notarized Developer ID" is the proof the notary ticket is
           # recognized; anything else means the ticket is missing or not stapled.
@@ -262,20 +217,10 @@ jobs:
             echo "FAIL: .app did not assess as Notarized Developer ID"
             exit 1
           fi
-=======
-          spctl --assess --type execute --verbose=4 "$app" 2>&1 || true
-          xcrun stapler validate "$app" || true
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
 
           pkgs=$(find dist -maxdepth 1 -name '*.pkg' | sort)
           for pkg in $pkgs; do
             echo "-- $pkg"
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
             # Must be signed by the Developer ID INSTALLER cert (not Application).
             sig=$(pkgutil --check-signature "$pkg" 2>&1)
             echo "$sig"
@@ -286,10 +231,8 @@ jobs:
             # And must carry its own stapled notarization ticket, or users get a
             # Gatekeeper block on the installer itself.
             xcrun stapler validate "$pkg"
-=======
             pkgutil --check-signature "$pkg" 2>&1 || true
             xcrun stapler validate "$pkg" || true
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
           done
 
       - name: Tag outputs with arch
@@ -339,22 +282,6 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
-<<<<<<< HEAD
-=======
-      # Debian 11 (bullseye) is EOL: point apt at archive.debian.org and drop
-      # the security/updates suites (they are no longer served there).
-      - name: Fix archived Debian bullseye repos (20.04 image only)
-        if: matrix.label == '20.04'
-        run: |
-          sed -i \
-            -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
-            /etc/apt/sources.list
-          sed -i '/bullseye-security/d' /etc/apt/sources.list
-          sed -i '/bullseye-updates/d' /etc/apt/sources.list
-          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources || true
-          echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid
-
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
       - name: Install base tools
         run: |
           apt-get update
@@ -384,20 +311,12 @@ jobs:
           python3 --version
           OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3,10) else 0)')
           if [ "$OK" != "1" ]; then
-<<<<<<< HEAD
             echo "ERROR: Python 3.10+ required, but an older version was found. The container image is incorrect."
             echo "ERROR: Python 3.10+ required."
-=======
-<<<<<<< HEAD
-<<<<<<< HEAD
             echo "ERROR: Python 3.10+ required."
-=======
             echo "ERROR: Python 3.10+ required, but an older version was found. The container image is incorrect."
->>>>>>> 00328d4 (fixed ubuntu build issue)
-=======
             echo "ERROR: Python 3.10+ required."
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
+            echo "ERROR: Python 3.10+ required."
             exit 1
           fi
 
@@ -408,12 +327,9 @@ jobs:
           node --version
           npm --version
 
-<<<<<<< HEAD
-=======
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
       - name: Checkout code
         uses: actions/checkout@v5
         with:
@@ -461,10 +377,8 @@ jobs:
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
       - name: Install dependencies
-        run: |
-          npm i || npm install
+        run: npm install || npm install --legacy-peer-deps
 
-<<<<<<< HEAD
       # See ci-main.yml for the full explanation. Rollup's prebuilt
       # linux-x64-gnu addon needs GLIBC_2.32; the 20.04 job builds in
       # python:3.10-bullseye (glibc 2.31), so requiring it dies with
@@ -482,16 +396,13 @@ jobs:
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
-=======
       # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32, but the 20.04
-      # job runs in glibc 2.31. Replace it with the WASM build. If rollup is
-      # not installed (e.g. newer Vite uses rolldown) this step is skipped.
+      # job runs in glibc 2.31. Replace it with the WASM build. Skipped when
+      # rollup is not installed (Vite 8 uses rolldown, which loads fine) or its
+      # native addon already loads.
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
           set -eu
           if [ ! -f node_modules/rollup/package.json ]; then
             echo "rollup not installed (Vite 8 uses rolldown) - no WASM shim needed."
@@ -502,10 +413,7 @@ jobs:
             exit 0
           fi
           version=$(node -p "require('./node_modules/rollup/package.json').version")
-<<<<<<< HEAD
           echo "rollup $version - installing matching @rollup/wasm-node"
-=======
-=======
           echo "== rollup / rolldown packages =="
           find node_modules -maxdepth 6 -type d \( -name rollup -o -name rolldown -o -name 'rollup-linux-x64-gnu' -o -name 'binding-linux-x64-gnu' \) | head -20 || true
 
@@ -517,8 +425,6 @@ jobs:
 
           version=$(node -p "require('./$pkg').version")
           echo "rollup $version - installing matching @rollup/wasm-node"
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
           npm install --no-save "@rollup/wasm-node@${version}"
           target=node_modules/@rollup/rollup-linux-x64-gnu
           rm -rf "$target"
@@ -527,11 +433,6 @@ jobs:
           { "name": "@rollup/rollup-linux-x64-gnu", "version": "0.0.0-wasm-shim", "main": "index.js" }
           JSON
           echo "module.exports = require('@rollup/wasm-node/dist/native.js')" > "$target/index.js"
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
           node -e "require('@rollup/rollup-linux-x64-gnu').parse || process.exit(1)" && echo "WASM shim OK"
           node -e "
             const m = require('@rollup/rollup-linux-x64-gnu')
@@ -540,12 +441,7 @@ jobs:
             if (missing.length) { console.error('WASM shim missing: ' + missing.join(', ')); process.exit(1) }
             console.log('rollup native require -> WASM shim OK')
           "
-<<<<<<< HEAD
-=======
->>>>>>> 00328d4 (fixed ubuntu build issue)
-=======
->>>>>>> dfad234 (ci: fix Linux build failures and clean up installer workflow)
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
+          node -e "require('@rollup/rollup-linux-x64-gnu').parse || process.exit(1)" && echo "WASM shim OK"
 
       - name: Create .env file
         run: |
@@ -579,8 +475,6 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
-<<<<<<< HEAD
-=======
   # ============================================================================
   # DOCS - Builds the MkDocs technical documentation site.
   # ============================================================================
@@ -622,7 +516,6 @@ jobs:
 
       - name: Upload offline docs archive
         uses: actions/upload-artifact@v5
-        continue-on-error: true
         with:
           name: docs-offline
           path: helios-docs.zip
@@ -633,10 +526,9 @@ jobs:
   # ============================================================================
   # RELEASE
   # ============================================================================
->>>>>>> aa93f9e (ci: fix Linux build failures and clean up installer workflow)
   release:
     name: Create QA Release
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos, build-linux, build-docs]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

@@ -43,9 +43,6 @@ jobs:
           node-version: 22
       - run: npm install
       - name: Create .env file
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-      
-      # Mapped directly to your package.json "test" script ("vitest run")
         run: cp .env.example .env
 
       # Mapped directly to package.json "test" script ("vitest run")
