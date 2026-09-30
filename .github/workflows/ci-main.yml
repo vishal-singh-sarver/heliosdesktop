@@ -265,6 +265,9 @@ jobs:
         run: echo "::warning title=Unit tests skipped::npm test is commented out in ci-main.yml"
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 53c87aa (ci(main): temporarily disable integration tests job)
   # ==========================================================================
   # TEMPORARILY DISABLED: Integration Tests (windows-2022, macos-latest,
   # ubuntu-latest). The e2e suite currently fails (weather / projectscreen /
@@ -471,6 +474,7 @@ jobs:
   #           done
   #         done
   #         [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
+<<<<<<< HEAD
 =======
   test-integration:
     # Old gate (kept for reference):
@@ -687,6 +691,8 @@ jobs:
           done
           [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
 >>>>>>> 5c0652c (ci(main): harden npm install)
+=======
+>>>>>>> 53c87aa (ci(main): temporarily disable integration tests job)
 
   package:
     name: Package & Sign ${{ matrix.label }}
