@@ -353,4 +353,3 @@ npm run format    # Prettier
 ```
 
 ## License
-
