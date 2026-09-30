@@ -29,15 +29,14 @@ jobs:
         with:
           node-version: 22
 
+      # npm 10.9.x crashes with "reading 'edgesOut'"; plain install still does on
+      # 10.8.2, so fall back to --legacy-peer-deps (no lockfile in this repo).
       - name: Pin known-good npm version
         run: npm install -g npm@10.8.2
 
       - name: Install dependencies
         shell: bash
-        run: |
-          npm i \
-            || npm i --legacy-peer-deps \
-            || (rm -f package-lock.json && npm i)
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         shell: bash
@@ -52,7 +51,6 @@ jobs:
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v5
-        continue-on-error: true
         with:
           name: windows-installer
           path: |
@@ -94,10 +92,7 @@ jobs:
         run: npm install -g npm@10.8.2
 
       - name: Install dependencies
-        run: |
-          npm i \
-            || npm i --legacy-peer-deps \
-            || (rm -f package-lock.json && npm i)
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         run: |
@@ -243,7 +238,6 @@ jobs:
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v5
-        continue-on-error: true
         with:
           name: macos-installers-${{ matrix.label }}
           path: |
@@ -300,18 +294,6 @@ jobs:
             ca-certificates \
             gnupg \
             build-essential
-
-      # Ubuntu images only. python3-dev provides libpython3.x.so, which
-      # PyInstaller needs ("Python shared library not found" otherwise).
-      # The 20.04 job uses the python:3.10 image, which already has Python.
-      - name: Install Python (Ubuntu images)
-        if: matrix.label != '20.04'
-        run: |
-          apt-get install -y \
-            python3 \
-            python3-venv \
-            python3-pip \
-            python3-dev
 
       # Ubuntu images only. python3-dev provides libpython3.x.so, which
       # PyInstaller needs ("Python shared library not found" otherwise).
@@ -396,14 +378,12 @@ jobs:
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
       - name: Install dependencies
-        run: |
-          npm i \
-            || npm i --legacy-peer-deps \
-            || (rm -f package-lock.json && npm i)
+        run: npm install || npm install --legacy-peer-deps
 
       # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32, but the 20.04
-      # job runs in glibc 2.31. Replace it with the WASM build. If rollup is
-      # not installed (e.g. newer Vite uses rolldown) this step is skipped.
+      # job runs in glibc 2.31. Replace it with the WASM build. Skipped when
+      # rollup is not installed (Vite 8 uses rolldown, which loads fine) or its
+      # native addon already loads.
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
@@ -452,7 +432,6 @@ jobs:
           version=$(node -p "require('./$pkg').version")
           echo "rollup $version - installing matching @rollup/wasm-node"
           npm install --no-save "@rollup/wasm-node@${version}"
-
           target=node_modules/@rollup/rollup-linux-x64-gnu
           rm -rf "$target"
           mkdir -p "$target"
@@ -492,7 +471,6 @@ jobs:
 
       - name: Upload Linux packages
         uses: actions/upload-artifact@v5
-        continue-on-error: true
         with:
           name: linux-packages-${{ matrix.label }}
           path: |
@@ -542,7 +520,6 @@ jobs:
 
       - name: Upload offline docs archive
         uses: actions/upload-artifact@v5
-        continue-on-error: true
         with:
           name: docs-offline
           path: helios-docs.zip
@@ -555,7 +532,7 @@ jobs:
   # ============================================================================
   release:
     name: Create QA Release
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos, build-linux, build-docs]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
