@@ -22,13 +22,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # lint and test-unit run on EVERY event that reaches this workflow - no `if:`.
-  # They previously ran on PRs only when the head branch was `release` or
-  # `hotfix/*`. Because a skipped job reports as successful, a PR into main from
-  # any other branch name showed an all-green check run with nothing having
-  # actually executed - the same "a check that cannot go red" failure mode the
-  # continue-on-error comment below warns about. These two jobs are cheap
-  # (ubuntu-only, no build), so gating them by branch name bought nothing.
+  # lint and test-unit run on every event (no `if:`), including every PR into main.
   lint:
     runs-on: ubuntu-latest
     name: Lint Check
@@ -42,18 +36,22 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install
+      # npm 10.9.x (bundled with Node 22) crashes in `npm install` with
+      # "Cannot read properties of null (reading 'edgesOut')". 10.8.2 does not.
+      # Same fix as ci-release.yml / build-installers.yml.
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
+      - name: Install dependencies
+        shell: bash
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
-      # No `|| echo` swallow: eslint exits non-zero only on ERRORS (warnings do
-      # not fail it), and swallowing that reported "43 problems (9 errors, 34
-      # warnings)" as a green build. Errors gate; the 34 warnings still do not.
+      # No `|| echo` swallow: eslint fails only on errors, so real errors fail the build.
       - run: npm run lint
 
-  # See lint above: no `if:` - this must run on every PR into main, not just
-  # ones from `release` / `hotfix/*`.
   test-unit:
     runs-on: ubuntu-latest
     name: Unit Tests
@@ -67,40 +65,81 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install
+      # npm 10.9.x (bundled with Node 22) crashes in `npm install` with
+      # "Cannot read properties of null (reading 'edgesOut')". 10.8.2 does not.
+      # Same fix as ci-release.yml / build-installers.yml.
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
+      - name: Install dependencies
+        shell: bash
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
 
-      # No `|| echo` swallow. That form exits 0 even when vitest fails, so
-      # test-unit could never go red - and `package` now depends on it, which
-      # would make the new e2e gate leak: a failing unit suite would still sign
-      # and publish installers. Same reasoning as the lint step above.
-      #
-      # TZ=Asia/Kolkata is inert: vitest.config.ts pins env TZ='UTC' internally,
-      # which wins. Left in place because the suite passes either way (1299/1299
-      # verified under UTC) - but do not rely on it to make an IST-hardcoded
-      # test pass.
+      # @testing-library/react needs @testing-library/dom as a peer; the
+      # --legacy-peer-deps fallback above does not install peers.
+      - name: Ensure @testing-library/dom is installed
+        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
+
+      # No `|| echo` swallow: `package` depends on this job, so it must be able to go red.
+      # (TZ is inert - vitest.config.ts pins TZ=UTC.)
       - name: Run unit tests
         env:
           TZ: Asia/Kolkata
         run: npm test
 
+  # Offline docs (helios-docs.zip) for the stable release - same steps as
+  # build-docs in build-installers.yml. publish-stable.yml attaches the
+  # `stable-installer-docs` artifact to the GitHub Release.
+  docs:
+    name: Build Documentation
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install docs dependencies
+        run: |
+          python3 -m venv .venv-docs
+          .venv-docs/bin/pip install -r docs/requirements.txt
+
+      - name: Cache docs offline assets
+        uses: actions/cache@v4
+        with:
+          path: .cache/plugin/privacy
+          key: docs-offline-cache-${{ hashFiles('docs/requirements.txt', 'mkdocs.yml') }}
+          restore-keys: |
+            docs-offline-cache-
+
+      - name: Check docs build (strict)
+        run: npm run docs:build
+
+      - name: Build offline docs copy (helios-docs.zip)
+        run: npm run docs:offline
+
+      - name: Upload docs (for publish-stable to download later)
+        uses: actions/upload-artifact@v5
+        with:
+          name: stable-installer-docs
+          path: helios-docs.zip
+          retention-days: 30
+          if-no-files-found: error
+
   test-integration:
-    # Old gate (kept for reference):
-    # if: |
-    #   (github.event_name == 'pull_request' && (github.head_ref == 'release' || startsWith(github.head_ref, 'hotfix/'))) ||
-    #   github.event_name == 'push' ||
-    #   github.event_name == 'workflow_dispatch'
     # Builds the app + runs e2e, so it is a build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
     name: Integration Tests (${{ matrix.os }})
-    # Without this the job inherits GitHub's 6-hour default. A macOS run on
-    # 2026-07-29 spent 1h50m here because ~104 e2e tests each waited out their
-    # own 10s/120s timeout - and since `package` needs this job, that stalled
-    # signing behind a result that `continue-on-error` discards anyway.
-    # Must stay above the e2e step's own cap below, or the job kills the step
-    # first and the step timeout never takes effect.
+    # Caps the job (GitHub default is 6h); keep it above the e2e step's 60 min.
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -116,16 +155,8 @@ jobs:
           submodules: recursive
           token: ${{ secrets.PAT }}
 
-      # Mirrors ci-release.yml - see the long comment there for the evidence.
-      # Short version: the ubuntu runner's e2e working set SPIKES (~36G steady,
-      # 50G and 57G during two specs) rather than growing, and without this
-      # reclamation the spike exhausts the disk. It does not fail cleanly: the
-      # app opens a window whose renderer never mounts, so specs fail as
-      # renderer timeouts and hook failures that read like product bugs.
-      #
-      # MUST run BEFORE setup-node, and must NOT delete /opt/hostedtoolcache or
-      # $AGENT_TOOLSDIRECTORY - setup-node installs node there, and deleting it
-      # afterwards makes `npm install` die with "npm: command not found".
+      # e2e spikes to 50-57G on the ubuntu runner, so free ~20GB first.
+      # Must run BEFORE setup-node and must not touch /opt/hostedtoolcache.
       - name: Free disk space (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -155,7 +186,15 @@ jobs:
             libgbm1 libxkbcommon0 fonts-liberation xdg-utils \
             libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
 
-      - run: npm install
+      # npm 10.9.x (bundled with Node 22) crashes in `npm install` with
+      # "Cannot read properties of null (reading 'edgesOut')". 10.8.2 does not.
+      # Same fix as ci-release.yml / build-installers.yml.
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
+      - name: Install dependencies
+        shell: bash
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         shell: bash
@@ -164,33 +203,12 @@ jobs:
       - name: Build Application for Integration Testing
         run: npm run build
 
-      # No continue-on-error: a failing e2e run must show up as a failing job.
-      # It previously reported green - and `continue-on-error` does not merely
-      # let the job proceed, it REWRITES the recorded conclusion, so both the
-      # step and the job read "success" while the log showed `exit code 1`. A
-      # check that cannot go red is worse than no check. `package` NOW GATES on
-      # this job (see its `needs`), so a red run here skips the installers.
-      #
-      # bail is 0 (wdio.config.ts): every spec runs and the job fails at the end
-      # with the full list, rather than stopping at the first failure and hiding
-      # the rest. This timeout is what bounds the cost - a hung app or a wedged
-      # wdio would otherwise bleed on three OSes at once, macOS billing at 10x.
-      # A full healthy suite is ~13min locally and ~20min on CI, so 60min is a
-      # backstop against a wedged run, not a budget.
+      # No continue-on-error: a failing e2e must fail the job (and skip `package`).
       - name: Run Integration Checks
         timeout-minutes: 60
         run: npm run e2e
 
-      # Keep the e2e evidence. Until now a red run left NOTHING behind: the only
-      # upload-artifact in this workflow is the installer one in `package`, so
-      # allure-results (which holds each failure's message, stack and attached
-      # DOM) died with the runner and the error text survived only as scrollback
-      # in the job log. That is a large part of why the "windows renderer stall"
-      # took three attempts to diagnose - each new investigation had to pay for a
-      # fresh $8-12 run just to see what failed.
-      #
-      # if: always() because the interesting case is exactly when e2e failed.
-      # Retention is short: this is debugging evidence, not a release artifact.
+      # Keep each failure's details (allure-results), even when e2e failed.
       - name: Upload e2e results (diagnostic)
         if: always()
         uses: actions/upload-artifact@v5
@@ -200,20 +218,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # "Timeout exceeded to get the ContextId" is NOT itself proof of a crash.
-      # wdio-electron-service races a Runtime.executionContextCreated listener
-      # against an uncancelled setTimeout(cdpBridgeTimeout, default 10s); the
-      # timer fires and logs at ERROR even when the context arrived and the run
-      # passes. What matters is whether the bridge actually came up: if it did
-      # not, browser.electron.* is swapped for stubs that throw. wdio.config.ts
-      # now raises cdpBridgeTimeout and probes the bridge in `before`, so a real
-      # failure aborts the first spec with a self-describing message instead of
-      # degrading silently. Keep dumping the startup log anyway - it is still the
-      # only view into an app that died during init. writeEarlyLog() in
-      # src/main/index.ts appends to
-      # <userData>/logs/app-startup.log from a path derived from getPath('home')
-      # (NOT the automation-skipped userData override), so it survives the crash.
-      # if: always() because the interesting case is exactly when e2e failed.
+      # The only view into an app that died during init.
       - name: Dump app startup + backend logs (diagnostic)
         if: always()
         shell: bash
@@ -236,22 +241,8 @@ jobs:
     name: Package & Sign ${{ matrix.label }}
     # Installer/package build: only on push/dispatch, never on PRs.
     if: github.event_name != 'pull_request'
-    # Gated on test-integration, matching ci-release.yml. This was deliberately
-    # UNgated while e2e could not pass - a suite that is always red is not a
-    # gate, it is a blocker - but run 30753157914 went green on all three
-    # platforms, so the condition that comment set ("add it back once e2e is
-    # reliably green") is met. main is what publish-stable.yml promotes to the
-    # stable feed, so an artifact that ships should not come from a tree whose
-    # e2e is failing.
-    #
-    # Consequence: a failing e2e SKIPS all six package jobs. The RUN still goes
-    # red - the e2e job itself is red, so there is no way for a failing suite to
-    # look green. What a skipped job does mean is that no installers exist for
-    # that commit, which matters before tagging: publish-stable.yml requires a
-    # SUCCESSFUL ci-main run for the tagged commit and downloads its artifacts,
-    # so tagging a commit whose package jobs were skipped finds nothing to
-    # promote. Check conclusions rather than assuming:
-    #   gh run view <id> --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
+    # Gated on test-integration: a failing e2e skips all six installers, so
+    # check the run is fully green before tagging (publish-stable needs it).
     needs:
       - lint
       - test-unit
@@ -296,6 +287,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     steps:
+      # Debian 11 (bullseye) LTS ended 2026-08-31: deb.debian.org now returns
+      # 404 for bullseye-security packages. Use the archive for main/updates and
+      # the last snapshot for security (the image already has security-updated
+      # libs, so -dev packages need that suite). Must run before any apt call.
+      - name: Point apt at archived Debian bullseye repos (ubuntu20.04)
+        if: matrix.label == 'ubuntu20.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+          printf 'Acquire::Check-Valid-Until "false";\nAcquire::Retries "5";\n' > /etc/apt/apt.conf.d/99eol-bullseye
+          {
+            echo "deb http://archive.debian.org/debian bullseye main"
+            echo "deb http://archive.debian.org/debian bullseye-updates main"
+            echo "deb http://snapshot.debian.org/archive/debian-security/20260901T000000Z bullseye-security main"
+          } > /etc/apt/sources.list
+          if ! apt-get update; then
+            echo "::warning::snapshot.debian.org unreachable - continuing without bullseye-security"
+            sed -i '/bullseye-security/d' /etc/apt/sources.list
+            apt-get update
+          fi
+
       - name: Install git in container (pre-checkout)
         if: matrix.container
         run: |
@@ -342,21 +355,6 @@ jobs:
         with:
           node-version: 22
 
-      # ── Signing & Notarization ───────────────────────────────────────────
-      # macOS is configured (see the APPLE_* repo secrets). Windows signing is
-      # still pending - it needs its own EV/OV code-signing certificate:
-      #
-      # - name: Import Windows signing cert
-      #   if: matrix.label == 'windows'
-      #   shell: pwsh
-      #   run: |
-      #     $base64String = "${{ secrets.WIN_CERT_BASE64 }}".Trim()
-      #     $certBytes = [Convert]::FromBase64String($base64String)
-      #     $certPath = "$env:RUNNER_TEMP\codesign.pfx"
-      #     [IO.File]::WriteAllBytes($certPath, $certBytes)
-      #     echo "CSC_LINK=$certPath" >> $env:GITHUB_ENV
-      #     echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CERT_PASSWORD }}" >> $env:GITHUB_ENV
-
       # Imports the Developer ID certs into a throwaway keychain. The .p12 in
       # APPLE_CERTIFICATE holds BOTH certs we need:
       #   Developer ID Application -> signs the .app and the backend binary
@@ -368,7 +366,15 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          # An empty secret decodes to an empty file, which `security import`
+          # rejects with the unhelpful "One or more parameters ... not valid".
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "::error title=Apple certificate missing::APPLE_CERTIFICATE is empty or not visible to this job. Add it as a Repository secret (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          # Strip line breaks/spaces that pasting the base64 into the secret adds.
+          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
+          [ -s certificate.p12 ] || { echo "::error::APPLE_CERTIFICATE decoded to an empty file"; exit 1; }
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -392,34 +398,33 @@ jobs:
           security find-identity -v | grep -q "Developer ID Installer" \
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
 
-      - run: npm install
+      # npm 10.9.x (bundled with Node 22) crashes in `npm install` with
+      # "Cannot read properties of null (reading 'edgesOut')". 10.8.2 does not.
+      # Same fix as ci-release.yml / build-installers.yml.
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
 
-      # Rollup ships a prebuilt native .node per platform and picks it purely by
-      # process.platform/arch (dist/native.js getPackageBase) - there is no env
-      # switch to opt out. The linux-x64-gnu build now needs GLIBC_2.32, but the
-      # ubuntu20.04 job builds in python:3.10-bullseye (glibc 2.31), so loading
-      # it dies with ERR_DLOPEN_FAILED and packaging fails:
-      #   /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.32' not found
-      # Rollup's own message blames npm's optional-dependency bug and suggests
-      # reinstalling; that is a red herring here - the module IS present, it just
-      # cannot be loaded, so a reinstall fetches the same incompatible binary.
-      #
-      # native.js requires that package BY NAME, so we replace it with a stub that
-      # re-exports @rollup/wasm-node's own dist/native.js - the WASM-backed module
-      # exposing the same five symbols (parse, parseAsync, xxhashBase64Url,
-      # xxhashBase36, xxhashBase16), with no libc dependency. Note the wasm-node
-      # package ROOT is a full Rollup (rollup/watch/defineConfig), NOT a drop-in
-      # for the native addon; only its dist/native.js has what native.js wants.
-      #
-      # Scoped to this one container: a package.json `overrides` entry would force
-      # WASM on macOS and Windows too, which are fine - and faster - on the native
-      # binary. Only 20.04 needs it, and only until its glibc floor rises above
-      # what Rollup targets.
+      - name: Install dependencies
+        shell: bash
+        run: npm install || npm install --legacy-peer-deps
+
+      # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32; the 20.04 job
+      # builds in bullseye (glibc 2.31). Swap it for the WASM build. Skipped when
+      # rollup is not installed (Vite 8 uses rolldown, which loads fine) or its
+      # addon already loads.
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == 'ubuntu20.04'
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -f node_modules/rollup/package.json ]; then
+            echo "rollup not installed (Vite 8 uses rolldown) - no WASM shim needed."
+            exit 0
+          fi
+          if node -e "require('@rollup/rollup-linux-x64-gnu')" 2>/dev/null; then
+            echo "rollup native addon loads - no WASM shim needed."
+            exit 0
+          fi
           version=$(node -p "require('./node_modules/rollup/package.json').version")
           echo "rollup $version - installing matching @rollup/wasm-node"
           npm install --no-save "@rollup/wasm-node@${version}"
@@ -430,8 +435,6 @@ jobs:
           { "name": "@rollup/rollup-linux-x64-gnu", "version": "0.0.0-wasm-shim", "main": "index.js" }
           JSON
           echo "module.exports = require('@rollup/wasm-node/dist/native.js')" > "$target/index.js"
-          # Fail loudly here rather than letting the build die later with the same
-          # opaque dlopen error. Asserts the symbols native.js destructures.
           node -e "
             const m = require('@rollup/rollup-linux-x64-gnu')
             const need = ['parse','parseAsync','xxhashBase64Url','xxhashBase36','xxhashBase16']
@@ -456,11 +459,8 @@ jobs:
         run: npm run package
         timeout-minutes: 60
 
-      # macOS is split into three steps because the PyInstaller sidecar has to
-      # be signed BETWEEN building and packaging: `npm run build` runs
-      # sync-backend, which rm -rf's and re-copies the backend, so signing
-      # before the build would be undone, and `npm run package` re-runs the
-      # build - which would wipe the signature we just applied.
+      # macOS: build, THEN sign the Python backend, THEN package - `npm run package`
+      # would re-run the build and wipe the backend signature.
       - name: Build application (macOS)
         if: startsWith(matrix.label, 'macos')
         run: npm run build
@@ -472,9 +472,7 @@ jobs:
           REQUIRE_SIGNING: '1'
         run: npm run sign:backend:mac
 
-      # timeout is generous because notarization blocks on Apple's notary
-      # service, which can take minutes to hours (a brand-new developer
-      # account's first submission is the slow case).
+      # Long timeout: notarization waits on Apple's notary service.
       - name: Package (production artifacts, macOS)
         if: startsWith(matrix.label, 'macos')
         env:
@@ -486,10 +484,7 @@ jobs:
         run: npm run package:only
         timeout-minutes: 180
 
-      # The notarization hooks silently no-op if any APPLE_* secret is missing,
-      # so a green build does NOT by itself prove the installer is notarized.
-      # This asserts it independently and fails the build otherwise - otherwise
-      # the first sign of trouble is a user hitting a Gatekeeper block.
+      # The notarization hooks no-op silently without APPLE_* secrets, so assert it.
       - name: Verify signing and notarization (macOS)
         if: startsWith(matrix.label, 'macos')
         shell: bash
@@ -580,25 +575,18 @@ jobs:
             echo "Renamed: $file -> $new_name"
           done
 
-      # ── Add the Ubuntu version suffix to the Linux output ────────────────
       # AppImage builds are disabled - only .deb is renamed/uploaded.
-      # To re-enable, restore the *.AppImage glob and the branch below.
       - name: Rename Linux output with ubuntu version
         if: matrix.ubuntu_suffix
         shell: bash
         run: |
           set -e
           cd dist
-          for file in *.deb; do            # AppImage disabled: was "*.deb *.AppImage"
+          for file in *.deb; do
             [ -f "$file" ] || continue
-            # if [[ "$file" == *.AppImage ]]; then
-            #   base="${file%.AppImage}"
-            #   new_name="${base}${{ matrix.ubuntu_suffix }}.AppImage"
-            # else
             ext="${file##*.}"
             base="${file%.*}"
             new_name="${base}${{ matrix.ubuntu_suffix }}.${ext}"
-            # fi
             mv "$file" "$new_name"
             echo "Renamed: $file -> $new_name"
           done
@@ -607,34 +595,16 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: stable-installer-${{ matrix.label }}
-          # Upload ONLY the installer files, NOT the entire dist/.
-          # The full dist/ contains timezone data (GMT0, Nicosia, Pacific...),
-          # Windows build logs (.tlog, .vcxproj), and other junk that a
-          # GitHub Release cannot attach (HTTP 404 / invalid names).
+          # Only the installers - the full dist/ has files a Release cannot attach.
           path: |
             dist/*.exe
             dist/*.dmg
             dist/*.pkg
-            #dist/*.AppImage
             dist/*.deb
-          #dist/*.blockmap
-          #dist/*.yml
           retention-days: 30
           if-no-files-found: error
 
-      # ── Staging Bucket Sync (Priority 1 - after S3 setup) ────────────────
-      # Doc section 5.4: put artifacts into the STAGING bucket (NOT stable).
-      # publish-stable.yml then promotes them from staging to stable.
-      #
-      # - name: Sync to staging bucket
-      #   if: github.event_name == 'push'   # only on merge, not on PRs
-      #   run: |
-      #     aws s3 sync ./dist \
-      #       s3://${{ secrets.UPDATE_FEED_BUCKET_STAGING }}/${{ matrix.os }}/${{ github.sha }}/ \
-      #       --metadata-directive REPLACE
-      #       s3://${{ secrets.UPDATE_FEED_BUCKET_STAGING }}/${{ matrix.label }}/${{ github.sha }}/
-
-      # ── macOS cleanup (for the notarization keychain) ────────────────────
+      # Deletes build.keychain - the keychain the import step actually creates.
       - name: Remove temporary keychain
         if: startsWith(matrix.label, 'macos') && always()
-        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+        run: security delete-keychain build.keychain || true
