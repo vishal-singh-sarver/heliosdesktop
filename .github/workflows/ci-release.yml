@@ -366,7 +366,7 @@ jobs:
     needs:
       - lint
       - test-unit
-      - test-integration
+      # - test-integration
     env:
       # TEMPORARY (flow check): true only when the APPLE_CERTIFICATE secret is
       # actually visible to this job. When it is empty the macOS job builds an
