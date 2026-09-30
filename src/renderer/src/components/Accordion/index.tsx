@@ -25,8 +25,13 @@ function Accordion({
   icon,
   grow = false
 }: AccordionProps): React.JSX.Element {
+  // Test hook derived from the title this section already carries, so each
+  // instance is addressable without the parent having to pass an id:
+  // "Geometry" -> accordion-geometry.
+  const testId = `accordion-${title.toLowerCase().replace(/\s+/g, '-')}`
   return (
     <section
+      data-testid={testId}
       className={`flex min-h-0 flex-col overflow-hidden rounded-lg bg-[#313131] ${
         open && grow ? 'flex-1' : 'flex-none'
       }`}
@@ -35,6 +40,7 @@ function Accordion({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
+        data-testid={`${testId}-toggle`}
         className="flex shrink-0 items-center justify-between px-3 py-2 text-left"
       >
         <span className="flex items-center gap-2 text-[13px] font-normal leading-[15px] tracking-normal text-neutral-200">
@@ -57,7 +63,9 @@ function Accordion({
           the section while open. */}
       <div className={open ? 'contents' : 'hidden'}>
         <div className="shrink-0 border-t border-app-border" />
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-3">{children}</div>
+        <div data-testid={`${testId}-body`} className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-3">
+          {children}
+        </div>
       </div>
     </section>
   )

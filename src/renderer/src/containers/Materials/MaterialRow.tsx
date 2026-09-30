@@ -152,6 +152,7 @@ export default function MaterialRow({
     <div className="mb-1">
       <div
         ref={rowRef}
+        data-testid={`material-row-${material.id}`}
         role="button"
         tabIndex={0}
         draggable={!editing}
@@ -187,6 +188,7 @@ export default function MaterialRow({
           />
         ) : (
           <span
+            data-testid={`material-row-name-${material.id}`}
             className="min-w-0 flex-1 truncate"
             title={messages.renameHint}
             onDoubleClick={() => setEditing(true)}

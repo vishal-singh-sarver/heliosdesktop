@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ANSI/IEEE N42.42 radiation measurement data file.
+  Synthetic example: 2" x 2" NaI(Tl) gamma spectrum, Cs-137 check source
+  measured against natural background. All values are fabricated for
+  format-demonstration purposes only.
+-->
+<RadInstrumentData xmlns="http://physics.nist.gov/N42/2011/N42"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://physics.nist.gov/N42/2011/N42 http://physics.nist.gov/N42/2011/n42.xsd"
+                   n42DocUUID="d3f1c0a6-5b7e-4a21-9f38-6c0b2e7ad914"
+                   n42DocDateTime="2026-08-30T12:00:00Z">
+
+  <RadInstrumentDataCreatorName>ExampleLab Spectrum Writer 1.2</RadInstrumentDataCreatorName>
+
+  <RadInstrumentInformation id="Instrument-1">
+    <RadInstrumentManufacturerName>Example Instruments Inc.</RadInstrumentManufacturerName>
+    <RadInstrumentIdentifier>SN-2026-00417</RadInstrumentIdentifier>
+    <RadInstrumentModelName>GammaScan 2000</RadInstrumentModelName>
+    <RadInstrumentClassCode>Spectroscopic Portal Monitor</RadInstrumentClassCode>
+    <RadInstrumentVersion>
+      <RadInstrumentComponentName>Firmware</RadInstrumentComponentName>
+      <RadInstrumentComponentVersion>4.1.7</RadInstrumentComponentVersion>
+    </RadInstrumentVersion>
+    <RadInstrumentVersion>
+      <RadInstrumentComponentName>Software</RadInstrumentComponentName>
+      <RadInstrumentComponentVersion>1.2.0</RadInstrumentComponentVersion>
+    </RadInstrumentVersion>
+  </RadInstrumentInformation>
+
+  <RadDetectorInformation id="Detector-1">
+    <RadDetectorCategoryCode>Gamma</RadDetectorCategoryCode>
+    <RadDetectorKindCode>NaI</RadDetectorKindCode>
+    <RadDetectorDescription>50.8 mm x 50.8 mm NaI(Tl) scintillator, PMT readout</RadDetectorDescription>
+    <RadDetectorLengthValue units="mm">50.8</RadDetectorLengthValue>
+    <RadDetectorDiameterValue units="mm">50.8</RadDetectorDiameterValue>
+    <RadDetectorVolumeValue units="cc">103.0</RadDetectorVolumeValue>
+  </RadDetectorInformation>
+
+  <EnergyCalibration id="EnergyCal-1">
+    <CoefficientValues>0.0 3.0 0</CoefficientValues>
+    <CalibrationDateTime>2026-08-01T08:30:00Z</CalibrationDateTime>
+  </EnergyCalibration>
+
+  <FWHMCalibration id="FWHMCal-1">
+    <EnergyBoundaryValues>0 3072</EnergyBoundaryValues>
+    <CoefficientValues>0 1.8127 0</CoefficientValues>
+  </FWHMCalibration>
+
+  <RadMeasurement id="Measurement-Foreground">
+    <MeasurementClassCode>Foreground</MeasurementClassCode>
+    <StartDateTime>2026-08-30T11:42:10Z</StartDateTime>
+    <RealTimeDuration>PT300.0S</RealTimeDuration>
+    <Spectrum id="Spectrum-Foreground"
+              radDetectorInformationReference="Detector-1"
+              energyCalibrationReference="EnergyCal-1"
+              FWHMCalibrationReference="FWHMCal-1">
+      <LiveTimeDuration>PT298.5S</LiveTimeDuration>
+      <ChannelData compressionCode="None">
+          0 0 0 0 0 0 840 846 812 851 809 848 772 781 775 726 764 728 704 651 725 714 646 625 657 675 626 620 621 583 601 665
+          594 556 548 536 509 546 555 508 516 546 497 490 465 503 472 483 452 410 421 448 382 412 397 386 389 391 389 381 368 351 327 362
+          361 350 316 335 349 315 321 317 310 291 306 288 306 263 312 290 263 260 260 301 283 237 249 256 246 234 225 224 226 241 223 232
+          211 228 188 196 204 194 187 180 179 200 156 189 174 185 166 157 159 192 196 174 167 157 151 147 151 141 155 140 137 149 132 128
+          141 121 138 135 127 115 134 148 124 122 126 120 104 116 108 88 106 94 88 109 101 103 100 106 80 83 91 87 62 88 84 74
+          68 74 65 93 67 79 68 68 64 61 47 62 61 56 56 59 58 62 63 49 37 48 49 42 58 58 39 26 42 49 49 53
+          49 40 80 61 63 81 69 102 108 113 128 177 203 234 322 377 487 562 753 958 1169 1420 1578 1854 1996 2161 2382 2420 2586 2581 2531 2411
+          2285 2060 1842 1500 1348 1144 937 769 582 438 312 241 190 147 116 66 65 39 40 35 19 17 19 19 27 29 26 13 17 17 16 26
+          22 14 11 15 15 19 17 18 10 18 15 17 19 13 19 16 21 14 21 13 8 12 10 14 17 14 15 10 20 9 13 8
+          11 6 12 13 13 12 16 17 15 12 12 12 8 13 14 13 15 13 13 12 9 9 18 10 14 13 8 12 12 7 8 9
+          9 10 11 3 7 5 7 11 9 8 8 9 7 15 7 19 12 12 7 6 8 13 7 10 3 13 13 5 8 7 12 10
+          7 6 16 14 18 9 18 9 12 20 16 12 15 19 19 21 21 21 19 21 17 23 27 14 24 17 13 16 24 14 18 12
+          17 15 18 9 8 8 9 8 9 10 7 6 7 8 6 7 4 8 2 9 3 7 6 6 7 2 4 8 12 8 9 9
+          6 3 3 6 6 8 4 10 6 9 3 5 6 5 9 8 2 10 7 7 7 2 6 5 9 5 9 5 11 4 10 6
+          6 2 7 3 3 8 9 3 8 9 8 5 9 9 8 12 10 13 13 16 13 14 20 22 27 25 41 30 38 30 46 50
+          52 44 59 65 71 63 60 71 59 58 69 58 53 50 42 38 47 44 29 31 26 25 19 28 20 16 14 17 18 12 9 10
+          6 10 10 4 6 8 5 8 9 9 5 5 1 5 9 7 8 6 9 10 4 3 6 5 5 7 5 6 5 6 3 9
+          5 8 5 3 8 7 7 4 6 5 8 9 5 3 5 6 4 8 6 8 11 6 9 11 5 11 7 9 9 7 9 5
+          8 6 9 5 9 7 5 7 9 7 4 3 4 4 6 4 6 5 6 4 7 4 9 7 8 5 3 5 4 5 8 8
+          6 3 7 9 4 8 5 9 11 11 4 8 2 7 2 8 9 7 3 10 3 3 6 5 5 10 3 7 12 1 5 6
+          4 7 5 6 9 6 6 9 6 6 5 7 7 3 7 5 5 4 9 4 4 5 5 4 3 8 10 5 8 4 6 7
+          2 4 4 8 7 6 3 7 5 4 4 5 4 7 6 5 2 7 5 2 5 8 4 4 2 2 4 3 5 4 8 3
+          9 1 3 4 3 9 9 7 6 8 7 5 7 4 7 7 7 2 3 6 4 6 7 7 9 5 5 4 5 6 3 8
+          3 4 8 5 7 4 10 7 10 8 7 4 6 10 3 7 6 5 6 8 8 8 5 10 10 6 7 9 6 4 7 3
+          2 8 8 7 4 2 3 4 3 6 4 3 4 5 5 5 9 11 6 3 5 5 5 5 4 6 4 5 6 7 4 9
+          3 4 8 4 4 8 4 3 10 5 5 6 3 7 10 4 8 4 8 9 5 1 6 4 9 2 2 10 4 5 5 6
+          14 9 3 5 14 13 9 10 12 3 6 4 4 3 5 3 9 7 3 7 6 10 16 13 11 6 10 10 12 13 12 14
+          19 16 12 12 14 13 18 13 16 18 11 8 14 21 15 9 11 8 10 17 12 9 15 9 7 10 12 12 9 3 6 4
+          8 7 6 6 2 9 8 6 8 3 6 3 4 7 9 4 5 7 3 3 4 5 9 4 7 8 5 6 7 4 4 7
+          5 4 5 8 9 12 6 7 4 4 6 5 6 5 4 3 6 7 5 9 6 1 3 7 6 5 3 4 3 7 6 9
+          4 6 11 4 4 5 5 2 8 9 6 3 7 3 4 10 8 5 3 4 3 4 4 4 5 10 8 11 6 4 5 1
+          2 5 9 7 3 3 7 5 4 8 5 7 4 4 7 5 4 5 5 10 8 5 3 6 6 5 5 2 6 5 3 4
+      </ChannelData>
+    </Spectrum>
+    <DoseRate id="DoseRate-Foreground" radDetectorInformationReference="Detector-1">
+      <DoseRateValue units="uSv/h">0.34</DoseRateValue>
+    </DoseRate>
+    <RadInstrumentState radInstrumentInformationReference="Instrument-1">
+      <StateVector>
+        <GeographicPoint>
+          <LatitudeValue>38.8894</LatitudeValue>
+          <LongitudeValue>-77.0352</LongitudeValue>
+          <ElevationValue>18.0</ElevationValue>
+        </GeographicPoint>
+      </StateVector>
+    </RadInstrumentState>
+  </RadMeasurement>
+
+  <RadMeasurement id="Measurement-Background">
+    <MeasurementClassCode>Background</MeasurementClassCode>
+    <StartDateTime>2026-08-30T11:30:00Z</StartDateTime>
+    <RealTimeDuration>PT600S</RealTimeDuration>
+    <Spectrum id="Spectrum-Background"
+              radDetectorInformationReference="Detector-1"
+              energyCalibrationReference="EnergyCal-1"
+              FWHMCalibrationReference="FWHMCal-1">
+      <LiveTimeDuration>PT597.2S</LiveTimeDuration>
+      <ChannelData compressionCode="None">
+          0 0 0 0 0 0 468 480 461 473 452 461 439 431 394 387 396 372 389 396 389 373 362 381 343 381 302 340 317 314 349 329
+          310 314 326 315 295 279 251 274 267 234 288 285 244 262 262 220 250 235 228 258 204 232 207 199 229 215 176 217 172 197 190 171
+          169 179 183 169 170 169 156 190 155 150 158 140 140 159 135 155 131 131 132 152 153 133 141 121 117 113 123 101 112 106 114 113
+          104 119 86 118 97 88 98 100 96 88 106 82 82 83 77 85 87 67 74 73 66 83 73 79 81 67 66 64 70 72 77 78
+          69 60 65 64 58 61 57 74 68 70 53 51 50 49 49 51 42 52 42 63 57 47 52 34 44 57 41 30 33 46 42 44
+          32 42 52 41 41 37 45 39 43 37 38 34 27 39 38 29 37 50 31 34 33 47 33 36 26 37 34 43 37 44 38 45
+          64 51 55 80 77 92 105 115 101 134 135 148 143 135 113 109 112 93 81 79 65 71 57 63 47 34 38 35 38 18 24 22
+          16 24 18 18 29 16 25 17 16 25 22 12 17 20 21 26 23 21 15 21 16 15 27 16 20 23 20 17 15 32 17 8
+          12 19 21 14 12 20 19 19 19 18 19 17 15 23 14 15 11 19 12 14 14 16 16 15 13 17 20 18 16 12 19 19
+          20 16 18 9 11 12 8 14 20 16 20 22 9 21 11 20 16 12 15 16 15 10 14 11 12 19 14 14 9 14 13 11
+          8 15 7 14 19 6 11 12 19 8 15 8 18 17 15 14 18 13 7 10 18 4 15 7 17 21 20 11 11 15 5 16
+          12 12 18 17 21 17 17 26 21 20 20 22 21 29 23 37 46 42 45 41 46 44 32 51 43 32 42 43 34 33 28 28
+          24 28 26 32 22 17 21 8 9 15 14 13 18 8 15 18 13 6 15 18 6 12 6 15 12 14 10 20 17 8 15 4
+          7 11 23 12 19 13 14 13 5 15 6 9 11 12 13 9 13 14 14 14 10 14 14 12 13 9 8 10 14 14 6 8
+          22 13 15 9 13 8 11 12 9 10 16 21 14 13 17 16 22 22 24 15 34 30 34 42 50 49 55 88 74 100 88 96
+          110 105 118 93 113 101 115 135 136 116 119 104 90 116 94 105 88 79 76 65 53 49 51 36 32 30 31 26 20 20 13 24
+          10 20 15 18 17 18 13 12 13 9 7 11 9 7 5 15 11 11 12 11 11 14 16 11 10 13 12 6 20 14 9 9
+          15 8 18 9 14 9 9 9 8 12 11 16 12 15 13 12 8 16 9 10 11 7 10 12 14 9 13 10 15 13 13 10
+          4 8 12 11 11 7 19 8 8 7 12 12 12 11 6 11 15 10 7 9 21 19 21 17 16 14 12 13 10 12 10 11
+          11 16 14 14 12 17 9 13 13 10 9 13 12 12 14 20 12 9 15 13 10 16 6 14 10 12 15 12 12 10 10 12
+          17 15 12 9 13 11 18 11 11 15 12 13 13 11 13 13 11 17 10 10 5 11 11 11 14 16 19 14 14 9 10 16
+          11 21 13 16 18 13 16 11 10 19 10 12 9 15 18 11 7 10 14 15 13 7 16 12 14 13 7 9 10 11 8 12
+          17 12 7 18 16 9 8 9 8 12 9 11 12 14 16 13 13 10 14 7 11 9 8 11 16 14 8 10 18 14 17 11
+          7 11 10 9 15 17 16 13 12 9 9 15 12 14 11 16 16 14 13 13 13 11 21 12 7 15 7 19 9 6 14 11
+          10 12 10 12 14 11 13 4 12 13 17 7 9 9 13 8 8 12 16 13 7 13 13 7 11 11 13 10 12 9 10 10
+          7 12 11 18 10 15 15 8 11 14 14 15 11 11 13 14 12 9 12 14 13 15 14 13 14 10 14 14 14 8 15 15
+          11 17 19 14 18 18 6 7 10 10 11 21 12 15 12 16 10 19 15 17 17 21 20 22 17 21 29 25 26 27 32 24
+          29 12 21 34 22 37 25 35 31 28 30 27 20 17 20 31 20 21 23 15 21 32 19 20 27 23 22 20 15 18 21 16
+          16 14 9 13 12 14 12 7 11 13 13 15 14 8 15 11 13 7 13 13 13 12 13 10 8 13 6 15 10 14 11 13
+          14 12 14 11 12 13 18 16 18 13 16 9 16 11 15 15 14 13 10 5 13 7 11 7 13 15 10 14 12 11 11 15
+          11 14 13 13 10 12 14 12 10 19 10 11 10 12 9 6 12 19 13 11 12 10 8 17 13 10 10 6 10 5 13 13
+          12 10 10 5 6 7 9 14 8 11 13 6 10 11 13 19 10 11 11 12 14 12 12 10 7 11 13 11 15 15 14 15
+      </ChannelData>
+    </Spectrum>
+    <DoseRate id="DoseRate-Background" radDetectorInformationReference="Detector-1">
+      <DoseRateValue units="uSv/h">0.09</DoseRateValue>
+    </DoseRate>
+  </RadMeasurement>
+
+  <AnalysisResults id="Analysis-1" radMeasurementReferences="Measurement-Foreground">
+    <AnalysisStartDateTime>2026-08-30T11:47:12Z</AnalysisStartDateTime>
+    <AnalysisAlgorithmName>PeakFit-NID</AnalysisAlgorithmName>
+    <AnalysisAlgorithmVersion>
+      <AnalysisAlgorithmComponentName>NID</AnalysisAlgorithmComponentName>
+      <AnalysisAlgorithmComponentVersion>3.0.2</AnalysisAlgorithmComponentVersion>
+    </AnalysisAlgorithmVersion>
+    <NuclideAnalysisResults>
+      <Nuclide>
+        <NuclideIdentifiedIndicator>true</NuclideIdentifiedIndicator>
+        <NuclideName>Cs-137</NuclideName>
+        <NuclideIDConfidenceValue>0.98</NuclideIDConfidenceValue>
+        <NuclideCategoryDescription>Industrial</NuclideCategoryDescription>
+      </Nuclide>
+      <Nuclide>
+        <NuclideIdentifiedIndicator>true</NuclideIdentifiedIndicator>
+        <NuclideName>K-40</NuclideName>
+        <NuclideIDConfidenceValue>0.91</NuclideIDConfidenceValue>
+        <NuclideCategoryDescription>NORM</NuclideCategoryDescription>
+      </Nuclide>
+    </NuclideAnalysisResults>
+    <PeakAnalysisResults>
+      <Peak>
+        <PeakEnergyValue units="keV">661.7</PeakEnergyValue>
+        <PeakNetAreaValue>37916</PeakNetAreaValue>
+        <PeakFWHMValue units="keV">46.3</PeakFWHMValue>
+      </Peak>
+      <Peak>
+        <PeakEnergyValue units="keV">1460.8</PeakEnergyValue>
+        <PeakNetAreaValue>1099</PeakNetAreaValue>
+        <PeakFWHMValue units="keV">69.3</PeakFWHMValue>
+      </Peak>
+    </PeakAnalysisResults>
+  </AnalysisResults>
+
+</RadInstrumentData>

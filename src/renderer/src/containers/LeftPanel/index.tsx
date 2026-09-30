@@ -79,6 +79,7 @@ export function LeftPanel(): React.JSX.Element {
             <button
               key={key}
               type="button"
+              data-testid={`left-rail-${key}`}
               title={label}
               aria-label={label}
               onClick={() => openSection(key)}
