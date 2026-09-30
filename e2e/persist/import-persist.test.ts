@@ -19,8 +19,8 @@ import { existsSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
-import { selectAll, stubFileImport, waitForMainWindow } from '../support/harness'
-import { PERSIST_DB, relaunchAndReopen } from './persist-helpers'
+import { setInputValue, stubFileImport, waitForMainWindow } from '../support/harness'
+import { PERSIST_DB, PERSIST_SAVE_DEBOUNCE_WAIT_MS, relaunchAndReopen } from './persist-helpers'
 import { TIMEOUTS } from '../config/timeouts'
 import { DEFAULT_COORDS } from '../constants/test-data'
 
@@ -33,10 +33,10 @@ import { DEFAULT_COORDS } from '../constants/test-data'
 async function typeCell(rowId: string, colId: string, value: string): Promise<void> {
   const input = Weather.cellInput(rowId, colId)
   await input.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
-  await input.click()
-  await selectAll()
-  await browser.keys(['Delete'])
-  await input.addValue(value)
+  // setInputValue carries the focus wait between the click and the select-all;
+  // hand-rolled, the chord could reach the document and the typed value would
+  // APPEND to the existing cell rather than replace it.
+  await setInputValue(input, value)
 }
 
 describe('Persistence — import + data type/unit + validation across relaunch', () => {
@@ -108,10 +108,15 @@ describe('Persistence — import + data type/unit + validation across relaunch',
 
     expect(existsSync(PERSIST_DB)).toBe(true)
 
+    // Wait out the backend's 30s weather save debounce — see
+    // PERSIST_SAVE_DEBOUNCE_WAIT_MS in persist-helpers.ts. Relaunching sooner
+    // loses the imported rows (they reach context.xml only 30s after the last
+    // edit, and nothing flushes that save on shutdown).
+    await browser.pause(PERSIST_SAVE_DEBOUNCE_WAIT_MS)
+
     // 5) FULL relaunch on the SAME fixed profile, then reopen the project.
     const homeId = await relaunchAndReopen(name)
-    await HomePage.row(homeId).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId, name)
     // The workspace lands on 3D Window; Weather mounts only while its tab is active.
     await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })

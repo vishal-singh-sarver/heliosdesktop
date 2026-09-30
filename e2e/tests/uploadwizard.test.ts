@@ -28,7 +28,9 @@ import {
 } from '../support/harness'
 import { fixture, FIXTURE_FILES, SAMPLE_CSV } from '../config/fixtures'
 import { TIMEOUTS } from '../config/timeouts'
-import { IMPORT_MSG } from '../constants/messages'
+import { IMPORT_MSG, WEATHER_TOAST } from '../constants/messages'
+import { drainToasts, waitForToast } from '../support/toasts'
+import { clearApiFaults, clearApiLatency, withApiFault } from '../support/faults'
 
 before(async () => {
   await waitForMainWindow()
@@ -39,6 +41,13 @@ before(async () => {
 
 beforeEach(async () => {
   await reloadToHome()
+})
+
+// Faults live in the renderer and beforeEach's refresh clears them — but that
+// runs at the START of the next test, leaving a rule armed across the gap.
+afterEach(async () => {
+  await clearApiFaults()
+  await clearApiLatency()
 })
 
 /** The wizard's read-only "Weather Data File" field (StepFilePreview input). */
@@ -137,6 +146,11 @@ describe('Weather import — happy path', () => {
     await enterWeather('happy')
     await stubFileImport(SAMPLE_CSV)
     await Weather.runImport()
+    // The toast names the BASENAME of the stubbed path (Weather/saga.ts:119), and
+    // stubFileImport defaults to /tmp/fixture.csv. runImport() returns on the
+    // wizard-close edge, which the same reducer case sets just before the saga
+    // toasts — tight but inside the ~2.66s window.
+    await waitForToast(WEATHER_TOAST.fileUploaded('fixture.csv'))
     // The imported user column appears as a managed column.
     await Weather.waitForColumn('temperature')
     // Both data rows imported.
@@ -144,6 +158,53 @@ describe('Weather import — happy path', () => {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'imported rows did not appear'
     })
+  })
+
+  it('a FAILED import reports the file and leaves the wizard open', async () => {
+    await enterWeather('importfail')
+    await stubFileImport(SAMPLE_CSV)
+    await drainToasts()
+
+    // Fault the "step 0" wipe (Weather/saga.ts:247), which is called unguarded
+    // inside the worker's try — so it throws straight to the catch at :368-371,
+    // the branch that raises this toast.
+    //
+    // MEASURED, do not "simplify" to faulting POST /addCol: that failure is
+    // CAPTURED rather than thrown (saga.ts:318-322), and the toast then depends
+    // on the follow-up refresh succeeding (:353-355). In practice the refresh
+    // fails too, taking the raceResult.failed branch at :339 which returns with
+    // NO TOAST AT ALL. Probed it: wizard open, zero toasts for 8s.
+    // That silent path is a separate product finding, not this test's subject.
+    await withApiFault('DELETE', '/clear_data', async () => {
+      // Stepped by hand rather than through runImport(): on IMPORT_FINALIZE_FAILED
+      // the reducer leaves wizardOpen true (reducer.ts:151), so runImport()'s
+      // wait for the wizard to close would hang for its full 30s and throw.
+      await Weather.openImportWizard()
+      await Weather.wizardBrowse.click()
+      for (let step = 0; step < 3; step++) {
+        await browser.waitUntil(async () => Weather.wizardNext.isEnabled().catch(() => false), {
+          timeout: TIMEOUTS.MEDIUM,
+          timeoutMsg: `wizard Next never enabled at step ${step}`
+        })
+        await Weather.wizardNext.click()
+      }
+      await Weather.wizardImport.waitForClickable({ timeout: TIMEOUTS.MEDIUM })
+      await Weather.wizardImport.click()
+      // waitForToast is the NEXT statement, with nothing between it and the click.
+      //
+      // MEASURED: a "did the replace-confirm appear?" probe here costs the full
+      // 5s SHORT timeout when it does NOT appear — and it does not, because this
+      // scenario holds only its seeded Date-Time column. Those 5s outlive the
+      // toast's ~2.66s, so the read came back empty while the wizard's own
+      // "Import failed: Network Error" banner sat there looking like proof the
+      // assertion was wrong. It was the probe that was wrong.
+      await waitForToast(WEATHER_TOAST.fileUploadFailed('fixture.csv'), TIMEOUTS.LONG)
+    })
+
+    // The wizard stays up so the user can retry — the toast is not a dismissal.
+    await expect(Weather.importWizard).toBeDisplayed()
+    await Weather.wizardClose.click()
+    await Weather.importWizard.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
   })
 
   it('stores the value truncated to 7 decimals', async () => {
@@ -189,14 +250,56 @@ describe('Weather import — Delete Data', () => {
     await enterWeather('cleardata')
     await Weather.addRows(2)
     await expect(await Weather.rowCount()).toBe(2)
+    await drainToasts()
     await Weather.deleteDataButton.click()
     await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     await Weather.deleteImportDialog.$('button=Delete').click()
+    // PRODUCT FINDING, pinned: the filename is the EMPTY STRING here. The saga
+    // reads it from selectDataset (Weather/saga.ts:377), which only
+    // IMPORT_FINALIZE_SUCCEEDED ever writes (reducer.ts:138) — and this scenario
+    // was seeded with addRows, never an import. So a user who clears rows they
+    // typed is told 'Weather file "" has been successfully deleted.'
+    // The named form is covered by the next test.
+    await waitForToast(WEATHER_TOAST.fileDeleted(''))
     await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
     await browser.waitUntil(async () => (await Weather.rowCount()) === 0, {
       timeout: TIMEOUTS.LONG,
       timeoutMsg: 'table did not clear after Delete Data'
     })
+  })
+
+  it('after an IMPORT the delete toast names the file', async () => {
+    await enterWeather('clearnamed')
+    await stubFileImport(SAMPLE_CSV)
+    await Weather.runImport()
+    await Weather.waitForColumn('temperature')
+
+    // Drain the upload toast: it names the same file and would otherwise be a
+    // candidate for the wait below (both contain `Weather file "fixture.csv"`).
+    await drainToasts()
+    await Weather.deleteDataButton.click()
+    await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+    await Weather.deleteImportDialog.$('button=Delete').click()
+    await waitForToast(WEATHER_TOAST.fileDeleted('fixture.csv'))
+    await Weather.deleteImportDialog.waitForDisplayed({ reverse: true, timeout: 15000 })
+  })
+
+  it('a FAILED Delete Data reports it and the rows survive', async () => {
+    await enterWeather('clearfail')
+    await Weather.addRows(2)
+    await drainToasts()
+
+    // WeatherToolbar.tsx:71-74 closes this confirmation on the loading -> idle
+    // edge with NO error guard, so it closes on failure too and the toast is the
+    // user's only report.
+    await withApiFault('DELETE', '/clear_data', async () => {
+      await Weather.deleteDataButton.click()
+      await Weather.deleteImportDialog.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
+      await Weather.deleteImportDialog.$('button=Delete').click()
+      await waitForToast(WEATHER_TOAST.fileDeleteFailed(''), TIMEOUTS.LONG)
+    })
+
+    expect(await Weather.rowCount()).toBe(2)
   })
 
   it('cancel keeps the data', async () => {
@@ -1653,8 +1756,9 @@ describe('Weather import — cell-edit persistence on a real import', () => {
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: 15000 })
     const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: 15000 })
+    // By id, in-page, checked by title: a pointer double-click here once opened
+    // a DIFFERENT project after Home re-sorted (see HomePage.openProject).
+    await HomePage.openProject(homeId as string, name)
     // Reopening resets the workspace to the 3D Window tab; Weather mounts only
     // while its tab is active.
     await ProjectScreen.selectTab('weather')

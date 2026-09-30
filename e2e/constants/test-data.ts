@@ -43,3 +43,35 @@ export const WEATHER_LIMITS = {
 
 /** Non-matching search terms used to force an empty project list. */
 export const NO_MATCH_SEARCH = 'zzzqqq___nomatch'
+
+/**
+ * Every MenuBar item, mirrored BY HAND from types/project.ts TOOLBAR_ITEMS.
+ *
+ * Hand-mirrored rather than imported, like everything else in this folder: a
+ * test that imports the value it is checking cannot detect a change to it.
+ *
+ * Order matters only within a group; the list is flattened here because the
+ * testid pattern is menu-<label verbatim, spaces included> and carries no group.
+ *
+ * Wiring, recorded so a test does not assume otherwise: on HomePage only
+ * "New Project" has a handler. On the ProjectScreen the MenuBar is passed
+ * onItemSelect={() => {}}, so ALL of them are inert there.
+ */
+export const TOOLBAR_LABELS = [
+  'New Project',
+  'Open Project',
+  'Import Project',
+  'Exit',
+  'Undo',
+  'Redo',
+  'Preferences',
+  'Zoom In',
+  'Zoom Out',
+  'Reset Layout',
+  'Scripting Console',
+  'Extensions',
+  'Diagnostics',
+  'Documentation',
+  'Shortcuts',
+  'About Helios'
+] as const

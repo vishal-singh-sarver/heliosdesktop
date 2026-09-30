@@ -17,7 +17,8 @@
  *    / { reverse: true }) — never waitForExist.
  */
 
-import { selectAll } from '../support/harness'
+import { selectAll, setInputValue } from '../support/harness'
+import { TIMEOUTS } from '../config/timeouts'
 
 type El = ReturnType<typeof $>
 type ElArray = ReturnType<typeof $$>
@@ -118,9 +119,24 @@ class HomePagePage {
   get createSubmitButton(): El {
     return this.createDialog.$('button=Create')
   }
+  /**
+   * The SAME Create button while a create is in flight. createSubmitButton cannot
+   * find it then: `button=Create` is an exact-text match and the busy label is
+   * `Creating…` (HomePage/messages.ts submitButtonBusy). A click through
+   * createSubmitButton during that window implicit-waits 10s for a "Create"
+   * button, then hits the hidden one left in the closed dialog after success.
+   * Partial match, so the U+2026 ellipsis never has to be typed right.
+   */
+  get createSubmitBusyButton(): El {
+    return this.createDialog.$('button*=Creating')
+  }
   get renameSaveButton(): El {
     return this.renameDialog.$('button=Save')
   }
+  /**
+   * Matches in BOTH states: while deleting, the label is a text-less spinner svg
+   * plus "Delete". Tell busy from idle with isEnabled(), never by text.
+   */
   get deleteConfirmButton(): El {
     return this.deleteDialog.$('button=Delete')
   }
@@ -172,6 +188,16 @@ class HomePagePage {
    */
   private async replaceInput(el: El, value: string): Promise<void> {
     await el.click()
+    // Under full-suite load the click can still be settling when Control+A
+    // arrives: the chord then goes to the document, Delete clears nothing, and
+    // the typed value APPENDS to the pre-filled default ("38.5412.34"), which
+    // enterProject reports as a create that "never left the dialog". The same
+    // race ObjectProperties.typeField documents and guards.
+    await browser.waitUntil(async () => el.isFocused(), {
+      timeout: 5_000,
+      interval: 100,
+      timeoutMsg: 'field never took focus, so select-all would miss it'
+    })
     await selectAll()
     await browser.keys(['Delete'])
     if (value.length) await el.addValue(value)
@@ -188,9 +214,13 @@ class HomePagePage {
    * select-all, and delete to genuinely reset the filter.
    */
   async clearSearch(): Promise<void> {
-    await this.searchbar.click()
-    await selectAll()
-    await browser.keys(['Delete'])
+    // Through setInputValue, which carries the focus wait between the click and
+    // the select-all. Hand-rolled here before, it was one of the last three
+    // click -> Control+A pairs in the suite with no guard: under load the chord
+    // can arrive before the click has focused the box, go to the document
+    // instead, and leave the filter still applied — so the NEXT assertion sees a
+    // filtered list and fails somewhere else entirely.
+    await setInputValue(this.searchbar, '')
   }
 
   /** Open a row's kebab action menu by project name. */
@@ -237,6 +267,68 @@ class HomePagePage {
         .map((el) => (el.getAttribute('data-testid') || '').replace(/^row-/, ''))
         .filter(Boolean)
     )
+  }
+
+  /**
+   * Open a project from its Home row, addressed BY ID, in one in-page task.
+   *
+   * NOT `row(id).doubleClick()` for setup. That is a pointer action at the row's
+   * COORDINATES, and Home re-sorts underneath it: it paints the cached list, then
+   * re-sorts when /recent lands, ranked by last_updated — which the backend takes
+   * from the newest file mtime in a project folder, including ANOTHER project's
+   * debounced context.xml temp write. Measured 15 Sep 2026 in a backend log: the
+   * double-click landed on the row that had just moved into place and opened
+   * `e2e-nlr3-…` instead of `e2e-persistreal-…`, surfacing as "column humidity
+   * never appeared". The row's own onDoubleClick is on this <tr>, so dispatching
+   * on the element by id opens exactly that project whatever the order.
+   *
+   * Pass `expectedName` to also wait until the ProjectScreen shows THAT project,
+   * so a wrong-project open fails as itself. Tests of the double-click GESTURE
+   * keep the real pointer action.
+   */
+  async openProject(id: string, expectedName?: string): Promise<void> {
+    await this.row(id).waitForExist({
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: `openProject: Home row ${id} never rendered`
+    })
+    await browser.execute((rowId: string) => {
+      const row = document.querySelector(`[data-testid="row-${rowId}"]`)
+      if (!row) throw new Error(`openProject: row-${rowId} is not rendered`)
+      row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+    }, id)
+    if (expectedName === undefined) return
+    const title = $('[data-testid="project-title"]')
+    await title.waitForDisplayed({
+      timeout: TIMEOUTS.LONG,
+      timeoutMsg: `openProject: the ProjectScreen never mounted for "${expectedName}"`
+    })
+    // `shown` is written by EVERY poll and read only once the wait has given up,
+    // in the catch. It must not go in `timeoutMsg`: that template literal is
+    // built with the options object, BEFORE the first poll, so it always read
+    // the initial value and reported `opened ""` — a wrong-project open, the one
+    // failure this wait exists to name, looked like a blank title instead of the
+    // project that actually opened.
+    //
+    // waitUntil's own reason is appended rather than dropped. A condition that
+    // throws does not abort the wait — webdriverio records the error and keeps
+    // polling — but if the FINAL poll threw (e.g. getText on a title that
+    // re-mounted), the rejection carries that error instead of a timeout, and
+    // that must not be passed off as a plain title mismatch.
+    let shown = '<the title was never read>'
+    try {
+      await browser.waitUntil(
+        async () => {
+          shown = (await title.getText()).trim()
+          return shown === expectedName
+        },
+        { timeout: TIMEOUTS.LONG }
+      )
+    } catch (err) {
+      throw new Error(
+        `openProject: opened "${shown}", expected "${expectedName}" ` +
+          `(${err instanceof Error ? err.message : String(err)})`
+      )
+    }
   }
 
   /**
@@ -362,10 +454,29 @@ class HomePagePage {
    * the click via JS, which still fires React's onClick handler.
    */
   async clickMenuItem(label: string): Promise<void> {
-    await browser.execute((lbl: string) => {
+    // Report a miss instead of silently doing nothing.
+    //
+    // This used to be `node?.click()`, which made every no-op assertion in the
+    // toolbar block unfalsifiable: `it('a no-op toolbar item (Undo) does nothing')`
+    // passed unchanged if the label were misspelled, the testid renamed, or the
+    // entire MenuBar deleted — because "nothing happened" was exactly what the
+    // test asserted. A helper that cannot miss cannot support a negative test.
+    const clicked = await browser.execute((lbl: string) => {
       const node = document.querySelector(`[data-testid="menu-${lbl}"]`) as HTMLElement | null
-      node?.click()
+      if (!node) return false
+      node.click()
+      return true
     }, label)
+
+    if (!clicked) {
+      throw new Error(
+        `No menu item found for data-testid="menu-${label}".\n` +
+          '  The testid is the item label verbatim, spaces included ' +
+          '(e.g. "menu-New Project"), and every item is permanently in the DOM — ' +
+          'the dropdown is hidden with CSS visibility, not unmounted. So a miss here ' +
+          'means a wrong label or a changed MenuBar, not a closed menu.'
+      )
+    }
   }
 
   // ----- Project row cells (4 <td>: name / last_updated / size / actions) -----

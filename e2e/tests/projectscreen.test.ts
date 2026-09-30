@@ -148,7 +148,12 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
   for (const tc of invalidCases) {
     it(`marks ${tc.label} aria-invalid and renders no inline error`, async () => {
       await enterProject('inv')
-      await ProjectScreen.setCoordinate(tc.field, tc.value)
+      // typeCoordinate, NOT setCoordinate: this asserts the REJECTED state, and
+      // that state does not survive a blur. commitCoordinate early-returns via
+      // revertCoordinate for anything uncommittable, restoring the stored value
+      // and clearing aria-invalid with it — so the old setCoordinate here left
+      // nothing to see and this timed out on validation that was working fine.
+      await ProjectScreen.typeCoordinate(tc.field, tc.value)
       // Differential: an invalid coordinate MUST set aria-invalid=true. If the
       // range/decimal/format validation were removed, this would time out.
       await browser.waitUntil(async () => (await ProjectScreen.coordInvalid(tc.field)) === 'true', {
@@ -157,6 +162,17 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
       })
       // LabeledField renders NO inline error text — assert no alert/paragraph.
       await expect($('[role="alert"]')).not.toBeExisting()
+
+      // The other half of the shipped behaviour: blurring DISCARDS the rejected
+      // text rather than leaving it on screen, so the header always shows what is
+      // actually stored. Asserted here because it is the very thing that makes the
+      // check above have to happen pre-blur.
+      await ProjectScreen.blurCoordinate(tc.field)
+      await browser.waitUntil(async () => (await ProjectScreen.coordInvalid(tc.field)) === null, {
+        timeout: TIMEOUTS.SHORT,
+        timeoutMsg: 'blur did not revert the rejected coordinate'
+      })
+      await expect(ProjectScreen.coordInput(tc.field)).not.toHaveValue(tc.value)
     })
   }
 
@@ -168,13 +184,19 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
   it('an invalid longitude is commit-gated: aria-invalid + UTC NOT recomputed', async () => {
     await enterProject('gate') // seeded lon 56.78 -> a valid UTC is already shown
     const seededUtc = await ProjectScreen.getUtcValue()
-    await ProjectScreen.setCoordinate('longitude', '200') // out of [-180, 180]
+    // Typed but NOT blurred: the rejected value has to still be in the box for
+    // aria-invalid to be observable at all (see the loop above).
+    await ProjectScreen.typeCoordinate('longitude', '200') // out of [-180, 180]
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('longitude')) === 'true', {
       timeout: TIMEOUTS.SHORT,
       timeoutMsg: 'aria-invalid never became true for out-of-range longitude'
     })
-    // The commit gate suppressed the PATCH -> the derived UTC offset is unchanged.
+    // NOW commit it. The gate is what this test is about: commitCoordinate must
+    // early-return on errors[field] instead of dispatching, so the derived UTC
+    // offset is unchanged — and the rejected text is replaced by the stored one.
+    await ProjectScreen.blurCoordinate('longitude')
     await expect(ProjectScreen.utcInput).toHaveValue(seededUtc)
+    await expect(ProjectScreen.lonInput).not.toHaveValue('200')
   })
 
   const validCases: Array<{ label: string; field: 'latitude' | 'longitude'; value: string }> = [
@@ -210,13 +232,25 @@ describe('ProjectScreen — coordinate validation (aria-invalid, no inline error
 
     // Clear the field. Empty is NEUTRAL: validateCoordinates skips empty values,
     // so aria-invalid stays absent (differential: if empty were treated as
-    // invalid, coordInvalid would become 'true').
-    await ProjectScreen.setCoordinate('longitude', '')
+    // invalid, coordInvalid would become 'true'). Typed WITHOUT blurring, because
+    // the blur is what decides the field's final contents — asserted separately
+    // below.
+    await ProjectScreen.typeCoordinate('longitude', '')
     await expect(await ProjectScreen.coordInvalid('longitude')).toBe(null)
-    // The field is genuinely empty...
+    // While still focused the field is genuinely empty...
     await expect(ProjectScreen.lonInput).toHaveValue('')
-    // ...and an empty value is NOT committed (commitCoordinate returns on '') so
-    // the last good UTC offset is retained rather than recomputed/cleared.
+
+    // ...and on BLUR the empty value is NOT committed. DEVIATION: it is also not
+    // LEFT on screen. commitCoordinate's uncommittable branch is
+    // `errors[field] || value.trim() === ''`, so an empty field takes the same
+    // revertCoordinate path as a rejected one and the stored longitude comes back
+    // — "what the header shows is always what would be used". This test used to
+    // assert the box stayed empty after the blur; it never observed that, because
+    // it died at the UTC barrier above while utc_offset was stuck at "+00:00".
+    await ProjectScreen.blurCoordinate('longitude')
+    await expect(ProjectScreen.lonInput).not.toHaveValue('')
+    // The no-commit leg is the point: the last good UTC offset is retained rather
+    // than recomputed or cleared.
     await expect(ProjectScreen.utcInput).toHaveValue(committedUtc)
   })
 })
@@ -364,12 +398,15 @@ describe('ProjectScreen — CenterWorkspace tabs', () => {
 describe('ProjectScreen — coordinate edge cases', () => {
   it('correcting an invalid value clears aria-invalid', async () => {
     await enterProject('fix')
-    await ProjectScreen.setCoordinate('latitude', '95')
+    // Both edits stay in the SAME focus: the point is correcting the text in place,
+    // and blurring in between would revert the bad value rather than let the user
+    // fix it — which is also why the first assertion has to run before any blur.
+    await ProjectScreen.typeCoordinate('latitude', '95')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === 'true', {
       timeout: TIMEOUTS.SHORT,
       timeoutMsg: 'aria-invalid never became true for out-of-range latitude'
     })
-    await ProjectScreen.setCoordinate('latitude', '45')
+    await ProjectScreen.typeCoordinate('latitude', '45')
     await browser.waitUntil(async () => (await ProjectScreen.coordInvalid('latitude')) === null, {
       timeout: TIMEOUTS.SHORT,
       timeoutMsg: 'aria-invalid never cleared after correcting the latitude'
@@ -419,8 +456,7 @@ describe('ProjectScreen — coordinate persistence', () => {
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId as string, name)
     await expect(ProjectScreen.lonInput).toHaveValue('-121.7405')
   })
 
@@ -488,8 +524,7 @@ describe('ProjectScreen — coordinate persistence', () => {
     await ProjectScreen.goHome()
     await HomePage.projectsTable.waitForDisplayed({ timeout: TIMEOUTS.LONG })
     const homeId = await HomePage.rowIdForName(name)
-    await HomePage.row(homeId as string).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId as string, name)
 
     // The reopened header must show the EDITED latitude (seeded from the freshly
     // fetched project metadata), never the create-time 45.5.

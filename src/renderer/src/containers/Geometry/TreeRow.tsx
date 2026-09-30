@@ -513,6 +513,7 @@ function TreeRow({
       <div className="mb-1">
         <div
           ref={rowRef}
+          data-testid={`geo-row-${node.id}`}
           role="button"
           tabIndex={0}
           onClick={handleSelect}
@@ -617,6 +618,7 @@ function TreeRow({
           ) : (
             <>
               <span
+                data-testid={`geo-row-name-${node.id}`}
                 // flex-1 so the name owns the empty strip between it and the
                 // action icons, matching the Materials rows. That strip is what
                 // carries the rename hint and the double-click target — without

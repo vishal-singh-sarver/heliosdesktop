@@ -421,6 +421,7 @@ function MaterialDraftForm({ draft }: { draft: MaterialDraft }): React.JSX.Eleme
           <div className="relative min-w-0 flex-1">
             <input
               ref={nameInputRef}
+              data-testid="material-form-name"
               aria-label="Material name"
               aria-invalid={nameError != null}
               // Only while the field is locked — once it's editing, the advice
@@ -1128,6 +1129,7 @@ function ParameterGroupCard({
   return (
     <div
       ref={cardRef}
+      data-testid={`material-card-${group.id}`}
       className={`flex shrink-0 flex-col rounded-[5px] border transition-colors duration-500 ${
         highlighted ? HIGHLIGHT_CLASSES : 'border-app-border'
       }`}
@@ -1350,6 +1352,7 @@ function ParameterGroupCard({
                 first time, updates it after that. */}
             <button
               type="button"
+              data-testid={`material-card-save-${group.id}`}
               disabled={!canSave}
               // Deliberately NO onMouseDown preventDefault here. It used to guard a
               // highlighted library tile from being blurred before the click read it,
