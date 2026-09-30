@@ -165,8 +165,141 @@ class WeatherPage {
   get deleteRowDialog(): El {
     return $('[data-testid="delete-row-dialog"]')
   }
+  /**
+   * The BULK delete confirmation, raised from the selection pill.
+   *
+   * Four dialogs in this app share aria-label="Delete" (column, single row,
+   * import, and this one), so the testid is the only safe discriminator. Its
+   * heading — "Delete Selected Rows" vs the single row's "Delete Row" — is the
+   * fallback if you are reading through support/dialogs.ts instead.
+   */
+  get deleteSelectedRowsDialog(): El {
+    return $('[data-testid="delete-selected-rows-dialog"]')
+  }
   dialogCloseButton(dialog: El): El {
     return dialog.$('[data-testid="dialog-close"]')
+  }
+
+  /**
+   * Close an open dialog through its header ×, then wait for it to go.
+   *
+   * TEARDOWN ONLY — for a test that has finished asserting and just needs the
+   * dialog gone. Deliberately NOT Cancel: the footer Cancel is reflowed out from
+   * under the pointer by the shipped bug described on `openFormSelect`, so a
+   * teardown click there fails and takes an otherwise-passing test down with it.
+   * Measured 16 Sep 2026 — the delta-boundary and pre-seed tests passed every
+   * assertion they own and then died on the trailing `arCancel.click()`.
+   *
+   * The × lives in the dialog HEADER, above the "required" error that does the
+   * reflowing, so it never moves. That is why `the × button closes it` has
+   * always passed while `Cancel closes it` never has.
+   */
+  async dismissDialog(dialog: El): Promise<void> {
+    await this.dialogCloseButton(dialog).click()
+    await dialog.waitForDisplayed({ reverse: true, timeout: TIMEOUTS.MEDIUM })
+  }
+
+  // ----- Shift-click row highlight and the selection pill -----
+
+  /**
+   * The floating selection pill. It is UNMOUNTED when nothing is highlighted
+   * (SelectionActionBar returns null at count 0), so `isExisting()` is a valid
+   * oracle for "nothing is selected" — unlike most of this app's UI, which
+   * hides with CSS and stays in the DOM.
+   */
+  get selectionActionBar(): El {
+    return $('[data-testid="selection-action-bar"]')
+  }
+
+  /** The pill's Delete button. It carries no testid; its accessible name is "Delete". */
+  get selectionDeleteButton(): El {
+    return this.selectionActionBar.$('button')
+  }
+
+  /**
+   * How many rows the pill says are selected, or null when the pill is absent.
+   *
+   * Read from the pill rather than by counting highlighted <tr>s on purpose: a
+   * highlighted row that scrolls out of the virtual window UNMOUNTS while
+   * remaining in `highlightedRowIds`, so counting DOM nodes under-reports.
+   */
+  async selectionCount(): Promise<number | null> {
+    return browser.execute(() => {
+      const bar = document.querySelector('[data-testid="selection-action-bar"]')
+      if (!bar) return null
+      const m = /(\d+)/.exec(bar.textContent ?? '')
+      return m ? Number(m[1]) : null
+    })
+  }
+
+  /** Full text of the pill, e.g. "1 row is selected" — for the singular/plural check. */
+  async selectionText(): Promise<string | null> {
+    return browser.execute(() => {
+      const bar = document.querySelector('[data-testid="selection-action-bar"]')
+      return bar ? (bar.textContent ?? '').replace(/\s+/g, ' ').trim() : null
+    })
+  }
+
+  /**
+   * Shift-click a row to toggle it in or out of the highlight.
+   *
+   * NOT a range select — WeatherTable's handler calls toggleHighlight(current,
+   * rowId), so shift-clicking rows 1 and 5 highlights exactly those two.
+   *
+   * Both mousedown AND click are dispatched, and both are required:
+   * handleRowMouseDown only calls preventDefault() (to suppress the browser's
+   * text selection and the cell input taking focus), while handleRowClick is
+   * what actually toggles. Dispatching click alone leaves the native side
+   * effects the component exists to suppress; mousedown alone highlights
+   * nothing.
+   *
+   * Synthetic events rather than a W3C action chain: the suite has no
+   * modifier-held-click primitive (browser.keys cannot hold Shift across a
+   * separate .click()), and this Electron build lacks
+   * Browser.getWindowForTarget, which makes coordinate-based pointer actions
+   * unreliable — the same reason support/dnd.ts is synthetic.
+   */
+  async shiftClickRow(rowId: string): Promise<void> {
+    const dispatched = await browser.execute((id: string) => {
+      const row = document.querySelector(`[data-testid="weather-row-${id}"]`) as HTMLElement | null
+      if (!row) return false
+      const opts = { bubbles: true, cancelable: true, shiftKey: true, view: window }
+      row.dispatchEvent(new MouseEvent('mousedown', opts))
+      row.dispatchEvent(new MouseEvent('click', opts))
+      return true
+    }, rowId)
+    if (!dispatched) throw new Error(`shiftClickRow: no row with data-testid="weather-row-${rowId}"`)
+  }
+
+  /**
+   * Shift-click a specific element INSIDE a row — used to prove the exempt
+   * targets (the row checkbox and the trash) pass the gesture through without
+   * highlighting. `isHighlightExemptTarget` uses closest('button,
+   * input[type="checkbox"]'), so a click on the trash's inner <img> is exempt too.
+   */
+  async shiftClickWithin(rowId: string, selector: string): Promise<void> {
+    const dispatched = await browser.execute(
+      (id: string, sel: string) => {
+        const row = document.querySelector(`[data-testid="weather-row-${id}"]`)
+        const target = row?.querySelector(sel) as HTMLElement | null
+        if (!target) return false
+        const opts = { bubbles: true, cancelable: true, shiftKey: true, view: window }
+        target.dispatchEvent(new MouseEvent('mousedown', opts))
+        target.dispatchEvent(new MouseEvent('click', opts))
+        return true
+      },
+      rowId,
+      selector
+    )
+    if (!dispatched) throw new Error(`shiftClickWithin: no "${selector}" inside row ${rowId}`)
+  }
+
+  /** True when the row carries the highlight class WeatherRow applies at `highlighted`. */
+  async isRowHighlighted(rowId: string): Promise<boolean> {
+    return browser.execute((id: string) => {
+      const row = document.querySelector(`[data-testid="weather-row-${id}"]`)
+      return row ? row.className.includes('bg-app-row-selected') : false
+    }, rowId)
   }
 
   // ----- Add Column dialog fields -----
@@ -600,9 +733,35 @@ class WeatherPage {
     }, name)
   }
 
+  /**
+   * Open the import wizard, re-requesting the open until it is on screen.
+   *
+   * This was one WebDriver coordinate click on Upload File followed by a 10s
+   * wait. On 16 Sep 2026 that click was lost right after enterWeather (the table
+   * was still mounting under the toolbar) and the wizard never opened, in a test
+   * that had passed five runs that day. The in-page click is position-agnostic,
+   * as openAddColumns/openAddRows already use, and repeating it is harmless:
+   * Upload File only dispatches importWizardOpened, which sets a flag.
+   */
   async openImportWizard(): Promise<void> {
-    await this.uploadFileButton.click()
-    await this.importWizard.waitForDisplayed({ timeout: 10000 })
+    await this.uploadFileButton.waitForExist({ timeout: TIMEOUTS.MEDIUM })
+    let attempts = 0
+    try {
+      await browser.waitUntil(
+        async () => {
+          if (await this.importWizard.isDisplayed().catch(() => false)) return true
+          attempts += 1
+          await this.clickToolbarButton('Upload File')
+          return false
+        },
+        { timeout: TIMEOUTS.MEDIUM, interval: 500 }
+      )
+    } catch (err) {
+      throw new Error(
+        `the import wizard never opened after ${attempts} Upload File click(s) ` +
+          `(${err instanceof Error ? err.message : String(err)})`
+      )
+    }
   }
 
   /**
@@ -974,19 +1133,45 @@ class WeatherPage {
     return this.formSelectTrigger(name).isEnabled()
   }
 
-  /** Open the listbox (no-op if already open) and return its element id. */
+  /**
+   * Open the listbox (no-op if already open) and return its element id.
+   *
+   * Retries the trigger click. DEVIATION — shipped bug: the FIRST click into a
+   * freshly opened dialog is swallowed. The dialog auto-focuses its EMPTY
+   * required field; the press blurs it, the "required" error appears and pushes
+   * this trigger down one line before the release, so the click lands off-target
+   * and a real user has to click twice. Measured 16 Sep 2026 — three weather
+   * tests that never touch Cancel died here with `listbox … never opened`.
+   *
+   * ACCOMMODATED, not asserted. The intended ONE-click behaviour is the subject
+   * of the dedicated Cancel tests, which stay `it.skip` until the app is fixed;
+   * encoding the double-click there would turn the bug into the expectation.
+   * Here the click is incidental, so retrying restores the coverage the test
+   * actually owns.
+   *
+   * Each retry is gated on the listbox being genuinely absent, so one that
+   * merely opened SLOWLY is never toggled shut by a second click.
+   */
   async openFormSelect(name: string): Promise<string> {
     const trigger = this.formSelectTrigger(name)
     await trigger.waitForDisplayed({ timeout: TIMEOUTS.MEDIUM })
     const listId = await trigger.getAttribute('aria-controls')
     if (!listId) throw new Error(`Select "${name}" has no aria-controls — not a components/Select`)
-    if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
-    await browser.waitUntil(
-      async () =>
-        (await browser.execute((id: string) => !!document.getElementById(id), listId)) === true,
-      { timeout: TIMEOUTS.MEDIUM, timeoutMsg: `listbox for "${name}" never opened` }
-    )
-    return listId
+    const isOpen = async (): Promise<boolean> =>
+      (await browser.execute((id: string) => !!document.getElementById(id), listId)) === true
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (await isOpen()) return listId
+      // A swallowed click never reaches the trigger, so React's state — and
+      // aria-expanded with it — stays false. Honouring it keeps the no-op
+      // contract for an already-open control.
+      if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
+      const opened = await browser.waitUntil(isOpen, { timeout: 2000, interval: 100 }).then(
+        () => true,
+        () => false
+      )
+      if (opened) return listId
+    }
+    throw new Error(`listbox for "${name}" never opened after 3 click attempts`)
   }
 
   private async readOptionLabels(listId: string): Promise<string[]> {

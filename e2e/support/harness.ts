@@ -10,6 +10,8 @@
  */
 import { readFileSync } from 'node:fs'
 import HomePage from '../pages/HomePage.page'
+import Geometry from '../pages/Geometry.page'
+import Materials from '../pages/Materials.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { TIMEOUTS } from '../config/timeouts'
@@ -21,10 +23,21 @@ export const ACTIVE_SCENARIO_KEY = 'helios:activeScenarioId'
  * Wait for the main window (the one with #root) and switch wdio focus to it.
  * Helios shows a splash window first, so we poll handles and pick the latest.
  */
-let bridgeProbed = false
+/** Session the probe below last ran for (null: none yet in this worker). */
+let probedSessionId: string | null = null
+/** Session whose browser.electron bridge was PROVEN live. */
+let liveBridgeSessionId: string | null = null
 
 /**
  * Assert the Electron CDP bridge is live, once per spec-file session.
+ *
+ * Keyed to browser.sessionId, not to the worker module. wdio-electron-service
+ * 9.2.1 builds the bridge only in its `before` hook and has no onReload, so
+ * after browser.reloadSession() (the persist suite's relaunch) browser.electron
+ * still points at the killed process. The probe therefore does not re-run then
+ * — it would fail every relaunch — but liveBridgeSessionId stops matching, and
+ * callers that would otherwise touch that dead bridge (applyViewportOverride)
+ * can tell.
  *
  * When the bridge fails to connect, wdio-electron-service does NOT fail the
  * session: it logs at ERROR, returns undefined, and swaps browser.electron.*
@@ -40,12 +53,19 @@ let bridgeProbed = false
  * genuinely fails it.
  */
 async function assertElectronBridge(): Promise<void> {
-  if (bridgeProbed) return
-  bridgeProbed = true
+  if (probedSessionId === browser.sessionId) return
+  const firstSessionInWorker = probedSessionId === null
+  probedSessionId = browser.sessionId
+  // A relaunched session (reloadSession): the bridge is bound to the old process
+  // by design, so do not fail the relaunch — liveBridgeSessionId stays stale.
+  if (!firstSessionInWorker) return
   let underlying: string
   try {
     const ok = await browser.electron?.execute(() => true)
-    if (ok === true) return
+    if (ok === true) {
+      liveBridgeSessionId = browser.sessionId
+      return
+    }
     underlying = `probe returned ${JSON.stringify(ok)}`
   } catch (err) {
     underlying = (err as Error).message
@@ -85,9 +105,18 @@ async function applyViewportOverride(): Promise<void> {
   const m = /^(\d+)x(\d+)$/.exec(spec.trim())
   if (!m) throw new Error(`HELIOS_E2E_VIEWPORT must look like 1024x768, got "${spec}"`)
   const [w, h] = [Number(m[1]), Number(m[2])]
+  if (liveBridgeSessionId !== browser.sessionId) {
+    console.warn('[harness] HELIOS_E2E_VIEWPORT ignored after reloadSession — browser.electron is still bound to the previous process')
+    return
+  }
   await browser.electron.execute(
     (electron, width: number, height: number) => {
-      const win = electron.BrowserWindow.getAllWindows()[0]
+      // NOT getAllWindows()[0]: that is the 1000x600 splash, which is created
+      // first and lives until the renderer's app:ready — later than #root exists,
+      // so the override used to resize the splash and silently do nothing.
+      const win = electron.BrowserWindow.getAllWindows().find(
+        (x) => !x.isDestroyed() && !x.webContents.getURL().includes('helios-splash')
+      )
       win?.setSize(width, height)
     },
     w,
@@ -95,7 +124,15 @@ async function applyViewportOverride(): Promise<void> {
   )
 }
 
-export async function waitForMainWindow(): Promise<void> {
+/**
+ * `timeout` defaults to 90s, not 30s. The app creates the main window only AFTER
+ * the backend passes its health check (src/main/index.ts), and under automation
+ * that check may legitimately take up to 120s — one CI session measured 32.4s,
+ * which a 30s budget fails with "Main window with #root never became available".
+ * The poll returns the moment #root exists, so a healthy run pays nothing, and
+ * 90s stays under the 120s mocha hook budget.
+ */
+export async function waitForMainWindow(timeout = 90_000): Promise<void> {
   await assertElectronBridge()
   // Track the last state each poll saw, so a timeout can say HOW FAR startup
   // got instead of just "never became available". On 2026-08-01 two ubuntu
@@ -129,11 +166,11 @@ export async function waitForMainWindow(): Promise<void> {
           return false
         }
       },
-      { timeout: 30000 }
+      { timeout, interval: 250 }
     )
   } catch {
     throw new Error(
-      `Main window with #root never became available after 30s. Last observed: ${last}. ` +
+      `Main window with #root never became available after ${timeout / 1000}s. Last observed: ${last}. ` +
         'If the app never opened a window, see the "Dump app startup + backend logs" step ' +
         'for app-startup.log.'
     )
@@ -200,6 +237,13 @@ export async function selectAll(): Promise<void> {
  */
 export async function setInputValue(el: ReturnType<typeof $>, value: string): Promise<void> {
   await el.click()
+  // Confirm focus before select-all — see HomePage.replaceInput for the append
+  // race. No read-back of the value here: callers deliberately type invalid text.
+  await browser.waitUntil(async () => el.isFocused(), {
+    timeout: TIMEOUTS.SHORT,
+    interval: 100,
+    timeoutMsg: 'field never took focus, so select-all would miss it'
+  })
   await selectAll()
   await browser.keys(['Delete'])
   if (value.length) await el.addValue(value)
@@ -208,6 +252,124 @@ export async function setInputValue(el: ReturnType<typeof $>, value: string): Pr
 /** Read a localStorage value from the renderer. */
 export async function getStorage(key: string): Promise<string | null> {
   return browser.execute((k: string) => localStorage.getItem(k), key)
+}
+
+/**
+ * Call the backend DIRECTLY, from inside the renderer, using the same base URL
+ * and session header the app itself uses.
+ *
+ * This is how a test reaches a state the UI cannot produce — most importantly a
+ * REAL 404. e2e/support/faults.ts can only ever manufacture a connection
+ * failure (status 0), by design, so it can never raise the scope-loss dialog,
+ * which triggers on 404 and nothing else. Deleting a project out from under the
+ * open window is the honest way to produce that, and it exercises the real
+ * backend response rather than a synthesised one.
+ *
+ * The base URL comes from window.api.getBackendUrl() because the backend port
+ * is chosen at runtime (it increments past anything already bound), so it is
+ * not knowable from the test process. Pattern lifted from the network barrier
+ * in projectscreen.test.ts, which inlined it before this existed.
+ */
+export async function backendFetch(
+  path: string,
+  init: { method?: string; body?: string; headers?: Record<string, string> } = {}
+): Promise<{ status: number; body: unknown }> {
+  return browser.execute(
+    async (p: string, opts: { method?: string; body?: string; headers?: Record<string, string> }) => {
+      const w = window as unknown as {
+        api?: { getBackendUrl?: () => Promise<string | null> }
+        __APP_BASE_URL__?: string
+      }
+      const base = (await w.api?.getBackendUrl?.()) ?? w.__APP_BASE_URL__ ?? ''
+      const sessionId = localStorage.getItem('helios_session_id') ?? ''
+      const res = await fetch(`${base}${p}`, {
+        method: opts.method ?? 'GET',
+        headers: {
+          accept: 'application/json',
+          'session-id': sessionId,
+          ...(opts.body ? { 'content-type': 'application/json' } : {}),
+          ...(opts.headers ?? {})
+        },
+        ...(opts.body ? { body: opts.body } : {})
+      })
+      let parsed: unknown = null
+      try {
+        parsed = await res.json()
+      } catch {
+        parsed = null
+      }
+      return { status: res.status, body: parsed }
+    },
+    path,
+    init
+  )
+}
+
+/**
+ * Delete a project behind the app's back, so the open window's next call 404s.
+ *
+ * Throws on a non-2xx: a test that believes it deleted the project, but did
+ * not, would go on to assert that no scope dialog appeared and pass for
+ * entirely the wrong reason.
+ */
+/**
+ * Teardown for a spec that provisions one project per test: leave it, then
+ * delete it behind the app's back. Shared by viewport / viewport-lighting /
+ * weather-selection, which had three byte-identical copies of it.
+ *
+ * ORDER IS LOAD-BEARING. Deleting while the window still has the project open
+ * 404s the next scoped call and raises the blocking scope dialog. That is
+ * survivable — reloadToHome() is a `browser.refresh()`, which no modal can
+ * intercept, and every one of these specs calls it in `beforeEach`, so the next
+ * test starts clean either way. It is still the wrong order to rely on.
+ *
+ * WHY IT REPORTS. All three copies were `.catch(() => {})` on BOTH steps, which
+ * makes a broken teardown indistinguishable from a working one: a delete that
+ * 404s every time, or a reload that never reaches Home, would leave no trace at
+ * all. It warns rather than throws — a leaked project only affects this spec's
+ * own session (wdio gives each spec file a fresh database), so failing an
+ * otherwise-green test over it would be worse than the leak.
+ */
+export async function leaveAndDeleteProject(projectId: string): Promise<void> {
+  const problems: string[] = []
+  await reloadToHome().catch((err) => {
+    problems.push(`could not return Home before deleting: ${(err as Error).message}`)
+  })
+  await deleteProjectViaBackend(projectId).catch((err) => {
+    problems.push((err as Error).message)
+  })
+  if (problems.length) {
+    console.warn(`[teardown] project ${projectId}: ${problems.join('; ')}`)
+  }
+}
+
+export async function deleteProjectViaBackend(projectId: string): Promise<void> {
+  const res = await backendFetch(`/api/project/${projectId}`, { method: 'DELETE' })
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(
+      `deleteProjectViaBackend(${projectId}) failed: HTTP ${res.status} ${JSON.stringify(res.body)}`
+    )
+  }
+}
+
+/**
+ * Delete a scenario behind the app's back. Note the PLURAL `scenarios` segment —
+ * the weather routes use the singular `scenario` and the two are not
+ * interchangeable.
+ */
+export async function deleteScenarioViaBackend(
+  projectId: string,
+  scenarioId: string
+): Promise<void> {
+  const res = await backendFetch(`/api/project/${projectId}/scenarios/${scenarioId}`, {
+    method: 'DELETE'
+  })
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(
+      `deleteScenarioViaBackend(${projectId}, ${scenarioId}) failed: ` +
+        `HTTP ${res.status} ${JSON.stringify(res.body)}`
+    )
+  }
 }
 
 /**
@@ -308,6 +470,35 @@ export async function enterProject(
   })
   const id = await getStorage(ACTIVE_PROJECT_KEY)
   if (!id) throw new Error('no activeProjectId after enterProject')
+  // Do not hand back a screen whose coordinate header is still showing the
+  // PREVIOUS project. ProjectScreen re-seeds both boxes with resetForm whenever
+  // activeProject's id changes, so a test that starts typing before that lands
+  // has its value wiped mid-edit — surfacing as `did not take the value "<x>"`,
+  // or as an assertion on a value that silently reverted, on a DIFFERENT
+  // coordinate test each run. We know exactly what the header must read, so wait
+  // for it rather than for a heuristic settle.
+  //
+  // IDENTITY FIRST, values second. Every enterProject uses the same coordinates,
+  // so the PREVIOUS project's header already reads (lat, lon) and the value wait
+  // alone passes before the new project is active. A test then typed into the old
+  // render and either had it wiped by the late resetForm ("did not take the
+  // value") or blurred while activeProject was not yet the new one, so
+  // commitCoordinate returned early and never reverted ("blur did not revert the
+  // rejected coordinate") — both measured 15 Sep 2026 on rotating loop cases. The
+  // title renders activeProject.name, so matching it proves the switch landed.
+  await browser.waitUntil(async () => (await ProjectScreen.projectTitle.getText()).trim() === name, {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: `ProjectScreen never showed the created project "${name}" as active`
+  })
+  await ProjectScreen.waitForCoordinatesSeeded(lat, lon)
+  // Every spec lands here on the 3D Window tab, where the canvas grabs focus
+  // once, some time after mount — and a focused field loses its edit to it. It
+  // used to be waited out only in enterGeometry/enterMaterials; on 16 Sep 2026 it
+  // blurred a freshly typed latitude in projectscreen.test.ts, reverting the
+  // invalid value before aria-invalid could be read. Waiting HERE covers every
+  // caller, and a later tab switch cannot re-trigger it: the hidden tab is
+  // display:none, so the canvas cannot take focus there.
+  await waitForSceneCanvasFocusGrab()
   return { id, name }
 }
 
@@ -402,8 +593,9 @@ export async function reopenByName(name: string): Promise<void> {
   })
   const id = await HomePage.rowIdForName(name)
   if (id === null) throw new Error(`Could not resolve row id for ${name}`)
-  await HomePage.row(id).doubleClick()
-  await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+  // By id, in-page, and checked by title — Home re-sorts under a pointer
+  // double-click (see HomePage.openProject).
+  await HomePage.openProject(id, name)
   await ProjectScreen.selectTab('weather')
 }
 
@@ -411,14 +603,125 @@ export async function reopenByName(name: string): Promise<void> {
  * True if `predicate` stays false for the whole NEGATIVE_GATE window — i.e. a gate
  * that is correctly never satisfied (submit stays disabled, dialog never opens).
  * Replaces the per-spec `staysDisabled` copies that hard-coded the 3s window.
+ *
+ * A predicate that THROWS is not the same as a gate that stayed closed, and the
+ * difference is the whole value of this helper. The previous implementation
+ * swallowed the throw inside the poll (`predicate().catch(() => false)`), so a
+ * selector pointing at an unmounted form — or a typo — reported "the gate held"
+ * and the assertion passed having observed nothing at all. That shape is silent
+ * by construction: the test goes green, so nobody looks.
+ *
+ * So: a throw on SOME polls is tolerated (a form re-rendering mid-poll is
+ * normal), but a predicate that threw on EVERY poll never evaluated the gate
+ * once, and that is reported as a failure rather than a pass.
  */
 export async function staysFalse(
   predicate: () => Promise<boolean>,
   timeout: number = TIMEOUTS.NEGATIVE_GATE
 ): Promise<boolean> {
+  let polls = 0
+  let throws = 0
+  let lastErrorMessage = ''
+
   const becameTrue = await browser
-    .waitUntil(async () => predicate().catch(() => false), { timeout })
+    .waitUntil(
+      async () => {
+        polls += 1
+        try {
+          return await predicate()
+        } catch (err) {
+          throws += 1
+          lastErrorMessage = err instanceof Error ? err.message : String(err)
+          return false
+        }
+      },
+      { timeout }
+    )
     .then(() => true)
     .catch(() => false)
+
+  if (polls > 0 && throws === polls) {
+    throw new Error(
+      `staysFalse never evaluated its predicate: all ${polls} poll(s) threw, so the ` +
+        'gate was never observed. Reporting "stayed false" here would be a false pass — ' +
+        'fix the selector or the precondition instead.\n' +
+        `  last error: ${lastErrorMessage}`
+    )
+  }
+
   return becameTrue === false
+}
+
+/**
+ * Enter a fresh project and wait until the Geometry panel is usable.
+ *
+ * Unlike enterWeather there is no selectTab(): the left panel is a sibling of
+ * CenterWorkspace and is mounted whichever workspace tab is active.
+ *
+ * The wait matters. ProjectScreen fires four catalog loads on mount, and
+ * `+ Ground` early-returns when the object-type catalog has not yet produced a
+ * "Ground" type (Geometry/index.tsx onAddGround) — so a test that clicks too
+ * early silently creates NOTHING and then fails on a missing row, pointing at
+ * the wrong layer. Gating on the tree reaching a terminal state also covers the
+ * initial listNodes GET.
+ */
+/**
+ * Wait out the 3D viewport's ONE-SHOT focus grab after a project opens.
+ *
+ * SceneCanvas's react-three-fiber `onCreated` sets the canvas's tabIndex to 0
+ * and immediately calls `focus()` on it. The canvas is built asynchronously
+ * after ProjectScreen mounts, so that grab lands at an arbitrary moment — and
+ * any inline editor that has focus then closes on the blur. Measured 15 Sep
+ * 2026: a materials rename editor opened at 3ms and lost focus to <canvas> at
+ * 232ms, failing 2 of 3 isolated runs (committed code included). `tabIndex === 0`
+ * is set in the same synchronous block as the focus, so once it is observed the
+ * grab has already happened.
+ *
+ * Best-effort with a MEDIUM budget: a project whose viewport never builds a
+ * canvas must not fail setup. PRODUCT FINDING: a user who double-clicks a name
+ * right after opening a project loses the editor the same way.
+ */
+async function waitForSceneCanvasFocusGrab(): Promise<void> {
+  await browser
+    .waitUntil(async () => browser.execute(() => document.querySelector('canvas[tabindex="0"]') !== null), {
+      timeout: TIMEOUTS.MEDIUM,
+      interval: 100
+    })
+    .catch(() => {
+      /* best-effort — see above */
+    })
+}
+
+export async function enterGeometry(label = 'geo'): Promise<{ id: string; name: string }> {
+  const project = await enterProject(label)
+  await Geometry.panel.waitForDisplayed({
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: 'the Geometry panel never mounted on ProjectScreen'
+  })
+  await Geometry.waitForTree()
+  await browser.waitUntil(async () => Geometry.addGroundButton.isEnabled().catch(() => false), {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: '+ Ground never became enabled (object-type catalog likely never loaded)'
+  })
+  return project
+}
+
+/**
+ * Enter a fresh project and wait until the Materials panel is usable.
+ *
+ * Like enterGeometry there is no selectTab(): the left panel is a sibling of
+ * CenterWorkspace. The extra wait is on the material-type catalog, which gates
+ * the type dropdown — pick a type before it lands and the list is empty.
+ */
+export async function enterMaterials(label = 'mat'): Promise<{ id: string; name: string }> {
+  const project = await enterProject(label)
+  await Materials.panel.waitForDisplayed({
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: 'the Materials panel never mounted on ProjectScreen'
+  })
+  await browser.waitUntil(async () => Materials.addButton.isEnabled().catch(() => false), {
+    timeout: TIMEOUTS.LONG,
+    timeoutMsg: '+ Add Materials never became enabled'
+  })
+  return project
 }
