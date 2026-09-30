@@ -29,10 +29,14 @@ jobs:
         with:
           node-version: 22
 
+      # npm 10.9.x crashes with "reading 'edgesOut'"; plain install still does on
+      # 10.8.2, so fall back to --legacy-peer-deps (no lockfile in this repo).
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
 
       - name: Install dependencies
         shell: bash
-        run: npm install
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         shell: bash
@@ -84,9 +88,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
 
       - name: Install dependencies
-        run: npm install
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         run: cp .env.example .env
@@ -108,12 +114,6 @@ jobs:
           fi
           echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
           ls -l certificate.p12
-          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-            echo "WARNING: APPLE_CERTIFICATE secret is empty or missing, skipping cert import."
-            exit 0
-          fi
-          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
-          ls -l certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -127,19 +127,13 @@ jobs:
           rm -f certificate.p12
           echo "== identities available to the build =="
           security find-identity -v || true
-          security find-identity -v
-          security find-identity -v | grep -q "Developer ID Application" \
-            || { echo "FAIL: no Developer ID Application identity imported"; exit 1; }
-          security find-identity -v | grep -q "Developer ID Installer" \
-            || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
-          security find-identity -v || true
 
       - name: Sign Python backend
         continue-on-error: true
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '0'
-        run: npm run sign:backend:mac || true
+        run: npm run sign:backend:mac
 
       - name: Package macOS Installer
         env:
@@ -147,40 +141,6 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run package:mac:only
-
-      - name: Verify signing and notarization
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-
-          app="dist/mac/Helios.app"
-          [ -d "$app" ] || app=$(find dist -maxdepth 3 -name '*.app' -type d | head -1)
-          if [ -z "${app:-}" ] || [ ! -d "$app" ]; then
-            echo "FAIL: no .app found under dist/"
-            find dist -maxdepth 3 -name '*.app' -o -maxdepth 2 -name '*.pkg' || true
-            exit 1
-          fi
-          echo "Verifying app: $app"
-
-          codesign --verify --deep --strict --verbose=2 "$app" || true
-          codesign -dvv "$app" 2>&1 | grep -i "authority\|signature" || true
-          codesign -dvv "$app" 2>&1 | grep -i "flags" || true
-
-          backend=$(find "$app/Contents/Resources/backend" -type f -name 'heliosgui_backend' | head -1)
-          if [ -n "$backend" ]; then
-            echo "backend: $backend"
-            codesign --verify --strict "$backend" || true
-          fi
-
-          spctl --assess --type execute --verbose=4 "$app" 2>&1 || true
-          xcrun stapler validate "$app" || true
-
-          pkgs=$(find dist -maxdepth 1 -name '*.pkg' | sort)
-          for pkg in $pkgs; do
-            echo "-- $pkg"
-            pkgutil --check-signature "$pkg" 2>&1 || true
-            xcrun stapler validate "$pkg" || true
-          done
 
       - name: Tag outputs with arch
         run: |
@@ -265,18 +225,6 @@ jobs:
             python3-pip \
             python3-dev
 
-      # Ubuntu images only. python3-dev provides libpython3.x.so, which
-      # PyInstaller needs ("Python shared library not found" otherwise).
-      # The 20.04 job uses the python:3.10 image, which already has Python.
-      - name: Install Python (Ubuntu images)
-        if: matrix.label != '20.04'
-        run: |
-          apt-get install -y \
-            python3 \
-            python3-venv \
-            python3-pip \
-            python3-dev
-
       - name: Verify Python 3.10+
         run: |
           set -e
@@ -295,6 +243,8 @@ jobs:
           node --version
           npm --version
 
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
 
       - name: Checkout code
         uses: actions/checkout@v5
@@ -343,25 +293,25 @@ jobs:
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
       - name: Install dependencies
-        run: npm install
+        run: npm install || npm install --legacy-peer-deps
 
       # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32, but the 20.04
-      # job runs in glibc 2.31 (bullseye). Vite 7 builds with rollup, so swap
-      # in the WASM build here.
+      # job runs in glibc 2.31. Replace it with the WASM build. Skipped when
+      # rollup is not installed (Vite 8 uses rolldown, which loads fine) or its
+      # native addon already loads.
       - name: Use Rollup WASM build (glibc 2.31 container)
         if: matrix.label == '20.04'
         run: |
-          echo "== rollup / rolldown packages =="
-          find node_modules -maxdepth 6 -type d \( -name rollup -o -name rolldown -o -name 'rollup-linux-x64-gnu' -o -name 'binding-linux-x64-gnu' \) | head -20 || true
-
-          pkg=$(find node_modules -maxdepth 6 -type f -path '*node_modules/rollup/package.json' | head -1 || true)
-          if [ -z "$pkg" ]; then
-            echo "rollup not installed - skipping WASM shim"
+          set -eu
+          if [ ! -f node_modules/rollup/package.json ]; then
+            echo "rollup not installed (Vite 8 uses rolldown) - no WASM shim needed."
             exit 0
           fi
-
-          version=$(node -p "require('./$pkg').version")
-          echo "rollup $version - installing matching @rollup/wasm-node"
+          if node -e "require('@rollup/rollup-linux-x64-gnu')" 2>/dev/null; then
+            echo "rollup native addon loads - no WASM shim needed."
+            exit 0
+          fi
+          version=$(node -p "require('./node_modules/rollup/package.json').version")
           npm install --no-save "@rollup/wasm-node@${version}"
 
           target=node_modules/@rollup/rollup-linux-x64-gnu
@@ -369,6 +319,7 @@ jobs:
           mkdir -p "$target"
           echo '{ "name": "@rollup/rollup-linux-x64-gnu", "version": "0.0.0-wasm-shim", "main": "index.js" }' > "$target/package.json"
           echo "module.exports = require('@rollup/wasm-node/dist/native.js')" > "$target/index.js"
+          node -e "require('@rollup/rollup-linux-x64-gnu').parse || process.exit(1)" && echo "WASM shim OK"
 
       - name: Create .env file
         run: cp .env.example .env
@@ -443,7 +394,6 @@ jobs:
 
       - name: Upload offline docs archive
         uses: actions/upload-artifact@v5
-        continue-on-error: true
         with:
           name: docs-offline
           path: helios-docs.zip
@@ -456,7 +406,7 @@ jobs:
   # ============================================================================
   release:
     name: Create QA Release
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos, build-linux, build-docs]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

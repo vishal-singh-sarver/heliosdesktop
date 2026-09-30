@@ -99,9 +99,7 @@ jobs:
           - ubuntu20.04
           - ubuntu22.04
           - ubuntu24.04
-          # Offline documentation (helios-docs.zip), built by the `docs` job
-          # in ci-main.yml as the `stable-installer-docs` artifact.
-          - docs
+          - docs      # helios-docs.zip (ci-main `docs` job)
     runs-on: ubuntu-latest
     steps:
       - name: Download ci-main artifacts (this platform only)

@@ -285,9 +285,12 @@ jobs:
           security find-identity -v | grep -q "Developer ID Installer" \
             || { echo "FAIL: no Developer ID Installer identity imported"; exit 1; }
 
+      - name: Pin known-good npm version
+        run: npm install -g npm@10.8.2
+
       - name: Install dependencies
         shell: bash
-        run: npm install
+        run: npm install || npm install --legacy-peer-deps
 
       - name: Create .env file
         shell: bash
