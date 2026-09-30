@@ -405,38 +405,39 @@ export function Viewport3D(): React.JSX.Element {
 
       {/* Left toolbar: compact icon strip matching design */}
       {objects.length > 0 && !showLoader && (
-        <div className="absolute left-2 top-14 z-10 flex flex-col items-center rounded bg-[#121212] py-1 shadow-lg ring-1 ring-[#424242]">
-          <button disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Layers (coming soon)">
+        <div data-testid="viewport-toolbar" className="absolute left-2 top-14 z-10 flex flex-col items-center rounded bg-[#121212] py-1 shadow-lg ring-1 ring-[#424242]">
+          <button data-testid="viewport-layers" disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Layers (coming soon)">
             <LayersIcon />
           </button>
-          <button onClick={handleZoomIn} className="p-1.5 text-neutral-400 transition-colors hover:text-white" title="Zoom in (Ctrl +)">
+          <button data-testid="viewport-zoom-in" onClick={handleZoomIn} className="p-1.5 text-neutral-400 transition-colors hover:text-white" title="Zoom in (Ctrl +)">
             <ZoomInIcon />
           </button>
-          <button onClick={handleZoomOut} className="p-1.5 text-neutral-400 transition-colors hover:text-white" title="Zoom out (Ctrl -)">
+          <button data-testid="viewport-zoom-out" onClick={handleZoomOut} className="p-1.5 text-neutral-400 transition-colors hover:text-white" title="Zoom out (Ctrl -)">
             <ZoomOutIcon />
           </button>
-          <button onClick={handleResetView} className="p-1.5 text-neutral-400 transition-colors hover:text-white" title="Reset view (F)">
+          <button data-testid="viewport-reset-view" onClick={handleResetView} className="p-1.5 text-neutral-400 transition-colors hover:text-white" title="Reset view (F)">
             <ResetViewIcon />
           </button>
-          <button disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Pan (coming soon)">
+          <button data-testid="viewport-pan" disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Pan (coming soon)">
             <GrabIcon />
           </button>
-          <button disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Camera (coming soon)">
+          <button data-testid="viewport-camera" disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Camera (coming soon)">
             <CameraIcon />
           </button>
-          <button disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Hierarchy (coming soon)">
+          <button data-testid="viewport-hierarchy" disabled className="cursor-not-allowed p-1.5 text-neutral-500" title="Hierarchy (coming soon)">
             <HierarchyIcon />
           </button>
         </div>
       )}
 
       {/* Top-right toolbar: lighting toggles + settings + stats */}
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+      <div data-testid="viewport-toolbar-right" className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
         {/* Lighting mode toggles */}
         <div className="flex overflow-hidden rounded-md border border-neutral-700">
           {LIGHTING_MODES.map(({ mode, Icon, title }) => (
             <button
               key={mode}
+              data-testid={`viewport-mode-${mode}`}
               onClick={() => updateLighting({ mode })}
               className={`p-1.5 transition-colors ${
                 lightingSettings.mode === mode
@@ -452,6 +453,7 @@ export function Viewport3D(): React.JSX.Element {
 
         {/* Lighting settings */}
         <button
+          data-testid="viewport-lighting-toggle"
           onClick={() => setShowLightingDialog(true)}
           className="rounded border border-neutral-700 bg-neutral-800/60 p-1.5 text-neutral-500 transition-colors hover:bg-white/5 hover:text-neutral-300"
           title="Lighting settings"
@@ -462,6 +464,7 @@ export function Viewport3D(): React.JSX.Element {
         {/* Stats toggle — hidden from users, see SHOW_STATS_UI */}
         {SHOW_STATS_UI && (
         <button
+          data-testid="viewport-stats-toggle"
           onClick={() => setShowStats((v) => !v)}
           className={`rounded p-1.5 transition-colors ${
             showStats
@@ -477,28 +480,44 @@ export function Viewport3D(): React.JSX.Element {
 
       {/* Scene statistics overlay — hidden from users, see SHOW_STATS_UI */}
       {SHOW_STATS_UI && showStats && stats && (
-        <div className="absolute left-3 top-10 z-10 select-text rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 font-mono text-[13px] leading-relaxed text-neutral-400 backdrop-blur-sm">
+        <div
+          data-testid="scene-stats"
+          className="absolute left-3 top-10 z-10 select-text rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 font-mono text-[13px] leading-relaxed text-neutral-400 backdrop-blur-sm"
+        >
           <div className="flex gap-6">
             <div className="flex flex-col">
               <span>
-                Objects: <span className="text-neutral-200">{stats.objects}</span>
+                Objects:{' '}
+                <span data-testid="scene-stat-objects" className="text-neutral-200">
+                  {stats.objects}
+                </span>
               </span>
               <span>
                 Primitives:{' '}
-                <span className="text-neutral-200">{formatNumber(stats.totalPrimitives)}</span>
+                <span data-testid="scene-stat-primitives" className="text-neutral-200">
+                  {formatNumber(stats.totalPrimitives)}
+                </span>
               </span>
               <span>
-                Triangles: <span className="text-neutral-200">{formatNumber(stats.triangles)}</span>
+                Triangles:{' '}
+                <span data-testid="scene-stat-triangles" className="text-neutral-200">
+                  {formatNumber(stats.triangles)}
+                </span>
               </span>
             </div>
             <div className="flex flex-col">
               <span>
                 Vertices:{' '}
-                <span className="text-neutral-200">{formatNumber(stats.totalVertices)}</span>
+                <span data-testid="scene-stat-vertices" className="text-neutral-200">
+                  {formatNumber(stats.totalVertices)}
+                </span>
               </span>
               {stats.quads > 0 && (
                 <span>
-                  Quads: <span className="text-neutral-200">{formatNumber(stats.quads)}</span>
+                  Quads:{' '}
+                  <span data-testid="scene-stat-quads" className="text-neutral-200">
+                    {formatNumber(stats.quads)}
+                  </span>
                 </span>
               )}
             </div>
@@ -582,7 +601,7 @@ export function Viewport3D(): React.JSX.Element {
 
       {/* Loading overlay */}
       {showLoader && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-neutral-950/60">
+        <div data-testid="viewport-loading" className="absolute inset-0 z-20 flex items-center justify-center bg-neutral-950/60">
           <div className="rounded bg-neutral-900/90 px-4 py-2 text-sm text-neutral-200">
             {sceneLoad.loading
               ? messages.viewport.sceneLoading
@@ -597,7 +616,7 @@ export function Viewport3D(): React.JSX.Element {
 
       {/* Error display */}
       {sceneLoad.error && (
-        <div className="absolute left-3 top-12 z-10 rounded bg-red-900/80 px-3 py-1.5 text-sm text-red-100">
+        <div data-testid="viewport-error" className="absolute left-3 top-12 z-10 rounded bg-red-900/80 px-3 py-1.5 text-sm text-red-100">
           {sceneLoad.error.message}
         </div>
       )}

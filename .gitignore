@@ -108,6 +108,10 @@ linux-installer/payload/Helios/resources/app.asar
 # commit no other clone can resolve.
 backend-api/
 
+CLAUDE.md
+docs/test-cases-ground-container.md
+docs/superpowers/
+
 # MkDocs
 site/
 .venv-docs/

@@ -1040,7 +1040,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
     // Hug content with a 10px vertical rhythm (Figma: Height Hug, Gap 10px) so
     // the form never needs an inner scrollbar — even with every field showing an
     // error. Overflow on very short windows is absorbed by the RightPanel wrapper.
-    <div className="flex flex-col gap-2.5">
+    <div data-testid="object-properties-form" className="flex flex-col gap-2.5">
       {/* Header: object name with a trash (discard/delete). The name is
           read-only until it's double-clicked. */}
       <div>
@@ -1048,6 +1048,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
           <div className="relative min-w-0 flex-1">
             <input
               ref={nameInputRef}
+              data-testid="object-name"
               aria-label="Object name"
               aria-invalid={nameError != null}
               // Only while the field is actually double-clickable: mid-edit the
@@ -1376,6 +1377,7 @@ function DraftForm({ draft }: { draft: CreateDraft }): React.JSX.Element {
       ) : (
         <button
           type="button"
+          data-testid="object-save"
           onClick={onSave}
           disabled={draft.saving || !dirty || !valid}
           className="h-9 w-full rounded bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
