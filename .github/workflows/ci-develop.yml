@@ -72,30 +72,7 @@ jobs:
         run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
 
       - name: Create .env file
-<<<<<<< HEAD
         run: cp .env.example .env
-=======
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
-
-      - name: Run Unit Tests
-        run: npm test
-=======
-        run: |
-          npm i \
-            || npm i --legacy-peer-deps \
-            || (rm -f package-lock.json && npm i)
-
-      # @testing-library/react (v16+) needs @testing-library/dom as a peer
-      # dependency. `--legacy-peer-deps` does not auto-install peers, so make
-      # sure it is present. TEMPORARY: once it is added to package.json
-      # devDependencies (npm install -D @testing-library/dom), this step is a
-      # harmless no-op and can be removed.
-      - name: Ensure @testing-library/dom is installed
-        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
-
-      - name: Create .env file
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
->>>>>>> 9ad1901 (test: add @testing-library/dom as explicit devDependency)
 
       # Mapped directly to package.json "test" script ("vitest run")
       - name: Run Unit Tests
