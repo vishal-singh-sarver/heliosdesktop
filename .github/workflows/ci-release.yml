@@ -57,98 +57,95 @@ jobs:
       - name: Run Unit Tests
         run: npm test
 
-  # TEMPORARY: integration tests (e2e) are skipped - the weather e2e specs fail
-  # ("listbox for dataTypeId never opened"). TODO: uncomment this job AND
-  # `- test-integration` in package.needs once they pass.
-  # test-integration:
-  #   # Builds the app + runs e2e, so it is a build: only on push, never on PRs.
-  #   if: github.event_name != 'pull_request'
-  #   name: Integration Tests (${{ matrix.os }})
-  #   # TEMPORARY: a failing e2e does not block `package`.
-  #   # TODO: remove once the weather e2e failures are fixed.
-  #   continue-on-error: true
-  #   timeout-minutes: 75
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       os:
-  #         - windows-2022
-  #         - macos-latest
-  #         - ubuntu-latest
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - uses: actions/checkout@v5
-  #       with:
-  #         submodules: recursive
-  #         token: ${{ secrets.PAT }}
+  test-integration:
+    # Builds the app + runs e2e, so it is a build: only on push, never on PRs.
+    if: github.event_name != 'pull_request'
+    name: Integration Tests (${{ matrix.os }})
+    # TEMPORARY: a failing e2e does not block `package`.
+    # TODO: remove once the weather e2e failures are fixed.
+    continue-on-error: true
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-2022
+          - macos-latest
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          token: ${{ secrets.PAT }}
 
-  #     # e2e spikes to 50-57G on the ubuntu runner, so free ~20GB first.
-  #     # Must run BEFORE setup-node and must not touch /opt/hostedtoolcache.
-  #     - name: Free disk space (Linux)
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         echo "=== before ==="; df -h /
-  #         sudo rm -rf /usr/local/lib/android \
-  #                     /usr/share/dotnet \
-  #                     /usr/share/swift \
-  #                     /usr/local/.ghcup \
-  #                     /opt/ghc \
-  #                     /usr/local/share/boost \
-  #                     /usr/local/share/powershell || true
-  #         sudo apt-get clean || true
-  #         docker image prune -af || true
-  #         echo "=== after ==="; df -h /
+      # e2e spikes to 50-57G on the ubuntu runner, so free ~20GB first.
+      # Must run BEFORE setup-node and must not touch /opt/hostedtoolcache.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== before ==="; df -h /
+          sudo rm -rf /usr/local/lib/android \
+                      /usr/share/dotnet \
+                      /usr/share/swift \
+                      /usr/local/.ghcup \
+                      /opt/ghc \
+                      /usr/local/share/boost \
+                      /usr/local/share/powershell || true
+          sudo apt-get clean || true
+          docker image prune -af || true
+          echo "=== after ==="; df -h /
 
-  #     - uses: actions/setup-node@v5
-  #       with:
-  #         node-version: 22
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
 
-  #     - name: Install Linux system dependencies
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install -y \
-  #           build-essential libgtk-3-dev libnss3 libxss1 libasound2t64 \
-  #           libxtst6 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
-  #           libgbm1 libxkbcommon0 fonts-liberation xdg-utils \
-  #           libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libgtk-3-dev libnss3 libxss1 libasound2t64 \
+            libxtst6 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
+            libgbm1 libxkbcommon0 fonts-liberation xdg-utils \
+            libglu1-mesa-dev freeglut3-dev mesa-common-dev libgl1-mesa-dev
 
-  #     - name: Install dependencies
-  #       shell: bash
-  #       run: npm install
+      - name: Install dependencies
+        shell: bash
+        run: npm install
 
-  #     - name: Create .env file
-  #       shell: bash
-  #       run: cp .env.example .env
+      - name: Create .env file
+        shell: bash
+        run: cp .env.example .env
 
-  #     - name: Build Application for Integration Testing
-  #       run: npm run build
+      - name: Build Application for Integration Testing
+        run: npm run build
 
-  #     # No step-level continue-on-error (it would rewrite this step to
-  #     # "success" and hide the failure). bail is 0, so every spec runs and the
-  #     # step fails at the end with the full list; the timeout bounds a hung run.
-  #     - name: Run Integration Checks
-  #       timeout-minutes: 60
-  #       run: npm run e2e
+      # No step-level continue-on-error (it would rewrite this step to
+      # "success" and hide the failure). bail is 0, so every spec runs and the
+      # step fails at the end with the full list; the timeout bounds a hung run.
+      - name: Run Integration Checks
+        timeout-minutes: 60
+        run: npm run e2e
 
-  #     # Diagnostic: the only view into an app that died during init.
-  #     - name: Dump app startup + backend logs (diagnostic)
-  #       if: always()
-  #       shell: bash
-  #       run: |
-  #         found=0
-  #         for d in "$HOME/Library/Application Support/Helios" \
-  #                  "$HOME/.config/Helios" \
-  #                  "${APPDATA:-}/Helios"; do
-  #           [ -d "$d/logs" ] || continue
-  #           for f in "$d/logs"/*.log; do
-  #             [ -f "$f" ] || continue
-  #             found=1
-  #             echo "===== $f (last 100 lines) ====="
-  #             tail -100 "$f" || true
-  #           done
-  #         done
-  #         [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
+      # Diagnostic: the only view into an app that died during init.
+      - name: Dump app startup + backend logs (diagnostic)
+        if: always()
+        shell: bash
+        run: |
+          found=0
+          for d in "$HOME/Library/Application Support/Helios" \
+                   "$HOME/.config/Helios" \
+                   "${APPDATA:-}/Helios"; do
+            [ -d "$d/logs" ] || continue
+            for f in "$d/logs"/*.log; do
+              [ -f "$f" ] || continue
+              found=1
+              echo "===== $f (last 100 lines) ====="
+              tail -100 "$f" || true
+            done
+          done
+          [ "$found" = 1 ] || echo "no Helios logs found - the app may have died before writeEarlyLog ran"
 
   # ==========================================================================
   # PACKAGE & SIGN - ported from ci-main.yml, with two deliberate differences:
@@ -171,11 +168,7 @@ jobs:
     needs:
       - lint
       - test-unit
-      # - test-integration   # TEMPORARY: e2e skipped, see test-integration above
-    env:
-      # TEMPORARY: without the APPLE_CERTIFICATE secret, macOS builds an
-      # UNSIGNED .pkg instead of failing. TODO: remove once the secret is set.
-      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      - test-integration
     strategy:
       fail-fast: false
       matrix:
@@ -246,24 +239,18 @@ jobs:
         with:
           node-version: 22
 
-      - name: Warn when Apple certificate secret is missing (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
-        run: |
-          echo "::warning title=macOS build will be UNSIGNED::APPLE_CERTIFICATE secret is empty or not visible to this job (check it is a Repository secret with the exact name). Building an unsigned package for flow checking only."
-
       # Imports the Developer ID certs into a throwaway keychain. The .p12 in
       # APPLE_CERTIFICATE holds BOTH certs we need:
       #   Developer ID Application -> signs the .app and the backend binary
-      #   Developer ID Installer   -> signs the .pkg
+      #   Developer ID Installer   -> signs the .pkg (productbuild finds it here)
       - name: Import Apple certificates (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          echo "$APPLE_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > certificate.p12
-          [ -s certificate.p12 ] || { echo "FAIL: decoded certificate.p12 is empty"; exit 1; }
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -279,7 +266,9 @@ jobs:
           rm certificate.p12
           echo "== identities available to the build =="
           security find-identity -v
-          # Both certs must be present or the build silently degrades.
+          # Both certs must be present or the build silently degrades: without
+          # the Application cert the .app is unsigned; without the Installer
+          # cert the .pkg is unsigned and Gatekeeper blocks the installer.
           security find-identity -v | grep -q "Developer ID Application" \
             || { echo "FAIL: no Developer ID Application identity imported"; exit 1; }
           security find-identity -v | grep -q "Developer ID Installer" \
@@ -305,26 +294,30 @@ jobs:
         run: npm run package
         timeout-minutes: 60
 
-      # macOS is split into steps because the PyInstaller sidecar has to be
-      # signed BETWEEN building and packaging: `npm run build` runs
-      # sync-backend (re-copies the backend) and `npm run package` re-runs the
-      # build, which would wipe a signature applied earlier.
+      # macOS is split into three steps because the PyInstaller sidecar has to
+      # be signed BETWEEN building and packaging: `npm run build` runs
+      # sync-backend, which rm -rf's and re-copies the backend, so signing
+      # before the build would be undone, and `npm run package` re-runs the
+      # build - which would wipe the signature we just applied.
       - name: Build application (macOS)
         if: startsWith(matrix.label, 'macos')
         run: npm run build
 
       - name: Sign Python backend (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '1'
         run: npm run sign:backend:mac
 
-      # SKIP_NOTARIZATION=1 short-circuits both notarization hooks. The
-      # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID notary secrets are
-      # intentionally NOT passed here; only the CSC_* signing credentials are.
+      # SKIP_NOTARIZATION=1 short-circuits both notarization hooks
+      # (scripts/notarize.cjs afterSign and scripts/notarize-pkg.cjs
+      # afterAllArtifactBuild) - see the job header. The APPLE_ID /
+      # APPLE_PASSWORD / APPLE_TEAM_ID notary secrets are intentionally NOT
+      # passed here; only the CSC_* signing credentials are. Timeout is 60min
+      # rather than main's 180 because nothing waits on Apple's queue.
       - name: Package (production artifacts, macOS - signed, not notarized)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         env:
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -332,19 +325,15 @@ jobs:
         run: npm run package:only
         timeout-minutes: 60
 
-      # TEMPORARY: unsigned build while APPLE_CERTIFICATE is missing. Never ship it.
-      - name: Package (macOS - UNSIGNED fallback, flow check only)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT != 'true'
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          SKIP_NOTARIZATION: '1'
-        run: npm run package:only
-        timeout-minutes: 60
-
-      # The signing hooks no-op silently without credentials, so assert it.
-      # No notarization checks: release builds are deliberately not notarized.
+      # Same intent as ci-main.yml's verify step - a green build does NOT by
+      # itself prove the artifact is signed, because the hooks no-op silently
+      # when credentials are missing. The notarization-dependent assertions
+      # from main (spctl "Notarized Developer ID", stapler validate) are
+      # omitted here since this build is deliberately not notarized; an
+      # unnotarized .app correctly assesses as rejected. Everything signing
+      # related is still asserted.
       - name: Verify signing (macOS)
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true'
+        if: startsWith(matrix.label, 'macos')
         shell: bash
         run: |
           set -euo pipefail
@@ -457,5 +446,5 @@ jobs:
 
       # Deletes build.keychain, the keychain the import step actually creates.
       - name: Remove temporary keychain
-        if: startsWith(matrix.label, 'macos') && env.HAS_APPLE_CERT == 'true' && always()
+        if: startsWith(matrix.label, 'macos') && always()
         run: security delete-keychain build.keychain || true
