@@ -13,7 +13,7 @@ import HomePage from '../pages/HomePage.page'
 import ProjectScreen from '../pages/ProjectScreen.page'
 import Weather from '../pages/Weather.page'
 import { waitForMainWindow } from '../support/harness'
-import { PERSIST_DB, relaunchAndReopen } from './persist-helpers'
+import { PERSIST_DB, PERSIST_SAVE_DEBOUNCE_WAIT_MS, relaunchAndReopen } from './persist-helpers'
 import { TIMEOUTS } from '../config/timeouts'
 import { DEFAULT_COORDS } from '../constants/test-data'
 
@@ -77,11 +77,20 @@ describe('Persistence across app close/reopen', () => {
     // throwaway and nothing could persist.
     expect(existsSync(PERSIST_DB)).toBe(true)
 
+    // WAIT OUT THE BACKEND'S SAVE DEBOUNCE before relaunching. Since backend
+    // e156f31 (pinned 11 Sep 2026) weather rows live in PyHelios memory and reach
+    // context.xml only 30s after the last edit (_DEBOUNCE_SECONDS in
+    // helios/persistence.py); nothing flushes that save on shutdown. Relaunching
+    // sooner loses the rows — a real data-loss bug for a user who closes the app
+    // within 30s, which this wait deliberately steps around (decided 15 Sep 2026)
+    // so the test keeps proving the save path itself. Measured: the save lands
+    // exactly 30s after the edit, and the rows come back after a 40s wait.
+    await browser.pause(PERSIST_SAVE_DEBOUNCE_WAIT_MS)
+
     // 3) FULL relaunch on the SAME fixed profile, landing back on Home, then open
     //    the project.
     const homeId = await relaunchAndReopen(name)
-    await HomePage.row(homeId).doubleClick()
-    await ProjectScreen.projectTitle.waitForDisplayed({ timeout: TIMEOUTS.LONG })
+    await HomePage.openProject(homeId, name)
     // The workspace lands on 3D Window; Weather mounts only while its tab is active.
     await ProjectScreen.selectTab('weather')
     await ProjectScreen.weatherSentinel.waitForDisplayed({ timeout: TIMEOUTS.LONG })

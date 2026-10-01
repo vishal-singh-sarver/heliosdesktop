@@ -3,12 +3,14 @@
 exports[`<Geometry /> > should match the snapshot 1`] = `
 <div
   class="flex h-full min-h-0 flex-col gap-3"
+  data-testid="geometry-panel"
 >
   <div
     class="flex shrink-0 flex-wrap gap-2"
   >
     <button
       class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
+      data-testid="toolbar-crop"
       style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
@@ -24,6 +26,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
     </button>
     <button
       class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
+      data-testid="toolbar-ground"
       style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
@@ -39,6 +42,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
     </button>
     <button
       class="flex items-center gap-1 rounded-md border border-app-border pl-2 pr-2 py-1.5 text-xs transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
+      data-testid="toolbar-import-from-file"
       style="background-color: rgb(255, 255, 255); color: rgb(0, 0, 0);"
       type="button"
     >
@@ -85,6 +89,7 @@ exports[`<Geometry /> > should match the snapshot 1`] = `
   </div>
   <p
     class="py-2 text-[13px]"
+    data-testid="geometry-tree-empty"
     style="color: rgb(125, 125, 125);"
   >
     No saved geometries yet.

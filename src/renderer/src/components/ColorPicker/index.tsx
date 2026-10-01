@@ -393,6 +393,7 @@ function ColorPicker({
                 <input
                   type="text"
                   inputMode="numeric"
+                  data-testid={`color-channel-${key}`}
                   aria-label={key.toUpperCase()}
                   aria-invalid={field.error != null}
                   placeholder={key.toUpperCase()}
@@ -409,6 +410,7 @@ function ColorPicker({
             <input
               type="text"
               inputMode="numeric"
+              data-testid="color-channel-opacity"
               aria-label={labels.opacity}
               aria-invalid={opacityField.error != null}
               value={opacityField.value}

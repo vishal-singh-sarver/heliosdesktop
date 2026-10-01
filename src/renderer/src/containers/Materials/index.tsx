@@ -96,7 +96,7 @@ export function Materials(): React.JSX.Element {
   const showEmpty = materials.length === 0
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div data-testid="materials-panel" className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap gap-2">
         <ToolbarButton
           label="Add Materials"
@@ -144,9 +144,12 @@ export function Materials(): React.JSX.Element {
         </span>
       )}
 
-      <div className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1">
+      <div
+        data-testid="materials-list"
+        className="scrollbar-custom-thin min-h-0 flex-1 overflow-y-auto pt-1"
+      >
         {showEmpty ? (
-          <p className="px-1 py-2 text-[13px]" style={{ color: '#7D7D7D' }}>
+          <p data-testid="materials-list-empty" className="px-1 py-2 text-[13px]" style={{ color: '#7D7D7D' }}>
             {loadStatus === 'loading'
               ? messages.loading
               : query.trim()
