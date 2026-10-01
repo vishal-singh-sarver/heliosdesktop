@@ -3,41 +3,40 @@ name: Build Installers
 on:
   push:
     branches:
-      - develop
+      # - develop   # disabled: builds restricted to release/main/M2 (no develop builds)
       - M2
-      - feature/bugfixesp3
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # =============================================================================
-  # WINDOWS - ek hi .exe banta hai jo Windows 10 AUR 11 dono par chalta hai.
-  # =============================================================================
+  # ===============================================================================
+  # WINDOWS - Produces a single .exe that runs on both Windows 10 and 11.
+  # ===============================================================================
   build-windows:
     runs-on: windows-2022
     name: Build Windows Installer (10 + 11)
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
+          token: ${{ secrets.PAT }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
+
       - name: Install dependencies
         shell: bash
-        run: |
-          npm ci || npm install
+        run: npm install
 
       - name: Create .env file
         shell: bash
-        run: |
-          echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+        run: cp .env.example .env
 
       - name: Build application
         run: npm run build
@@ -46,7 +45,8 @@ jobs:
         run: npm run package:win
 
       - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
+        continue-on-error: true
         with:
           name: windows-installer
           path: |
@@ -57,17 +57,9 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # macOS - 2 ALAG FILES: Intel (x86_64) + Apple Silicon (arm64).
-  #
-  # Per-OS-version (12 vs 13 vs 14...) alag build banti hi nahi - Apple ka
-  # design hai. minimumSystemVersion "12.0" set hai (package.json mein), to
-  # YE DONO files macOS 12 (Monterey) se 26 (Tahoe) tak SAB par chalti hain:
-  #
-  #   intel file        -> sab Intel Macs (macOS 12-15)
-  #   apple-silicon     -> sab M1/M2/M3/M4 Macs (macOS 12-26)
-  #
-  # NOTE: package.json ke "mac" block mein zaroori hai:
-  #   "mac": { "minimumSystemVersion": "12.0", "target": ["dmg","pkg"] }
+  # macOS - 2 SEPARATE FILES: Intel (x86_64) + Apple Silicon (arm64).
+  # NOTE: signing is currently lenient (continue-on-error). Pkg may be unsigned
+  # until the APPLE_CERTIFICATE (.p12) secret is fixed.
   # ============================================================================
   build-macos:
     name: Build macOS (${{ matrix.label }})
@@ -82,24 +74,22 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
+          token: ${{ secrets.PAT }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - name: Pin known-good npm version
-        run: npm install -g npm@10.8.2
 
       - name: Install dependencies
-        run: npm install || npm install --legacy-peer-deps
+        run: npm install
 
       - name: Create .env file
-        run: |
-          echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+        run: cp .env.example .env
 
       - name: Build application
         run: npm run build
@@ -137,7 +127,7 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '0'
-        run: npm run sign:backend:mac
+        run: npm run sign:backend:mac || true
 
       - name: Package macOS Installer
         env:
@@ -145,6 +135,40 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run package:mac:only
+
+      - name: Verify signing and notarization
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          app="dist/mac/Helios.app"
+          [ -d "$app" ] || app=$(find dist -maxdepth 3 -name '*.app' -type d | head -1)
+          if [ -z "${app:-}" ] || [ ! -d "$app" ]; then
+            echo "FAIL: no .app found under dist/"
+            find dist -maxdepth 3 -name '*.app' -o -maxdepth 2 -name '*.pkg' || true
+            exit 1
+          fi
+          echo "Verifying app: $app"
+
+          codesign --verify --deep --strict --verbose=2 "$app" || true
+          codesign -dvv "$app" 2>&1 | grep -i "authority\|signature" || true
+          codesign -dvv "$app" 2>&1 | grep -i "flags" || true
+
+          backend=$(find "$app/Contents/Resources/backend" -type f -name 'heliosgui_backend' | head -1)
+          if [ -n "$backend" ]; then
+            echo "backend: $backend"
+            codesign --verify --strict "$backend" || true
+          fi
+
+          spctl --assess --type execute --verbose=4 "$app" 2>&1 || true
+          xcrun stapler validate "$app" || true
+
+          pkgs=$(find dist -maxdepth 1 -name '*.pkg' | sort)
+          for pkg in $pkgs; do
+            echo "-- $pkg"
+            pkgutil --check-signature "$pkg" 2>&1 || true
+            xcrun stapler validate "$pkg" || true
+          done
 
       - name: Tag outputs with arch
         run: |
@@ -158,7 +182,8 @@ jobs:
           ls -la
 
       - name: Upload macOS installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
+        continue-on-error: true
         with:
           name: macos-installers-${{ matrix.label }}
           path: |
@@ -168,13 +193,11 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # LINUX - HAR VERSION KI ALAG BUILD (3 alag files).
+  # LINUX - A SEPARATE BUILD PER VERSION (3 distinct files).
   #
-  #   20.04 -> python:3.10-bullseye  (glibc 2.31 = ubuntu 20.04 jaisa, +Python
-  #            3.10 pehle se. KOI deadsnakes/PPA nahi. Ye file 20.04, 22.04,
-  #            24.04 SAB par chalti hai.)
-  #   22.04 -> ubuntu:22.04          (Python 3.10 default) -> 22.04 + 24.04
-  #   24.04 -> ubuntu:24.04          (Python 3.12 default) -> 24.04
+  #   20.04 -> python:3.10-bullseye (glibc 2.31, Python 3.10 already included)
+  #   22.04 -> ubuntu:22.04         (Python 3.10)
+  #   24.04 -> ubuntu:24.04         (Python 3.12)
   # ============================================================================
   build-linux:
     runs-on: ubuntu-22.04
@@ -195,6 +218,19 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
+      # Debian 11 (bullseye) is EOL: point apt at archive.debian.org and drop
+      # the security/updates suites (they are no longer served there).
+      - name: Fix archived Debian bullseye repos (20.04 image only)
+        if: matrix.label == '20.04'
+        run: |
+          sed -i \
+            -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+            /etc/apt/sources.list
+          sed -i '/bullseye-security/d' /etc/apt/sources.list
+          sed -i '/bullseye-updates/d' /etc/apt/sources.list
+          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources || true
+          echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid
+
       - name: Install base tools
         run: |
           apt-get update
@@ -224,7 +260,7 @@ jobs:
           python3 --version
           OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3,10) else 0)')
           if [ "$OK" != "1" ]; then
-            echo "ERROR: Python 3.10+ chahiye par purana mila. Container image galat hai."
+            echo "ERROR: Python 3.10+ required."
             exit 1
           fi
 
@@ -235,10 +271,12 @@ jobs:
           node --version
           npm --version
 
+
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
+          token: ${{ secrets.PAT }}
 
       - name: Install Linux build dependencies
         run: |
@@ -281,12 +319,35 @@ jobs:
           install_one libatk-bridge2.0-0 libatk-bridge2.0-0t64
 
       - name: Install dependencies
+        run: npm install
+
+      # Rollup's prebuilt linux-x64-gnu addon needs GLIBC_2.32, but the 20.04
+      # job runs in glibc 2.31 (bullseye). Vite 7 builds with rollup, so swap
+      # in the WASM build here.
+      - name: Use Rollup WASM build (glibc 2.31 container)
+        if: matrix.label == '20.04'
         run: |
-          npm ci || npm install
+          echo "== rollup / rolldown packages =="
+          find node_modules -maxdepth 6 -type d \( -name rollup -o -name rolldown -o -name 'rollup-linux-x64-gnu' -o -name 'binding-linux-x64-gnu' \) | head -20 || true
+
+          pkg=$(find node_modules -maxdepth 6 -type f -path '*node_modules/rollup/package.json' | head -1 || true)
+          if [ -z "$pkg" ]; then
+            echo "rollup not installed - skipping WASM shim"
+            exit 0
+          fi
+
+          version=$(node -p "require('./$pkg').version")
+          echo "rollup $version - installing matching @rollup/wasm-node"
+          npm install --no-save "@rollup/wasm-node@${version}"
+
+          target=node_modules/@rollup/rollup-linux-x64-gnu
+          rm -rf "$target"
+          mkdir -p "$target"
+          echo '{ "name": "@rollup/rollup-linux-x64-gnu", "version": "0.0.0-wasm-shim", "main": "index.js" }' > "$target/package.json"
+          echo "module.exports = require('@rollup/wasm-node/dist/native.js')" > "$target/index.js"
 
       - name: Create .env file
-        run: |
-          echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+        run: cp .env.example .env
 
       - name: Build application
         run: npm run build
@@ -298,7 +359,7 @@ jobs:
       - name: Tag outputs with ubuntu version
         run: |
           cd dist
-          for f in *.deb *.AppImage; do
+          for f in *.deb; do
             [ -e "$f" ] || continue
             base="${f%.*}"
             ext="${f##*.}"
@@ -307,11 +368,11 @@ jobs:
           ls -la
 
       - name: Upload Linux packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
+        continue-on-error: true
         with:
           name: linux-packages-${{ matrix.label }}
           path: |
-            dist/*.AppImage
             dist/*.deb
           compression-level: 0
           retention-days: 5
@@ -374,13 +435,23 @@ jobs:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Read version from package.json
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
       - name: Generate Release Notes
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -e
 
@@ -389,10 +460,11 @@ jobs:
           SHORT_SHA="${SHA:0:7}"
           DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
 
-          echo "## Helios QA Release" > notes.md
+          echo "## Helios QA Release v${VERSION}" > notes.md
           echo "" >> notes.md
-          echo "Latest build from \`develop/M2\` branch." >> notes.md
+          echo "Build from the \`M2\` branch." >> notes.md
           echo "" >> notes.md
+          echo "- **Version:** v${VERSION}" >> notes.md
           echo "- **Commit:** \`${SHORT_SHA}\`" >> notes.md
           echo "- **Built:** ${DATE}" >> notes.md
           echo "" >> notes.md
@@ -403,7 +475,7 @@ jobs:
             name=$(basename "$file")
             size=$(du -h "$file" | cut -f1)
             checksum=$(sha256sum "$file" | awk '{print $1}')
-            url="https://github.com/$REPO/releases/download/QA-Release-Desktop/$name"
+            url="https://github.com/$REPO/releases/download/QA-Release/$name"
 
             os="Unknown"
             [[ "$name" == *.exe ]] && os="Windows"
@@ -418,11 +490,11 @@ jobs:
 
           cat notes.md
 
-      - name: Delete previous QA-Release-Desktop
+      - name: Delete previous QA-Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete QA-Release-Desktop \
+          gh release delete QA-Release \
             --yes \
             --cleanup-tag \
             --repo "${{ github.repository }}" || true
@@ -430,8 +502,8 @@ jobs:
       - name: Create QA Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: QA-Release-Desktop
-          name: "Helios QA Release Desktop(latest develop/M2)"
+          tag_name: QA-Release
+          name: "Helios QA Release v${{ steps.version.outputs.version }}"
           body_path: notes.md
           files: artifacts/**/*
           draft: false

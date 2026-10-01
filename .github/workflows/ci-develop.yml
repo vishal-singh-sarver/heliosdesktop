@@ -23,19 +23,11 @@ jobs:
         with:
           node-version: 22
 
-      # npm 10.9.x crashes with "reading 'edgesOut'"; plain install still does on
-      # 10.8.2, so fall back to --legacy-peer-deps (no lockfile in this repo).
-      - name: Pin known-good npm version
-        run: npm install -g npm@10.8.2
-
-      # Fallback chain: plain install, then legacy-peer-deps, then regenerate
-      # the lockfile. Commit a clean package-lock.json so the last fallback
-      # never triggers.
       - name: Install dependencies
-        run: npm install || npm install --legacy-peer-deps
+        run: npm install
 
       - name: Create .env file
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+        run: cp .env.example .env
 
       # No `|| echo` swallow: eslint fails only on errors, so real errors fail the build.
       - name: Lint Execution
@@ -54,28 +46,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Pin known-good npm version
-        run: npm install -g npm@10.8.2
-
       - name: Install dependencies
-        run: npm install || npm install --legacy-peer-deps
-
-      # @testing-library/react needs @testing-library/dom as a peer; the
-      # --legacy-peer-deps fallback does not install peers. Remove this step once
-      # it is in devDependencies.
-      - name: Ensure @testing-library/dom is installed
-        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
-
-      # @testing-library/react (v16+) needs @testing-library/dom as a peer
-      # dependency. `--legacy-peer-deps` does not auto-install peers, so make
-      # sure it is present. TEMPORARY: once it is added to package.json
-      # devDependencies (npm install -D @testing-library/dom), this step is a
-      # harmless no-op and can be removed.
-      - name: Ensure @testing-library/dom is installed
-        run: npm ls @testing-library/dom || npm install --no-save @testing-library/dom
+        run: npm install
 
       - name: Create .env file
-        run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
+        run: cp .env.example .env
 
       - name: Run Unit Tests
         run: npm test
